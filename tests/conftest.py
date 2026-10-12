@@ -358,4 +358,4 @@ def _no_credit_line_on_alerts(monkeypatch):
     exact-payload assert. tests/test_credit_on_every_alert.py sets the switch
     back to True explicitly.
     """
-    monkeypatch.setattr("src.notifier.send_funnel.APPEND_CREDIT_LINE", False)
+    monkeypatch.setattr("src.notifier.credit_line.APPEND_CREDIT_LINE", False)
