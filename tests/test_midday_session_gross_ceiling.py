@@ -4,13 +4,16 @@ Defect (seen 4 times since 2026-10-01): `PositionReviewSession` handed
 `self` to `_entry_deployment_budget` / `_session_gross_ceiling`. The session
 has no `_resolve_gross_ceiling`, so every midday run logged "gross-exposure
 ceiling could not be resolved ... raw-cash clamp" and told the reviewer its
-headroom was unknown. The fix passes the pipeline in at construction and
-refuses, at BUILD time, a pipeline that cannot resolve the ladder.
+headroom was unknown. The fix passes the pipeline in at construction. A
+pipeline that cannot resolve the ladder is logged CRITICAL at BUILD time, but
+the session still runs: the headroom is prompt wording only, and stop upkeep,
+protective exits and de-levering must never be skipped for it.
 """
 
 from __future__ import annotations
 
 import inspect
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -37,6 +40,19 @@ def _ceiling() -> GrossCeiling:
         rung="base",
         reason="test",
     )
+
+
+def _resolver(calls: list):
+    """Mimics the real resolver: returns the ceiling and records it on
+    `ctx.leverage` (src/delever/ladder.py), which the session reuses."""
+
+    def _resolve(ctx):
+        calls.append(ctx)
+        ceiling = _ceiling()
+        ctx.leverage = {"ceiling_x": ceiling.ceiling_x, "rung": ceiling.rung}
+        return ceiling
+
+    return _resolve
 
 
 def _pipeline(resolve) -> SimpleNamespace:
@@ -96,24 +112,37 @@ def _run_midday(pipeline) -> dict:
 
 
 def test_midday_headroom_is_ladder_backed_with_a_real_resolver():
-    kw = _run_midday(_pipeline(lambda ctx: _ceiling()))
+    calls: list = []
+    kw = _run_midday(_pipeline(_resolver(calls)))
 
     review_kwargs = kw["position_reviewer"].review.call_args.kwargs
     assert review_kwargs["margin_ladder_backed"] is True
     assert review_kwargs["margin_ladder_multiple"] == 2.0
     assert review_kwargs["margin_ladder_rung"] == "base"
     assert review_kwargs["margin_headroom_usd"] == pytest.approx(2.0 * _EQUITY - _HELD)
+    # Resolved once for the prompt block, not once per value read off it.
+    assert len(calls) == 1
 
 
-def test_pipeline_without_a_resolver_is_refused_at_construction():
-    kw = _session_kwargs(SimpleNamespace(_sweep_symbol=lambda: None))
-    with pytest.raises(TypeError, match="_resolve_gross_ceiling"):
-        PositionReviewSession(**kw)
+def test_pipeline_without_a_resolver_alerts_at_build_and_still_runs_exits(caplog):
+    no_resolver = SimpleNamespace(_sweep_symbol=lambda: None, config=None, broker=MagicMock())
+    with caplog.at_level(logging.CRITICAL, logger="src.sessions.position_review_session"):
+        kw = _run_midday(no_resolver)
+
+    critical = [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert len(critical) == 1 and "_resolve_gross_ceiling" in critical[0].getMessage()
+    review_kwargs = kw["position_reviewer"].review.call_args.kwargs
+    assert review_kwargs["margin_ladder_backed"] is False
+    assert review_kwargs["margin_ladder_multiple"] is None
+    kw["apply_deterministic_trails"].assert_called_once()
+    kw["risk_review_exits"].assert_called_once()
+    kw["midday_execute_llm_actions"].assert_called_once()
 
 
-def test_builder_hands_the_session_the_pipeline_itself():
+def test_builder_hands_the_session_the_pipeline_itself(caplog):
     """The production builder wires the pipeline object, so its resolver is
-    what the session sees — and a pipeline without one fails the build."""
+    what the session sees — and a pipeline without one is alerted at build
+    time while the session still runs."""
 
     class _Host:
         def _collab(self, name):
@@ -128,10 +157,13 @@ def test_builder_hands_the_session_the_pipeline_itself():
 
     class _HostWithoutResolver:
         def _collab(self, name):
+            if name == "_is_trading_day":
+                return lambda: False
             return MagicMock(name=name)
 
-    with pytest.raises(TypeError, match="_resolve_gross_ceiling"):
-        _run_position_review_body(_HostWithoutResolver(), "midday")
+    with caplog.at_level(logging.CRITICAL, logger="src.sessions.position_review_session"):
+        assert _run_position_review_body(_HostWithoutResolver(), "midday")["status"] == "market_holiday"
+    assert any(r.levelno == logging.CRITICAL and "_resolve_gross_ceiling" in r.getMessage() for r in caplog.records)
 
 
 def test_the_real_pipeline_class_carries_the_resolver():
