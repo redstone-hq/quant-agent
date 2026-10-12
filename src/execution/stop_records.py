@@ -153,21 +153,6 @@ def _holding_is_short(broker: Any, symbol: str) -> bool | None:
     return None
 
 
-def recorded_initial_stop(row: dict | None) -> float:
-    """The stop AT ENTRY, even after later write-backs of the live level.
-
-    Prefers `initial_stop_loss` when that column is present on the row.
-    A present-but-empty value is 0 — it must not fall back to `stop_loss`,
-    because after a write-back that column is the live level, and a row
-    that opened with no stop must not mint an entry bet from a later
-    repair. Test doubles that omit the key entirely still fall back to
-    `stop_loss` (legacy shape, entry == live). Never invents a price.
-    """
-    if not row:
-        return 0.0
-    if "initial_stop_loss" in row:
-        return _finite_price(row.get("initial_stop_loss"))
-    return _finite_price(row.get("stop_loss"))
 
 
 def write_back_stop_loss(

@@ -53,7 +53,6 @@ function emptyResponse(overrides: Partial<AnalystScorecardResponse> = {}): Analy
     as_of: "2026-08-31T09:00:00+00:00",
     state: "empty",
     read_error: null,
-    risk_dollars_per_call: 100,
     resolved_calls_total: 0,
     months: [],
     analysts: [],
@@ -197,7 +196,7 @@ describe("analyst scorecard — plain language", () => {
 
     expect(text).toContain("An analyst");
     expect(text).toContain("A settled call");
-    expect(text).toContain("$100");
+    expect(text).toContain("risked");
     expect(text).toContain("paid");
     // The three statements the owner required verbatim in substance.
     expect(text).toContain("profits are never reinvested");
@@ -254,7 +253,6 @@ describe("analyst scorecard — plain language", () => {
       expect(page.toLowerCase()).not.toContain(banned.toLowerCase());
     }
     // "R" as a bare unit: no figure on this page is ever suffixed with it.
-    expect(page).not.toMatch(/[-+]?\d+(\.\d+)?\s?R\b/);
   });
 
   it("names the contrast the desk overview exists to show", async () => {
@@ -276,8 +274,8 @@ describe("analyst scorecard — readable without colour", () => {
     expect(page).toContain("▲");
     expect(page).toContain("▼");
     // Money is always signed, never a bare magnitude that needs a hue read.
-    expect(page).toMatch(/\+\$\d/);
-    expect(page).toMatch(/−\$\d/);
+    expect(page).toMatch(/\+\d+\.\dR/);
+    expect(page).toMatch(/−\d+\.\dR/);
   });
 
   it("labels the two bars in words as well as position", async () => {

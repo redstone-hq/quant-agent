@@ -600,10 +600,14 @@ def get_account() -> AccountResponse:
 def get_positions() -> PositionsResponse:
     try:
         result = read_positions()
-        rs = open_position_r(
-            result.get("positions", []),
-            get_open_entry_rows([str(p.get("symbol")) for p in result.get("positions", []) if p.get("symbol")]),
-        )
+        try:
+            rs = open_position_r(
+                result.get("positions", []),
+                get_open_entry_rows([str(p.get("symbol")) for p in result.get("positions", []) if p.get("symbol")]),
+            )
+        except Exception as exc:  # the R columns are display-only; never lose the positions over them
+            record_dashboard_fault("get_positions.open_r", exc)
+            rs = {}
         items = [
             PositionItem(
                 initial_stop=rs.get(str(p.get("symbol")).upper(), {}).get("initial_stop"),

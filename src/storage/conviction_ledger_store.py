@@ -164,8 +164,9 @@ class ConvictionLedgerStore:
         chain reads this method or the rows it writes.
         """
         import json as _json
-        from src.conviction_ledger import score_position, summarize_closed_position
-        from src.risk.metrics import r_multiple as _r_multiple
+        from src.conviction_ledger import score_position
+        from src.quantities import summarize_closed_position
+        from src.quantities import r_multiple as _r_multiple
 
         with self._lock:
             rows = self.conn.execute(

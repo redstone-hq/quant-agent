@@ -4,8 +4,9 @@ DISPLAY AND ANALYSIS ONLY. Nothing here feeds sizing, stops, entries or exits,
 and `src/agents` / `src/prompt_facts` may not import it (.importlinter).
 
 Nothing is re-derived that already exists:
-  - one closed round trip per position  -> `conviction_ledger.summarize_closed_position`
-  - R (profit in units of initial risk) -> `risk.metrics.r_multiple`
+  - one closed round trip per position  -> `quantities.summarize_closed_position`
+  - R (profit in units of initial risk) -> `quantities.r_multiple`
+(They live in src.quantities, the stdlib-only seam src/api may import.)
   - clean-record start                  -> `calibration._opened_before_clean_record`
 
 A trade whose R is undefined (no stop, wrong-side stop) is counted as "R unknown"
@@ -19,6 +20,7 @@ import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
+from src.quantities import r_multiple, recorded_initial_stop, summarize_closed_position
 from src.storage.analytics.calibration import _opened_before_clean_record
 from src.util.time import ET
 
@@ -65,8 +67,6 @@ def _position_pnl(position, rows: list[dict]) -> float:
 
 
 def _trade_record(position, rows: list[dict]) -> dict:
-    from src.risk.metrics import r_multiple
-
     r = None
     if position.initial_stop:
         r = r_multiple(position.exit_price, position.entry_price, position.initial_stop, position.qty)
@@ -86,8 +86,6 @@ def _trade_record(position, rows: list[dict]) -> dict:
 
 def closed_trades(rows: list[dict]) -> tuple[list[dict], int]:
     """(clean-record closed trades oldest-closed first, count excluded as pre-clean-record)."""
-    from src.conviction_ledger import summarize_closed_position
-
     chains: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         pid = row.get("position_id")
@@ -359,9 +357,6 @@ def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, 
     Uses the stop AT ENTRY (`recorded_initial_stop`) of the most recent opening chain for the symbol.
     `unrealised_r` is None when no usable stop was recorded. Never zero.
     """
-    from src.execution.stop_records import recorded_initial_stop
-    from src.risk.metrics import r_multiple
-
     latest: dict[str, str] = {}
     for row in sorted(entry_rows, key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0)):
         if str(row.get("action") or "").upper() in _OPEN_ACTIONS and row.get("position_id"):
@@ -390,8 +385,6 @@ def closed_r_by_exit_row(rows: list[dict]) -> dict[int, float]:
     For the "R" column in the trades table. Takes whole position chains; not clean-record
     filtered, because it labels rows rather than counting them.
     """
-    from src.conviction_ledger import summarize_closed_position
-
     chains: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         if row.get("position_id"):

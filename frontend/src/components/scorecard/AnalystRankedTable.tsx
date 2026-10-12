@@ -23,7 +23,7 @@ import { useMemo } from "react";
 import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import type { AnalystScorecardItem } from "../../api/client";
 import { DataTable } from "../ui/DataTable";
-import { callCounts, hitRateText, signedMoney, toDollars, trendGlyph } from "./scorecardModel";
+import { callCounts, hitRateText, signedR, toR, trendGlyph } from "./scorecardModel";
 
 const BAR_W = 108;
 const BAR_H = 22;
@@ -54,8 +54,8 @@ function OpposedBars({
         width={BAR_W}
         height={BAR_H}
         role="img"
-        aria-label={`${analyst}: typical loss ${loss === null ? "none yet" : signedMoney(loss)}, typical win ${
-          win === null ? "none yet" : signedMoney(win)
+        aria-label={`${analyst}: typical loss ${loss === null ? "none yet" : signedR(loss)}, typical win ${
+          win === null ? "none yet" : signedR(win)
         }`}
       >
         <rect
@@ -71,16 +71,16 @@ function OpposedBars({
         <line x1={mid} y1={1} x2={mid} y2={BAR_H - 1} stroke="rgb(var(--c-ink))" strokeWidth={1} />
       </svg>
       <span className="font-mono text-[length:var(--fs-micro)] leading-tight">
-        <span className="text-dim">{loss === null ? "no losses yet" : signedMoney(loss)}</span>
+        <span className="text-dim">{loss === null ? "no losses yet" : signedR(loss)}</span>
         <span className="text-faint"> / </span>
-        <span className="text-ink">{win === null ? "no wins yet" : signedMoney(win)}</span>
+        <span className="text-ink">{win === null ? "no wins yet" : signedR(win)}</span>
       </span>
     </div>
   );
 }
 
-function ProfitSparkline({ item, dollarsPerCall }: { item: AnalystScorecardItem; dollarsPerCall: number }) {
-  const values = item.cumulative.map((p) => p.cumulative * dollarsPerCall);
+function ProfitSparkline({ item, rScale }: { item: AnalystScorecardItem; rScale: number }) {
+  const values = item.cumulative.map((p) => p.cumulative * rScale);
   if (values.length === 0) return <span className="text-faint">—</span>;
   const min = Math.min(0, ...values);
   const max = Math.max(0, ...values);
@@ -93,7 +93,7 @@ function ProfitSparkline({ item, dollarsPerCall }: { item: AnalystScorecardItem;
       width={SPARK_W}
       height={SPARK_H}
       role="img"
-      aria-label={`${item.analyst} running profit, ${item.resolved_calls} settled calls, ending ${signedMoney(
+      aria-label={`${item.analyst} running profit, ${item.resolved_calls} settled calls, ending ${signedR(
         values[values.length - 1],
       )}`}
     >
@@ -106,22 +106,22 @@ function ProfitSparkline({ item, dollarsPerCall }: { item: AnalystScorecardItem;
 
 export function AnalystRankedTable({
   analysts,
-  dollarsPerCall,
+  rScale,
   selected,
   onSelect,
 }: {
   analysts: AnalystScorecardItem[];
-  dollarsPerCall: number;
+  rScale: number;
   selected: string | null;
   onSelect: (analyst: string) => void;
 }) {
   const scale = useMemo(() => {
     const magnitudes = analysts.flatMap((a) => [
-      Math.abs(toDollars(a.avg_win, dollarsPerCall) ?? 0),
-      Math.abs(toDollars(a.avg_loss, dollarsPerCall) ?? 0),
+      Math.abs(toR(a.avg_win, rScale) ?? 0),
+      Math.abs(toR(a.avg_loss, rScale) ?? 0),
     ]);
     return Math.max(1, ...magnitudes);
-  }, [analysts, dollarsPerCall]);
+  }, [analysts, rScale]);
 
   const columns = useMemo<LegacyColumnDef<AnalystScorecardItem, unknown>[]>(
     () => [
@@ -159,8 +159,8 @@ export function AnalystRankedTable({
         cell: ({ row }) => (
           <OpposedBars
             analyst={row.original.analyst}
-            loss={toDollars(row.original.avg_loss, dollarsPerCall)}
-            win={toDollars(row.original.avg_win, dollarsPerCall)}
+            loss={toR(row.original.avg_loss, rScale)}
+            win={toR(row.original.avg_win, rScale)}
             scale={scale}
           />
         ),
@@ -169,26 +169,26 @@ export function AnalystRankedTable({
         id: "running",
         header: "Running profit",
         enableSorting: false,
-        cell: ({ row }) => <ProfitSparkline item={row.original} dollarsPerCall={dollarsPerCall} />,
+        cell: ({ row }) => <ProfitSparkline item={row.original} rScale={rScale} />,
       },
       {
         id: "total",
         header: "Total",
         accessorFn: (row) => row.cumulative_credit,
         cell: ({ row }) => {
-          const total = row.original.cumulative_credit * dollarsPerCall;
+          const total = row.original.cumulative_credit * rScale;
           return (
             <span className="font-semibold">
               <span aria-hidden="true">{trendGlyph(total)}</span>{" "}
               <span className={total > 0 ? "text-pos" : total < 0 ? "text-neg" : "text-dim"}>
-                {signedMoney(total)}
+                {signedR(total)}
               </span>
             </span>
           );
         },
       },
     ],
-    [dollarsPerCall, scale, selected],
+    [rScale, scale, selected],
   );
 
   return (
