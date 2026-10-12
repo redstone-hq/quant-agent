@@ -41,16 +41,14 @@ def test_delever_builders_raise_without_gross_ceiling_resolver(pipe, no_resolver
         getattr(pipe, builder)()
 
 
-def test_open_exit_relief_raises_without_register(pipe):
+def test_exit_relief_never_raises_without_register(pipe):
+    """Exit relief is protective and creates its register lazily on the host,
+    so a missing register must stay a no-op, never an error."""
     del pipe._unsettled_exit_orders
-    with pytest.raises(AttributeError, match="_unsettled_exit_orders"):
-        _build_exit_relief(pipe)._open_exit_relief([])
-
-
-def test_register_exit_settlement_raises_without_register(pipe):
-    del pipe._unsettled_exit_orders
-    with pytest.raises(AttributeError, match="_unsettled_exit_orders"):
-        _build_exit_relief(pipe)._register_exit_settlement({"order_id": "o-1", "symbol": "AAPL"})
+    relief = _build_exit_relief(pipe)
+    assert relief._open_exit_relief([]) == ([], False)
+    relief._register_exit_settlement({"order_id": "o-1", "symbol": "aapl", "submitted_qty": 3})
+    assert pipe._unsettled_exit_orders == {"o-1": {"symbol": "AAPL", "submitted_qty": 3.0}}
 
 
 def test_exit_relief_unchanged_when_register_present(pipe):

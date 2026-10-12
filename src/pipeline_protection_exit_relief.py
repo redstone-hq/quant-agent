@@ -43,7 +43,7 @@ class ExitRelief:
         order_id = str(prot.get("order_id") or "")
         if not order_id:
             return
-        register = self._unsettled_exit_orders  # set unconditionally in TradingPipeline.__init__
+        register = getattr(self, "_unsettled_exit_orders", None)
         if register is None:
             register = {}
             self._unsettled_exit_orders = register
@@ -76,7 +76,7 @@ class ExitRelief:
         because an unmeasurable in-flight exit is precisely the case where
         netting nothing would double the shed.
         """
-        register = self._unsettled_exit_orders or {}  # set unconditionally in TradingPipeline.__init__
+        register = getattr(self, "_unsettled_exit_orders", None) or {}
         if not register:
             return [], False
         held = {str(getattr(p, "symbol", "") or "").strip().upper(): p for p in (positions or [])}
