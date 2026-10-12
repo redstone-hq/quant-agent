@@ -17,7 +17,9 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
+from src.config.risk_adjuncts import CashSweepConfig
 from src.pipeline_delever import DeleverMixin
 from src.pipeline_protection import _build_exit_relief
 from tests.pipeline_factory import build_pipeline
@@ -65,22 +67,20 @@ def test_cash_park_lookup_raises_without_sweeper(pipe, reader):
         getattr(pipe, reader)()
 
 
-def test_empty_cash_park_symbol_logs_critical_and_does_not_stop(pipe, caplog):
-    pipe._sweeper = lambda: SimpleNamespace(symbol="  ")
-    with caplog.at_level(logging.CRITICAL, logger="src.pipeline"):
-        assert pipe._sweep_symbol() is None
-    assert any(r.levelno == logging.CRITICAL and "Cash park not connected" in r.getMessage() for r in caplog.records)
+def test_sweeping_on_with_empty_park_symbol_is_rejected_at_load():
+    """A config error, refused once where settings are validated, so it cannot start."""
+    with pytest.raises(ValidationError, match="cash_sweep.symbol must be a non-empty ticker"):
+        CashSweepConfig(enabled=True, symbol="  ")
 
 
-def test_set_cash_park_symbol_logs_nothing(pipe, caplog):
+def test_sweep_symbol_logs_nothing_per_call(pipe, caplog):
     pipe._sweeper = lambda: SimpleNamespace(symbol="SGOV")
-    with caplog.at_level(logging.CRITICAL, logger="src.pipeline"):
+    with caplog.at_level(logging.DEBUG, logger="src.pipeline"):
         assert pipe._sweep_symbol() == "SGOV"
-    assert not [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_sweeping_off_logs_nothing(pipe, caplog):
-    pipe._sweeper = lambda: None
-    with caplog.at_level(logging.CRITICAL, logger="src.pipeline"):
-        assert pipe._sweep_symbol() is None
-    assert not [r for r in caplog.records if r.levelno == logging.CRITICAL]
+def test_stop_coverage_runs_on_a_real_pipeline_without_raising(pipe):
+    """The stop-coverage check reads the sweeper directly; a constructor-built pipeline has it."""
+    pipe.broker.get_positions.return_value = []
+    assert isinstance(pipe._reconcile_stop_coverage(), list)

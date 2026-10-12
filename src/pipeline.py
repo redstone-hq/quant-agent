@@ -894,18 +894,8 @@ class TradingPipeline(
         must not have to change the risk engine too.
         """
         sweeper = self._sweeper()
-        if sweeper is None:
-            return None
-        symbol = getattr(sweeper, "symbol", None)
-        if not isinstance(symbol, str) or not symbol.strip():
-            # Sweeping is ON but names no vehicle: the park cannot be split
-            # out of exposure. Say so loudly; do not stop the run.
-            logger.critical(
-                "Cash park not connected: cash sweeping is enabled but no park symbol is set, "
-                "so the parked holding is counted as ordinary exposure."
-            )
-            return None
-        return symbol
+        # An empty park symbol cannot reach here: CashSweepConfig rejects it at load.
+        return getattr(sweeper, "symbol", None) if sweeper is not None else None
 
     def _install_sigterm_unwind(self, context: str):
         return _kill_repair._install_sigterm_unwind(self, context)
