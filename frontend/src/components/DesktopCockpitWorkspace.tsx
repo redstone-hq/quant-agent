@@ -35,6 +35,7 @@ import { WhyPanel } from "./WhyPanel";
 import { RunsPanel } from "./RunsPanel";
 import { DirectionalBiasPanel } from "./DirectionalBiasPanel";
 import { MissedOpportunitiesPanel } from "./MissedOpportunitiesPanel";
+import { TradeReviewPanel } from "./TradeReview/TradeReviewPanel";
 import { SearchPanel } from "./SearchPanel";
 import { HealthPanel } from "./HealthPanel";
 import { Panel, StateMessage } from "./ui/Panel";
@@ -333,6 +334,7 @@ function WhyPane() {
 
 function RunsPane() { const state = useSupportWorkspace(); return <Pane id="runs"><RunsPanel runs={state.runs} error={state.runsError} loading={state.runsLoading} /></Pane>; }
 function BiasPane() { return <Pane id="bias"><DirectionalBiasPanel /></Pane>; }
+function ReviewPane() { return <Pane id="review"><TradeReviewPanel /></Pane>; }
 // Was wired to a callback that conditionally opened the candidate-detail
 // modal depending on which session happened to be selected in the
 // Sessions strip — unrelated to the missed-opportunity row being clicked
@@ -369,6 +371,7 @@ const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> =
   why: WhyPane,
   runs: RunsPane,
   bias: BiasPane,
+  review: ReviewPane,
   missed: MissedPane,
   diagnostics: DiagnosticsPane,
   workspaceSlot: WorkspaceSlotPane,
@@ -441,6 +444,7 @@ const STORAGE_KEY = COCKPIT_LAYOUT_KEY;
  * back to the chart group when the named neighbour was itself closed. */
 const LATE_PANELS: { id: string; title: string; beside: string }[] = [
   { id: "why", title: "Why", beside: "candidates" },
+  { id: "review", title: "Trade Review", beside: "bias" },
 ];
 
 // Item 2 of cockpit pass 3, revised per direct owner request ("a better
@@ -465,7 +469,7 @@ function buildDefaultLayout(api: DockviewApi) {
   // chart group (unchanged from before this pass) rather than moving to
   // the bottom row — they pair conceptually with "studying a symbol/run",
   // not with the Positions/Orders tables.
-  for (const [id, title] of [["missed", "Missed"], ["runs", "Runs"], ["bias", "Directional Bias"], ["diagnostics", "Diagnostics"]]) {
+  for (const [id, title] of [["missed", "Missed"], ["runs", "Runs"], ["bias", "Directional Bias"], ["review", "Trade Review"], ["diagnostics", "Diagnostics"]]) {
     api.addPanel({ id, component: id, title, position: { referencePanel: "chart", direction: "within" }, inactive: true });
   }
 
