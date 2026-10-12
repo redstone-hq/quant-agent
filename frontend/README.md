@@ -14,19 +14,29 @@ prototype that preceded this build (preserved in Git history at commit
 Git history — its information architecture carried over into
 this rebuild, its vanilla-JS implementation did not).
 
-## Deployment model — no new runtime dependency
+## Deployment model — built at deploy, never committed
 
-This is a **build-time** dependency only. The compiled output
-(`dist/` → `../src/api/static_cockpit/`, committed to Git) is what
-actually ships: plain static HTML/CSS/JS served by the same
-`StaticFiles` mount `/ui` already uses. `qamc`'s deployment never runs
-`npm`/`node` — only this `dev` checkout does, when the frontend source
-changes. There is no new server, service, or backend dependency.
+The compiled output (`../src/api/static_cockpit/`) is plain static
+HTML/CSS/JS served by the same `StaticFiles` mount `/ui` already uses. It
+is **build output and is gitignored**: committing it let frontend changes
+merge without a rebuilt bundle, so a panel never appeared live.
+
+- **Deploy** (`scripts/merge_and_deploy.sh`) runs `npm ci` + `npm run build`
+  as `qamc` after checkout and BEFORE the restart, into a temp folder that is
+  swapped in only on success; a failed build aborts the deploy with the old
+  services and old bundle still running. The bundle carries a
+  `BUILT_FROM_COMMIT` stamp the deploy checks against the checkout.
+- **Branch preview** (`ops/preview/branch_preview.py`) builds the same way at
+  startup and shows the build error at `/cockpit/` if it fails.
+- **CI** (`frontend` job in `.github/workflows/test.yml`) builds, runs
+  `npm test`, and runs the bundle checks in `tests/test_api_safety.py`.
+- **Node** is pinned in `.nvmrc` (and `engines`); the build refuses any other
+  version. There is no new server, service, or backend dependency.
 
 ## Commands
 
 ```bash
-npm install       # first time / after a dependency change
+npm ci            # first time / after a dependency change (lockfile-exact)
 npm run dev       # dev server at :5173, proxies API calls to the local
                    # read-only Mission Control API on :8800 (see vite.config.ts)
 npm run build     # type-checks, then builds into src/api/static_cockpit/

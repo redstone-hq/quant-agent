@@ -124,6 +124,49 @@ install_units() {
   done
 }
 
+# The dashboard bundle (src/api/static_cockpit/) is build output, not
+# committed: frontend source once merged without a rebuilt bundle and a panel
+# never appeared live. So every deploy builds it from the checked-out commit.
+#
+# Build into a temp folder and swap it in only on success: vite empties its
+# output folder before writing, so building in place would leave NO dashboard
+# after a failed build. Runs as qamc with the node already on that account,
+# refusing any version other than frontend/.nvmrc's.
+COCKPIT_DIR="${DEPLOY_ROOT}/src/api/static_cockpit"
+COCKPIT_STAMP=BUILT_FROM_COMMIT
+build_cockpit() {
+  local commit
+  commit="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
+  echo "==> building the dashboard for ${commit} (npm ci + npm run build, as qamc)"
+  if ! sudo -n -H -u qamc env ROOT="${DEPLOY_ROOT}" COMMIT="${commit}" \
+       STAMP="${COCKPIT_STAMP}" bash -euo pipefail -c '
+    cd "${ROOT}/frontend"
+    want="v$(tr -d "[:space:]" < .nvmrc)"
+    have="$(node -v)"
+    if [[ "${have}" != "${want}" ]]; then
+      echo "node is ${have}, frontend/.nvmrc pins ${want}" >&2
+      exit 1
+    fi
+    new="${ROOT}/src/api/.static_cockpit.new"
+    old="${ROOT}/src/api/.static_cockpit.old"
+    rm -rf "${new}" "${old}"
+    npm ci --no-audit --no-fund
+    npm run build -- --outDir "${new}" --emptyOutDir
+    test -s "${new}/index.html"
+    echo "${COMMIT}" > "${new}/${STAMP}"
+    if [[ -d "${ROOT}/src/api/static_cockpit" ]]; then
+      mv "${ROOT}/src/api/static_cockpit" "${old}"
+    fi
+    mv "${new}" "${ROOT}/src/api/static_cockpit"
+    rm -rf "${old}"
+  '; then
+    echo "DEPLOY ABORTED: the dashboard build failed for ${commit}." >&2
+    echo "      Nothing was restarted; the old services and the old dashboard are still running." >&2
+    echo "      The checkout is already on ${commit}; fix the build and re-run --deploy-only." >&2
+    exit 1
+  fi
+}
+
 deploy() {
   echo "==> fetching origin/main into ${DEPLOY_ROOT}"
   sudo -n git -C "${DEPLOY_ROOT}" fetch origin main
@@ -132,19 +175,28 @@ deploy() {
   # confusing "you are not currently on a branch", which is its own small trap.
   echo "==> checking out origin/main (detached, as production always runs)"
   sudo -n git -C "${DEPLOY_ROOT}" checkout --detach origin/main
+  # Build the dashboard BEFORE anything is restarted: a failed build stops
+  # the deploy here, with the old services and the old bundle still serving.
+  build_cockpit
   # Units first, so the restart below picks up an API unit change too.
   install_units
   echo "==> restarting ${API_UNIT}"
   qamc_systemctl restart "${API_UNIT}"
 
-  local deployed expected
+  local deployed expected built
   deployed="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
   expected="$(git ls-remote origin refs/heads/main | cut -f1)"
   if [[ "${deployed}" != "${expected}" ]]; then
     echo "DEPLOY DID NOT LAND: box at ${deployed}, origin/main is ${expected}" >&2
     exit 1
   fi
-  echo "==> deployed ${deployed}"
+  # The served dashboard must be the one built from this exact checkout.
+  built="$(sudo -n cat "${COCKPIT_DIR}/${COCKPIT_STAMP}" 2>/dev/null || true)"
+  if [[ "${built}" != "${deployed}" ]]; then
+    echo "DASHBOARD DOES NOT MATCH THE CHECKOUT: built from '${built}', box at ${deployed}" >&2
+    exit 1
+  fi
+  echo "==> deployed ${deployed} (dashboard built from the same commit)"
 }
 
 if [[ "${1:-}" == "--deploy-only" ]]; then

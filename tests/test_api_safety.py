@@ -522,11 +522,18 @@ def test_cockpit_static_mount_is_get_only_and_has_no_path_traversal():
     assert client.put("/cockpit/index.html").status_code == 405
     assert client.delete("/cockpit/styles.css").status_code == 405
 
-    get_resp = client.get("/cockpit/index.html")
-    assert get_resp.status_code == 200
-
     traversal_resp = client.get("/cockpit/../server.py")
     assert traversal_resp.status_code in (403, 404)
+
+
+def test_cockpit_static_mount_serves_the_built_index():
+    """Needs the built bundle, so it runs in the CI `frontend` job (see _built_cockpit)."""
+    _built_cockpit()
+    from fastapi.testclient import TestClient
+
+    from src.api.server import app
+
+    assert TestClient(app).get("/cockpit/index.html").status_code == 200
 
 
 def test_diary_static_mount_is_get_only_and_serves_without_entries():
@@ -603,12 +610,28 @@ def test_rebuild_desk_diary_index_empty_folder_is_placeholder(tmp_path):
     assert "No diary entries yet" in index.read_text(encoding="utf-8")
 
 
-def test_cockpit_homepage_links_to_desk_diary():
-    """The committed /cockpit bundle must expose Desk diary → /diary/
-    so the owner does not have to type the URL. Catches a forgotten
-    frontend rebuild after editing TopStrip.
+def _built_cockpit() -> Path:
+    """The dashboard bundle built from frontend/ (build output, not committed).
+
+    Skipped when absent so a plain local run needs no node -- EXCEPT when
+    QAMC_REQUIRE_COCKPIT_BUILD=1, which the CI `frontend` job sets after
+    building: there an absent bundle FAILS. That job is where these run in CI.
     """
+    import os
+
     cockpit = REPO_ROOT / "src" / "api" / "static_cockpit"
+    if not (cockpit / "index.html").is_file():
+        if os.environ.get("QAMC_REQUIRE_COCKPIT_BUILD") == "1":
+            pytest.fail(f"QAMC_REQUIRE_COCKPIT_BUILD=1 but {cockpit} holds no built index.html")
+        pytest.skip("dashboard not built (cd frontend && npm ci && npm run build)")
+    return cockpit
+
+
+def test_cockpit_homepage_links_to_desk_diary():
+    """The built /cockpit bundle must expose Desk diary -> /diary/
+    so the owner does not have to type the URL.
+    """
+    cockpit = _built_cockpit()
     blob = []
     for path in cockpit.rglob("*"):
         if path.suffix in {".js", ".html", ".css"}:
@@ -618,46 +641,25 @@ def test_cockpit_homepage_links_to_desk_diary():
     assert "/diary/" in text
 
 
-def test_cockpit_index_html_only_references_committed_assets():
-    """Guard against the exact drift this repo has shipped with before:
-    someone builds the frontend directly on a server (or locally) and
-    only copies `index.html` + the two hashed bundle files it points at,
-    without running `git add`/`git commit` for the new hashed files or
-    `git rm` for the old ones. Content-hashed filenames make any mismatch
-    here mean the committed index.html and the committed assets/ directory
-    disagree about what should be served — i.e. `git show HEAD` alone is
-    not a reproducible description of the dashboard.
-
-    This is a static, no-build check: it does not verify the *contents*
-    of the committed bundle match a fresh build of `frontend/` (that would
-    need a Node build step, which does not exist in CI today) — only that
-    index.html's asset references and the committed assets/ directory
-    agree with each other.
+def test_cockpit_index_html_only_references_built_assets():
+    """index.html's /cockpit/assets/ references and the built assets/ folder
+    must agree exactly: every reference exists, and no index-*.{js,css}
+    bundle sits there unreferenced (a leftover from an older build, which the
+    temp-folder-then-swap build in scripts/merge_and_deploy.sh rules out).
     """
     import re
 
-    cockpit = REPO_ROOT / "src" / "api" / "static_cockpit"
+    cockpit = _built_cockpit()
     index_html = (cockpit / "index.html").read_text(encoding="utf-8")
 
     referenced = set(re.findall(r'(?:src|href)="/cockpit/(assets/[^"]+)"', index_html))
     assert referenced, "expected index.html to reference at least one /cockpit/assets/ file"
 
     for rel in referenced:
-        asset_path = cockpit / rel
-        assert asset_path.is_file(), (
-            f"index.html references {rel!r} but it is not committed under "
-            f"static_cockpit/assets/ — this is the exact drift where a "
-            f"server-side rebuild replaces the bundle without a matching commit"
-        )
+        assert (cockpit / rel).is_file(), f"index.html references {rel!r} but the build did not emit it"
 
-    # The reverse check: any committed top-level index-*.{js,css} bundle
-    # file that index.html does NOT reference is a leftover from a stale
-    # commit (e.g. an old hashed bundle that a rebuild forgot to `git rm`).
-    committed_bundle_files = {
+    built_bundle_files = {
         f"assets/{p.name}" for p in (cockpit / "assets").glob("index-*.*") if p.suffix in {".js", ".css"}
     }
-    orphaned = committed_bundle_files - referenced
-    assert not orphaned, (
-        f"committed but unreferenced cockpit bundle file(s): {sorted(orphaned)} — "
-        f"likely a stale bundle left behind by a rebuild that didn't `git rm` it"
-    )
+    orphaned = built_bundle_files - referenced
+    assert not orphaned, f"built but unreferenced cockpit bundle file(s): {sorted(orphaned)}"

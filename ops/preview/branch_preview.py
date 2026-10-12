@@ -1,8 +1,9 @@
 """Ephemeral, read-only branch-preview server for QAMC Mission Control.
 
 Lets an operator view the CURRENT feature branch's frontend (whatever is
-actually committed in this `dev` checkout — both the legacy `/ui` dashboard
-and the new `/cockpit` React build) rendered against real, truthful QAMC
+actually checked out in this `dev` checkout — both the legacy `/ui` dashboard
+and the new `/cockpit` React build, which this script BUILDS from `frontend/`
+at startup because the bundle is build output and is not committed) rendered against real, truthful QAMC
 data, without duplicating or faking any runtime state and without touching
 the `qamc` production account in any way.
 
@@ -65,6 +66,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,6 +109,8 @@ logger = logging.getLogger("branch_preview")
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STATIC_UI = REPO_ROOT / "src" / "api" / "static"
 STATIC_COCKPIT = REPO_ROOT / "src" / "api" / "static_cockpit"
+FRONTEND_DIR = REPO_ROOT / "frontend"
+COCKPIT_STAMP = "BUILT_FROM_COMMIT"
 SETTINGS_PATH = REPO_ROOT / "config" / "settings.yaml"
 
 UPSTREAM_BASE = "http://127.0.0.1:8800"
@@ -141,8 +146,6 @@ class _GetOnlyMiddleware(BaseHTTPMiddleware):
 
 
 def _current_branch_sha() -> tuple[str, str]:
-    import subprocess
-
     def _git(*args: str) -> str:
         try:
             return subprocess.check_output(
@@ -213,7 +216,44 @@ def _is_executed_trade(row: dict) -> bool:
     return (fill_status is None and action != "HOLD") or fill_status == "filled" or fill_qty > 0
 
 
-def create_app() -> FastAPI:
+def build_cockpit() -> str | None:
+    """Build this checkout's dashboard into STATIC_COCKPIT; return None or the error.
+
+    Same approach as scripts/merge_and_deploy.sh: refuse a node other than
+    frontend/.nvmrc's, build into a temp folder, and swap it in only on
+    success -- vite empties its output folder first, so an in-place build
+    that failed would leave no dashboard at all.
+    """
+    new = STATIC_COCKPIT.with_name(".static_cockpit.new")
+    old = STATIC_COCKPIT.with_name(".static_cockpit.old")
+    shutil.rmtree(new, ignore_errors=True)
+    shutil.rmtree(old, ignore_errors=True)
+    want = "v" + (FRONTEND_DIR / ".nvmrc").read_text(encoding="utf-8").strip()
+    try:
+        have = subprocess.run(["node", "-v"], capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return f"node could not be run: {exc}"
+    if have != want:
+        return f"node is {have}, frontend/.nvmrc pins {want}"
+    for cmd in (
+        ["npm", "ci", "--no-audit", "--no-fund"],
+        ["npm", "run", "build", "--", "--outDir", str(new), "--emptyOutDir"],
+    ):
+        proc = subprocess.run(cmd, cwd=FRONTEND_DIR, capture_output=True, text=True)
+        if proc.returncode != 0:
+            log = (proc.stdout + proc.stderr)[-6000:]
+            return f"`{' '.join(cmd)}` failed (exit {proc.returncode}):\n{log}"
+    if not (new / "index.html").is_file():
+        return "the build finished but wrote no index.html"
+    (new / COCKPIT_STAMP).write_text(_current_branch_sha()[1] + "\n", encoding="utf-8")
+    if STATIC_COCKPIT.exists():
+        STATIC_COCKPIT.rename(old)
+    new.rename(STATIC_COCKPIT)
+    shutil.rmtree(old, ignore_errors=True)
+    return None
+
+
+def create_app(cockpit_build_error: str | None = None) -> FastAPI:
     app = FastAPI(
         title="QAMC Mission Control — BRANCH PREVIEW (not production)",
         description=(
@@ -463,7 +503,19 @@ def create_app() -> FastAPI:
 
     if STATIC_UI.is_dir():
         app.mount("/ui", StaticFiles(directory=str(STATIC_UI), html=True), name="ui")
-    if STATIC_COCKPIT.is_dir():
+    if cockpit_build_error is not None:
+        # Show the failure where the dashboard would be -- never a silent
+        # blank or a stale bundle from some other commit.
+        @app.get("/cockpit")
+        @app.get("/cockpit/{path:path}")
+        def cockpit_build_failed(path: str = "") -> Response:
+            return Response(
+                "DASHBOARD BUILD FAILED for this branch preview - nothing is served.\n\n"
+                + cockpit_build_error,
+                status_code=503,
+                media_type="text/plain; charset=utf-8",
+            )
+    elif STATIC_COCKPIT.is_dir():
         app.mount("/cockpit", StaticFiles(directory=str(STATIC_COCKPIT), html=True), name="cockpit")
 
     @app.get("/{path:path}")
@@ -577,7 +629,10 @@ def main() -> None:
     if args.host in ("0.0.0.0", "::"):
         raise SystemExit("Refusing to bind 0.0.0.0/:: — pass the Tailscale interface IP explicitly.")
 
-    app = create_app()
+    build_error = build_cockpit()
+    if build_error is not None:
+        logger.error("dashboard build failed; /cockpit/ will show the error:\n%s", build_error)
+    app = create_app(cockpit_build_error=build_error)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

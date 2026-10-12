@@ -31,3 +31,8 @@ build/
 # Raw secondary-account rehearsal capture is staged here before the public-
 # safety gate approves an atomic move into a reviewed fixture path.
 /ops/rehearsal/captures.local/
+
+# Dashboard bundle: BUILD OUTPUT, never committed. frontend/ builds it at
+# deploy (scripts/merge_and_deploy.sh) and in CI; see frontend/README.md.
+/src/api/static_cockpit/
+/src/api/.static_cockpit.*
