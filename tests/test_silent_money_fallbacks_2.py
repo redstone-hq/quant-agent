@@ -22,7 +22,6 @@ from pydantic import ValidationError
 from src.config.llm_cost import LLMCostCircuitConfig
 from src.models.portfolio import TargetPosition
 from src.models.positions import Position
-from src.pipeline import TradingPipeline
 from src.portfolio_constructor import PortfolioConstructor
 from src.stage_decision import DecisionStage
 from src.stage_risk import RiskStage
@@ -61,8 +60,10 @@ def test_constructor_unchanged_when_sets_present(constructor):
 
 
 @pytest.fixture
-def no_sweeper(monkeypatch):
-    monkeypatch.delattr(TradingPipeline, "_sweeper")
+def pipe_without_sweeper(monkeypatch):
+    pipe = build_pipeline()
+    monkeypatch.delattr(type(pipe), "_sweeper")
+    return pipe
 
 
 def _ctx() -> SimpleNamespace:
@@ -81,15 +82,15 @@ def _ctx() -> SimpleNamespace:
     )
 
 
-def test_decision_stage_raises_without_sweeper(no_sweeper):
-    pipe = build_pipeline()
+def test_decision_stage_raises_without_sweeper(pipe_without_sweeper):
+    pipe = pipe_without_sweeper
     with pytest.raises(AttributeError, match="_sweeper"):
         DecisionStage(pipeline=pipe).run(_ctx())
 
 
-def test_risk_stage_raises_without_sweeper(no_sweeper, monkeypatch):
+def test_risk_stage_raises_without_sweeper(pipe_without_sweeper, monkeypatch):
     monkeypatch.setattr("src.stage_risk._isolate_empty_soft_exit_entries", lambda *a: False)
-    pipe = build_pipeline()
+    pipe = pipe_without_sweeper
     with pytest.raises(AttributeError, match="_sweeper"):
         RiskStage(pipeline=pipe)._run_review(_ctx())
 
