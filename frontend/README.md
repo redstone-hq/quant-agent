@@ -22,10 +22,12 @@ is **build output and is gitignored**: committing it let frontend changes
 merge without a rebuilt bundle, so a panel never appeared live.
 
 - **Deploy** (`scripts/merge_and_deploy.sh`) runs `npm ci` + `npm run build`
-  as `qamc` after checkout and BEFORE the restart, into a temp folder that is
-  swapped in only on success; a failed build aborts the deploy with the old
-  services and old bundle still running. The bundle carries a
-  `BUILT_FROM_COMMIT` stamp the deploy checks against the checkout.
+  as `qamc` on the target commit in a separate checkout BEFORE the live
+  checkout is touched (node major version 24 required). A good build is
+  swapped in; a failed one never blocks the trading deploy: the previous
+  bundle keeps serving and the run ends with "DASHBOARD NOT UPDATED: <reason>;
+  trading code deployed" and exit code 3. The bundle carries a
+  `BUILT_FROM_COMMIT` stamp, so a stale dashboard is reported as stale.
 - **Branch preview** (`ops/preview/branch_preview.py`) builds the same way at
   startup and shows the build error at `/cockpit/` if it fails.
 - **CI** (`frontend` job in `.github/workflows/test.yml`) builds, runs
