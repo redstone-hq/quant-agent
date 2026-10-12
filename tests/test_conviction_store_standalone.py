@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 from src.storage.conviction_ledger_store import (
     CONVICTION_CREDIT_KIND,
@@ -116,7 +117,7 @@ def test_building_the_real_schema_and_store_never_imports_the_database_module():
         "build_conviction_ledger_store(conn=c, lock=threading.Lock())\n"
         "assert 'src.storage.db' not in sys.modules\n"
     )
-    subprocess.run([sys.executable, "-c", code], check=True)
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=Path(__file__).resolve().parents[1])
 
 
 def test_the_store_does_not_import_the_database_module():
