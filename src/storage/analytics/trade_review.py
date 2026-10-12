@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
-from src.quantities import r_multiple, recorded_initial_stop, summarize_closed_position
+from src.quantities import open_position_risk_dollars, recorded_initial_stop, summarize_closed_position
 from src.storage.analytics.calibration import _opened_before_clean_record
 from src.util.time import ET
 
@@ -70,9 +70,7 @@ def _position_pnl(position, rows: list[dict]) -> float:
 
 
 def _trade_record(position, rows: list[dict]) -> dict:
-    r = None
-    if position.initial_stop:
-        r = r_multiple(position.exit_price, position.entry_price, position.initial_stop, position.qty)
+    r = position.r_multiple
     opened, closed = _parse_utc(position.opened_at), _parse_utc(position.closed_at)
     hold = (closed - opened).total_seconds() if opened and closed else None
     return {
@@ -391,7 +389,9 @@ def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, 
     """symbol -> {"initial_stop", "unrealised_r"} for held positions, from their opening trade rows.
 
     Uses the stop AT ENTRY (`recorded_initial_stop`) of the most recent opening chain for the symbol.
-    `unrealised_r` is None when no usable stop was recorded. Never zero.
+    `unrealised_r` = P&L on the shares still held / per-lot risk scaled to those shares
+    (`quantities.open_position_risk_dollars`); unchanged by a partial sell.
+    None if any lot lacks a usable stop. Never zero.
     """
     latest: dict[str, str] = {}
     for row in sorted(entry_rows, key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0)):
@@ -400,17 +400,19 @@ def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, 
     out: dict[str, dict] = {}
     for pos in positions:
         sym = str(pos.get("symbol") or "").upper()
-        stop = next(
-            (
-                s
-                for row in entry_rows
-                if str(row.get("position_id") or "") == latest.get(sym) and (s := recorded_initial_stop(row)) > 0
-            ),
-            None,
-        )
+        lots = [
+            r
+            for r in entry_rows
+            if str(r.get("position_id") or "") == latest.get(sym)
+            and str(r.get("action") or "").upper() in _OPEN_ACTIONS
+        ]
+        stop = next((s for row in lots if (s := recorded_initial_stop(row)) > 0), None)
+        qty = float(pos.get("qty") or 0)
+        direction = "short" if qty < 0 else "long"
+        risk = open_position_risk_dollars(lots, direction, qty) if lots else None
         r = None
-        if stop is not None and pos.get("avg_entry") and pos.get("current_price"):
-            r = r_multiple(pos["current_price"], pos["avg_entry"], stop, pos.get("qty") or 1.0)
+        if risk and pos.get("avg_entry") and pos.get("current_price") and qty:
+            r = round((pos["current_price"] - pos["avg_entry"]) * qty / risk, 2)
         out[sym] = {"initial_stop": stop, "unrealised_r": r}
     return out
 
