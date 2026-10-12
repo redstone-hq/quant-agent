@@ -17,7 +17,7 @@ import { useMemo } from "react";
 import { Handle, Position, type Edge, type Node } from "@xyflow/react";
 import type { ScorecardIdea, ScorecardIdeaAnalyst } from "../../api/client";
 import { AgentFlowGraph } from "../agentflow/AgentFlowGraph";
-import { dayLabel, signedR, trendGlyph } from "./scorecardModel";
+import { dayLabel, signedMoney, trendGlyph } from "./scorecardModel";
 
 const INVISIBLE_HANDLE = "opacity-0 pointer-events-none w-1 h-1";
 
@@ -54,7 +54,7 @@ function AnalystNode({ data }: { data: AnalystNodeData }) {
       )}
       <div className="mt-1.5 border-t border-border pt-1 font-mono text-[length:var(--fs-meta)]">
         <span aria-hidden="true">{trendGlyph(data.credit)}</span>{" "}
-        <span className={paid ? "text-pos" : "text-neg"}>{signedR(data.credit)}</span>{" "}
+        <span className={paid ? "text-pos" : "text-neg"}>{signedMoney(data.credit)}</span>{" "}
         <span className="text-faint">{paid ? "credited" : "charged"}</span>
       </div>
       <Handle type="source" position={Position.Right} className={INVISIBLE_HANDLE} />
@@ -93,7 +93,7 @@ const IDEA_NODE_TYPES = { analyst: AnalystNode, fact: FactNode };
 
 function analystNode(
   participant: ScorecardIdeaAnalyst,
-  rScale: number,
+  dollarsPerCall: number,
   x: number,
   y: number,
 ): Node {
@@ -106,22 +106,22 @@ function analystNode(
       role: participant.nominated ? "PROPOSED" : participant.side === "supported" ? "AGREED" : "OBJECTED",
       confidence: participant.conviction || "unstated",
       reason: participant.reason,
-      credit: participant.credit * rScale,
+      credit: participant.credit * dollarsPerCall,
     } satisfies AnalystNodeData,
   };
 }
 
 export function IdeaTrace({
   idea,
-  rScale,
+  dollarsPerCall,
 }: {
   idea: ScorecardIdea;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
   const { nodes, edges } = useMemo(() => {
     const everyone = [...idea.supported, ...idea.opposed];
     const nodes: Node[] = everyone.map((participant, index) =>
-      analystNode(participant, rScale, 0, index * 116),
+      analystNode(participant, dollarsPerCall, 0, index * 116),
     );
     const middle = ((everyone.length - 1) * 116) / 2;
     // React Flow's fitView scales to whichever axis binds first. This stack of
@@ -134,7 +134,7 @@ export function IdeaTrace({
     const span = Math.max(760, stackHeight * 3.4);
     const tradeX = Math.round(span * 0.42);
     const resultX = Math.round(span * 0.74);
-    const outcome = idea.r_multiple * rScale;
+    const outcome = idea.r_multiple * dollarsPerCall;
 
     nodes.push({
       id: "trade",
@@ -157,11 +157,11 @@ export function IdeaTrace({
       position: { x: resultX, y: middle - 24 },
       data: {
         heading: "What happened",
-        headline: `${trendGlyph(outcome)} ${signedR(outcome)}`,
+        headline: `${trendGlyph(outcome)} ${signedMoney(outcome)}`,
         detail:
           outcome >= 0
-            ? "of the risk taken when it was opened. Backers were credited that; objectors were charged it."
-            : "of the risk taken when it was opened. Backers were charged that; objectors were credited it.",
+            ? "on the $100 treated as put at risk. Backers were credited that; objectors were charged it."
+            : "on the $100 treated as put at risk. Backers were charged that; objectors were credited it.",
         outline: outcome < 0,
       } satisfies FactNodeData,
     });
@@ -187,9 +187,9 @@ export function IdeaTrace({
     });
 
     return { nodes, edges };
-  }, [idea, rScale]);
+  }, [idea, dollarsPerCall]);
 
-  const outcome = idea.r_multiple * rScale;
+  const outcome = idea.r_multiple * dollarsPerCall;
 
   return (
     <section data-testid="idea-trace">
@@ -197,7 +197,7 @@ export function IdeaTrace({
         One closed trade, traced back to everyone who took a side on it. {idea.symbol} was proposed by{" "}
         {[...idea.supported, ...idea.opposed].find((p) => p.nominated)?.analyst ?? "an analyst"}, and the
         desk bet it would {idea.direction === "short" ? "fall" : "rise"}. It ended{" "}
-        <strong className="font-mono text-ink">{signedR(outcome)}</strong> against the $100 treated as
+        <strong className="font-mono text-ink">{signedMoney(outcome)}</strong> against the $100 treated as
         put at risk, and every analyst below was credited or charged that same amount — the ones that
         backed it one way, the ones that argued against it the other. How confidently each spoke is shown
         beside its name and changes none of the figures.
@@ -215,7 +215,7 @@ export function IdeaTrace({
               : "objected to it"}
             , with {participant.conviction || "unstated"} confidence —{" "}
             <span className="font-mono text-ink">
-              {signedR(participant.credit * rScale)}
+              {signedMoney(participant.credit * dollarsPerCall)}
             </span>
             .
           </li>

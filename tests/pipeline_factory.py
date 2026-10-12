@@ -47,7 +47,7 @@ from __future__ import annotations
 import os
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import yaml
 
@@ -153,6 +153,20 @@ ADMISSION_STANDINS = frozenset(
 )
 
 
+def _give_mock_broker_an_empty_order_book(broker) -> None:
+    """Explicit "open-order listing read, nothing open" on a mock broker.
+
+    The entry-room budget subtracts open broker orders and FAILS CLOSED (zero
+    room) on a listing it cannot read; a bare MagicMock's answer is
+    unreadable. A test that configured the listing itself is left alone.
+    """
+    if not isinstance(broker, Mock):
+        return
+    listing = broker.list_open_orders_checked
+    if listing.side_effect is None and isinstance(listing.return_value, Mock):
+        listing.return_value = (True, [])
+
+
 def build_pipeline(config=None, **stand_ins):
     """Construct a GENUINE TradingPipeline through the real ``__init__``.
 
@@ -163,6 +177,7 @@ def build_pipeline(config=None, **stand_ins):
     from src.pipeline import TradingPipeline
 
     stand_ins.setdefault("broker", MagicMock(name="broker"))
+    _give_mock_broker_an_empty_order_book(stand_ins["broker"])
     cfg = config if config is not None else test_config()
 
     with ExitStack() as stack:

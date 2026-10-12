@@ -13,8 +13,8 @@ from src.risk.metrics import (
     format_heat_block,
     portfolio_heat,
     position_risk,
+    r_multiple,
 )
-from src.quantities import r_multiple
 
 
 def _pos(symbol: str, qty: float, entry: float, price: float) -> Position:

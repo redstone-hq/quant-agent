@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Badge, TextInput } from "@tremor/react";
 import { legacyCreateColumnHelper as createColumnHelper, type LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { TradeItem } from "../api/client";
-import { fmtMoney, fmtNum, fmtR, fmtTime, pnlClass } from "../lib/format";
+import { fmtMoney, fmtNum, fmtTime, pnlClass } from "../lib/format";
 import { displayFillPrice, displayFillQty } from "../lib/tradeFillDisplay";
 import { Panel, StateMessage } from "./ui/Panel";
 import { DataTable } from "./ui/DataTable";
@@ -97,13 +97,6 @@ export function TradeTable({
       columnHelper.accessor("fill_qty", { header: "Filled qty", cell: (info) => displayFillQty(info.row.original) }),
       columnHelper.accessor("fill_price", { header: "Fill price", cell: (info) => displayFillPrice(info.row.original) }),
       columnHelper.accessor("realized_pnl", { header: "Realized P&L", cell: (info) => <span className={pnlClass(info.getValue())}>{info.getValue() === null || info.getValue() === undefined ? "—" : fmtMoney(info.getValue())}</span> }),
-      columnHelper.accessor("r_multiple", {
-        header: "R",
-        cell: (info) => {
-          const v = info.getValue();
-          return v === null || v === undefined ? <span className="text-dim">—</span> : <span className={pnlClass(v)}>{fmtR(v)}</span>;
-        },
-      }),
       columnHelper.accessor("stop_loss", { header: "Recorded stop", cell: (info) => fmtMoney(info.getValue()) }),
       columnHelper.accessor("take_profit", { header: "Take profit", cell: (info) => fmtMoney(info.getValue()) }),
       columnHelper.accessor("run_id", { header: "Run", cell: (info) => info.getValue() || "—" }),

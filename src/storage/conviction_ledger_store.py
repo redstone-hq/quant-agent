@@ -164,14 +164,13 @@ class ConvictionLedgerStore:
         chain reads this method or the rows it writes.
         """
         import json as _json
-        from src.conviction_ledger import score_position
-        from src.quantities import summarize_closed_position
-        from src.quantities import r_multiple as _r_multiple
+        from src.conviction_ledger import score_position, summarize_closed_position
+        from src.risk.metrics import r_multiple as _r_multiple
 
         with self._lock:
             rows = self.conn.execute(
                 "SELECT id, position_id, symbol, action, qty, price, fill_qty, "
-                "fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, "
+                "fill_price, fill_status, stop_loss, decision_id, run_id, "
                 "timestamp FROM trades WHERE position_id IS NOT NULL "
                 "ORDER BY position_id, timestamp, id",
             ).fetchall()

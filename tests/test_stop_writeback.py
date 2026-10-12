@@ -10,11 +10,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.quantities import recorded_initial_stop
-
 from src.execution.stop_records import (
     accepted_stop_order,
     reconcile_recorded_stop_levels,
+    recorded_initial_stop,
     replace_stop_and_record,
     write_back_live_protective_stops,
     write_back_stop_loss,

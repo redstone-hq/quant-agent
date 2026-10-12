@@ -242,6 +242,105 @@ def _execution_payoff_skip_reason(
     return None
 
 
+# --- Open broker orders the budget must not hand out twice -----------------
+#
+# THE HOLE THIS CLOSES. The budget below is `ceiling x equity - HELD gross`.
+# An entry order that is resting at the broker, unfilled, is not held yet,
+# so before this it counted as free room. Each run cancels its own unfilled
+# entries at the end, but if that cancel fails (or an order survives from
+# any other path) the next run would size the same dollars a second time
+# and could breach the gross ceiling. The broker's own open-order list is
+# the only authority on what is still working, so it is read here.
+#
+# An order ADDS exposure unless it closes a held position (a SELL against a
+# long, a BUY against a short) — the same rule the freeze sweep uses. The
+# part of a closing order larger than the held size would flip the book and
+# so counts. A `held` bracket leg is the dormant mirror of its parent entry
+# and is skipped; counting it would double the parent.
+#
+# Fail closed: a listing that cannot be read, or an adding order whose
+# remaining size or price cannot be measured, returns a reason and the
+# caller grants zero room. Nothing is guessed.
+def _enum_text(value) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def _held_qty_by_symbol(positions) -> dict:
+    held: dict = {}
+    for p in positions or []:
+        symbol = str(getattr(p, "symbol", "") or "").strip().upper().replace("/", "")
+        try:
+            qty = float(getattr(p, "qty", 0.0) or 0.0)
+            mv = float(getattr(p, "market_value", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if qty > 0 and mv < 0:
+            qty = -qty
+        held[symbol] = held.get(symbol, 0.0) + qty
+    return held
+
+
+def _adding_notional(pipeline, order, held: dict):
+    """`(side, usd, None)` this one open order adds, `(None, 0.0, None)` if none, or `(None, None, reason)`."""
+    from src.risk.rules import _gross_multiplier
+
+    if _enum_text(getattr(order, "status", "")) == "held":
+        return None, 0.0, None
+    oid = str(getattr(order, "id", "") or "?")
+    try:
+        side = _enum_text(order.side)
+        symbol = str(order.symbol).strip().upper().replace("/", "")
+        remaining = float(order.qty) - float(getattr(order, "filled_qty", None) or 0.0)
+    except (AttributeError, TypeError, ValueError):
+        return None, None, f"open order {oid} has an unreadable side, symbol or size"
+    if not math.isfinite(remaining) or side not in ("buy", "sell", "sell_short"):
+        return None, None, f"open order {oid} has an unreadable side or size"
+    pos = held.get(symbol, 0.0)
+    if (side == "sell" and pos > 0) or (side == "buy" and pos < 0):
+        remaining -= abs(pos)
+    if remaining <= 0:
+        return None, 0.0, None
+    limit = getattr(order, "limit_price", None)
+    try:
+        price = float(limit if limit is not None else pipeline.broker.get_latest_price(symbol))
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"open order {oid} ({symbol}) has no readable price ({type(exc).__name__})"
+    if not math.isfinite(price) or price <= 0:
+        return None, None, f"open order {oid} ({symbol}) has no usable price"
+    notional = remaining * price * _gross_multiplier(symbol)
+    logger.info(
+        "§11.2: open broker %s order %s %s — %g unfilled x $%.2f = $%.2f subtracted from entry room",
+        side,
+        oid,
+        symbol,
+        remaining,
+        price,
+        notional,
+    )
+    return side, notional, None
+
+
+def _open_entry_order_notional(pipeline, positions):
+    """`(long_usd, short_usd, None)` still working at the broker, or `(None, None, reason)`."""
+    try:
+        listed, orders = pipeline.broker.list_open_orders_checked()
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"open broker orders unreadable ({type(exc).__name__})"
+    if listed is not True or not isinstance(orders, list):
+        return None, None, "open broker orders unreadable (listing failed)"
+    held = _held_qty_by_symbol(positions)
+    long_usd = short_usd = 0.0
+    for order in orders:
+        side, notional, why = _adding_notional(pipeline, order, held)
+        if why is not None:
+            return None, None, why
+        if side == "buy":
+            long_usd += notional
+        elif side is not None:
+            short_usd += notional
+    return long_usd, short_usd, None
+
+
 # --- Spec §11.2 — the EXECUTION-time deployment budget --------------------
 #
 # THE DEFECT THIS REPLACES (2026-09-02, the morning margin was switched on).
@@ -300,7 +399,11 @@ def _entry_deployment_budget(pipeline, ctx, positions, equity, cash):
             if isinstance(cash, (int, float)) and not isinstance(cash, bool) and math.isfinite(float(cash))
             else 0.0
         )
-        return max(0.0, usable_cash), False, "raw settled cash (ladder unreadable)"
+        pending_long, _pending_short, why = _open_entry_order_notional(pipeline, positions)
+        if why is not None:
+            logger.warning("§11.2: %s — refusing every new entry this run", why)
+            return 0.0, False, f"{why} — no new entry permitted"
+        return max(0.0, usable_cash - pending_long), False, "raw settled cash (ladder unreadable)"
 
     if (
         isinstance(equity, bool)
@@ -335,16 +438,23 @@ def _entry_deployment_budget(pipeline, ctx, positions, equity, cash):
     # total that quietly excluded a position, and it is the pre-trade gate's
     # job — a BUY carrying one is already hard-blocked before this loop.
     held_gross = gross_exposure(positions, cash_park_symbol=park)
+    pending_long, pending_short, why = _open_entry_order_notional(pipeline, positions)
+    if why is not None:
+        logger.warning("§11.2: %s — refusing every new entry this run", why)
+        return 0.0, True, f"{why} — no new entry permitted"
+    pending_gross = pending_long + pending_short
 
     # Floored at zero. A book already ABOVE its rung has negative headroom,
     # and a negative budget is not a smaller budget: it would render to the
     # operator as "-$500 still deployable" and would silently eat the first
     # $500 of any credit a later refresh brought in.
-    headroom = max(0.0, ceiling.ceiling_x * equity - held_gross)
+    headroom = max(0.0, ceiling.ceiling_x * equity - held_gross - pending_gross)
     note = (
         f"§11.2 ladder headroom ${headroom:,.2f} "
         f"({ceiling.ceiling_x:.2f}x x ${equity:,.0f} equity "
-        f"- ${held_gross:,.0f} held gross, rung {ceiling.rung})"
+        f"- ${held_gross:,.0f} held gross"
+        + (f" - ${pending_gross:,.0f} open broker entry orders" if pending_gross else "")
+        + f", rung {ceiling.rung})"
     )
 
     # `is True`, not `bool(...)`: a MagicMock config attribute is truthy, and
@@ -366,7 +476,7 @@ def _entry_deployment_budget(pipeline, ctx, positions, equity, cash):
             if isinstance(cash, (int, float)) and not isinstance(cash, bool) and math.isfinite(float(cash))
             else 0.0
         )
-        usable_cash = max(0.0, usable_cash)
+        usable_cash = max(0.0, usable_cash - pending_long)
         if usable_cash < headroom:
             note = (
                 f"raw settled cash ${usable_cash:,.2f} (margin disabled; "

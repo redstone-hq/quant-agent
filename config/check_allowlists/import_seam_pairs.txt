@@ -1,4 +1,5 @@
 src.api.broker_reads -> src.execution.broker
+src.conviction_ledger -> src.execution.stop_records
 src.coverage_watchdog -> src.execution.scale_in
 src.coverage_watchdog -> src.execution.stop_records
 src.coverage_watchdog -> src.execution.stop_repair
@@ -16,6 +17,7 @@ src.pipeline_exits -> src.execution.stop_read
 src.pipeline_exits -> src.execution.stop_records
 src.pipeline_parts.evening -> src.execution.stop_read
 src.pipeline_prompt_facts -> src.execution.stop_read
+src.pipeline_prompt_facts -> src.execution.stop_records
 src.pipeline_protection -> src.execution.broker
 src.pipeline_protection -> src.execution.stop_records
 src.pipeline_protection -> src.execution.stop_repair

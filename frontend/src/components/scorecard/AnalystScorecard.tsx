@@ -6,7 +6,7 @@
  *
  * PLAIN LANGUAGE IS A REQUIREMENT HERE, NOT POLISH. The reader is not a
  * developer or a trader. Every term is explained on this page before it is
- * used, money is money, and the words "R-multiple", "seat", "payoff
+ * used, money is money, and the words "R", "R-multiple", "seat", "payoff
  * ratio", "expectancy", "drawdown" and "conviction-weighted" appear nowhere in
  * what renders. The backend speaks in R; this page converts every figure to
  * the worked-example dollars the explainer defines and never shows the unit.
@@ -31,7 +31,7 @@ import {
   chooseView,
   defaultIdea,
   monthLabel,
-  signedR,
+  signedMoney,
 } from "./scorecardModel";
 
 function Section({
@@ -56,7 +56,8 @@ function Section({
 
 /** Every term this page uses, defined before it is used. Deliberately long:
  * a reader who has to ask what a number means has been failed by the page. */
-function HowToRead({ rScale }: { rScale: number }) {
+function HowToRead({ dollarsPerCall }: { dollarsPerCall: number }) {
+  const money = `$${Math.round(dollarsPerCall)}`;
   return (
     <section className="rounded-xl border border-accent/30 bg-panel-alt p-4" data-testid="how-to-read">
       <h2 className="m-0 mb-2 text-[length:var(--fs-subhead)] font-semibold text-ink">How to read this page</h2>
@@ -87,10 +88,9 @@ function HowToRead({ rScale }: { rScale: number }) {
         <div>
           <dt className="font-semibold text-ink">The money</dt>
           <dd className="m-0 text-[length:var(--fs-meta)] leading-relaxed text-dim">
-            A worked example, not the desk&rsquo;s actual profit and loss. Profit is shown in{" "}
-            <strong className="text-ink">R</strong>: a multiple of what that trade risked when it was opened,
-            so 1R is one unit of risk. If a trade made
-            twice what it risked, that is {signedR(2 * rScale)} on the idea: everyone who
+            A worked example, not the desk&rsquo;s actual profit and loss. Every call is treated as if the
+            same <strong className="text-ink">{money}</strong> had been put at risk on it. If a trade made
+            twice what it risked, that is {signedMoney(2 * dollarsPerCall)} on the idea: everyone who
             backed it is credited that, and everyone who argued against it is charged it. When a trade
             loses, it runs the other way — an analyst who argued against a losing trade is{" "}
             <em>paid</em> for having been right to object. Nothing scales those amounts up or down: the
@@ -122,7 +122,7 @@ function HowToRead({ rScale }: { rScale: number }) {
         <div>
           <dt className="font-semibold text-ink">Nothing compounds, nothing expires</dt>
           <dd className="m-0 text-[length:var(--fs-meta)] leading-relaxed text-dim">
-            Every call is measured in R, so profits are never reinvested and a good run
+            Every call is measured against the same {money}, so profits are never reinvested and a good run
             does not make later calls count for more. A call from months ago counts exactly as much as one
             from last week, and no recent-months window is applied — nothing is trimmed off the record.
           </dd>
@@ -214,11 +214,11 @@ export function AnalystScorecard() {
     [live, fetchError],
   );
   const { data, source, exampleReason } = view;
-  const rScale = 1; // everything is shown in R: the old fixed $100-per-call conversion was removed
+  const dollarsPerCall = data.risk_dollars_per_call || 100;
 
   const slopes = useMemo(
-    () => buildDeskSlopes(data.analysts, data.months, rScale),
-    [data, rScale],
+    () => buildDeskSlopes(data.analysts, data.months, dollarsPerCall),
+    [data, dollarsPerCall],
   );
 
   const selectedAnalyst =
@@ -243,7 +243,7 @@ export function AnalystScorecard() {
         <LiveBanner asOf={data.as_of} settled={data.resolved_calls_total} />
       )}
 
-      <HowToRead rScale={rScale} />
+      <HowToRead dollarsPerCall={dollarsPerCall} />
 
       <Section number="1" title="The desk at a glance">
         {slopes ? (
@@ -276,7 +276,7 @@ export function AnalystScorecard() {
                 rows={slopes.money}
                 fromMonth={slopes.fromMonth}
                 toMonth={slopes.toMonth}
-                format={(v) => signedR(v)}
+                format={(v) => signedMoney(v)}
               />
             </div>
             {slopes.moreAccurateButLosing.length > 0 && (
@@ -312,7 +312,7 @@ export function AnalystScorecard() {
         {data.analysts.length > 0 ? (
           <AnalystRankedTable
             analysts={data.analysts}
-            rScale={rScale}
+            dollarsPerCall={dollarsPerCall}
             selected={selectedAnalyst?.analyst ?? null}
             onSelect={setOpenAnalyst}
           />
@@ -346,7 +346,7 @@ export function AnalystScorecard() {
                 );
               })}
             </div>
-            <AnalystDetail item={selectedAnalyst} rScale={rScale} />
+            <AnalystDetail item={selectedAnalyst} dollarsPerCall={dollarsPerCall} />
           </>
         ) : (
           <p className="m-0 text-[length:var(--fs-meta)] text-dim">
@@ -381,7 +381,7 @@ export function AnalystScorecard() {
                 })}
               </div>
             )}
-            <IdeaTrace idea={selectedIdea} rScale={rScale} />
+            <IdeaTrace idea={selectedIdea} dollarsPerCall={dollarsPerCall} />
           </>
         ) : (
           <p className="m-0 text-[length:var(--fs-meta)] text-dim">

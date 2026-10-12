@@ -55,8 +55,8 @@ import {
   longestSpellBelowBest,
   monthLabel,
   profitSeries,
-  signedR,
-  toR,
+  signedMoney,
+  toDollars,
   trendGlyph,
   waterfall,
   zeroCrossings,
@@ -89,10 +89,10 @@ function rgb(name: string): string {
 
 function RunningProfitChart({
   item,
-  rScale,
+  dollarsPerCall,
 }: {
   item: AnalystScorecardItem;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -144,7 +144,7 @@ function RunningProfitChart({
       // page. Left at the library default it prints "800.00", a bare number
       // in no stated unit, which is exactly the kind of figure the reader
       // would have to ask about.
-      priceFormat: { type: "custom", minMove: 1, formatter: (price: number) => signedR(price) },
+      priceFormat: { type: "custom", minMove: 1, formatter: (price: number) => signedMoney(price) },
     });
     chartRef.current = chart;
     seriesRef.current = series;
@@ -169,7 +169,7 @@ function RunningProfitChart({
     const series = seriesRef.current;
     const chart = chartRef.current;
     if (!series || !chart) return;
-    const points = profitSeries(item, rScale);
+    const points = profitSeries(item, dollarsPerCall);
     series.setData(points.map((p) => ({ time: p.time as UTCTimestamp, value: p.dollars })));
     series.setMarkers(
       zeroCrossings(points).map((crossing) => ({
@@ -190,20 +190,20 @@ function RunningProfitChart({
       title: "break even",
     });
     chart.timeScale().fitContent();
-  }, [item, rScale]);
+  }, [item, dollarsPerCall]);
 
   return <div ref={containerRef} data-testid="running-profit-chart" className="w-full" />;
 }
 
 function BelowBestStrip({
   item,
-  rScale,
+  dollarsPerCall,
 }: {
   item: AnalystScorecardItem;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
   const [ref, width] = useMeasuredWidth();
-  const data = belowBestSeries(item, rScale).map((point, index) => ({ ...point, index }));
+  const data = belowBestSeries(item, dollarsPerCall).map((point, index) => ({ ...point, index }));
   const worst = Math.min(0, ...data.map((d) => d.belowBest));
   return (
     <div ref={ref} className="w-full">
@@ -214,7 +214,7 @@ function BelowBestStrip({
           domain={[Math.min(worst * 1.15, -1), 0]}
           width={58}
           tick={{ fill: rgb("--c-ink-faint"), fontSize: 10 }}
-          tickFormatter={(v: number) => signedR(v)}
+          tickFormatter={(v: number) => signedMoney(v)}
         />
         <Area
           type="stepAfter"
@@ -233,13 +233,13 @@ function BelowBestStrip({
 
 function MonthlyWaterfall({
   item,
-  rScale,
+  dollarsPerCall,
 }: {
   item: AnalystScorecardItem;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
   const [ref, width] = useMeasuredWidth();
-  const steps = waterfall(item, rScale);
+  const steps = waterfall(item, dollarsPerCall);
   const values = steps.flatMap((s) => s.span);
   const min = Math.min(0, ...values);
   const max = Math.max(0, ...values);
@@ -258,7 +258,7 @@ function MonthlyWaterfall({
           domain={[min - pad, max + pad]}
           width={62}
           tick={{ fill: rgb("--c-ink-faint"), fontSize: 10 }}
-          tickFormatter={(v: number) => signedR(v)}
+          tickFormatter={(v: number) => signedMoney(v)}
         />
         <Bar dataKey="span" isAnimationActive={false}>
           {steps.map((step) => (
@@ -276,7 +276,7 @@ function MonthlyWaterfall({
             position="top"
             fill={rgb("--c-ink-dim")}
             fontSize={10}
-            formatter={(v: number) => `${trendGlyph(v)} ${signedR(v)}`}
+            formatter={(v: number) => `${trendGlyph(v)} ${signedMoney(v)}`}
           />
         </Bar>
       </BarChart>
@@ -300,18 +300,18 @@ function MonthlyWaterfall({
  */
 function ConfidenceBreakdown({
   item,
-  rScale,
+  dollarsPerCall,
 }: {
   item: AnalystScorecardItem;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
   if (item.by_confidence.length === 0) return null;
   return (
     <ul className="m-0 list-none space-y-2 p-0" data-testid="by-confidence">
       {item.by_confidence.map((row) => {
-        const total = row.cumulative_credit * rScale;
-        const win = toR(row.avg_win, rScale);
-        const loss = toR(row.avg_loss, rScale);
+        const total = row.cumulative_credit * dollarsPerCall;
+        const win = toDollars(row.avg_win, dollarsPerCall);
+        const loss = toDollars(row.avg_loss, dollarsPerCall);
         return (
           <li
             key={row.conviction}
@@ -326,17 +326,17 @@ function ConfidenceBreakdown({
                 {row.hit_rate_pct === null ? "" : ` (${Math.round(row.hit_rate_pct)}%)`}
               </span>
               <span className="ml-auto font-mono text-[length:var(--fs-body)] font-semibold text-ink">
-                <span aria-hidden="true">{trendGlyph(total)}</span> {signedR(total)}
+                <span aria-hidden="true">{trendGlyph(total)}</span> {signedMoney(total)}
               </span>
             </div>
             <div className="mt-0.5 text-[length:var(--fs-meta)] text-dim">
               Typical win{" "}
               <span className="font-mono text-ink">
-                {win === null ? "no wins yet" : signedR(win)}
+                {win === null ? "no wins yet" : signedMoney(win)}
               </span>
               , typical loss{" "}
               <span className="font-mono text-ink">
-                {loss === null ? "no losses yet" : signedR(loss)}
+                {loss === null ? "no losses yet" : signedMoney(loss)}
               </span>
               .
             </div>
@@ -349,15 +349,15 @@ function ConfidenceBreakdown({
 
 export function AnalystDetail({
   item,
-  rScale,
+  dollarsPerCall,
 }: {
   item: AnalystScorecardItem;
-  rScale: number;
+  dollarsPerCall: number;
 }) {
-  const total = item.cumulative_credit * rScale;
-  const below = item.below_best * rScale;
+  const total = item.cumulative_credit * dollarsPerCall;
+  const below = item.below_best * dollarsPerCall;
   const spell = longestSpellBelowBest(item);
-  const peak = item.peak * rScale;
+  const peak = item.peak * dollarsPerCall;
 
   return (
     <section className="flex flex-col gap-5" data-testid="analyst-detail">
@@ -366,7 +366,7 @@ export function AnalystDetail({
         <p className="m-0 text-[length:var(--fs-meta)] text-dim">
           {item.calls_right} of {item.resolved_calls} settled calls made money. Running total{" "}
           <span aria-hidden="true">{trendGlyph(total)}</span>{" "}
-          <strong className="font-mono text-ink">{signedR(total)}</strong>.
+          <strong className="font-mono text-ink">{signedMoney(total)}</strong>.
         </p>
       </header>
 
@@ -379,7 +379,7 @@ export function AnalystDetail({
           call earned or cost. Above the marked break-even line is money made; below it is money lost.
           Arrows mark each time it crossed from one to the other.
         </p>
-        <RunningProfitChart item={item} rScale={rScale} />
+        <RunningProfitChart item={item} dollarsPerCall={dollarsPerCall} />
       </div>
 
       <div>
@@ -388,12 +388,12 @@ export function AnalystDetail({
         </h4>
         <p className="m-0 mb-2 text-[length:var(--fs-meta)] leading-snug text-dim">
           The best running total this analyst has ever reached is{" "}
-          <strong className="font-mono text-ink">{signedR(peak)}</strong>. This strip hangs downward
+          <strong className="font-mono text-ink">{signedMoney(peak)}</strong>. This strip hangs downward
           from that best: the deeper it goes, the further below its own high-water mark the analyst had
           slipped at that moment.{" "}
           {below > 0 ? (
             <>
-              It is <strong className="font-mono text-ink">{signedR(-below)}</strong> below its best
+              It is <strong className="font-mono text-ink">{signedMoney(-below)}</strong> below its best
               right now, and has been for {item.calls_since_peak}{" "}
               {item.calls_since_peak === 1 ? "settled call" : "settled calls"} — since{" "}
               {dayLabel(item.below_best_since)}.
@@ -404,7 +404,7 @@ export function AnalystDetail({
           The longest it has ever stayed below a previous best is {spell}{" "}
           {spell === 1 ? "settled call" : "settled calls"}.
         </p>
-        <BelowBestStrip item={item} rScale={rScale} />
+        <BelowBestStrip item={item} dollarsPerCall={dollarsPerCall} />
       </div>
 
       <div>
@@ -419,7 +419,7 @@ export function AnalystDetail({
           more when it sounds sure. The counts are raw — a perfect record over two calls is not a perfect
           record over fifty.
         </p>
-        <ConfidenceBreakdown item={item} rScale={rScale} />
+        <ConfidenceBreakdown item={item} dollarsPerCall={dollarsPerCall} />
       </div>
 
       <div>
@@ -429,13 +429,13 @@ export function AnalystDetail({
           took away. Bars that made money are filled in; bars that lost money are hollow outlines. Every
           bar is labelled with its signed amount.
         </p>
-        <MonthlyWaterfall item={item} rScale={rScale} />
+        <MonthlyWaterfall item={item} dollarsPerCall={dollarsPerCall} />
         <ul className="mt-2 grid list-none gap-x-6 gap-y-1 p-0 text-[length:var(--fs-micro)] text-dim sm:grid-cols-2">
-          {waterfall(item, rScale).map((step) => (
+          {waterfall(item, dollarsPerCall).map((step) => (
             <li key={step.month} className="font-mono">
               <span aria-hidden="true">{trendGlyph(step.change)}</span> {monthLabel(step.month)}:{" "}
-              {signedR(step.change)} ({step.callsRight} of {step.resolvedCalls} right) — running total{" "}
-              {signedR(step.total)}
+              {signedMoney(step.change)} ({step.callsRight} of {step.resolvedCalls} right) — running total{" "}
+              {signedMoney(step.total)}
             </li>
           ))}
         </ul>

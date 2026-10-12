@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Badge, Callout } from "@tremor/react";
 import { legacyCreateColumnHelper as createColumnHelper, type LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { PositionItem } from "../api/client";
-import { fmtClock, fmtMoney, fmtNum, fmtR, pnlClass } from "../lib/format";
+import { fmtClock, fmtMoney, fmtNum, pnlClass } from "../lib/format";
 import { Panel, StateMessage } from "./ui/Panel";
 import { DataTable } from "./ui/DataTable";
 
@@ -121,17 +121,6 @@ export function PositionsPanel({
       columnHelper.accessor("unrealized_pnl", {
         header: "Unrealized P&L",
         cell: (info) => info.row.original.is_cash_equivalent ? "excluded" : <span className={pnlClass(info.getValue())}>{fmtMoney(info.getValue())}</span>,
-      }),
-      columnHelper.accessor("initial_stop", {
-        header: "Stop",
-        cell: (info) => (info.getValue() ? fmtMoney(info.getValue()) : <span className="text-dim">—</span>),
-      }),
-      columnHelper.accessor("unrealised_r", {
-        header: "Unrealised R",
-        cell: (info) => {
-          const v = info.getValue();
-          return v === null || v === undefined ? <span className="text-dim">—</span> : <span className={pnlClass(v)}>{fmtR(v)}</span>;
-        },
       }),
       columnHelper.accessor("sector", { header: "Sector", cell: (info) => info.getValue() || "—" }),
     ] as LegacyColumnDef<PositionItem, unknown>[],

@@ -84,19 +84,6 @@ def _insert(
         "symbol,evidence_json,timestamp) VALUES (?,?,?,?,?,?,?,?)",
         ("run-1", decision_id, agent, kind, "symbol", symbol, payload, timestamp),
     )
-    if kind == "conviction_credit":
-        # The scorecard counts only positions opened on/after the clean-record start, so every
-        # scored call needs an opening row; this is a clean one (after 2026-10-12 13:30 UTC).
-        try:
-            pid = json.loads(payload).get("position_id")
-        except ValueError:
-            pid = None  # a deliberately malformed row has no position to open
-        if pid and not db.conn.execute("SELECT 1 FROM trades WHERE position_id = ?", (pid,)).fetchone():
-            db.conn.execute(
-                "INSERT INTO trades (symbol, action, qty, price, timestamp, position_id) "
-                "VALUES (?, 'BUY', 1, 1, '2026-10-13 14:00:00', ?)",
-                (symbol, pid),
-            )
 
 
 def _seed(tmp_path, monkeypatch, *, populated: bool = True) -> Path:
@@ -190,7 +177,7 @@ def test_scorecard_returns_per_analyst_record_with_raw_counts(tmp_path, monkeypa
 
     assert body["state"] == "populated"
     assert body["resolved_calls_total"] == 4
-    assert "risk_dollars_per_call" not in body
+    assert body["risk_dollars_per_call"] == 100.0
     assert body["months"] == ["2026-06", "2026-07"]
 
     by_name = {a["analyst"]: a for a in body["analysts"]}
@@ -623,14 +610,3 @@ def test_projection_matches_the_ledgers_own_aggregate_when_it_is_available():
             (b.conviction, b.resolved_calls, b.calls_right, b.avg_win, b.avg_loss, b.cumulative_credit)
             for b in record.by_confidence
         ]
-
-
-def test_pre_clean_record_calls_are_set_aside_and_counted(tmp_path, monkeypatch):
-    path = _seed(tmp_path, monkeypatch)
-    conn = sqlite3.connect(path)
-    conn.execute("UPDATE trades SET timestamp = '2026-10-09 14:00:00' WHERE position_id = 'pos-1'")
-    conn.commit()
-    conn.close()
-    body = TestClient(app).get("/analysts/scorecard").json()
-    assert body["excluded_pre_clean_record_n"] == 1
-    assert {i["position_id"] for i in body["ideas"]} == {"pos-2"}

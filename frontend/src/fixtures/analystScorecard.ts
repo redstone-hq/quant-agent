@@ -41,6 +41,7 @@ export const ANALYST_SCORECARD_EXAMPLE: AnalystScorecardResponse =
   "as_of": "2026-08-26T20:00:00+00:00",
   "state": "populated",
   "read_error": null,
+  "risk_dollars_per_call": 100.0,
   "resolved_calls_total": 34,
   "months": [
     "2026-05",

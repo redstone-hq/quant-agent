@@ -54,6 +54,7 @@ def _exec_pipeline_with_print(price: float):
     orders — enough to drive the real SHORT submit loop."""
     now = datetime.now(ET)
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price_stamped.return_value = LivePrice(
         price=price,
         source="last_trade",

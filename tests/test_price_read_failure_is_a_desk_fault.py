@@ -123,6 +123,7 @@ def _decision(symbol: str, action: str = "BUY") -> TradeDecision:
 
 def _pipeline(stamped_reader, positions=None):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price_stamped = stamped_reader
     pipeline.broker.get_latest_price = lambda s: stamped_reader(s).price
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 99.0, "ask_price": 101.0}

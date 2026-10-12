@@ -114,10 +114,12 @@ __all__ = [
     "SeatCredit",
     "ConfidenceRecord",
     "SeatRecord",
+    "ClosedPosition",
     "normalize_seat",
     "normalize_conviction",
     "score_position",
     "aggregate_seat_records",
+    "summarize_closed_position",
 ]
 
 
@@ -294,6 +296,29 @@ class SeatRecord:
         return round(self.calls_right / self.resolved_calls * 100, 2)
 
 
+@dataclass(frozen=True)
+class ClosedPosition:
+    """A position chain that has gone flat, reduced to what scoring needs.
+
+    Produced by `summarize_closed_position` from one `position_id`'s trades
+    rows. `initial_stop` is the stop the position was OPENED with — the
+    R-multiple denominator — and is None when no entry row recorded one, in
+    which case the position is not scorable and is skipped rather than
+    scored against a fabricated risk.
+    """
+
+    position_id: str
+    symbol: str
+    direction: str
+    decision_id: str | None
+    entry_price: float
+    exit_price: float
+    initial_stop: float | None
+    qty: float
+    opened_at: str
+    closed_at: str
+
+
 def score_position(
     *,
     symbol: str,
@@ -444,4 +469,132 @@ def _confidence_record(conviction: str, rows: list[SeatCredit]) -> ConfidenceRec
         avg_win=round(sum(wins) / len(wins), 4) if wins else None,
         avg_loss=round(sum(losses) / len(losses), 4) if losses else None,
         cumulative_credit=round(sum(c.credit for c in rows), 4),
+    )
+
+
+def _executed_qty(row: dict) -> float:
+    """Shares this row actually moved. Prefers the reconciled fill over the
+    requested quantity, mirroring `compute_trade_calibration`."""
+    try:
+        fill = float(row.get("fill_qty") or 0)
+    except (TypeError, ValueError):
+        fill = 0.0
+    if fill > 0:
+        return fill
+    try:
+        return float(row.get("qty") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _executed_price(row: dict) -> float:
+    try:
+        fill = float(row.get("fill_price") or 0)
+    except (TypeError, ValueError):
+        fill = 0.0
+    if fill > 0:
+        return fill
+    try:
+        return float(row.get("price") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+#: Opening actions, mapped to the direction the position carries. Both sides
+#: are live: `_assign_position_ids` (src/storage/db.py) mints a chain on a
+#: SHORT exactly as it does on a BUY, and a COVER retires it exactly as a SELL
+#: retires a long (owner decision, 2026-08-31 — shorts count identically to
+#: longs). The `qty` this function returns is NEGATIVE for a short, which is
+#: the only place direction is expressed: it is what tells `r_multiple` which
+#: side the position was, so a profitable short comes back as a positive R.
+_OPEN_ACTIONS: dict[str, str] = {"BUY": "long", "SHORT": "short"}
+
+
+def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
+    """Reduce one position chain's trades rows to a scorable round trip.
+
+    `rows` are every `trades` row sharing one `position_id`, oldest first,
+    each a dict with at least symbol/action/qty/price/fill_qty/fill_price/
+    fill_status/stop_loss/decision_id/timestamp.
+
+    Returns None — never a guess — when the chain is not scorable:
+      - it never opened (no BUY/SHORT row),
+      - it is still open (executed exit quantity has not retired the entries),
+      - entry or exit price is missing or non-positive,
+      - or the exit rows moved no shares (a placed-but-never-filled
+        TRAIL_STOP is protection sitting there, not an exit — the same
+        distinction `_is_filled_trail_stop` already draws).
+
+    A chain with no `stop_loss` on any entry row IS returned, with
+    `initial_stop=None`; the caller skips it rather than inventing a
+    denominator, and the distinction is worth preserving for the caller's
+    own reporting.
+    """
+    from src.execution.stop_records import recorded_initial_stop
+
+    opens: list[dict] = []
+    exits: list[dict] = []
+    direction: str | None = None
+    for row in rows:
+        action = str(row.get("action") or "").upper()
+        if action in _OPEN_ACTIONS:
+            if direction is None:
+                direction = _OPEN_ACTIONS[action]
+            opens.append(row)
+        elif action == "TRAIL_STOP":
+            # Only a FILLED trail stop closed anything.
+            status = str(row.get("fill_status") or "").lower()
+            filled = status == "filled" or (status == "" and _executed_qty(row) > 0)
+            if filled and _executed_qty(row) > 0:
+                exits.append(row)
+        elif action:
+            exits.append(row)
+
+    if not opens or direction is None or not exits:
+        return None
+
+    open_qty = sum(_executed_qty(r) for r in opens)
+    exit_qty = sum(_executed_qty(r) for r in exits)
+    if open_qty <= 0 or exit_qty <= 0:
+        return None
+    if exit_qty + 1e-6 < open_qty:
+        return None  # still open — outcome is not known yet
+
+    def _vwap(chain: list[dict]) -> float:
+        total_qty = sum(_executed_qty(r) for r in chain)
+        if total_qty <= 0:
+            return 0.0
+        return sum(_executed_qty(r) * _executed_price(r) for r in chain) / total_qty
+
+    entry_price = _vwap(opens)
+    exit_price = _vwap(exits)
+    if entry_price <= 0 or exit_price <= 0:
+        return None
+
+    initial_stop: float | None = None
+    for row in opens:
+        stop = recorded_initial_stop(row)
+        if stop > 0:
+            initial_stop = stop
+            break
+
+    decision_id = next(
+        (row.get("decision_id") for row in opens if row.get("decision_id")),
+        None,
+    )
+    position_id = next(
+        (row.get("position_id") for row in rows if row.get("position_id")),
+        "",
+    )
+    return ClosedPosition(
+        position_id=str(position_id or ""),
+        symbol=str(opens[0].get("symbol") or "").strip().upper(),
+        direction=direction,
+        decision_id=decision_id,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        initial_stop=initial_stop,
+        qty=open_qty if direction == "long" else -open_qty,
+        opened_at=str(opens[0].get("timestamp") or ""),
+        closed_at=str(exits[-1].get("timestamp") or ""),
     )

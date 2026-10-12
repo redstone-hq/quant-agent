@@ -50,7 +50,6 @@ from src.api.routes_live import router as live_router
 from src.api.routes_pruning import router as pruning_router
 from src.api.routes_research import router as research_router
 from src.api.routes_scorecard import router as scorecard_router
-from src.api.routes_trade_review import router as trade_review_router
 from src import inflight
 from src.data_paths import board_dir
 
@@ -267,7 +266,6 @@ def create_app() -> FastAPI:
     app.include_router(journal_router, tags=["journal"])
     app.include_router(research_router, tags=["research"])
     app.include_router(scorecard_router, tags=["scorecard"])
-    app.include_router(trade_review_router, tags=["trade-review"])
 
     if _STATIC_DIR.is_dir():
         # Stage 3 cockpit — static assets only, no templating/server state.

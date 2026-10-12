@@ -87,9 +87,3 @@ export function etDateKey(input: string | Date): string {
   if (isNaN(d.getTime())) return "";
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
-
-/** Signed R multiple: "+2.00R" / "-0.50R"; "—" when R is unknown (never 0). */
-export function fmtR(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  return `${v > 0 ? "+" : ""}${v.toFixed(2)}R`;
-}

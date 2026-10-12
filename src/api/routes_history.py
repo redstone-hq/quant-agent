@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from src.storage.analytics.trade_review import closed_r_by_exit_row
 from src.api import db_reads, deps
 from src.api.holding_why import build_holding_why
 from src.api.schemas import (
@@ -61,8 +60,7 @@ def get_trades(
         executed_only=executed_only,
         limit=limit,
     )
-    r_by_row = closed_r_by_exit_row(db_reads.get_position_chain_rows([r.get("position_id") for r in rows]))
-    trades = [TradeItem(**{**row, "r_multiple": r_by_row.get(row.get("id"))}) for row in rows]
+    trades = [TradeItem(**row) for row in rows]
     return TradesResponse(trades=trades, count=len(trades))
 
 

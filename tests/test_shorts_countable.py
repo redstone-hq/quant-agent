@@ -28,8 +28,7 @@ from unittest.mock import MagicMock
 
 from src.models import Position, TargetPosition, TechAnalysisResult, TechReasoningChain
 from src.portfolio_constructor import PortfolioConstructor
-from src.quantities import r_multiple
-from src.risk.metrics import portfolio_heat, position_risk
+from src.risk.metrics import portfolio_heat, position_risk, r_multiple
 from tests.pipeline_factory import build_pipeline
 
 

@@ -34,7 +34,6 @@ CREATE TABLE trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     position_id TEXT, symbol TEXT, action TEXT, qty REAL, price REAL,
     fill_qty REAL, fill_price REAL, fill_status TEXT, stop_loss REAL,
-    initial_stop_loss REAL,
     decision_id TEXT, run_id TEXT, timestamp TEXT
 );
 """
@@ -72,8 +71,6 @@ def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         rows,
     )
-    # The entry row freezes its stop at insert, as production does.
-    conn.execute("UPDATE trades SET initial_stop_loss = stop_loss")
     conn.execute(
         "INSERT INTO specialist_evidence (run_id, decision_id, agent_name, kind,"
         " scope, symbol, evidence_json) VALUES (?,?,?,?,?,?,?)",
@@ -172,7 +169,7 @@ def test_a_chain_with_no_seat_stances_is_counted_never_fabricated():
 def test_a_chain_with_no_entry_stop_has_no_honest_r_and_is_skipped():
     conn = _conn()
     _seed_round_trip(conn)
-    conn.execute("UPDATE trades SET stop_loss = 0, initial_stop_loss = 0 WHERE action = 'BUY'")
+    conn.execute("UPDATE trades SET stop_loss = 0 WHERE action = 'BUY'")
     conn.commit()
     store = build_conviction_ledger_store(conn=conn, lock=threading.Lock())
     counters = store.resolve_conviction_ledger()
