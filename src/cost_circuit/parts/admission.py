@@ -15,6 +15,7 @@ from src.cost_circuit.refusal import (
     _fmt_settled,
 )
 from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.cost_circuit.free_route import admit_free_route_locked
 
 
 class Admission:
@@ -212,16 +213,39 @@ class Admission:
         self._notify_if_needed()
         return self.status()
 
-    def require_paid_analysis(self, agent_name: str = "analysis") -> None:
-        """Raise if paid analysis is suspended; safe to call after broker work."""
+    def require_paid_analysis(self, agent_name: str = "analysis", model: str | None = None) -> None:
+        """Raise if analysis is suspended; safe to call after broker work.
+
+        `model` is the agent's primary route. When it is priced $0 and the only
+        active stops are money caps, the call is admitted (see free_route).
+        """
 
         if not self.enabled:
             return
         self.enforce_current_limits(agent_name=agent_name)
         state = self.status()
         if state.get("suspended"):
+            if model is not None and self._free_route_admitted(agent_name, model):
+                return
             self._notify_if_needed()
             raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)
+
+    def _free_route_admitted(self, agent_name: str, model: str) -> bool:
+        """Same rule as begin_call, for the pipeline preflight. Fails closed."""
+
+        self._raise_if_unavailable(agent_name)
+        run_id, mode = self._context()
+        day, _, _ = _et_day_and_utc_bounds()
+        with self._connect() as conn:
+            return admit_free_route_locked(
+                conn,
+                day=day,
+                run_id=run_id,
+                mode=mode,
+                agent_name=agent_name,
+                model=model,
+                boundary="require_paid_analysis",
+            )
 
     def begin_call(
         self,
@@ -272,7 +296,15 @@ class Admission:
             attempts = int(session_row["provider_attempts"] if session_row else 0)
             logical_calls = int(session_row["logical_calls"] if session_row else 0)
 
-            if int(state.get("suspended") or 0):
+            if int(state.get("suspended") or 0) and not admit_free_route_locked(
+                conn,
+                day=day,
+                run_id=run_id,
+                mode=mode,
+                agent_name=agent_name,
+                model=model,
+                boundary="begin_call",
+            ):
                 conn.commit()
                 self._notify_if_needed()
                 raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)
@@ -301,7 +333,16 @@ class Admission:
                 run_id=run_id,
                 mode=mode,
             )
-            if int(state.get("suspended") or 0):
+            if int(state.get("suspended") or 0) and not admit_free_route_locked(
+                conn,
+                day=day,
+                run_id=run_id,
+                mode=mode,
+                agent_name=agent_name,
+                model=model,
+                boundary="begin_call",
+                log=False,
+            ):
                 conn.commit()
                 self._notify_if_needed()
                 raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)
