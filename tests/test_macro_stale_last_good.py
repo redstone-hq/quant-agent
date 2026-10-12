@@ -5,15 +5,28 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from src.data.macro import MacroDataProvider
 from src.data.macro_series_cache import MacroSeriesCache
 from src.data.fetch_coverage_record import build_row
-from src.trading_calendar import et_now
+from src.trading_calendar import ET
+
+# A fixed ordinary Wednesday: an entry 3-5 days old then always crosses a
+# publication boundary, so it is never "still current". Seeding off the real
+# clock failed on Columbus Day 2026 after 16:15 ET: Friday 16:30 to Monday
+# 16:30 crosses no boundary (no H.15 on the bond-market holiday), so the cache
+# was served as current and the failure path never ran.
+_NOW = datetime(2026, 9, 16, 12, 0, tzinfo=ET)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_clock(monkeypatch):
+    monkeypatch.setattr("src.data.macro.et_now", lambda: _NOW)
 
 
 def _seed(cache, sid, kwargs, days_old):
-    cache.save(sid, kwargs, [("2026-09-01", 1.0), ("2026-09-02", 2.0)], None, None, et_now() - timedelta(days=days_old))
+    cache.save(sid, kwargs, [("2026-09-01", 1.0), ("2026-09-02", 2.0)], None, None, _NOW - timedelta(days=days_old))
 
 
 def _provider(tmp_path, fred_cls, side_effect):
