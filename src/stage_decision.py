@@ -124,8 +124,9 @@ class DecisionStage:
         # auto-attrs would otherwise duck-type as an enabled sweeper.
         from src.execution.cash_sweep import CashSweeper
 
-        sweeper = getattr(pipeline, "_sweeper", None)
-        sweeper = sweeper() if callable(sweeper) else None
+        # Direct read: `_sweeper` is a TradingPipeline method, so a pipeline
+        # without it is a wiring fault and raises here.
+        sweeper = pipeline._sweeper()
         reserve_balance = 0.0
         if isinstance(sweeper, CashSweeper):
             positions, parked = sweeper.split_positions(positions)
