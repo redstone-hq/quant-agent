@@ -86,6 +86,78 @@ def _rotation_ranked_margin_enabled(pipeline) -> bool:
     return getattr(execution_cfg, "rotation_ranked_margin_enabled", None) is True
 
 
+#: A research seat that returned NO usable reading this run (provider
+#: outage, unparseable answer, a carry-forward that could not be read). Every
+#: holding's evidence from such a seat is unknown.
+_SEAT_NO_READING_STATUSES = frozenset(
+    {
+        "failed",
+        "provider_error",
+        "parse_error",
+        "carry_forward_failed",
+    }
+)
+
+#: A seat whose answer WAS read but is incomplete (some sources or symbols
+#: missing, an answer cut off mid-generation, external coverage blind). News
+#: is `partial` on most runs (one source of eleven down, measured 12 Oct), so
+#: this counts against a holding ONLY when that holding has no evidence from
+#: the seat this run; otherwise the holding's own reading is complete.
+_SEAT_INCOMPLETE_READING_STATUSES = frozenset(
+    {
+        "partial",
+        "truncated",
+        "degraded",
+        "symbol_dropped",
+        "field_unreadable",
+        "market_wide_blind",
+    }
+)
+
+#: The one entry-bar reason that is a SUM over seat evidence (R5, net
+#: independent source score). A seat that failed contributes nothing to that
+#: sum, so a failure can push a sound holding to "net <= 0". R2 (neutral
+#: technical), R3 (not BUY-eligible), R6 (constructor refusal) and R7 (a seat
+#: actively opposed) are each a positive reading that a missing seat cannot
+#: manufacture.
+_NET_EVIDENCE_REASON_PREFIX = "R5 "
+
+
+def failed_evidence_seats(ctx, symbol: str | None = None) -> tuple[str, ...]:
+    """The non-technical seats whose reading for `symbol` is unknown this run.
+
+    A seat with no reading at all counts for every holding. A seat whose
+    answer was read but is incomplete counts only when `symbol` has no
+    evidence from it in this run's evidence registry. Technical is per name:
+    a holding whose own technical read failed is never judged at all.
+    """
+    status = getattr(ctx, "data_status", None) or {}
+    if not isinstance(status, dict):
+        return ()
+    registry = getattr(ctx, "evidence_registry", None) or {}
+    own = registry.get(str(symbol or "").upper(), {}) if isinstance(registry, dict) else {}
+    failed = []
+    for seat, value in status.items():
+        seat, value = str(seat), str(value)
+        if seat == "tech":
+            continue
+        if value in _SEAT_NO_READING_STATUSES:
+            failed.append(seat)
+        elif value in _SEAT_INCOMPLETE_READING_STATUSES and own.get(seat) is None:
+            failed.append(seat)
+    return tuple(sorted(failed))
+
+
+def below_bar_only_on_incomplete_evidence(reasons, failed_seats: tuple[str, ...]) -> bool:
+    """Unknown is not fail: True when the ONLY grounds a holding fails the
+    entry bar on is the evidence sum, and a seat that feeds that sum failed
+    this run. Such a holding is not judged below the bar this run."""
+    if not failed_seats:
+        return False
+    texts = [str(r) for r in (reasons or ())]
+    return bool(texts) and all(t.startswith(_NET_EVIDENCE_REASON_PREFIX) for t in texts)
+
+
 def _rotation_skip(pipeline, ctx, opportunity, reason: str, **details) -> None:
     """One durable `rotation` / `skipped` audit row. Every refusal to act
     lands here so the evening review can see WHY a surfaced comparison did
@@ -324,6 +396,17 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
                 cand_opp,
                 "held_symbol_is_not_a_long_position",
                 qty=getattr(held_pos, "qty", None),
+            )
+            return None
+        failed_seats = failed_evidence_seats(ctx, cand_symbol)
+        if cand_opp.tier == "ineligible_hold" and below_bar_only_on_incomplete_evidence(cand_opp.reasons, failed_seats):
+            _rotation_skip(
+                pipeline,
+                ctx,
+                cand_opp,
+                "evidence_incomplete_seat_failed",
+                failed_seats=",".join(failed_seats),
+                held_reasons=list(cand_opp.reasons),
             )
             return None
         if any(t.symbol.upper() == cand_symbol for t in targets):
