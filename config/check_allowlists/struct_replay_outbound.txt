@@ -23,3 +23,4 @@ src/notifier/__init__.py | requests
 src/notifier/snapshots.py | yfinance
 src/notifier/transport.py | requests
 src/sector_reference.py | yfinance
+src/universe_daily.py | yfinance

@@ -32,11 +32,13 @@ Data and call budget:
                dropped names go back in). ONLY a name that passed every
                other check and is (a) a fund with no category or (b) a stock
                whose Nasdaq sector is Unknown gets one yfinance `.info` read
-               (`category` for a fund, `sector` for a stock), paced
-               `YAHOO_PACE_S` apart, backing off on HTTP 429 and stopping
-               Yahoo reads for the rest of the run if the limit persists. It
+               (`category` for a fund, `sector` for a stock), one after
+               another with yfinance's own timeout. The FIRST rate limit
+               (HTTP 429) stops Yahoo for the rest of the run: every name not
+               yet read is recorded unreached (never admitted), and the
+               ISO-week cache (the SEC filings rule) fills across runs. It
                runs after every other read, so it never eats their time
-               budget. Cached on the same ISO-week rule as SEC filings. A
+               budget. A
                fund category goes through `check_fund` (leveraged, inverse,
                bond, T-bill and money-market words refuse); a stock sector is
                used as is (Yahoo's names ARE the desk's). An error, rate
@@ -86,21 +88,12 @@ logger = logging.getLogger(__name__)
 
 UNREACHED = "unreached_time_limit"
 UNREACHED_TEXT = "unreached: time limit"
+YAHOO_LIMITED = "unreached_yahoo_rate_limit"
+YAHOO_LIMITED_TEXT = "unreached: Yahoo rate limit earlier this run"
 
-#: Seconds between Yahoo `.info` reads in the second pass. An operating
-#: pace, not a screen threshold: Yahoo publishes no limit, and the 9 Oct
-#: unpaced full pass drew 3,784 HTTP 429s (#1661).
-YAHOO_PACE_S = 1.0
-#: On HTTP 429: wait YAHOO_BACKOFF_S, then twice that, then give up and stop
-#: reading Yahoo for the rest of the run (every remaining name: could not read).
-YAHOO_BACKOFF_S = 15.0
-YAHOO_RATE_LIMIT_RETRIES = 2
 #: Stand-in sector while a stock with no Nasdaq sector runs its remaining
 #: (takeover) check; always replaced before the record is written.
 _SECTOR_PENDING = "pending: Yahoo sector"
-#: Per-read ceiling on a hung yfinance socket (same value the desk's sector
-#: lookup uses, `src.sector_reference._SECTOR_LOOKUP_TIMEOUT_S`).
-YAHOO_READ_TIMEOUT_S = 10
 
 
 # --------------------------------------------------------------------------
@@ -225,7 +218,6 @@ def run_daily_record(
     cache: ReadCache,
     clock: Callable[[], float] = time.monotonic,
     get_yahoo: Callable[[str], dict] | None = None,
-    sleep: Callable[[float], None] = time.sleep,
 ) -> DailyRun:
     """Screen every listed name once; record each. Never mutates admission state.
 
@@ -241,7 +233,6 @@ def run_daily_record(
         get_profile=get_profile,
         get_filings=get_filings,
         get_yahoo=get_yahoo,
-        sleep=sleep,
     )
     by_symbol: dict[str, Any] = {}
     for asset in assets:
@@ -266,14 +257,12 @@ class _DailyScreen:
     get_profile: Callable[[str], Any]
     get_filings: Callable[[str], Any]
     get_yahoo: Callable[[str], dict] | None = None
-    sleep: Callable[[float], None] = time.sleep
     # The time limit is checked when a name STARTS: a name begun in time
     # finishes its reads; one begun late uses only what is cached.
     late: bool = False
     # Names that passed every other check and wait for a Yahoo read:
     # (symbol, "fund" | "stock", measured, extra record fields).
     yahoo_due: list = field(default_factory=list)
-    yahoo_last_call: float | None = None
     yahoo_blocked: bool = False
 
     def asset_phase(self, by_symbol: dict[str, Any]) -> list[str]:
@@ -398,6 +387,9 @@ class _DailyScreen:
                 continue
             else:
                 value, read_on_day = self._yahoo_read(symbol, kind), self.run.today.isoformat()
+                if self.yahoo_blocked:
+                    self.run.record(symbol, "unreached", [YAHOO_LIMITED], measured, reason=YAHOO_LIMITED_TEXT)
+                    continue
             extra = {**read_on, "yahoo_read_on": read_on_day if value else None}
             text = str((value or {}).get(kind) or "").strip() if isinstance(value, dict) else ""
             if kind == "fund" and text:
@@ -410,40 +402,29 @@ class _DailyScreen:
                 self.run.record(symbol, "inconclusive", ["profile_unavailable"], measured, **extra)
 
     def _yahoo_read(self, symbol: str, kind: str) -> dict | None:
-        """One paced `.info` read -> {kind: text}, cached when not blank; None on failure."""
+        """One `.info` read -> {kind: text}, cached when not blank; None on failure.
+        The first rate limit sets `yahoo_blocked`: no further read this run."""
         if self.yahoo_blocked:
+            return None
+        self.run.yahoo["calls"] += 1
+        try:
+            info = self.get_yahoo(symbol) or {}
+        except Exception as exc:  # noqa: BLE001 -- recorded per name as could-not-read
             self.run.yahoo["failures"] += 1
+            if _is_rate_limit(exc):
+                logger.warning("universe daily: Yahoo rate limit on %s; no more Yahoo reads this run", symbol)
+                self.yahoo_blocked = True
+            else:
+                logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
             return None
         key = "category" if kind == "fund" else "sector"
-        for attempt in range(YAHOO_RATE_LIMIT_RETRIES + 1):
-            if self.yahoo_last_call is not None:
-                wait = YAHOO_PACE_S - (self.clock() - self.yahoo_last_call)
-                if wait > 0:
-                    self.sleep(wait)
-            self.yahoo_last_call = self.clock()
-            self.run.yahoo["calls"] += 1
-            try:
-                info = self.get_yahoo(symbol) or {}
-            except Exception as exc:  # noqa: BLE001 -- recorded per name as could-not-read
-                limited = _is_rate_limit(exc)
-                backoff = YAHOO_BACKOFF_S * (2**attempt)
-                if limited and attempt < YAHOO_RATE_LIMIT_RETRIES and self.clock() + backoff < self.deadline:
-                    logger.warning("universe daily: Yahoo rate limit on %s; waiting %.0fs", symbol, backoff)
-                    self.sleep(backoff)
-                    continue
-                logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
-                self.run.yahoo["failures"] += 1
-                if limited:
-                    self.yahoo_blocked = True
-                return None
-            text = str(info.get(key) or "").strip() if isinstance(info, dict) else ""
-            if not text:
-                self.run.yahoo["failures"] += 1
-                return None
-            value = {kind: text}
-            self.cache.put("yahoo", symbol, value, self.run.today)
-            return value
-        return None
+        text = str(info.get(key) or "").strip() if isinstance(info, dict) else ""
+        if not text:
+            self.run.yahoo["failures"] += 1
+            return None
+        value = {kind: text}
+        self.cache.put("yahoo", symbol, value, self.run.today)
+        return value
 
 
 def _is_rate_limit(exc: BaseException) -> bool:
@@ -533,20 +514,13 @@ def _profile_reader(listing, canonicalize):
     return _profile
 
 
-def _yahoo_reader(timeout_s: float = YAHOO_READ_TIMEOUT_S):
-    """yfinance `Ticker(sym).info` for the second pass, with a hard ceiling on
-    a hung socket (a timeout raises, so the name records could-not-read)."""
-    from concurrent.futures import ThreadPoolExecutor
-
+def _yahoo_reader():
+    """yfinance `Ticker(sym).info` for the second pass, on yfinance's own timeout."""
     import yfinance as yf
 
     def _info(symbol: str) -> dict:
-        pool = ThreadPoolExecutor(max_workers=1)
-        try:
-            # Yahoo spells share classes with a dash (BRK-B), never a dot.
-            return pool.submit(lambda: yf.Ticker(symbol.replace(".", "-")).info or {}).result(timeout=timeout_s)
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+        # Yahoo spells share classes with a dash (BRK-B), never a dot.
+        return yf.Ticker(symbol.replace(".", "-")).info or {}
 
     return _info
 

@@ -36,7 +36,7 @@ def _run(
     after_bars=None,
     yahoo=None,
 ):
-    calls = {"bars": [], "profile": [], "filings": [], "yahoo": [], "sleep": []}
+    calls = {"bars": [], "profile": [], "filings": [], "yahoo": []}
 
     def get_bars(chunk):
         if after_bars is not None:
@@ -64,7 +64,6 @@ def _run(
         cache=cache or ud.ReadCache(tmp_path),
         clock=clock or Clock(),
         get_yahoo=None if yahoo is None else (lambda s: calls["yahoo"].append(s) or yahoo(s)),
-        sleep=calls["sleep"].append,
     )
     return run, calls
 
@@ -337,21 +336,22 @@ def test_yahoo_failure_is_inconclusive_never_dropped_or_admitted(tmp_path):
     assert run.summary()["yahoo_second_pass"]["failures"] == 1
 
 
-def test_rate_limit_backs_off_then_stops_reading_yahoo(tmp_path):
+def test_first_rate_limit_stops_every_further_yahoo_read(tmp_path):
     class YFRateLimitError(Exception):
         pass
 
     def limited(s):
         raise YFRateLimitError("Too Many Requests. Rate limited.")
 
-    assets = [_asset("SPY"), _asset("QQQ")]
+    assets = [_asset("SPY"), _asset("QQQ"), _asset("IWM")]
     run, calls = _run(assets, tmp_path, profile=FUND, yahoo=limited)
-    # One name: first try + two backoffs; the second name costs no call.
-    assert calls["yahoo"] == ["QQQ"] * (ud.YAHOO_RATE_LIMIT_RETRIES + 1)
-    assert ud.YAHOO_BACKOFF_S in calls["sleep"] and ud.YAHOO_BACKOFF_S * 2 in calls["sleep"]
-    for name in ("SPY", "QQQ"):
-        assert run.records[name]["status"] == "inconclusive"
-    assert run.summary()["yahoo_second_pass"]["failures"] == 2
+    assert calls["yahoo"] == ["IWM"]  # one call, no retry, nothing after it
+    for name in ("SPY", "QQQ", "IWM"):
+        row = run.records[name]
+        assert row["status"] == "unreached" and row["failures"] == [ud.YAHOO_LIMITED]
+    summary = run.summary()
+    assert summary["passed"] == 0 and summary["dropped"] == 0 and summary["unreached"] == 3
+    assert summary["yahoo_second_pass"] == {"names": 3, "calls": 1, "failures": 1, "cache_hits": 0}
 
 
 def test_unknown_nasdaq_sector_gets_its_yahoo_sector(tmp_path):
@@ -377,11 +377,11 @@ def test_no_yahoo_call_for_a_name_that_failed_another_check(tmp_path):
     assert run.records["TINY"]["status"] == "dropped"
 
 
-def test_yahoo_reads_are_paced_and_cached_for_the_week(tmp_path):
+def test_yahoo_reads_are_cached_for_the_week(tmp_path):
     cache = ud.ReadCache(tmp_path)
     assets = [_asset("SPY"), _asset("QQQ")]
     _, first = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
-    assert first["yahoo"] == ["QQQ", "SPY"] and first["sleep"] == [ud.YAHOO_PACE_S]
+    assert first["yahoo"] == ["QQQ", "SPY"]
     run, second = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
     assert second["yahoo"] == []
     assert run.summary()["yahoo_second_pass"] == {"names": 2, "calls": 0, "failures": 0, "cache_hits": 2}
