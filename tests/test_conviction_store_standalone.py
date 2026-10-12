@@ -20,6 +20,7 @@ from src.storage.conviction_ledger_store import (
 from src.storage.schema import DatabaseSchema
 from src.storage.seat_stances import SEAT_STANCE_KIND, read_seat_stances
 
+
 def _conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -34,7 +35,21 @@ def _conn():
 def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
     conn.executescript("")
     rows = [
-        (position_id, "AAPL", "BUY", 10, 100.0, 10, 100.0, "filled", 90.0, 90.0, "dec-1", "run-1", "2026-09-01T14:00:00"),
+        (
+            position_id,
+            "AAPL",
+            "BUY",
+            10,
+            100.0,
+            10,
+            100.0,
+            "filled",
+            90.0,
+            90.0,
+            "dec-1",
+            "run-1",
+            "2026-09-01T14:00:00",
+        ),
         (
             position_id,
             "AAPL",
