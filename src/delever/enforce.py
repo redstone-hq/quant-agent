@@ -9,7 +9,6 @@ never a body this part owns, so no recursion guard is needed.
 
 import logging
 
-from src.delever.risk_number import _risk_number
 
 from src.pipeline_context import RunContext
 
@@ -133,10 +132,6 @@ class DeleverEnforce:
             # Keep the debt open; the discharge re-measures and no-ops when
             # the book did come under.
             ctx.gross_ceiling_deferred = True
-        min_order_usd = _risk_number(
-            getattr(getattr(self.config, "cash_sweep", None), "min_order_usd", None),
-            500.0,
-        )
         # PLANNED EXITS ALREADY DECIDED THIS SESSION. The preamble pass runs
         # before any agent, so there are none. The post-decision conviction
         # pass runs AFTER the risk stage, when the desk has already approved
@@ -160,7 +155,6 @@ class DeleverEnforce:
             ctx.total_value,
             ceiling,
             cash_park_symbol=self._sweep_symbol(),
-            min_order_usd=min_order_usd,
             conviction_rank=conviction_rank,
         )
         orders = self._submit_gross_ceiling_trims(ctx, ceiling, outcome)

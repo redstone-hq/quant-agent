@@ -69,13 +69,12 @@ NVDA = Position(
 )
 
 
-def _sweep_pipeline(enabled=True, min_order_usd=500.0):
+def _sweep_pipeline(enabled=True):
     pipeline = build_pipeline(broker=MagicMock(), db=MagicMock())
     pipeline.config = SimpleNamespace(
         cash_sweep=CashSweepConfig(
             enabled=enabled,
             symbol="SGOV",
-            min_order_usd=min_order_usd,
         ),
         risk=RiskConfig(
             max_position_pct=20,

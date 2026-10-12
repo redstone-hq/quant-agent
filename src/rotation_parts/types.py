@@ -33,7 +33,7 @@ REQUIRED_BUY_LEG_GATES = (
     # ladder-backed branch.
     #
     # The list was FIVE long until 2026-09-24. `below_min_notional`
-    # (retired-ok) is gone the same way: the flat $500 `min_order_usd`
+    # (retired-ok) is gone the same way: the flat $500 `min_order_usd` (deleted)
     # notional floor it named was an arbitrary round number
     # (config/number_ledger.yaml), not a broker minimum, and Alpaca charges
     # no stock commission — a genuine ~$295 / 2.95%-of-equity trade was
@@ -49,6 +49,10 @@ REQUIRED_BUY_LEG_GATES = (
     # the risk headroom is already under the floor. Leaving it out was the
     # same class of omission as attempt 1's, one layer further down.
     "insufficient_cash",
+    # Owner rule 2026-08-27: below the minimum risk per position the desk
+    # does not trade. Execution refuses a buy under it, so a rotation whose
+    # replacement would land under it must be refused BEFORE the sale.
+    "below_owner_min_risk",
 )
 
 #: Relative margin the best-ranked new candidate must clear over the
@@ -230,6 +234,16 @@ class RotationOutcome:
 
     opportunity: RotationOpportunity | None = None
     refusal: RotationRefusal | None = None
+    #: The funding half of the precondition, judged at the best candidate's
+    #: own stop by `src.risk.min_risk.min_risk_shortfall`; `None` when no
+    #: funding view or no candidate existed.
+    funding: object | None = None
+
+    @property
+    def min_entry_usd(self) -> float | None:
+        """Smallest position at the best candidate's stop that clears the
+        owner's minimum risk; `None` when not measured."""
+        return None if self.funding is None else self.funding.min_notional
 
 
 @dataclass(frozen=True)
@@ -248,7 +262,7 @@ class RotationPrecheck:
     evaluation to refuse — that case has always had its own prompt line and
     is not a silent drop.
 
-    `entry_budget_usd` / `min_order_usd` / `binding` are the funding view the
+    `entry_budget_usd` / `min_entry_usd` / `binding` are the funding view the
     precondition was decided on, kept for the same reason `headroom_pct` is:
     the prompt and the execution stage must read the SAME numbers the
     comparison was made against, never a second measurement taken a moment
@@ -262,7 +276,7 @@ class RotationPrecheck:
     telemetry_available: bool = True
     refusal: RotationRefusal | None = None
     entry_budget_usd: float | None = None
-    min_order_usd: float | None = None
+    min_entry_usd: float | None = None
     binding: tuple[str, ...] = field(default_factory=tuple)
     #: Owner mandate 2026-09-23 ("every stock must keep earning its place").
     #: Every held name that would NOT be bought today because it now fails

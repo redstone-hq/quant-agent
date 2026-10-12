@@ -31,7 +31,6 @@ src.agents.smart_money_analyst._SIGNAL_CLASS_RANK['']
 src.agents.smart_money_analyst._SIGNAL_CLASS_RANK['indeterminate']
 src.agents.smart_money_analyst._SIGNAL_CLASS_RANK['opportunistic']
 src.agents.tech_analyst._BARS_PER_SYMBOL
-src.config.CashSweepConfig.min_order_usd
 src.config.DeploymentGapConfig.band_pct
 src.config.EventRiskConfig.horizon_days
 src.config.ExecutionConfig.max_entry_slippage_bps

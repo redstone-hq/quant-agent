@@ -62,7 +62,7 @@ HELD_QTY = 50.0
 ENTRY = 95.0
 HELD_STOP = 92.0
 CASH = 100.0  # far less than the new position costs
-TARGET_WEIGHT_PCT = 10.0
+TARGET_WEIGHT_PCT = 20.0
 OPEN_ID = f"pre-existing-stop-{OLD}"
 
 

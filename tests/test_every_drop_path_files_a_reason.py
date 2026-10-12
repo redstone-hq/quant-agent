@@ -231,6 +231,7 @@ _CANDIDATE_ENDING_METHODS = frozenset(
         "_widen_stop_past_noise",
         "_build_buy",
         "_build_short",
+        "_refuse_below_min_risk",
     }
 )
 

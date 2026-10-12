@@ -187,23 +187,27 @@ def test_leveraged_etf_target_is_converted_to_raw_notional():
     intended exposure."""
     c = PortfolioConstructor()
     decisions = c.construct_orders(
-        targets=[_target("SQQQ", 6.0)],
+        # Owner rule 2026-08-27: under 0.5% risk the desk does not trade, so
+        # the fixture is sized to clear it: the 20% target cap is the most a
+        # target can ask for.
+        targets=[_target("SQQQ", 20.0)],
         positions=[],
-        analyses=[_analysis("SQQQ")],
+        analyses=[_analysis("SQQQ", stop=70.0, target=160.0)],
         total_value=100_000.0,
         price_map={"SQQQ": 100.0},
     )
     buys = [d for d in decisions if d.action == "BUY"]
     assert len(buys) == 1
-    assert buys[0].allocation_pct == pytest.approx(2.0, abs=0.01)  # 6% gross / 3x
+    assert buys[0].allocation_pct == pytest.approx(20.0 / 3.0, abs=0.01)  # 20% gross / 3x
 
 
 def test_unleveraged_target_is_unchanged():
     c = PortfolioConstructor()
     decisions = c.construct_orders(
+        # 6% at a 10% stop risks 0.6%: clears the owner's 0.5% minimum.
         targets=[_target("AAPL", 6.0)],
         positions=[],
-        analyses=[_analysis("AAPL")],
+        analyses=[_analysis("AAPL", stop=90.0, target=130.0)],
         total_value=100_000.0,
         price_map={"AAPL": 100.0},
     )

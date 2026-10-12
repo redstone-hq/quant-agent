@@ -1076,7 +1076,7 @@ def _refusal_precheck(point="book_not_constrained", **over):
         floor_pct=0.5,
         refusal=RotationRefusal(**fields),
         entry_budget_usd=92.20,
-        min_order_usd=500.0,
+        min_entry_usd=500.0,
         binding=fields["binding"],
     )
 
@@ -1120,7 +1120,7 @@ def test_the_near_miss_row_carries_every_named_field(tmp_path):
     assert event["margin_pct"] == 0.25
     assert event["binding"] == "funding"
     assert event["entry_budget_usd"] == 92.20
-    assert event["min_order_usd"] == 500.0
+    assert event["min_entry_usd"] == 500.0
     assert event["detail"]
 
 
@@ -1179,7 +1179,7 @@ def test_the_owner_line_names_the_limit_that_is_actually_binding():
     text = " ".join(owner_precheck_lines(record))
     assert "the book is FULL" in text
     assert "$92 of cash and borrowing room" in text
-    assert "$500 smallest order" in text
+    assert "below the $500 that the owner's 0.5% minimum risk per position needs" in text
     assert "14.50% of risk headroom" not in text
 
 
@@ -1207,7 +1207,7 @@ def test_an_unread_funding_view_is_not_reported_as_having_room():
         ceiling_pct=25.0,
         floor_pct=0.5,
         entry_budget_usd=None,
-        min_order_usd=500.0,
+        min_entry_usd=500.0,
         binding=(),
     )
     text = " ".join(
@@ -1240,7 +1240,7 @@ def test_the_sale_reason_names_the_limit_that_actually_bound():
         floor_pct=0.5,
         binding=("funding",),
         entry_budget_usd=92.20,
-        min_order_usd=500.0,
+        min_entry_usd=500.0,
     )
     # Since the 2026-10-01 ruling the categorical sale does not rest on the
     # book being constrained at all, so it states no capital claim — which

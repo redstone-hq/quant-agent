@@ -195,30 +195,29 @@ def _qty_by_risk_budget(
     )
 
 
-def _min_order_usd(pipeline) -> float:
-    """`cash_sweep.min_order_usd`, read the same way every other caller reads
-    it.
+def _min_position_risk_pct(pipeline) -> float:
+    """`risk.min_position_risk_pct`: the owner's minimum risk per position
+    (owner rule 2026-08-27, 0.5% of equity) -- below it the desk does not
+    trade. Same Mock-safety posture as `_risk_budget_pct`; an unreadable
+    value falls back to the ratified `STARTER_POSITION_RISK_PCT`, never to
+    zero, so a broken config cannot silently switch the floor off.
 
-    Fixed 2026-09-24: this used to be a NOTIONAL floor that refused a token
-    trade outright in the risk engine, the rotation buy-leg gate and the
-    execution-time cash re-size — an arbitrary $500 with no broker minimum
-    behind it, justified by a false "pays commission" claim (Alpaca charges
-    none). None of those three still use this value to reject a small trade;
-    it is kept here only because `apply_gross_ceiling` still accepts it as an
-    ignored parameter (existing callers pass it). The value's real, live job
-    is gating the spare-cash SWEEP (`src/execution/cash_sweep.py`), not trade
-    sizing.
+    Replaced the flat $500 `cash_sweep.min_order_usd` notional floor
+    (deleted): an arbitrary number with no broker minimum behind it (Alpaca
+    takes fractional orders from $1, no commission).
     """
+    from src.risk.constants import STARTER_POSITION_RISK_PCT
+
     raw = getattr(
-        getattr(getattr(pipeline, "config", None), "cash_sweep", None),
-        "min_order_usd",
+        getattr(getattr(pipeline, "config", None), "risk", None),
+        "min_position_risk_pct",
         None,
     )
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return 500.0
+        return float(STARTER_POSITION_RISK_PCT)
     value = float(raw)
     if not math.isfinite(value) or value < 0:
-        return 500.0
+        return float(STARTER_POSITION_RISK_PCT)
     return value
 
 

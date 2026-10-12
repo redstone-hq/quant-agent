@@ -17,7 +17,7 @@ def rotation_constraint_clause(
     ceiling_pct: float,
     floor_pct: float,
     entry_budget_usd: float | None = None,
-    min_order_usd: float | None = None,
+    min_entry_usd: float | None = None,
 ) -> str:
     """The clause a rotation's own audit record carries naming WHY there was
     no room. One sentence, checkable, and about the limit that was actually
@@ -36,13 +36,17 @@ def rotation_constraint_clause(
     An empty `binding` reproduces the legacy sentence byte-for-byte, so every
     caller that has not been threaded the funding view is unchanged.
     """
-    if "funding" in binding and isinstance(entry_budget_usd, (int, float)) and isinstance(min_order_usd, (int, float)):
+    if "funding" in binding and isinstance(entry_budget_usd, (int, float)) and isinstance(min_entry_usd, (int, float)):
         risk = (
             f"Risk headroom {headroom_pct:.2f}% of {ceiling_pct:.2f}%, under the {floor_pct:.2f}% minimum; "
             if "risk_budget" in binding
             else ""
         )
-        return f"{risk}${float(entry_budget_usd):,.0f} deployable, under the smallest order the desk will place."
+        return (
+            f"{risk}${float(entry_budget_usd):,.0f} deployable, under the "
+            f"${float(min_entry_usd):,.0f} position that carries the owner's "
+            "minimum risk per position at the candidate's own stop."
+        )
     return f"Headroom {headroom_pct:.2f}% of the {ceiling_pct:.2f}% risk ceiling, under the {floor_pct:.2f}% minimum."
 
 
@@ -61,7 +65,7 @@ def rotation_sell_reason(
     #: reproduces the legacy sentence byte-for-byte.
     binding: tuple[str, ...] = (),
     entry_budget_usd: float | None = None,
-    min_order_usd: float | None = None,
+    min_entry_usd: float | None = None,
 ) -> str:
     """The checkable reason a rotation sale carries, from measured facts only.
 
@@ -118,7 +122,7 @@ def rotation_sell_reason(
             clearance=clearance,
             binding=binding,
             entry_budget_usd=entry_budget_usd,
-            min_order_usd=min_order_usd,
+            min_entry_usd=min_entry_usd,
         )
     if opportunity.tier != "ineligible_hold":
         raise ValueError(
@@ -159,7 +163,7 @@ def _ranked_margin_sell_reason(
     clearance: RotationClearance | None,
     binding: tuple[str, ...] = (),
     entry_budget_usd: float | None = None,
-    min_order_usd: float | None = None,
+    min_entry_usd: float | None = None,
 ) -> str:
     """The checkable reason a RANKED-MARGIN rotation sale carries.
 
@@ -197,7 +201,7 @@ def _ranked_margin_sell_reason(
         ceiling_pct=ceiling_pct,
         floor_pct=floor_pct,
         entry_budget_usd=entry_budget_usd,
-        min_order_usd=min_order_usd,
+        min_entry_usd=min_entry_usd,
     )
     reason = (
         f"ROTATION (ranked margin, src/rotation.py): {opportunity.held_symbol}"
@@ -235,7 +239,7 @@ def rotation_proposal_reason(
     floor_pct: float,
     binding: tuple[str, ...] = (),
     entry_budget_usd: float | None = None,
-    min_order_usd: float | None = None,
+    min_entry_usd: float | None = None,
 ) -> str:
     """The reason text a PROPOSED rotation close carries into the Risk
     Manager's review — never an authorisation to sell.
@@ -263,7 +267,7 @@ def rotation_proposal_reason(
             clearance=None,
             binding=binding,
             entry_budget_usd=entry_budget_usd,
-            min_order_usd=min_order_usd,
+            min_entry_usd=min_entry_usd,
         )
     return rotation_sell_reason(
         opportunity,
@@ -274,5 +278,5 @@ def rotation_proposal_reason(
         floor_pct=floor_pct,
         binding=binding,
         entry_budget_usd=entry_budget_usd,
-        min_order_usd=min_order_usd,
+        min_entry_usd=min_entry_usd,
     )

@@ -49,6 +49,7 @@ from unittest.mock import DEFAULT, MagicMock
 import pytest
 
 from src import pipeline_stages as ps
+from src import stage_execution as se
 from src.config import ExecutionConfig, RiskConfig
 from src.models import Position
 from src.pipeline_context import RunContext
@@ -252,7 +253,7 @@ def _stub_sizing(
     budget=1_000_000.0,
     budget_by_book=None,
     single_name_cap=1_000_000.0,
-    min_order_usd=100.0,
+    min_risk_pct=0.0,
 ):
     """Hold the price, size and funding helpers still so a test can aim at
     ONE gate at a time.
@@ -278,7 +279,8 @@ def _stub_sizing(
         "_single_name_execution_cap",
         lambda pipeline, equity: single_name_cap,
     )
-    monkeypatch.setattr(ps, "_min_order_usd", lambda pipeline: min_order_usd)
+    monkeypatch.setattr(ps, "_min_position_risk_pct", lambda pipeline: min_risk_pct)
+    monkeypatch.setattr(se, "_min_position_risk_pct", lambda pipeline: min_risk_pct)
     monkeypatch.setattr(
         ps,
         "_live_fill_price",
@@ -449,7 +451,7 @@ def test_the_projection_is_what_the_budget_and_the_sizing_are_measured_on(
 #: `REQUIRED_BUY_LEG_GATES` for coverage bookkeeping (a gate that never
 #: fires is still a gate that was checked) — whether to retire it outright,
 #: the way `daily_loss_recheck` was retired, was left as an open decision.
-_LIVE_BUY_LEG_GATES = tuple(g for g in REQUIRED_BUY_LEG_GATES if g != "below_min_notional")
+_LIVE_BUY_LEG_GATES = tuple(REQUIRED_BUY_LEG_GATES)
 
 
 @pytest.mark.parametrize("gate", _LIVE_BUY_LEG_GATES)
@@ -466,6 +468,10 @@ def test_every_required_gate_withdraws_both_legs(tmp_path, monkeypatch, gate):
     elif gate == "insufficient_cash":
         # 40 shares at $50 is $2,000 of notional; nothing is deployable.
         _stub_sizing(monkeypatch, budget=0.0)
+    elif gate == "below_owner_min_risk":
+        # 40 shares at $50 with a $45 stop risks $200, 0.20% of $100,000,
+        # under the owner's 0.5% minimum risk per position (rule 2026-08-27).
+        _stub_sizing(monkeypatch, min_risk_pct=0.5)
     pipeline, db = _pipeline(tmp_path, positions=positions)
     ctx = _ctx(positions)
 
@@ -490,7 +496,7 @@ def test_below_min_notional_no_longer_withdraws_a_small_buy(tmp_path, monkeypatc
     floor no longer gates the rotation buy leg, so the same fixture that
     used to trigger `below_min_notional` now clears normally."""
     positions = [_pos("OLD", intraday=0.0), _pos("KEEP", intraday=0.0)]
-    _stub_sizing(monkeypatch, budget=60.0, min_order_usd=500.0)
+    _stub_sizing(monkeypatch, budget=60.0)
     pipeline, db = _pipeline(tmp_path, positions=positions)
     ctx = _ctx(positions)
 
@@ -1100,7 +1106,7 @@ def test_earlier_entries_drain_the_projected_budget_first(tmp_path, monkeypatch)
     order under the flat $500 minimum and withdraw the whole rotation. That
     floor no longer gates the buy leg, so the rotation now clears with the
     replacement re-sized down to what the drained pool leaves."""
-    _stub_sizing(monkeypatch, budget=2_100.0, min_order_usd=500.0)
+    _stub_sizing(monkeypatch, budget=2_100.0)
     positions = [_pos("OLD"), _pos("KEEP")]
     pipeline, db = _pipeline(tmp_path, positions=positions)
     ctx = _ctx(positions)

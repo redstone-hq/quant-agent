@@ -102,7 +102,7 @@ def _precheck_rec(**over) -> dict:
         "ceiling_pct": 25.0,
         "floor_pct": 0.5,
         "entry_budget_usd": 50_000.0,
-        "min_order_usd": 500.0,
+        "min_entry_usd": 500.0,
         "binding": "",
         "tier": "ineligible_hold",
         "held_symbol": "OLD",
@@ -215,7 +215,7 @@ def test_an_opportunity_without_a_replacement_is_not_the_outranked_outcome():
         ceiling_pct=25.0,
         floor_pct=0.5,
         entry_budget_usd=50_000.0,
-        min_order_usd=500.0,
+        min_entry_usd=500.0,
     )
     assert precheck_outcome(precheck) == ROTATION_HOLDING_BELOW_BAR
 

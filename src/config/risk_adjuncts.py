@@ -26,10 +26,6 @@ class CashSweepConfig(BaseModel):
     anything with real market beta breaks the cash-equivalence assumption
     that justifies every exemption listed above."""
 
-    min_order_usd: float = Field(default=500.0, ge=0)
-    """Don't churn sub-$500 parking orders — spread + noise beat the
-    few cents of yield."""
-
     @field_validator("symbol")
     @classmethod
     def _symbol_nonempty(cls, v: str) -> str:

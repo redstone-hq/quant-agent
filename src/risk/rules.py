@@ -266,12 +266,6 @@ def apply_gross_ceiling(
     ceiling: GrossCeiling,
     *,
     cash_park_symbol: str | None = None,
-    # Fixed 2026-09-24: no longer used to refuse a new entry (see step 2's
-    # comment) — kept only as an accepted, ignored parameter so existing
-    # callers/tests that pass it do not need to change. An entry the
-    # ceiling shrinks to near-nothing is granted, not refused, for being
-    # small; only a real zero (`after <= 0`) still refuses.
-    min_order_usd: float = 500.0,
     # The SIZING gate (`PortfolioConstructor`) sets this False: shrinking an
     # order it is about to propose is its job, authoring a de-lever of the
     # held book is not. One owner for trimming — the session preamble
@@ -435,6 +429,10 @@ def apply_gross_ceiling(
         # headroom is left, however small. Only a genuinely empty headroom
         # (`after <= 0` below) still refuses — that is a real "nothing to
         # buy", not an arbitrary-floor judgement call.
+        # The owner's 0.5% minimum RISK per position (owner rule 2026-08-27)
+        # is re-applied by the constructor after this shrink
+        # (`PortfolioConstructor._refuse_below_min_risk`): this function sees
+        # weights, not stops.
         #
         # Round DOWN to 2dp so the granted size can never land back above the
         # headroom that permitted it.

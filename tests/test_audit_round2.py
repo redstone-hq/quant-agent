@@ -86,7 +86,7 @@ def _park_pipeline():
 
     p = build_pipeline(broker=MagicMock(), db=MagicMock(), risk_engine=MagicMock())
     p.config = SimpleNamespace(
-        cash_sweep=CashSweepConfig(enabled=True, symbol="SGOV", min_order_usd=500.0),
+        cash_sweep=CashSweepConfig(enabled=True, symbol="SGOV"),
         risk=RiskConfig(
             max_position_pct=20,
             max_total_position_pct=90,
@@ -412,7 +412,7 @@ def test_force_delever_unparks_only_what_the_deficit_needs():
 
     p = build_pipeline()
     p.config = SimpleNamespace(
-        cash_sweep=CashSweepConfig(enabled=True, symbol="SGOV", min_order_usd=500.0),
+        cash_sweep=CashSweepConfig(enabled=True, symbol="SGOV"),
         risk=RiskConfig(
             max_position_pct=20,
             max_total_position_pct=90,

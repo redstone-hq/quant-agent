@@ -148,9 +148,10 @@ class RiskConfig(BaseModel):
     # trade, which is what removes the incentive to squeeze stops. The prior
     # 0.5% ceiling lived in a constructor dataclass default nobody chose.
     max_position_risk_pct: float = Field(default=5.0, gt=0, le=100)
-    # Below this an idea is not worth trading: a token position pays full
-    # commission and full attention for an immaterial payoff. A request
-    # rationed under the floor is denied outright rather than shrunk.
+    # Owner rule 2026-08-27: below this risk per position the desk does not
+    # trade. Not a commission floor -- Alpaca charges none. A request
+    # rationed under the floor is denied outright rather than shrunk, and the
+    # constructor and execution re-check it after every later size cut.
     min_position_risk_pct: float = Field(
         default=STARTER_POSITION_RISK_PCT,
         ge=0,

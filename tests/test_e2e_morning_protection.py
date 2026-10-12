@@ -41,7 +41,7 @@ from pathlib import Path
 from tests.test_e2e_morning_session import LAST_CLOSE, SYMBOL, _assert_full_shape, _run_session
 
 CASH = 10_000.0  # the harness's broker snapshot
-TARGET_WEIGHT_PCT = 10.0  # what the scripted PM asks for
+TARGET_WEIGHT_PCT = 20.0  # what the scripted PM asks for
 
 
 def _seed_company_profile_cache(tmp_path: Path) -> None:

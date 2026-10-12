@@ -211,6 +211,7 @@ _SKIP_WHO_LABELS: dict[str, str] = {
     "broker_rejected": "Blocked by the broker",
     "insufficient_cash": "Blocked by the desk — insufficient cash",
     "below_min_notional": "Blocked by the desk — order too small",
+    "below_owner_min_risk": "Blocked by the desk — under the owner's minimum risk per position",
     "no_price": "Blocked by the desk — no verifiable price",
     "stale_entry": "Blocked by the desk — price moved since the decision",
     "qty_zero": "Blocked by the desk — sizing rounds to zero",
@@ -287,6 +288,9 @@ _DELIBERATE_SKIP_REASONS = frozenset(
     {
         # The $500 minimum trade size — one of the three the owner named.
         "below_min_notional",
+        # The owner's minimum risk per position (owner rule 2026-08-27),
+        # which replaced the $500 floor above.
+        "below_owner_min_risk",
         # Deterministic sizing arithmetic resolving to nothing to place.
         "qty_zero",
         # A full book with nothing outranking a holding. PR #600 established

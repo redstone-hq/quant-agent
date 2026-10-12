@@ -230,14 +230,16 @@ def test_legacy_notional_targets_still_size_the_old_way():
     carrying only `target_weight_pct` must still construct."""
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
-        targets=[TargetPosition(symbol="NVDA", target_weight_pct=8.0, conviction="high", thesis="legacy")],
+        targets=[TargetPosition(symbol="NVDA", target_weight_pct=12.0, conviction="high", thesis="legacy")],
         positions=[],
         analyses=[_analysis("NVDA", entry=100, stop=95, target=115)],
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
     )
+    # 12% at a 5% stop risks 0.6%: above the owner's 0.5% minimum risk per
+    # position (owner rule 2026-08-27). 8% (0.4% risk) is now refused.
     assert len(decisions) == 1
-    assert abs(decisions[0].allocation_pct - 8.0) < 0.05
+    assert abs(decisions[0].allocation_pct - 12.0) < 0.05
 
 
 # --------------------------------------------------------------------------
@@ -2225,7 +2227,7 @@ def test_gross_exposure_ceiling_block_leaves_a_durable_reason():
     assert "NVDA" in constructor.last_drop_reasons
 
 
-def test_a_small_new_position_is_no_longer_refused_on_size_alone():
+def test_a_small_new_position_below_min_risk_is_refused_by_name():
     """Owner ruling 2026-09-30 (board item 183): the churn filter's flat
     `min_trade_weight_delta` floor is DELETED, not resized. A brand-new
     position this small used to be dropped with neither a `TradeDecision`
@@ -2246,12 +2248,15 @@ def test_a_small_new_position_is_no_longer_refused_on_size_alone():
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
     )
-    assert len(decisions) == 1
-    assert decisions[0].symbol == "NVDA"
-    assert decisions[0].action == "BUY"
-    assert abs(decisions[0].allocation_pct - 0.1) < 1e-6
+    # Owner rule 2026-08-27: a 0.1% weight at a 5% stop risks 0.005% of
+    # equity, under the 0.5% minimum risk per position -- below it the desk
+    # does not trade. Not refused on SIZE (the deleted delta floor), refused
+    # on RISK, by name.
+    from src.portfolio_constructor.config import STOP_REFUSAL_BELOW_OWNER_MIN_RISK
+
+    assert [d for d in decisions if d.symbol == "NVDA" and d.action == "BUY"] == []
     refusals = constructor.drain_refusals()
-    assert "NVDA" not in refusals
+    assert refusals["NVDA"]["refusal"] == STOP_REFUSAL_BELOW_OWNER_MIN_RISK
 
 
 # --------------------------------------------------------------------------

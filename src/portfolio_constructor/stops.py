@@ -351,6 +351,10 @@ class StopRules:
         """Thin shim: body moved to src/portfolio_constructor/entry_stop/resolver.py."""
         return self._entry_stop_resolver().real_reward_risk_preview(*args, **kwargs)
 
+    def entry_stop_preview(self, *args, **kwargs):
+        """Thin shim: body in src/portfolio_constructor/entry_stop/resolver.py."""
+        return self._entry_stop_resolver().entry_stop_preview(*args, **kwargs)
+
     def _widen_stop_past_noise(self, *args, **kwargs):
         """Thin shim: body moved to src/portfolio_constructor/entry_stop/resolver.py."""
         return self._entry_stop_resolver()._widen_stop_past_noise(*args, **kwargs)

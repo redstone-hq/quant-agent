@@ -129,7 +129,6 @@ def _pipeline() -> TradingPipeline:
         cash_sweep=CashSweepConfig(
             enabled=True,
             symbol=SWEEP_SYMBOL,
-            min_order_usd=500.0,
         ),
         risk=RiskConfig(
             max_position_pct=20,

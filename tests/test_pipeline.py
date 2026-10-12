@@ -376,7 +376,7 @@ def test_pipeline_morning_run_buy(
             targets=[
                 TargetPosition(
                     symbol="SPY",
-                    target_weight_pct=10.0,
+                    target_weight_pct=20.0,
                     conviction="high",
                     thesis="Buy",
                     thesis_invalid_if="closes below support",
@@ -542,7 +542,7 @@ def test_pipeline_morning_run_persists_specialist_evidence(
             targets=[
                 TargetPosition(
                     symbol="SPY",
-                    target_weight_pct=10.0,
+                    target_weight_pct=20.0,
                     conviction="high",
                     thesis="Buy",
                     thesis_invalid_if="closes below support",
@@ -656,7 +656,7 @@ def test_pipeline_morning_run_persists_specialist_evidence(
     target_row = by_key[("portfolio_manager", "target", "SPY")]
     assert target_row["scope"] == "symbol"
     assert target_row["decision_id"] == decision_id
-    assert json.loads(target_row["evidence_json"])["target_weight_pct"] == 10.0
+    assert json.loads(target_row["evidence_json"])["target_weight_pct"] == 20.0
 
     proposed_row = by_key[("portfolio_manager", "proposed_order", "SPY")]
     assert proposed_row["decision_id"] == decision_id
@@ -905,7 +905,7 @@ def test_pipeline_risk_rejected(
             targets=[
                 TargetPosition(
                     symbol="SPY",
-                    target_weight_pct=10.0,
+                    target_weight_pct=20.0,
                     conviction="high",
                     thesis="Buy",
                     thesis_invalid_if="closes below support",

@@ -423,6 +423,16 @@ STOP_REFUSAL_SIZED_TO_ZERO = "position_sized_to_zero"
 #: `apply_gross_ceiling` so the constructor can file it with `_note_refusal`
 #: directly, the same precedent as every other code in this block.
 STOP_REFUSAL_GROSS_EXPOSURE_CEILING = "gross_exposure_ceiling_refused"
+#: Owner rule 2026-08-27 (owner-ruled): risk per new position is 0.5-5% of
+#: equity, and below 0.5% the desk does not trade. The allocator already
+#: denies a GRANT under the floor (`src/risk/budget.py`), but every shrink
+#: that runs after it -- the single-name ceiling, the gross-exposure ceiling
+#: -- could cut an entry below it and still let it out. This code names the
+#: refusal the constructor files when it re-checks the FINISHED order list:
+#: any BUY/SHORT whose resulting position would risk less than
+#: `min_risk_pct` of equity at its own stop is dropped. Closes, trims and
+#: covers are never subject to it.
+STOP_REFUSAL_BELOW_OWNER_MIN_RISK = "below_owner_min_risk"
 #: RETIRED (owner ruling 2026-09-30, board item 183). This named the delta
 #: loop's churn filter: `min_trade_weight_delta`, a picked 0.5%-of-book
 #: floor, silently `continue`d past a delta below it — a brand-new position

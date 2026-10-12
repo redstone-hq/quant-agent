@@ -817,7 +817,10 @@ def test_execution_stage_cancels_buy_stop_then_submits_sell_add_and_rearms():
 
 
 def test_short_add_below_floor_is_dropped_before_any_buy_stop_is_cancelled():
-    """The min-order floor MUST run before the protective buy-stop comes off."""
+    """The owner's minimum-risk floor (0.5% of equity, owner rule
+    2026-08-27) MUST run before the protective buy-stop comes off. Was the
+    deleted $500 notional floor; the same tiny add is now refused because the
+    13-share short risks ~0.1% of the $100k book at its stop."""
     held = [_short_cop_position(qty=-10.0)]
     pipeline = _shortable(_pipeline(positions=held))
     pipeline.broker.snapshot_protective_stops.return_value = (
@@ -826,7 +829,7 @@ def test_short_add_below_floor_is_dropped_before_any_buy_stop_is_cancelled():
     )
 
     ctx = _ctx([_short_cop()], positions=held)
-    # Force a tiny order: 3 shares * $100 = $300 < the $500 floor.
+    # Force a tiny order: (10 held + 3) shares well under 0.5% risk.
     with patch("src.pipeline_stages._size_shares", return_value=3.0):
         orders = ExecutionStage(pipeline=pipeline).run(ctx)
 
@@ -834,7 +837,7 @@ def test_short_add_below_floor_is_dropped_before_any_buy_stop_is_cancelled():
     pipeline.broker.submit_order.assert_not_called()
     # The protection is still standing — the floor gate ran PRE-cancel.
     pipeline.broker.cancel_snapshotted_stops.assert_not_called()
-    assert ctx.execution_skips[0]["reason"] == "below_min_notional"
+    assert ctx.execution_skips[0]["reason"] == "below_owner_min_risk"
 
 
 def test_drain_scale_in_rearms_broker_full_short_qty_on_the_buy_side(tmp_path):

@@ -114,7 +114,7 @@ This is a hypothesis until the measured win rate, average win/loss ratio and exp
 | Parameter | Value |
 |---|---|
 | Max risk per trade | 5% of equity — a ceiling, not a target |
-| Min risk per trade | 0.5% — below this, do not trade |
+| Min risk per trade | 0.5% — below this, do not trade. Judged on the whole holding (held plus new); an order is refused, never sized up to reach it (owner ruling 2026-10-12: "we also must filter out small trade churn") |
 | Max total at risk | 25% of equity, correlation-adjusted |
 | Position count | Not fixed. Determined dynamically by the risk budget. |
 

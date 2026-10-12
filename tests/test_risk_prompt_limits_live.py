@@ -512,7 +512,7 @@ def _config_for(risk_config) -> SimpleNamespace:
     `cash_sweep` are touched (grep either builder for `config.`)."""
     return SimpleNamespace(
         risk=risk_config,
-        cash_sweep=SimpleNamespace(min_order_usd=None, symbol=None, enabled=False),
+        cash_sweep=SimpleNamespace(symbol=None, enabled=False),
     )
 
 

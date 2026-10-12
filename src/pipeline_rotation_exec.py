@@ -18,6 +18,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     _IN_FLIGHT_FILL_STATUSES,
     _entry_deployment_budget,
     _fractional_sizing_allowed,
+    _min_position_risk_pct,
     _live_fill_price,
     _qty_by_risk_budget,
     _record_execution_skip,
@@ -511,7 +512,7 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
         # rotation — false, on the record the Risk Manager reads.
         binding=tuple(precheck.binding or ()),
         entry_budget_usd=precheck.entry_budget_usd,
-        min_order_usd=precheck.min_order_usd,
+        min_entry_usd=precheck.min_entry_usd,
     )
     # A zero-size target IS this desk's "close it" instruction
     # (`TargetPosition.is_close`; `_build_sell` turns it into a full SELL).
@@ -554,7 +555,7 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
         # disagree about why the room was gone.
         "binding": tuple(precheck.binding or ()),
         "entry_budget_usd": precheck.entry_budget_usd,
-        "min_order_usd": precheck.min_order_usd,
+        "min_entry_usd": precheck.min_entry_usd,
         "new_score": new_score,
         "held_reasons": list(opportunity.reasons),
         "protection_basis": protection.basis,
@@ -616,7 +617,7 @@ def _rotation_buy_leg_projected_refusal(
     2026-09-23, when the owner's removal of the account-level loss halt
     (PR #584) deleted the `daily_loss_recheck` refusal (retired-ok) the
     first gate anticipated, and five until 2026-09-24, when `below_min_notional`
-    (retired-ok) was deleted the same way: the flat $500 `min_order_usd`
+    (retired-ok) was deleted the same way: the flat $500 `min_order_usd` (deleted)
     notional floor it named was arbitrary, not a broker minimum, and Alpaca
     charges no stock commission, so `_prevent_rotation_naked_sale` no
     longer refuses a rotation's replacement buy for re-sizing small but
@@ -876,12 +877,54 @@ def _rotation_buy_leg_projected_refusal(
         # Fixed 2026-09-24 (retired the `below_min_notional` gate outright,
         # see `REQUIRED_BUY_LEG_GATES`): this used to refuse the rotation
         # whenever re-sizing to the post-sale budget landed under the flat
-        # `min_order_usd` floor — an arbitrary $500 with no broker minimum
+        # `min_order_usd` floor (deleted) — an arbitrary $500 with no broker minimum
         # behind it, and Alpaca charges no stock commission. A rotation
         # whose replacement buy re-sizes small but nonzero
         # (`affordable_qty > 0`, already checked above) is cleared, not
         # refused; the real "no shares fit" case is `insufficient_cash`
         # above.
+        qty = affordable_qty
+
+    # Owner rule 2026-08-27, the WHOLE position after the order at least
+    # the floor, at the candidate's real stop and through the one shared
+    # function execution itself uses (`src/risk/min_risk.py`). Without this
+    # gate the held name could be sold and the replacement buy then refused
+    # for `below_owner_min_risk`, stranding the cash.
+    checked.append("below_owner_min_risk")
+    from src.risk.min_risk import min_risk_shortfall
+
+    # Broker-signed qty of the symbol on the projected book; read inline so
+    # this module does not widen the set reaching the broker seam.
+    held_signed = next(
+        (
+            float(getattr(p, "qty", 0) or 0)
+            for p in projected_positions
+            if str(getattr(p, "symbol", "") or "").upper() == str(symbol or "").upper()
+        ),
+        0.0,
+    )
+    held_same = max(0.0, -held_signed if is_short else held_signed)
+    floor_pct = _min_position_risk_pct(pipeline)
+    buy_stop = getattr(buy_decision, "stop_loss", None)
+    floor_check = min_risk_shortfall(
+        position_notional=(held_same + qty) * sizing_price,
+        entry=sizing_price,
+        stop=buy_stop,
+        equity=float(equity_for_weights),
+        floor_pct=floor_pct,
+    )
+    if floor_check.refused:
+        return (
+            None,
+            "below_owner_min_risk",
+            (
+                f"on the post-sale book the replacement position would risk "
+                f"{floor_check.risk_pct:.2f}% of equity at its ${buy_stop} stop, under the "
+                f"owner's {floor_pct:.2f}% minimum risk per position"
+                if floor_check.readable
+                else f"the replacement buy's stop ({buy_stop}) is unreadable, so its risk is unknown"
+            ),
+        )
 
     missing = [g for g in REQUIRED_BUY_LEG_GATES if g not in checked]
     if missing:
@@ -1239,7 +1282,7 @@ def _rotation_ranked_margin_sell_reason(pipeline, ctx, decision):
             clearance=rotation.get("clearance"),
             binding=tuple(rotation.get("binding") or ()),
             entry_budget_usd=rotation.get("entry_budget_usd"),
-            min_order_usd=rotation.get("min_order_usd"),
+            min_entry_usd=rotation.get("min_entry_usd"),
         )
     except ValueError as exc:
         logger.error(

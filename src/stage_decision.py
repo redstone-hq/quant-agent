@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from src.pipeline_risk_budget_recording import _record_realised_concentration
 from src.rotation_dispositions import apply_rotation_recording_dispositions
 from src.soft_exit_never_blank import add_constructor_dropped
+from src.risk.min_risk import MinRiskFloor
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
     FAULT_NO_PRICE,
     FAULT_STALE_PRICE,
@@ -32,7 +33,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     _live_stops_from_heat,
     _macro_analysis_as_dict,
     _macro_regime,
-    _min_order_usd,
+    _min_position_risk_pct,
     _persist_evidence,
     _record_constructor_drops,
     _record_constructor_side_flips,
@@ -213,8 +214,22 @@ class DecisionStage:
         # `PortfolioConstructor.real_reward_risk_preview`.
         _regime_for_preview = _macro_regime(macro_analysis)
         real_reward_risk_by_symbol: dict[str, float | None] = {}
+        # Each candidate's entry and the stop the constructor would ship,
+        # for the rotation pre-check's minimum-risk funding test.
+        candidate_entry_stop: dict[str, tuple[float, float]] = {}
         for _a in analyses:
             _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
+            try:
+                _preview = pipeline.portfolio_constructor.entry_stop_preview(
+                    _a,
+                    _direction,
+                    regime=_regime_for_preview,
+                )
+            except Exception as exc:  # noqa: BLE001 — unreadable stop = funding not measured
+                logger.warning("entry/stop preview failed for %s: %s", _a.symbol, exc)
+                _preview = None
+            if isinstance(_preview, tuple) and len(_preview) == 3:
+                candidate_entry_stop[_a.symbol.upper()] = (_preview[0], _preview[1])
             real_reward_risk_by_symbol[_a.symbol.upper()] = pipeline.portfolio_constructor.real_reward_risk_preview(
                 _a,
                 _direction,
@@ -294,12 +309,21 @@ class DecisionStage:
                 "margin_interest_rate_pct",
                 None,
             ),
-            # 2026-09-23: the §10.3 notional floor, read by exactly the
-            # helper the execution-time re-size and the rotation buy-leg
-            # projection already read it with, so the rotation pre-check
-            # tests "can this book fund the smallest order the desk will
-            # place" against the DEPLOYED floor rather than a second copy.
-            min_order_usd=_min_order_usd(pipeline),
+            # The owner's minimum risk per position (owner rule 2026-08-27),
+            # read from the setting, with each candidate's own previewed
+            # entry and stop, so the rotation pre-check judges "short of
+            # cash" at the candidate's real stop through the one shared
+            # `src.risk.min_risk.min_risk_shortfall`. Replaced the deleted
+            # flat $500 `cash_sweep.min_order_usd` floor.
+            min_risk_floor=MinRiskFloor(
+                floor_pct=_min_position_risk_pct(pipeline),
+                equity_usd=(
+                    float(ctx.total_value)
+                    if isinstance(ctx.total_value, (int, float)) and not isinstance(ctx.total_value, bool)
+                    else None
+                ),
+                entry_stop=candidate_entry_stop,
+            ),
             margin_ladder_multiple=margin_ladder_multiple,
             margin_ladder_rung=margin_ladder_rung,
             symbol_sectors=dict(ctx.symbol_sectors or {}),

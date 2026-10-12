@@ -119,7 +119,7 @@ from src.pipeline_sizing import (  # noqa: F401
     _execution_payoff_skip_reason,
     _fmt_shares,
     _fractional_sizing_allowed,
-    _min_order_usd,
+    _min_position_risk_pct,
     _qty_by_risk_budget,
     _risk_budget_pct,
     _single_name_execution_cap,

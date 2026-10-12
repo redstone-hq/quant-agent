@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.delever.risk_number import _optional_risk_number
 from src.entry_evidence import (
     record_scale_in_own_verdict as _record_scale_in_own_verdict,
     resolve_entry_pins as _resolve_entry_pins,
@@ -31,6 +32,7 @@ from src.stage_execution_parts.sell_loop import (
     sell_qty_and_label,
 )
 from src.stage_execution_parts.state import SKIP, EntryLeg, EntryRun, SellLeg
+from src.risk.min_risk import min_risk_shortfall
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
     LEVEL_BACKED_STOP_RULES,
     RunContext,
@@ -47,7 +49,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     _fmt_shares,
     _fractional_sizing_allowed,
     _live_fill_price,
-    _min_order_usd,
+    _min_position_risk_pct,
     _pin_approved_entry_ceilings,
     _qty_by_risk_budget,
     _record_execution_skip,
@@ -878,6 +880,36 @@ class ExecutionStage:
                     )
                     qty = min(qty, affordable_qty)
                     estimated_cost = qty * sizing_price
+                    # Owner rule 2026-08-27: the cash re-size is a shrink
+                    # AFTER the constructor's floor check, so the floor is
+                    # re-applied here to the whole long it leaves (held +
+                    # this buy) at the order's own stop. Below it the desk
+                    # does not trade.
+                    from src.execution.scale_in import held_signed_qty as _held_signed_qty
+
+                    floor_pct = _min_position_risk_pct(pipeline)
+                    held_long = max(0.0, _held_signed_qty(positions, decision.symbol))
+                    floor_check = min_risk_shortfall(
+                        position_notional=(held_long + qty) * sizing_price,
+                        entry=sizing_price,
+                        stop=_optional_risk_number(stop_price),
+                        equity=total_value,
+                        floor_pct=floor_pct,
+                    )
+                    if floor_check.refused:
+                        # A buy with no readable stop has unknown risk:
+                        # refused, the same as the short side below.
+                        detail = (
+                            f"re-sized to the ${order_ceiling:.2f} still deployable, the position would "
+                            f"risk {floor_check.risk_pct:.2f}% of equity, under the owner's "
+                            f"{floor_pct:.2f}% minimum risk per position"
+                            if floor_check.readable
+                            else f"no readable stop ({stop_price}), so the position's risk is unknown "
+                            f"and cannot be shown to meet the owner's {floor_pct:.2f}% minimum risk per position"
+                        )
+                        logger.warning("Skipping BUY %s: %s", decision.symbol, detail)
+                        _record_execution_skip(pipeline, ctx, decision.symbol, "below_owner_min_risk", detail)
+                        continue
                     # Fixed 2026-09-24: this used to refuse the re-sized
                     # order outright ("below_min_notional") whenever it fell
                     # under the flat `min_order_usd` floor — an arbitrary
@@ -932,23 +964,41 @@ class ExecutionStage:
                     )
 
                     if held_signed_qty(positions, decision.symbol) < 0:
-                        floor_usd = _min_order_usd(pipeline)
-                        if estimated_cost < floor_usd:
+                        # Owner rule 2026-08-27: below the minimum risk
+                        # per position the desk does not trade. The add is
+                        # judged on the WHOLE short it leaves (held + add)
+                        # at the intended stop, which the scale-in moves the
+                        # whole position to. Replaced the deleted flat $500
+                        # `min_order_usd` notional floor.
+                        floor_pct = _min_position_risk_pct(pipeline)
+                        held_short = abs(held_signed_qty(positions, decision.symbol))
+                        floor_check = min_risk_shortfall(
+                            position_notional=(held_short + qty) * sizing_price,
+                            entry=sizing_price,
+                            stop=_optional_risk_number(stop_price),
+                            equity=total_value,
+                            floor_pct=floor_pct,
+                        )
+                        position_risk_pct = floor_check.risk_pct
+                        if floor_check.refused:
+                            detail = (
+                                f"short add would leave a position risking {position_risk_pct:.2f}% of "
+                                f"equity, under the owner's {floor_pct:.2f}% minimum risk per position"
+                                if floor_check.readable
+                                else f"no readable stop ({stop_price}), so the short's risk is unknown "
+                                f"and cannot be shown to meet the owner's {floor_pct:.2f}% minimum risk per position"
+                            )
                             logger.warning(
-                                "Skipping SHORT add %s: order $%.2f (%s sh) is "
-                                "below the $%.0f minimum worth trading — dropped "
-                                "before any protective buy-stop is cancelled",
+                                "Skipping SHORT add %s: %s — dropped before any protective buy-stop is cancelled",
                                 decision.symbol,
-                                estimated_cost,
-                                _fmt_shares(qty),
-                                floor_usd,
+                                detail,
                             )
                             _record_execution_skip(
                                 pipeline,
                                 ctx,
                                 decision.symbol,
-                                "below_min_notional",
-                                f"short add ${estimated_cost:.2f} is below the ${floor_usd:,.0f} minimum worth trading",
+                                "below_owner_min_risk",
+                                detail,
                             )
                             _record_pipeline_event(
                                 pipeline,
@@ -956,9 +1006,10 @@ class ExecutionStage:
                                 decision.symbol,
                                 "funding",
                                 "refused",
-                                "short_add_below_min_notional",
+                                "short_add_below_owner_min_risk",
                                 resized_notional=estimated_cost,
-                                min_order_usd=floor_usd,
+                                position_risk_pct=position_risk_pct,
+                                min_risk_pct=floor_pct,
                             )
                             continue
                     add_prep = prepare_short_add(

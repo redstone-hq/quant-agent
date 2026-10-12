@@ -33,10 +33,10 @@ def _full_book_cause(record: dict, *, headroom: str, ceiling: str, floor: str) -
         )
     if "funding" in binding:
         budget = record.get("entry_budget_usd")
-        minimum = record.get("min_order_usd")
+        minimum = record.get("min_entry_usd")
         causes.append(
             f"only ${float(budget):,.0f} of cash and borrowing room left, "
-            f"below the ${float(minimum):,.0f} smallest order worth placing"
+            f"below the ${float(minimum):,.0f} that the owner's 0.5% minimum risk per position needs"
             if isinstance(budget, (int, float)) and isinstance(minimum, (int, float))
             else "no cash or borrowing room left to open a new position"
         )
@@ -75,7 +75,7 @@ def owner_precheck_lines(record: dict | None) -> list[str]:
         # exists to remove, wearing a reassuring sentence.
         if funding_view_measured(
             record.get("entry_budget_usd"),
-            record.get("min_order_usd"),
+            record.get("min_entry_usd"),
         ):
             return [
                 f"🔄 Rotation check: not needed — there is still {headroom} "

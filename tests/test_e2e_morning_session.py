@@ -120,7 +120,7 @@ def _scripted_answers() -> dict[str, dict]:
         rating="buy",
         entry_price=LAST_CLOSE,
         reference_target=RANGE_HIGH,
-        stop_loss=round(RANGE_LOW - 1.0, 2),
+        stop_loss=round(RANGE_LOW - 3.0, 2),
         support_levels=[RANGE_LOW],
         resistance_levels=[RANGE_HIGH],
         setup_type="range",
@@ -148,7 +148,9 @@ def _scripted_answers() -> dict[str, dict]:
         targets=[
             TargetPosition(
                 symbol=SYMBOL,
-                target_weight_pct=10.0,
+                # Sized (with the stop $3 under support) to clear the owner's minimum risk per position
+                # (owner rule 2026-08-27) at this fixture's stop distance.
+                target_weight_pct=20.0,
                 conviction="high",
                 thesis="synthetic",
                 thesis_invalid_if="closes below support",

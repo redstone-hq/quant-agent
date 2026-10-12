@@ -997,12 +997,12 @@ risk:
 # interest." With enabled: false the sweep never parks and never funds; any
 # SGOV still held is sold whole into cash at the start of the next
 # market-hours session (`CashSweeper.release_retired_vehicle`). `symbol` must
-# stay set so that release knows what to sell; `min_order_usd` is still read
-# by the portfolio constructor as its minimum order size.
+# stay set so that release knows what to sell. The flat $500 `min_order_usd`
+# is deleted: no broker minimum (Alpaca: fractional from $1, no commission);
+# the owner's 0.5% minimum risk per position is the only size floor.
 cash_sweep:
   enabled: false
   symbol: "SGOV"        # iShares 0-3mo T-bills; BIL is the fallback choice
-  min_order_usd: 500    # don't churn sub-$500 parking orders
 
 # Board item 190 step 1: tolerance band (pp under 100% invested) for the
 # `deployment_gap` advisory. Was read from cash_sweep.reserve_pct; same value.

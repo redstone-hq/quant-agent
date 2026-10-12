@@ -245,6 +245,20 @@ class EntryStopResolver:
         direction: str,
         regime: str | None = None,
     ) -> float | None:
+        """Reward:risk at the entry and stop `entry_stop_preview` resolves."""
+        preview = self.entry_stop_preview(analysis, direction, regime=regime)
+        if preview is None:
+            return None
+        entry_price, honoured_stop, target = preview
+        ratio = self._reward_risk_at(entry_price, honoured_stop, target, direction == "short")
+        return None if ratio is None else round(ratio, 2)
+
+    def entry_stop_preview(
+        self,
+        analysis: TechAnalysisResult | None,
+        direction: str,
+        regime: str | None = None,
+    ) -> tuple[float, float, float] | None:
         """The reward:risk this candidate would actually clear at
         construction time — same target derivation and stop-widening
         `construct_orders` applies — computed BEFORE a `TargetPosition`
@@ -356,13 +370,7 @@ class EntryStopResolver:
             # ranking consumes) rather than a None the gate reads as
             # "ineligible".
             return None
-        ratio = self._reward_risk_at(
-            entry_price,
-            honoured_stop,
-            derivation.price,
-            is_short,
-        )
-        return None if ratio is None else round(ratio, 2)
+        return entry_price, float(honoured_stop), derivation.price
 
     def _widen_stop_past_noise(
         self,

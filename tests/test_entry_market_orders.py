@@ -142,13 +142,13 @@ def _rotation_kwargs(monkeypatch, rot, *, quote, action="BUY"):
 
     def _risk(pipeline, *, total_value, sizing_price, stop_price, is_short, fractional):
         seen["risk_divisor"] = sizing_price
-        return 1.0
+        return 200.0
 
     monkeypatch.setattr(rot, "_qty_by_risk_budget", _risk)
     monkeypatch.setattr(rot, "_projected_post_sale_cash", lambda *a, **k: 50_000.0)
     monkeypatch.setattr(rot, "_entry_deployment_budget", lambda *a: (50_000.0, True, "test"))
     monkeypatch.setattr(rot, "_single_name_execution_cap", lambda *a: 50_000.0)
-    decision = SimpleNamespace(symbol="XYZ", action=action, entry_price=ENTRY, allocation_pct=5.0, stop_loss=97.0)
+    decision = SimpleNamespace(symbol="XYZ", action=action, entry_price=ENTRY, allocation_pct=20.0, stop_loss=92.0)
     return seen, dict(
         rotation={"held_symbol": "OLD"},
         buy_decision=decision,

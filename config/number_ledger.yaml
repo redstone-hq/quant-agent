@@ -135,94 +135,6 @@ numbers:
       tests/test_cost_circuit.py asserts the two agree by building the real
       trigger and counting its ticks. Changing the schedule changes this;
       changing this alone changes nothing about when anything runs.
-  - id: src.config.CashSweepConfig.min_order_usd
-    value: 500
-    status: arbitrary
-    site: src/config/__init__.py
-    note: >-
-      UNSOURCED AND TRADE-GOVERNING. A round $500 with nothing behind it.
-      CORRECTED 2026-10-01 (board item 190): the 2026-09-24 note below said
-      this value's only remaining live job was gating the spare-cash SWEEP and
-      that it was "fully decoupled from trade sizing everywhere else". That is
-      now exactly inverted and must not be repeated. The sweep funding step was
-      DELETED with the sweeper (item 190 step 3), so the sweep job is gone,
-      while two trade-governing consumers remain and were missed:
-      (1) `src/pipeline_stages.py` reads it through `_min_order_usd` and DROPS
-      a short scale-in add whose estimated notional falls under it, recording
-      `below_min_notional` as an execution skip and a refused `funding`
-      pipeline event -- a live refusal to trade;
-      (2) `src.rotation.rotation_binding_constraints` appends `funding` to the
-      binding-constraint tuple when the entry budget is under this value, and
-      `rotation_constraint_clause` renders that tuple into the rotation report
-      and the owner-facing funding wording, so the number also decides what the
-      desk SAYS is constraining it.
-      ALGEBRA CHECKED 2026-10-01, and the answer is no: the floor does NOT
-      cancel to a constant fraction of equity and is not a disguised global
-      dial. Both sizing paths make the order notional proportional to equity
-      (`qty_by_alloc` gives `allocation_pct/100 * total_value`; `qty_by_risk`
-      gives `total_value * risk_pct/100 * price / |price - stop|`), so the test
-      `estimated_cost < 500` reduces to `fraction_of_equity < 500 / total_value`.
-      The equity term survives on one side only. The effective weight threshold
-      therefore DRIFTS INVERSELY with account size -- the same floor refuses a
-      larger share of the book on a small account than on a large one, and
-      silently loosens as equity grows. That is its own defect, and it is the
-      reason this is a per-name read waiting to be built rather than a dial.
-      RULED 2026-10-01: not deleted, not ratified, value unchanged. A global
-      constant governing what the desk may trade is a defect to be replaced by
-      a per-name read, not a value for the owner to set.
-      DERIVATION ATTEMPT 1 (2026-09-24, FAILED): justify it as the notional
-      below which commission makes a trade uneconomic. Refuted by the broker
-      fact -- Alpaca charges no stock commission -- after a real incident in
-      which a genuine ~$295 trade was refused as "under the $500 minimum order
-      ... pays full commission", a false statement. The fix removed the floor
-      from all four trade-sizing sites then known: the sector-crowding scale in
-      `PortfolioConstructor._apply_sector_crowding_scale`, NEW-entry blocking
-      inside `apply_gross_ceiling` via `ConstructorConfig.min_order_usd`, the
-      rotation buy-leg gate (retired outright from `REQUIRED_BUY_LEG_GATES`),
-      and the execution-time cash re-size refusal. The two consumers above were
-      not in that sweep and survived it.
-      DERIVATION ATTEMPT 2 (2026-10-01, FAILED to settle): derive it from how
-      often it has actually refused an order. Measured read-only against the
-      production DB `/home/qamc/quant-agent/data/quant_agent.db`: across 13,823
-      `specialist_evidence` rows the entire retained record holds 18
-      `execution_skip` rows, of which exactly ONE is `below_min_notional` -- a
-      short add refused at a notional well under a fifth of the floor. One
-      observation cannot distinguish a floor at $100 from one at $500: every
-      candidate value in that range would have refused the same single order
-      and permitted everything else on record. The attempt is recorded as
-      failed rather than retried; the route below is what would settle it.
-    settles_by:
-      kind: recording
-      state: built
-      where: src/pipeline_stages.py `_record_execution_skip`, persisted via src/storage/db.py
-      writes:
-        - specialist_evidence.kind
-        - specialist_evidence.evidence_json
-      records: >-
-        every order this floor refuses, as an `execution_skip` evidence row
-        carrying the reason `below_min_notional`, the symbol, the refused
-        notional and the floor it was measured against, alongside the skip rows
-        for every OTHER refusal reason so the floor's share of all refusals is
-        readable rather than assumed. The recording already exists and is
-        already collecting; nothing new had to be built for it.
-      closes_when: >-
-        enough refusals accumulate to show the distribution of refused
-        notionals and what the desk did with each name afterwards, so the
-        smallest order worth placing is read off this account's own refused
-        orders and their outcomes instead of being a round number. On the
-        current rate -- one refusal in the whole retained record -- that is
-        the evidence this number is waiting on, and the honest reading is that
-        the floor is nearly never binding, which is an argument for the
-        per-name read rather than for any particular dollar figure.
-    open_question: >-
-      What is the smallest order this account should place, read off each
-      name's own spread, tick size and the refused-order record, rather than
-      one dollar figure applied to every name and every account size?
-    cost_while_unanswered: >-
-      A small, correct addition to a short position is refused outright, and
-      the rotation report calls funding binding, on a number nobody derived --
-      and the share of the book that number silently refuses changes as equity
-      changes.
   - id: src.config.CashReserveConfig.pct
     value: 1
     status: not-trade-governing
@@ -7693,23 +7605,6 @@ numbers:
       Feeding the risk share into the notional test would silently tighten a
       live advisory on an arithmetic confusion. The row stays `arbitrary` and
       its recorded settlement route is unchanged.
-  - id: src.risk.rules.apply_gross_ceiling(min_order_usd)
-    value: 500
-    status: derived
-    site: src/risk/rules.py
-    derived_from: src.config.CashSweepConfig.min_order_usd
-    base_value: 500
-    note: >-
-      Fixed 2026-09-24 (completing the fix begun on the sector-crowding
-      check in ConstructorConfig.min_order_usd): `apply_gross_ceiling` no
-      longer refuses a NEW entry for being under this flat notional floor —
-      an arbitrary $500 with no broker minimum behind it, and Alpaca charges
-      no stock commission. An entry the ceiling shrinks to a small but
-      nonzero size is now granted at that size; only a genuine ZERO
-      headroom (`after <= 0`) still refuses. The parameter is still accepted
-      (both callers still pass cash_sweep.min_order_usd) but is now an
-      ignored, vestigial argument to this function -- kept only so existing
-      callers/tests do not need to change their call signature.
   - id: src.risk.rules.distance_to_forced_liquidation_pct(maintenance_margin_pct)
     value: 25
     status: derived
