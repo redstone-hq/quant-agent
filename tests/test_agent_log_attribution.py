@@ -241,7 +241,9 @@ def test_morning_session_persists_actual_model_for_all_five_agents(
             targets=[
                 TargetPosition(
                     symbol="SPY",
-                    target_weight_pct=10.0,
+                    # Sized to clear the owner's minimum risk per position (owner rule
+                    # 2026-08-27): 10% through the $490 stop risked only 0.34% of equity.
+                    target_weight_pct=20.0,
                     conviction="high",
                     thesis="Buy",
                     thesis_invalid_if="closes below support",
@@ -419,7 +421,9 @@ def test_morning_session_decision_id_correlates_pm_rm_and_trade(
             targets=[
                 TargetPosition(
                     symbol="SPY",
-                    target_weight_pct=10.0,
+                    # Sized to clear the owner's minimum risk per position (owner rule
+                    # 2026-08-27): 10% through the $490 stop risked only 0.34% of equity.
+                    target_weight_pct=20.0,
                     conviction="high",
                     thesis="Buy",
                     thesis_invalid_if="closes below support",

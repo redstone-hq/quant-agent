@@ -29,6 +29,7 @@ STOP_DELEGATES = (
     "_derive_structural_stop_no_atr",
     "_reward_risk_at",
     "real_reward_risk_preview",
+    "entry_stop_preview",
     "_widen_stop_past_noise",
     "shipped_stop_rule",
     "shipped_stop_level_basis",
