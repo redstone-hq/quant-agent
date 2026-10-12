@@ -389,8 +389,9 @@ def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, 
     """symbol -> {"initial_stop", "unrealised_r"} for held positions, from their opening trade rows.
 
     Uses the stop AT ENTRY (`recorded_initial_stop`) of the most recent opening chain for the symbol.
-    `unrealised_r` = P&L on the shares still held / per-lot risk scaled to those shares (`quantities.open_position_risk_dollars`);
-    unchanged by a partial sell. None if any lot lacks a usable stop. Never zero.
+    `unrealised_r` = P&L on the shares still held / per-lot risk scaled to those shares
+    (`quantities.open_position_risk_dollars`); unchanged by a partial sell.
+    None if any lot lacks a usable stop. Never zero.
     """
     latest: dict[str, str] = {}
     for row in sorted(entry_rows, key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0)):
@@ -402,7 +403,8 @@ def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, 
         lots = [
             r
             for r in entry_rows
-            if str(r.get("position_id") or "") == latest.get(sym) and str(r.get("action") or "").upper() in _OPEN_ACTIONS
+            if str(r.get("position_id") or "") == latest.get(sym)
+            and str(r.get("action") or "").upper() in _OPEN_ACTIONS
         ]
         stop = next((s for row in lots if (s := recorded_initial_stop(row)) > 0), None)
         qty = float(pos.get("qty") or 0)
