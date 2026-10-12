@@ -77,8 +77,8 @@ def _service(tmp_path, *, enabled, journal=None):
         "quote_type": "EQUITY",
     }
     provider = MagicMock()
-    provider.recent_filings.return_value = []
-    provider.listed_map.return_value = {}
+    provider.listed_map.return_value = {"1": {ASSET["symbol"]: "NYSE"}}
+    provider._get.return_value.json.return_value = {}  # no filings at all
     journal = journal if journal is not None else InMemoryEventJournal()
     return AdmissionService(
         config=_config(tmp_path, enabled=enabled),

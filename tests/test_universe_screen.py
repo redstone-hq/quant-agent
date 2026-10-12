@@ -69,12 +69,17 @@ def _good_bars():
     return _bars(300, price=50.0, rng=0.0005)
 
 
-def _sources(asset=GOOD_ASSET, bars=None, profile=None, filings=()):
+#: A JSON-safe filing locator, as `src.data.sec_filings.filing_rows` emits.
+LOCATOR = {"cik": "111111", "accession": "0001193125-26-000001", "primary_doc": "d1.htm", "form": "DEFM14A"}
+
+
+def _sources(asset=GOOD_ASSET, bars=None, profile=None, filings=(), role=None):
     return us.ScreenSources(
         get_asset=lambda s: asset,
         get_bars=lambda s: _good_bars() if bars is None else bars,
         get_profile=lambda s: profile if profile is not None else {"market_cap_usd": 5e9, "sector": "Industrials"},
         get_filings=lambda s: list(filings) if filings is not None else None,
+        get_role=(lambda ref: role) if role is not None else None,
     )
 
 
@@ -363,8 +368,8 @@ def test_unreadable_profile_is_inconclusive_not_a_failure():
 
 
 def test_pending_takeover_is_refused():
-    filings = [("DEFM14A", "2026-08-01", ""), ("8-K", "2026-07-01", "1.01,9.01")]
-    result = us.screen_symbol("ACME", _sources(filings=filings), TH)
+    filings = [("DEFM14A", "2026-08-01", "", LOCATOR), ("8-K", "2026-07-01", "1.01,9.01")]
+    result = us.screen_symbol("ACME", _sources(filings=filings, role="target"), TH)
     assert result.failures == ["pending_takeover"]
 
 
@@ -646,14 +651,37 @@ def _pipeline(tmp_path, *, enabled=True):
         "sector_raw": "Industrials",
         "quote_type": "EQUITY",
     }
-    pipeline.sec_form4_provider.recent_filings.return_value = []
+    pipeline.sec_form4_provider.listed_map.return_value = {"111111": {"ACME": "NYSE"}}
+    pipeline.sec_form4_provider._get.return_value.json.return_value = {}  # no filings at all
     return pipeline
+
+
+# EDGAR header of a tender offer in which ACME (CIK 111111) is the target.
+_TENDER_HEADER = "SUBJECT COMPANY:\n\tCENTRAL INDEX KEY: 0000111111\nFILED BY:\n\tCENTRAL INDEX KEY: 0000222222\n"
+_SUBMISSIONS = {
+    "filings": {
+        "recent": {
+            "form": ["SC 14D9"],
+            "filingDate": ["2026-09-01"],
+            "items": [""],
+            "accessionNumber": ["0001193125-26-000001"],
+            "primaryDocument": ["d1.htm"],
+        }
+    }
+}
+
+
+def _sec_get(url, *, params, deadline):
+    out = MagicMock()
+    out.json.return_value = _SUBMISSIONS
+    out.text = _TENDER_HEADER
+    return out
 
 
 def test_side_door_runs_the_screen_when_on(tmp_path, monkeypatch):
     pipeline = _pipeline(tmp_path)
     monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
-    pipeline.sec_form4_provider.recent_filings.return_value = [("DEFM14A", "2026-09-01", "")]
+    pipeline.sec_form4_provider._get.side_effect = _sec_get  # ACME is the SUBJECT COMPANY
     ok, reason, details = pipeline.admission._evaluate_external_admission_gates("ACME")
     assert (ok, reason) == (False, "pending_takeover")
     pipeline.broker.get_transient_equity_eligibility.assert_not_called()
@@ -666,7 +694,7 @@ def test_side_door_keeps_its_old_gate_when_off(tmp_path, monkeypatch):
     ok, reason, _ = pipeline.admission._evaluate_external_admission_gates("ACME")
     assert ok is True  # 30 bars would fail the screen's one-year history
     pipeline.broker.get_transient_equity_eligibility.assert_called_once()
-    pipeline.sec_form4_provider.recent_filings.assert_not_called()
+    pipeline.sec_form4_provider._get.assert_not_called()
 
 
 def test_nomination_door_uses_the_screen(tmp_path, monkeypatch):
@@ -742,7 +770,6 @@ def test_evening_pass_records_changes_and_morning_shows_them_once(tmp_path, monk
     pipeline.broker.list_assets.return_value = [GOOD_ASSET]
     pipeline.broker.get_positions.return_value = []
     pipeline.market.get_ohlcv_batch.side_effect = lambda chunk, days: {s: _good_bars() for s in chunk}
-    pipeline.sec_form4_provider.listed_map.return_value = {}
     monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
     summary = pipeline.admission._run_universe_screen("evening-x")
     assert summary["passed"] == 1

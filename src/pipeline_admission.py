@@ -216,6 +216,7 @@ class AdmissionService:
     def _universe_screen_sources(self, deadline: float, listed: dict | None = None):
         """The screen's read path: broker asset directory, yfinance bars and
         company profile, SEC filing history. Every source is read-only."""
+        from src.data.sec_filings import screen_readers
         from src.sector_reference import _canonicalize_sector
         from src.universe_screen import HISTORY_FETCH_DAYS, ScreenSources
 
@@ -228,17 +229,24 @@ class AdmissionService:
                 sector = _get_sector(symbol) or "Unknown"
             return {"market_cap_usd": raw.get("market_cap_usd"), "sector": sector}
 
-        def _filings(symbol: str):
-            provider = getattr(self, "sec_form4_provider", None)
-            if provider is None:
+        provider = getattr(self, "sec_form4_provider", None)
+        if provider is None:
+
+            def _filings(symbol: str):
                 raise RuntimeError("SEC provider not configured")
-            return provider.recent_filings(symbol, deadline, listed=listed)
+
+            get_role = None
+        else:
+            # Takeover rows with a locator plus the role reader (bidder vs
+            # target from the filing header): `src/data/sec_filings.py`.
+            _filings, get_role = screen_readers(provider, deadline, listed)
 
         return ScreenSources(
             get_asset=self.broker.get_asset_record,
             get_bars=lambda symbol: self.market.get_ohlcv(symbol, HISTORY_FETCH_DAYS),
             get_profile=_profile,
             get_filings=_filings,
+            get_role=get_role,
         )
 
     def _evaluate_screened_admission(

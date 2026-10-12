@@ -219,6 +219,7 @@ def run_daily_record(
     cache: ReadCache,
     clock: Callable[[], float] = time.monotonic,
     get_yahoo: Callable[[str], dict] | None = None,
+    get_role: Callable[[Any], str] | None = None,
 ) -> DailyRun:
     """Screen every listed name once; record each. Never mutates admission state.
 
@@ -234,6 +235,7 @@ def run_daily_record(
         get_profile=get_profile,
         get_filings=get_filings,
         get_yahoo=get_yahoo,
+        get_role=get_role,
     )
     by_symbol: dict[str, Any] = {}
     for asset in assets:
@@ -258,6 +260,7 @@ class _DailyScreen:
     get_profile: Callable[[str], Any]
     get_filings: Callable[[str], Any]
     get_yahoo: Callable[[str], dict] | None = None
+    get_role: Callable[[Any], str] | None = None
     # The time limit is checked when a name STARTS: a name begun in time
     # finishes its reads; one begun late uses only what is cached.
     late: bool = False
@@ -340,7 +343,11 @@ class _DailyScreen:
                 return _seen["profile"]
 
             sources = ScreenSources(
-                get_asset=lambda s: None, get_bars=lambda s: [], get_profile=_profile, get_filings=_filings
+                get_asset=lambda s: None,
+                get_bars=lambda s: [],
+                get_profile=_profile,
+                get_filings=_filings,
+                get_role=self.get_role,
             )
             try:
                 result = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
@@ -539,10 +546,18 @@ def _yahoo_reader():
 
 
 def _filings_reader(config, deadline: float):
-    """SEC issuer filing history; built from `smart_money` config, passing
-    every constructor field that config names, as the pipeline does."""
+    """(get_filings, get_role) for the screen's takeover check.
+
+    Built from `smart_money` config, passing every constructor field that
+    config names, as the pipeline does. Every SEC read goes through that
+    client (its rate limiter and its configured User-Agent): the issuer's
+    submissions JSON for the filing rows, then, only for the one open
+    takeover filing, its header and (self-filed proxies) its document.
+    Each read raises on failure; the screen records takeover_lookup_failed.
+    """
     import inspect
 
+    from src.data import sec_filings
     from src.data.smart_money import SECForm4Provider
 
     sm = config.smart_money
@@ -554,12 +569,13 @@ def _filings_reader(config, deadline: float):
         logger.warning("universe daily: SEC ticker map unavailable: %s", exc)
         listed = None
 
-    def _filings(symbol: str):
-        if listed is None:
-            raise RuntimeError("SEC ticker map unavailable")
-        return sec.recent_filings(symbol, deadline, listed=listed)
+    if listed is None:
 
-    return _filings
+        def _unavailable(symbol: str):
+            raise RuntimeError("SEC ticker map unavailable")
+
+        return _unavailable, None
+    return sec_filings.screen_readers(sec, deadline, listed)
 
 
 class _CountedBatches:
@@ -605,11 +621,13 @@ def main(argv: list[str] | None = None) -> int:
         listing = None
     bars = _CountedBatches(broker, HISTORY_FETCH_DAYS)
     cache = ReadCache(cfg.data_dir)
+    get_filings, get_role = _filings_reader(config, deadline)
     run = run_daily_record(
         broker.list_assets(),
         get_bars_batch=bars,
         get_profile=_profile_reader(listing, _canonicalize_sector),
-        get_filings=_filings_reader(config, deadline),
+        get_filings=get_filings,
+        get_role=get_role,
         th=ScreenThresholds.from_config(config),
         today=today,
         deadline=deadline,
