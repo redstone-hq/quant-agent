@@ -16,6 +16,7 @@ src/execution/
 src/exits/
 src/models/risk_verdicts.py
 src/pipeline_admission.py
+src/pipeline_gross_ceiling.py
 src/pipeline_risk
 src/portfolio_constructor/
 src/protection/

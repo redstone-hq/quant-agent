@@ -16,9 +16,13 @@ def _session_gross_ceiling(pipeline, ctx):
 
     The run preamble already resolved it from account state before any agent
     ran; this re-derives it so the resume lane (where the preamble did not
-    run) sizes against a real ceiling too. Returns None on any failure — the
-    constructor then falls back to the standing cap, which is still a
-    ceiling. It never falls back to "no ceiling".
+    run) sizes against a real ceiling too. Returns None when the pipeline
+    has no resolver or the resolver raises (the raise is recorded as the
+    `gross_ceiling` stage). Each caller owns its fallback; it is NOT
+    automatically the standing cap. `_entry_deployment_budget`, for one,
+    falls back to the pre-margin raw settled-cash clamp and reports the
+    headroom as not ladder-backed. None means "unresolved", never "no
+    ceiling".
     """
     resolve = getattr(pipeline, "_resolve_gross_ceiling", None)
     if resolve is None:

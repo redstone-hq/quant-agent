@@ -66,7 +66,27 @@ class PositionReviewSession:
         macro,
         macro_store,
         position_reviewer,
+        pipeline,
     ) -> None:
+        # The §11.2 helpers (`_entry_deployment_budget`, `_session_gross_ceiling`)
+        # read the pipeline's ladder resolver, cash-park symbol, broker and
+        # config. A pipeline without the resolver is a wiring fault, but the
+        # number it feeds is reviewer-prompt WORDING only, so it must never
+        # stop the session: refusing to build would skip stop upkeep,
+        # protective exits and de-levering. It is logged CRITICAL here, at
+        # build time, and the run proceeds with the ceiling unresolved (the
+        # budget helper's recorded raw-cash fallback). Checked directly on
+        # the object, not via `_collab`, whose stand-in would hide the
+        # absence.
+        if not callable(getattr(pipeline, "_resolve_gross_ceiling", None)):
+            logger.critical(
+                "PositionReviewSession wiring fault: pipeline %s has no callable "
+                "`_resolve_gross_ceiling` — the reviewer's margin headroom will "
+                "be the raw-cash fallback, not ladder-backed. Stops, exits and "
+                "de-levering still run.",
+                type(pipeline).__name__,
+            )
+        self._pipeline = pipeline
         self._activate_cost_session = activate_cost_session
         self._adjudicate_target_revision_flags = adjudicate_target_revision_flags
         self._apply_deterministic_trails = apply_deterministic_trails
@@ -600,21 +620,22 @@ class PositionReviewSession:
             # state here (positions/equity/held-gross) has not changed since
             # ctx was built above, so this is the same headroom execution
             # will see for this session's entries.
-            from src.pipeline_stages import (
-                _entry_deployment_budget,
-                _session_gross_ceiling,
-            )
+            from src.pipeline_stages import _entry_deployment_budget
 
             margin_headroom_usd, margin_ladder_backed, _margin_headroom_note = _entry_deployment_budget(
-                self,
+                self._pipeline,
                 ctx,
                 review_positions,
                 total_value,
                 review_cash,
             )
-            _margin_ceiling = _session_gross_ceiling(self, ctx)
-            margin_ladder_multiple = _margin_ceiling.ceiling_x if _margin_ceiling is not None else None
-            margin_ladder_rung = _margin_ceiling.rung if _margin_ceiling is not None else None
+            # Reuse the ceiling the budget call just resolved (the resolver
+            # records it on `ctx.leverage`) instead of resolving it again.
+            # Only when ladder-backed: on the fallback path `ctx.leverage` may
+            # still hold the earlier de-lever pass's reading, not this one's.
+            _lev = ctx.leverage if margin_ladder_backed and isinstance(ctx.leverage, dict) else {}
+            margin_ladder_multiple = _lev.get("ceiling_x")
+            margin_ladder_rung = _lev.get("rung")
 
             review_kwargs = dict(
                 positions=review_positions,

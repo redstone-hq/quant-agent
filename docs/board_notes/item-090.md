@@ -477,3 +477,16 @@ verdict while recording token cost. It closes only if the full list fits an
 explicit prompt budget, the cap is arithmetically derived from that budget, or
 the truncated form is invariant in that controlled comparison. Trading
 outcomes are excluded.
+
+**2026-10-12 liquidity-window paragraph.** The liquidity check averages a
+stock's daily dollar trading volume over the last twenty sessions. Twenty is a
+conventional month, not a measurement, so it is recorded as arbitrary. The
+route: across every stock the desk could trade, using public daily prices,
+compare averages over ten, twenty and sixty sessions against what it actually
+costs to trade that stock in the following sessions (the gap between bid and
+ask, and how far the price moves per dollar traded). Keep the shortest window
+that ranks stocks as well as the longer ones; if all three rank stocks the same
+way, the number does not matter and is deleted. Example: if a stock's ten-day
+average is inflated by one earnings-day spike but its trading cost stays high,
+the longer window is the better guide. This desk's own fills may never choose
+the window.

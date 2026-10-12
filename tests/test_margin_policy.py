@@ -1034,7 +1034,9 @@ def test_reviewer_prompt_margin_headroom_wired_from_entry_deployment_budget():
         __import__("src.sessions.position_review_session", fromlist=["PositionReviewSession"]).PositionReviewSession.run
     )
     assert "_entry_deployment_budget(" in src
-    assert "self,ctx,review_positions,total_value,review_cash," in "".join(src.split())
+    # The REAL pipeline (owner of `_resolve_gross_ceiling`), never the session
+    # itself — passing `self` left the ladder unresolvable on every midday run.
+    assert "self._pipeline,ctx,review_positions,total_value,review_cash," in "".join(src.split())
     assert "margin_headroom_usd=margin_headroom_usd" in src
     assert "margin_ladder_backed=margin_ladder_backed" in src
 
