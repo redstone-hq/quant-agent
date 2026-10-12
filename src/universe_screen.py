@@ -61,10 +61,13 @@ THE CRITERIA, and where each threshold comes from (every number is in
               Russell US indexes' eligibility floor).
   sector      resolves to a real sector — the sector cap needs one. Kept
               from the pre-existing side-door gate.
-  takeover    no pending acquisition: the issuer's SEC filing history
-              holds no merger proxy / tender-offer filing that a later
-              8-K Item 1.02 (termination of a material definitive
-              agreement) has not followed.
+  takeover    no pending acquisition: the issuer is not the TARGET of a
+              takeover filing (merger proxy / tender offer) still open,
+              i.e. not followed by a termination (8-K Item 1.02) or a
+              close (Form 25, Form 15, 8-K Item 2.01). The role comes
+              from the filing header or the golden-parachute vote
+              (`src/data/sec_filings.py`); a bidder is never pending and
+              an unattributable role is inconclusive.
   fund        an exchange-traded fund (Yahoo `quoteType == "ETF"`; owner
               ruling 2026-10-09: expand the universe including ETFs) is
               admitted ONLY as an unlevered equity fund. Refused: a
@@ -237,6 +240,24 @@ TAKEOVER_FORMS = frozenset(
 #: admitting a name, and is recorded as a known limit.
 TERMINATION_ITEM = "1.02"
 
+#: A deal is CLOSED when any of these follows the takeover filing: Form 25
+#: (delisting), Form 15 (deregistration, any suffix) or 8-K item 2.01
+#: "Completion of Acquisition or Disposition of Assets". A closed deal means
+#: the name is gone or going from the exchange, which the asset check
+#: handles; it is no longer "pending".
+CLOSING_FORMS = frozenset({"25", "25-NSE", "15", "15-12B", "15-12G", "15-15D"})
+CLOSING_ITEM = "2.01"
+
+#: Role of the issuer in its latest open takeover filing, read from the
+#: filing header (SUBJECT COMPANY = target, FILED BY = bidder) or, for a
+#: self-filed merger proxy, from the Rule 14a-21(c) golden-parachute vote.
+#: See `src/data/sec_filings.py`. A bidder is never pending. A role that
+#: cannot be attributed (a joint proxy) is INCONCLUSIVE, never dropped and
+#: never admitted. A row with no locator (legacy three-column rows) keeps
+#: the pre-2026-10 reading: the latest open takeover filing is pending.
+ROLE_TARGET = "target"
+ROLE_UNDETERMINED = "undetermined"
+
 #: Failure codes that mean "could not read", never "failed the screen".
 INCONCLUSIVE = frozenset(
     {
@@ -245,6 +266,7 @@ INCONCLUSIVE = frozenset(
         "profile_unavailable",
         "fund_category_not_listed",
         "takeover_lookup_failed",
+        "takeover_role_undetermined",
         "screen_deadline",
     }
 )
@@ -284,6 +306,7 @@ PLAIN_REASON = {
     "market_data_unavailable": "price data could not be read",
     "profile_unavailable": "company data could not be read",
     "takeover_lookup_failed": "SEC filings could not be read",
+    "takeover_role_undetermined": "role undetermined",
     "screen_deadline": "ran out of time",
     "passed": "passes every check",
 }
@@ -574,30 +597,67 @@ def check_profile(profile, th: ScreenThresholds, name: str = "") -> tuple[list[s
     return failures, measured
 
 
-def pending_takeover(filings) -> tuple[bool, str | None]:
-    """(pending, latest takeover filing date) from (form, date, items) rows."""
-    latest_deal = None
-    latest_termination = None
-    for form, filed, items in filings or []:
-        base = str(form or "").strip().upper()
-        if base.endswith("/A"):
-            base = base[:-2]
+def _items(items) -> set[str]:
+    return {part.strip() for part in str(items or "").split(",")}
+
+
+def _base_form(form) -> str:
+    base = str(form or "").strip().upper()
+    return base[:-2] if base.endswith("/A") else base
+
+
+def latest_open_takeover(filings) -> tuple[str | None, Any]:
+    """(date, locator) of the latest takeover filing that no closing or
+    termination filing follows; (None, None) when there is none.
+
+    Rows are (form, date, items) or (form, date, items, locator)."""
+    latest_deal: tuple[str, Any] | None = None
+    latest_end: str | None = None
+    for row in filings or []:
+        form, filed, items = row[0], row[1], row[2]
+        ref = row[3] if len(row) > 3 else None
+        base = _base_form(form)
         day = str(filed or "")[:10]
         if base in TAKEOVER_FORMS:
-            latest_deal = max(latest_deal or day, day)
-        elif base == "8-K" and TERMINATION_ITEM in {part.strip() for part in str(items or "").split(",")}:
-            latest_termination = max(latest_termination or day, day)
+            if latest_deal is None or day >= latest_deal[0]:
+                latest_deal = (day, ref)
+        elif base in CLOSING_FORMS or (base == "8-K" and _items(items) & {TERMINATION_ITEM, CLOSING_ITEM}):
+            latest_end = max(latest_end or day, day)
     if latest_deal is None:
+        return None, None
+    if latest_end is not None and latest_end >= latest_deal[0]:
+        return None, None
+    return latest_deal
+
+
+def pending_takeover(filings, role_of: Callable[[Any], str] | None = None) -> tuple[bool | None, str | None]:
+    """(pending, latest takeover filing date) from filing rows.
+
+    pending is True for the target of an open deal, False for no open deal
+    or for the bidder, and None when the issuer's role could not be told
+    (recorded inconclusive by `check_takeover`). `role_of(locator)` reads
+    the role; it may raise, and the caller fails closed."""
+    day, ref = latest_open_takeover(filings)
+    if day is None:
         return False, None
-    return (latest_termination is None or latest_termination < latest_deal), latest_deal
+    if ref is None or role_of is None:
+        return True, day
+    role = role_of(ref)
+    if role == ROLE_TARGET:
+        return True, day
+    if role == ROLE_UNDETERMINED:
+        return None, day
+    return False, day
 
 
-def check_takeover(filings) -> tuple[list[str], dict]:
+def check_takeover(filings, role_of: Callable[[Any], str] | None = None) -> tuple[list[str], dict]:
     if filings is None:
         return ["takeover_status_unknown"], {}
-    pending, filed = pending_takeover(filings)
+    pending, filed = pending_takeover(filings, role_of)
     if pending:
         return ["pending_takeover"], {"takeover_filing": filed}
+    if pending is None:
+        return ["takeover_role_undetermined"], {"takeover_filing": filed}
     return [], {}
 
 
@@ -639,13 +699,16 @@ class ScreenSources:
     get_asset(symbol) -> record | None   (None = broker says it does not exist)
     get_bars(symbol) -> list[OHLCV]
     get_profile(symbol) -> {"market_cap_usd", "sector"} | None
-    get_filings(symbol) -> [(form, filing_date, items)] | None (None = no SEC issuer)
+    get_filings(symbol) -> [(form, filing_date, items[, locator])] | None (None = no SEC issuer)
+    get_role(locator) -> "target" | "bidder" | "not_target" | "undetermined"
+        (None = no role reader; a legacy row's open takeover filing is pending)
     """
 
     get_asset: Callable[[str], Any]
     get_bars: Callable[[str], list]
     get_profile: Callable[[str], dict | None]
     get_filings: Callable[[str], list | None]
+    get_role: Callable[[Any], str] | None = None
 
 
 def screen_symbol(
@@ -695,11 +758,11 @@ def screen_symbol(
         return result
     try:
         filings = sources.get_filings(symbol)
+        failures, measured = check_takeover(filings, sources.get_role)
     except Exception as exc:  # noqa: BLE001
         logger.warning("universe screen: SEC filings failed for %s: %s", symbol, exc)
         result.failures = ["takeover_lookup_failed"]
         return result
-    failures, measured = check_takeover(filings)
     result.measured.update(measured)
     result.failures = failures
     return result
