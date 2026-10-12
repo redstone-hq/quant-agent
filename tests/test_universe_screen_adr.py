@@ -17,22 +17,43 @@ REAL_ADRS = [
     ("ARGX", "argenx SE - American Depositary Shares"),
     ("BTI", "British American Tobacco  Industries, p.l.c. Common Stock ADR"),
     ("BHP", "BHP Group Limited American Depositary Shares (Each representing two Ordinary Shares)"),
-    ("SIMO", "Silicon Motion Technology Corporation - American Depositary Shares, each representing four ordinary shares"),
+    (
+        "SIMO",
+        "Silicon Motion Technology Corporation - American Depositary Shares, each representing four ordinary shares",
+    ),
     ("INFY", "Infosys Limited American Depositary Shares"),
     ("SKHY", "SK hynix Inc. - American Depositary Shares"),
     ("AAPG", "Ascentage Pharma Group International - American Depository Shares"),
     ("API", "Agora, Inc. - ADS"),
-    ("OMAB", "Grupo Aeroportuario del Centro Norte S.A.B. de C.V. - American Depositary Shares each representing 8 Series B shares"),
-    ("RLX", "RLX Technology Inc. American Depositary Shares, each representing the right to receive one (1) Class A ordinary share"),
+    (
+        "OMAB",
+        "Grupo Aeroportuario del Centro Norte S.A.B. de C.V. - American "
+        "Depositary Shares each representing 8 Series B shares",
+    ),
+    (
+        "RLX",
+        "RLX Technology Inc. American Depositary Shares, each representing the "
+        "right to receive one (1) Class A ordinary share",
+    ),
 ]
 
 REAL_NOT_COMMON = [
-    ("ANG$D", "American National Group Inc. Depositary Shares, each representing a 1/1000th interest in a share of 7.375% Fixed-Rate Non-Cumulative Preferred Stock, Series D"),
+    (
+        "ANG$D",
+        "American National Group Inc. Depositary Shares, each representing a "
+        "1/1000th interest in a share of 7.375% Fixed-Rate Non-Cumulative "
+        "Preferred Stock, Series D",
+    ),
     ("GS$D", "Goldman Sachs Group, Inc. (The) Dep Shs repstg 1/1000 Pfd Ser D Fltg"),
     ("CDZIP", "Cadiz, Inc. - Depositary Shares"),
     ("MET$E", "MetLife, Inc. Depositary Shares "),
     ("ITUB", "Itau Unibanco Banco Holding SA American Depositary Shares (Each repstg 500 Preferred shares)"),
-    ("KOF", "Coca Cola Femsa S.A.B. de C.V.  American Depositary Shares, each representing 10 Units (each Unit consists of 3 Series B Shares and 5 Series L Shares)"),
+    (
+        "KOF",
+        "Coca Cola Femsa S.A.B. de C.V.  American Depositary Shares, each "
+        "representing 10 Units (each Unit consists of 3 Series B Shares and 5 "
+        "Series L Shares)",
+    ),
     ("IQMXW", "IQM Quantum Computers Oyj - Warrants to purchase American Depositary Shares"),
 ]
 
