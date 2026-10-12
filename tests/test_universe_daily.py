@@ -34,8 +34,9 @@ def _run(
     cache=None,
     batch=2,
     after_bars=None,
+    yahoo=None,
 ):
-    calls = {"bars": [], "profile": [], "filings": []}
+    calls = {"bars": [], "profile": [], "filings": [], "yahoo": [], "sleep": []}
 
     def get_bars(chunk):
         if after_bars is not None:
@@ -62,6 +63,8 @@ def _run(
         batch_size=batch,
         cache=cache or ud.ReadCache(tmp_path),
         clock=clock or Clock(),
+        get_yahoo=None if yahoo is None else (lambda s: calls["yahoo"].append(s) or yahoo(s)),
+        sleep=calls["sleep"].append,
     )
     return run, calls
 
@@ -98,7 +101,9 @@ def test_every_name_gets_a_record_with_its_failing_check(tmp_path):
         "company_too_small": 1,
         "price_below_minimum": 1,
     }
-    assert "yahoo_profile" not in summary["calls"]
+    # Every name here has a Nasdaq sector, so the bounded Yahoo second pass
+    # (funds with no category, stocks with no sector) is due for none of them.
+    assert summary["yahoo_second_pass"] == {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0}
 
 
 def test_pending_takeover_is_recorded(tmp_path):
@@ -290,3 +295,93 @@ def test_listing_unavailable_is_inconclusive_and_day_is_not_recorded(tmp_path):
     run.listing_unavailable = False
     ud.write_record(tmp_path, run)
     assert ud.already_recorded(tmp_path, TODAY)
+
+
+# --------------------------------------------------------------------------
+# Yahoo gap: bounded second pass (owner ruling 2026-10-10). yfinance is a fake.
+# --------------------------------------------------------------------------
+
+FUND = {"quote_type": "ETF", "fund_category_not_listed": True}
+NO_SECTOR = {**PROFILE, "sector": "Unknown"}
+
+
+def _fund_run(tmp_path, info, **kw):
+    return _run([_asset("SPY")], tmp_path, profile=FUND, yahoo=info, **kw)
+
+
+def test_fund_with_large_blend_category_is_admitted(tmp_path):
+    run, calls = _fund_run(tmp_path, lambda s: {"category": "Large Blend"})
+    row = run.records["SPY"]
+    assert row["status"] == "passed" and row["measured"]["sector"] == "Large Blend"
+    assert calls["yahoo"] == ["SPY"]
+    assert run.summary()["yahoo_second_pass"] == {"names": 1, "calls": 1, "failures": 0, "cache_hits": 0}
+
+
+def test_fund_with_leveraged_category_is_refused(tmp_path):
+    run, _ = _fund_run(tmp_path, lambda s: {"category": "Trading--Leveraged Equity"})
+    row = run.records["SPY"]
+    assert row["status"] == "dropped" and row["failures"] == ["leveraged_or_inverse_fund"]
+
+
+def test_yahoo_failure_is_inconclusive_never_dropped_or_admitted(tmp_path):
+    def boom(s):
+        raise RuntimeError("yahoo down")
+
+    for info in (boom, lambda s: {}, lambda s: {"category": "  "}):
+        run, _ = _fund_run(tmp_path / str(id(info)), info)
+        row = run.records["SPY"]
+        assert row["status"] == "inconclusive" and row["failures"] == ["profile_unavailable"]
+    run, _ = _run([_asset("BRKB")], tmp_path / "stock", profile=NO_SECTOR, yahoo=boom)
+    assert run.records["BRKB"]["status"] == "inconclusive"
+    assert run.records["BRKB"]["failures"] == ["profile_unavailable"]
+    assert run.summary()["yahoo_second_pass"]["failures"] == 1
+
+
+def test_rate_limit_backs_off_then_stops_reading_yahoo(tmp_path):
+    class YFRateLimitError(Exception):
+        pass
+
+    def limited(s):
+        raise YFRateLimitError("Too Many Requests. Rate limited.")
+
+    assets = [_asset("SPY"), _asset("QQQ")]
+    run, calls = _run(assets, tmp_path, profile=FUND, yahoo=limited)
+    # One name: first try + two backoffs; the second name costs no call.
+    assert calls["yahoo"] == ["QQQ"] * (ud.YAHOO_RATE_LIMIT_RETRIES + 1)
+    assert ud.YAHOO_BACKOFF_S in calls["sleep"] and ud.YAHOO_BACKOFF_S * 2 in calls["sleep"]
+    for name in ("SPY", "QQQ"):
+        assert run.records[name]["status"] == "inconclusive"
+    assert run.summary()["yahoo_second_pass"]["failures"] == 2
+
+
+def test_unknown_nasdaq_sector_gets_its_yahoo_sector(tmp_path):
+    run, calls = _run([_asset("BRKB")], tmp_path, profile=NO_SECTOR, yahoo=lambda s: {"sector": "Financial Services"})
+    row = run.records["BRKB"]
+    assert row["status"] == "passed" and row["measured"]["sector"] == "Financial Services"
+    assert calls["filings"] == ["BRKB"]  # the takeover check still ran
+
+
+def test_no_yahoo_call_for_a_name_that_failed_another_check(tmp_path):
+    assets = [_asset("PENY"), _asset("TINY"), _asset("DEAL")]
+    run, calls = _run(
+        assets,
+        tmp_path,
+        bars={"PENY": _bars(300, price=2.0, rng=0.0005)},
+        profile=lambda s: {**NO_SECTOR, "market_cap_usd": 1e6} if s == "TINY" else NO_SECTOR,
+        filings=[("DEFM14A", "2026-09-01", "")],
+        yahoo=lambda s: {"sector": "Industrials"},
+    )
+    assert calls["yahoo"] == []
+    assert run.records["DEAL"]["failures"] == ["unresolved_sector", "pending_takeover"]
+    assert run.records["DEAL"]["measured"]["sector"] == "Unknown"
+    assert run.records["TINY"]["status"] == "dropped"
+
+
+def test_yahoo_reads_are_paced_and_cached_for_the_week(tmp_path):
+    cache = ud.ReadCache(tmp_path)
+    assets = [_asset("SPY"), _asset("QQQ")]
+    _, first = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
+    assert first["yahoo"] == ["QQQ", "SPY"] and first["sleep"] == [ud.YAHOO_PACE_S]
+    run, second = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
+    assert second["yahoo"] == []
+    assert run.summary()["yahoo_second_pass"] == {"names": 2, "calls": 0, "failures": 0, "cache_hits": 2}

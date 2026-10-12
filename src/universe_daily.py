@@ -24,12 +24,28 @@ Data and call budget:
                is no retry loop. No Yahoo bar download is made.
   size/sector  The Nasdaq all-listings documents (stocks and ETFs), two GETs
                per run through `src.data.nasdaq_fetch`; no per-name call.
-               Nasdaq lists no fund category, so every fund is recorded
-               `fund_category_not_listed` (inconclusive: admitted nothing,
-               rejected nothing, re-read next run). If the download fails
+               Nasdaq lists no fund category, and gives some stocks a blank
+               or "Miscellaneous" sector (BRK-B, FERG). If the download fails
                every name is inconclusive `profile_unavailable` and the day
                is NOT marked recorded, so the next wake-up retries.
-  takeover     SEC issuer filing history, same cache rule. Calls counted.
+  Yahoo gap    A second, bounded pass (owner ruling 2026-10-10: wrongly
+               dropped names go back in). ONLY a name that passed every
+               other check and is (a) a fund with no category or (b) a stock
+               whose Nasdaq sector is Unknown gets one yfinance `.info` read
+               (`category` for a fund, `sector` for a stock), paced
+               `YAHOO_PACE_S` apart, backing off on HTTP 429 and stopping
+               Yahoo reads for the rest of the run if the limit persists. It
+               runs after every other read, so it never eats their time
+               budget. Cached on the same ISO-week rule as SEC filings. A
+               fund category goes through `check_fund` (leveraged, inverse,
+               bond, T-bill and money-market words refuse); a stock sector is
+               used as is (Yahoo's names ARE the desk's). An error, rate
+               limit or blank answer records the name inconclusive
+               `profile_unavailable` ("could not read"): never admitted,
+               never dropped. The 9 Oct record had 2,780 such funds and 37
+               such stocks; the full per-name pass removed in #1661 read all
+               ~14,000 names.
+  takeover     SEC issuer filing history, cached per ISO week. Calls counted.
 
 Records: `<universe_screen.data_dir>/daily/<YYYY-MM-DD>.jsonl` (one line per
 listed name: passed, dropped with its failing check(s), inconclusive on a
@@ -61,6 +77,7 @@ from src.universe_screen import (
     _field,
     check_asset,
     check_bars,
+    check_fund,
     iso_week,
     screen_symbol,
 )
@@ -69,6 +86,21 @@ logger = logging.getLogger(__name__)
 
 UNREACHED = "unreached_time_limit"
 UNREACHED_TEXT = "unreached: time limit"
+
+#: Seconds between Yahoo `.info` reads in the second pass. An operating
+#: pace, not a screen threshold: Yahoo publishes no limit, and the 9 Oct
+#: unpaced full pass drew 3,784 HTTP 429s (#1661).
+YAHOO_PACE_S = 1.0
+#: On HTTP 429: wait YAHOO_BACKOFF_S, then twice that, then give up and stop
+#: reading Yahoo for the rest of the run (every remaining name: could not read).
+YAHOO_BACKOFF_S = 15.0
+YAHOO_RATE_LIMIT_RETRIES = 2
+#: Stand-in sector while a stock with no Nasdaq sector runs its remaining
+#: (takeover) check; always replaced before the record is written.
+_SECTOR_PENDING = "pending: Yahoo sector"
+#: Per-read ceiling on a hung yfinance socket (same value the desk's sector
+#: lookup uses, `src.sector_reference._SECTOR_LOOKUP_TIMEOUT_S`).
+YAHOO_READ_TIMEOUT_S = 10
 
 
 # --------------------------------------------------------------------------
@@ -86,7 +118,7 @@ class ReadCache:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("universe daily: cache unreadable at %s: %s", self.path, exc)
             raw = {}
-        self.data = {k: dict(raw.get(k) or {}) for k in ("filings",)}
+        self.data = {k: dict(raw.get(k) or {}) for k in ("filings", "yahoo")}
 
     def get(self, kind: str, symbol: str) -> dict | None:
         return self.data[kind].get(symbol)
@@ -131,6 +163,9 @@ class DailyRun:
     calls: dict[str, int] = field(
         default_factory=lambda: {"alpaca_assets": 0, "bar_batches": 0, "nasdaq_listing": 0, "sec_filings": 0}
     )
+    #: Second-pass Yahoo reads: names due one, calls made (retries count),
+    #: failures (error, rate limit or blank) and cache hits.
+    yahoo: dict[str, int] = field(default_factory=lambda: {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0})
     seconds: float = 0.0
     deadline_hit: bool = False
     listing_unavailable: bool = False
@@ -163,6 +198,7 @@ class DailyRun:
             "dropped_by_first_reason": dict(sorted(dropped_first.items())),
             "dropped_by_any_reason": dict(sorted(dropped_any.items())),
             "calls": dict(self.calls),
+            "yahoo_second_pass": dict(self.yahoo),
             "seconds": round(self.seconds, 1),
             "deadline_hit": self.deadline_hit,
         }
@@ -188,8 +224,13 @@ def run_daily_record(
     batch_size: int,
     cache: ReadCache,
     clock: Callable[[], float] = time.monotonic,
+    get_yahoo: Callable[[str], dict] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> DailyRun:
-    """Screen every listed name once; record each. Never mutates admission state."""
+    """Screen every listed name once; record each. Never mutates admission state.
+
+    `get_yahoo(symbol) -> yfinance .info dict` fills the Yahoo gap (module
+    docstring); None leaves those names as the listing alone records them."""
     started = clock()
     screen = _DailyScreen(
         run=DailyRun(today=today),
@@ -199,6 +240,8 @@ def run_daily_record(
         clock=clock,
         get_profile=get_profile,
         get_filings=get_filings,
+        get_yahoo=get_yahoo,
+        sleep=sleep,
     )
     by_symbol: dict[str, Any] = {}
     for asset in assets:
@@ -208,6 +251,7 @@ def run_daily_record(
     needs_bars = screen.asset_phase(by_symbol)
     bars = screen.bars_phase(needs_bars, get_bars_batch, max(1, int(batch_size)))
     screen.detail_phase(by_symbol, bars)
+    screen.yahoo_phase()
     screen.run.seconds = clock() - started
     return screen.run
 
@@ -221,9 +265,16 @@ class _DailyScreen:
     clock: Callable[[], float]
     get_profile: Callable[[str], Any]
     get_filings: Callable[[str], Any]
+    get_yahoo: Callable[[str], dict] | None = None
+    sleep: Callable[[float], None] = time.sleep
     # The time limit is checked when a name STARTS: a name begun in time
     # finishes its reads; one begun late uses only what is cached.
     late: bool = False
+    # Names that passed every other check and wait for a Yahoo read:
+    # (symbol, "fund" | "stock", measured, extra record fields).
+    yahoo_due: list = field(default_factory=list)
+    yahoo_last_call: float | None = None
+    yahoo_blocked: bool = False
 
     def asset_phase(self, by_symbol: dict[str, Any]) -> list[str]:
         """Asset checks: free, the list is already in hand."""
@@ -261,8 +312,8 @@ class _DailyScreen:
                     passed[symbol] = got[symbol]
         return passed
 
-    def _age(self, symbol: str) -> tuple:
-        entry = self.cache.get("filings", symbol)
+    def _age(self, symbol: str, kind: str = "filings") -> tuple:
+        entry = self.cache.get(kind, symbol)
         if entry is None:
             return (2, "", symbol)
         return (0 if entry.get("week") == iso_week(self.run.today) else 1, entry.get("on") or "", symbol)
@@ -292,15 +343,112 @@ class _DailyScreen:
                 value, _r["filings_read_on"] = self._cached_read("filings", s, self.get_filings, "sec_filings", True)
                 return value
 
+            seen: dict[str, Any] = {}
+
+            def _profile(s, _seen=seen):
+                _seen["profile"] = self.get_profile(s)
+                return _seen["profile"]
+
             sources = ScreenSources(
-                get_asset=lambda s: None, get_bars=lambda s: [], get_profile=self.get_profile, get_filings=_filings
+                get_asset=lambda s: None, get_bars=lambda s: [], get_profile=_profile, get_filings=_filings
             )
             try:
                 result = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                failures, measured = result.failures, result.measured
+                kind = None
+                if self.get_yahoo is not None and failures == ["fund_category_not_listed"]:
+                    kind = "fund"  # a fund's category is its last check
+                elif self.get_yahoo is not None and failures == ["unresolved_sector"]:
+                    # Run the remaining (takeover) check with a stand-in
+                    # sector, so Yahoo is read only for a name that passed it.
+                    held = {**seen["profile"], "sector": _SECTOR_PENDING}
+                    sources.get_profile = lambda s, _p=held: _p
+                    rerun = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                    measured = {**rerun.measured, "sector": "Unknown"}
+                    if rerun.failures:
+                        failures = ["unresolved_sector", *rerun.failures]
+                    else:
+                        kind = "stock"
             except _Unreached:
                 self.run.record(symbol, "unreached", [UNREACHED])
                 continue
-            self.run.record(symbol, _status(result.failures), result.failures, result.measured, **read_on)
+            self.run.record(symbol, _status(failures), failures, measured, **read_on)
+            if kind is not None:
+                self.yahoo_due.append((symbol, kind, measured, read_on))
+
+    # ----------------------------------------------------------------------
+    # Yahoo gap: second pass, bounded to names that passed every other check
+    # ----------------------------------------------------------------------
+
+    def yahoo_phase(self) -> None:
+        """Fill a fund's category / a stock's sector from Yahoo; fail closed."""
+        from src.models import _ALLOWED_SECTORS
+
+        self.run.yahoo["names"] = len(self.yahoo_due)
+        for symbol, kind, measured, read_on in sorted(self.yahoo_due, key=lambda d: self._age(d[0], "yahoo")):
+            late = self.clock() >= self.deadline
+            if late:
+                self.run.deadline_hit = True
+            entry = self.cache.get("yahoo", symbol)
+            if entry is not None and (entry.get("week") == iso_week(self.run.today) or late):
+                self.run.yahoo["cache_hits"] += 1
+                value, read_on_day = entry["value"], entry.get("on")
+            elif late:
+                self.run.record(symbol, "unreached", [UNREACHED])
+                continue
+            else:
+                value, read_on_day = self._yahoo_read(symbol, kind), self.run.today.isoformat()
+            extra = {**read_on, "yahoo_read_on": read_on_day if value else None}
+            text = str((value or {}).get(kind) or "").strip() if isinstance(value, dict) else ""
+            if kind == "fund" and text:
+                failures, got = check_fund(text)
+                self.run.record(symbol, _status(failures), failures, {**measured, **got}, **extra)
+            elif kind == "stock" and text in _ALLOWED_SECTORS:
+                self.run.record(symbol, "passed", [], {**measured, "sector": text}, **extra)
+            else:
+                # Error, rate limit, blank or an unknown sector name: could not read.
+                self.run.record(symbol, "inconclusive", ["profile_unavailable"], measured, **extra)
+
+    def _yahoo_read(self, symbol: str, kind: str) -> dict | None:
+        """One paced `.info` read -> {kind: text}, cached when not blank; None on failure."""
+        if self.yahoo_blocked:
+            self.run.yahoo["failures"] += 1
+            return None
+        key = "category" if kind == "fund" else "sector"
+        for attempt in range(YAHOO_RATE_LIMIT_RETRIES + 1):
+            if self.yahoo_last_call is not None:
+                wait = YAHOO_PACE_S - (self.clock() - self.yahoo_last_call)
+                if wait > 0:
+                    self.sleep(wait)
+            self.yahoo_last_call = self.clock()
+            self.run.yahoo["calls"] += 1
+            try:
+                info = self.get_yahoo(symbol) or {}
+            except Exception as exc:  # noqa: BLE001 -- recorded per name as could-not-read
+                limited = _is_rate_limit(exc)
+                backoff = YAHOO_BACKOFF_S * (2**attempt)
+                if limited and attempt < YAHOO_RATE_LIMIT_RETRIES and self.clock() + backoff < self.deadline:
+                    logger.warning("universe daily: Yahoo rate limit on %s; waiting %.0fs", symbol, backoff)
+                    self.sleep(backoff)
+                    continue
+                logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
+                self.run.yahoo["failures"] += 1
+                if limited:
+                    self.yahoo_blocked = True
+                return None
+            text = str(info.get(key) or "").strip() if isinstance(info, dict) else ""
+            if not text:
+                self.run.yahoo["failures"] += 1
+                return None
+            value = {kind: text}
+            self.cache.put("yahoo", symbol, value, self.run.today)
+            return value
+        return None
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return type(exc).__name__ == "YFRateLimitError" or "429" in text or "too many requests" in text
 
 
 # --------------------------------------------------------------------------
@@ -385,6 +533,24 @@ def _profile_reader(listing, canonicalize):
     return _profile
 
 
+def _yahoo_reader(timeout_s: float = YAHOO_READ_TIMEOUT_S):
+    """yfinance `Ticker(sym).info` for the second pass, with a hard ceiling on
+    a hung socket (a timeout raises, so the name records could-not-read)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    import yfinance as yf
+
+    def _info(symbol: str) -> dict:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            # Yahoo spells share classes with a dash (BRK-B), never a dot.
+            return pool.submit(lambda: yf.Ticker(symbol.replace(".", "-")).info or {}).result(timeout=timeout_s)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    return _info
+
+
 def _filings_reader(config, deadline: float):
     """SEC issuer filing history; built from `smart_money` config, passing
     every constructor field that config names, as the pipeline does."""
@@ -462,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         deadline=deadline,
         batch_size=int(cfg.bars_batch_size),
         cache=cache,
+        get_yahoo=_yahoo_reader(),
     )
     run.calls["alpaca_assets"] = 1
     run.calls["nasdaq_listing"] = 2
