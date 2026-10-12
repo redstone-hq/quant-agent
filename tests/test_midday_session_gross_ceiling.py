@@ -57,11 +57,13 @@ def _resolver(calls: list):
 
 def _pipeline(resolve) -> SimpleNamespace:
     """The attributes the §11.2 helpers read off a real TradingPipeline."""
+    broker = MagicMock(name="pipeline.broker")
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     return SimpleNamespace(
         _resolve_gross_ceiling=resolve,
         _sweep_symbol=lambda: None,
         config=SimpleNamespace(risk=SimpleNamespace(allow_margin=True)),
-        broker=MagicMock(name="pipeline.broker"),
+        broker=broker,
     )
 
 

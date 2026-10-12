@@ -332,6 +332,7 @@ def test_execution_stage_skips_buy_when_entry_price_more_than_5pct_off_market():
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0  # live market
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     pipeline._format_qty = lambda q: str(q)
@@ -382,6 +383,7 @@ def test_execution_stage_allows_buy_when_entry_price_within_5pct():
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     pipeline.broker.submit_order.return_value = {
@@ -441,6 +443,7 @@ def test_execution_stage_logs_when_finalize_cannot_confirm_coverage(caplog):
 
     specs = [{"id": "stop-1", "qty": 10, "stop_price": 280.0, "limit_price": 275.0}]
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 320.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 320.0, "ask_price": 320.0}
     _mock_stop_seam(pipeline.broker, specs=specs)
@@ -539,6 +542,7 @@ def test_execution_stage_sells_the_fresh_reduced_qty_not_the_run_open_snapshot()
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     _mock_stop_seam(pipeline.broker)
     _mock_stage_seam(pipeline)
     pipeline.broker.submit_order.return_value = {
@@ -621,6 +625,7 @@ def test_execution_stage_covers_the_fresh_reduced_qty_not_the_run_open_snapshot(
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     _mock_stop_seam(pipeline.broker)
     _mock_stage_seam(pipeline)
     pipeline.broker.submit_order.return_value = {
@@ -714,6 +719,7 @@ def test_execution_stage_submits_buys_after_the_account_state_refresh():
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     _mock_stop_seam(pipeline.broker)
@@ -767,6 +773,7 @@ def test_execution_stage_skips_buy_when_entry_price_above_market_by_more_than_5p
     from src.pipeline_context import RunContext
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     pipeline._format_qty = lambda q: str(q)
@@ -4852,6 +4859,7 @@ def test_new_buy_records_entry_atr_from_the_analysis():
     assert "atr_14" not in TradeDecision.model_fields
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     pipeline.broker.submit_order.return_value = {

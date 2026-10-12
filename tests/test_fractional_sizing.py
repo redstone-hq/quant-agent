@@ -84,6 +84,7 @@ def _pipeline(
     so each test states the configuration it is actually testing.
     """
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = live_price
     pipeline.broker.get_latest_quote.return_value = {"bid_price": live_price, "ask_price": live_price}
     pipeline._format_qty = lambda q: str(q)
@@ -409,6 +410,7 @@ def test_get_fractionability_is_cached_per_symbol():
 )
 def test_size_shares_quantization(raw, fractional, expected):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.config.execution.fractional_share_decimals = 4
     assert _size_shares(pipeline, raw, fractional=fractional) == pytest.approx(expected)
 
@@ -731,6 +733,7 @@ def test_an_entry_that_filled_nothing_does_not_wake_the_owner():
 
 def _sweep_pipeline(positions, covered_by_symbol: dict) -> MagicMock:
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_positions.return_value = positions
     pipeline.db.get_pending_protection_restores.return_value = []
     pipeline._sweeper.return_value = None
@@ -880,6 +883,7 @@ def test_an_intra_tick_that_found_a_coverage_gap_breaks_the_silence():
 
 def _repair_pipeline(*, stop_loss=140.0, live_price=150.0) -> MagicMock:
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.db.get_symbol_last_buy.return_value = {"stop_loss": stop_loss}
     pipeline.broker.get_latest_price.return_value = live_price
     pipeline.broker.get_latest_quote.return_value = {"bid_price": live_price, "ask_price": live_price}
@@ -1073,6 +1077,7 @@ def test_classifier_is_unchanged_for_whole_share_positions():
 
 def _hybrid_sweep_pipeline(positions, covered_by_symbol: dict, *, repair: bool = True) -> MagicMock:
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_positions.return_value = positions
     pipeline.db.get_pending_protection_restores.return_value = []
     pipeline._sweeper.return_value = None
@@ -1353,6 +1358,7 @@ def test_market_hours_check_fails_toward_open():
     from src.pipeline import _market_is_open_now
 
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_session_close.side_effect = RuntimeError("calendar down")
     with patch("src.pipeline_protection.et_now", side_effect=RuntimeError("clock down")):
         assert _market_is_open_now(broker) is True
@@ -1367,6 +1373,7 @@ def test_market_hours_check_respects_an_early_close():
     from src.trading_calendar import ET
 
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_session_close.return_value = datetime(2026, 11, 27, 13, 0, tzinfo=ET)
     now = datetime(2026, 11, 27, 13, 30, tzinfo=ET)
     with patch("src.pipeline_protection.et_now", return_value=now):

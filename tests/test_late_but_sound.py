@@ -89,6 +89,7 @@ def test_repeg_stays_off_by_default():
 
 def test_live_fill_price_never_returns_a_bar_close():
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = None
     assert _live_fill_price(pipeline, "AAPL") is None
     pipeline.broker.get_latest_price.return_value = 334.78
@@ -97,6 +98,7 @@ def test_live_fill_price_never_returns_a_bar_close():
 
 def test_approved_ceiling_is_pinned_from_live_ref_not_later_tape():
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.config.execution = ExecutionConfig(max_entry_slippage_bps=40.0)
     ctx = RunContext.start("morning")
@@ -166,6 +168,7 @@ def test_submit_window_overrun_is_deadline_not_price():
 
 def _buy_pipeline(ask, live=100.0, *, stall=False):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = live
     pipeline.broker.get_latest_quote.return_value = {
         "ask_price": ask,

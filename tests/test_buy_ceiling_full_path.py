@@ -79,6 +79,7 @@ def _add_to_held_name(monkeypatch, prior_row):
     )
     pipeline = _exec_pipeline_with_print(100.0)
     pipeline.db.get_symbol_last_buy.return_value = prior_row
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     buy = TradeDecision(
         action="BUY",
         symbol="TSLA",

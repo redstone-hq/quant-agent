@@ -282,6 +282,7 @@ def test_morning_session_persists_actual_model_for_all_five_agents(
     mock_macro_cls.return_value = mock_macro
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 507.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 507.0, "ask_price": 507.0}
@@ -462,6 +463,7 @@ def test_morning_session_decision_id_correlates_pm_rm_and_trade(
     mock_macro_cls.return_value = mock_macro
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 507.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 507.0, "ask_price": 507.0}

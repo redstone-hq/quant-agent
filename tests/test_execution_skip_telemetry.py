@@ -41,6 +41,7 @@ def _rc() -> ReasoningChain:
 
 def _pipeline(live_price=100.0, cash=50_000.0, equity=100_000.0):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = live_price
     # A market entry is sized against the quote side it pays (ask / bid).
     pipeline.broker.get_latest_quote.return_value = {"bid_price": live_price, "ask_price": live_price}

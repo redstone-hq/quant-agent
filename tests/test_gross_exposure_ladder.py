@@ -1503,6 +1503,7 @@ def _execution_pipeline(
     pipeline = MagicMock()
     pipeline.broker.get_latest_price.return_value = EXEC_PRICE
     pipeline.broker.get_latest_quote.return_value = {"bid_price": EXEC_PRICE, "ask_price": EXEC_PRICE}
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.submit_order.return_value = {"id": "ord", "status": "accepted"}
     pipeline.broker.get_shortability.return_value = {
         "shortable": True,

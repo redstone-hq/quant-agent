@@ -419,6 +419,7 @@ def test_pipeline_morning_run_buy(
 
     # Broker
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 507.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 507.0, "ask_price": 507.0}
@@ -581,6 +582,7 @@ def test_pipeline_morning_run_persists_specialist_evidence(
     mock_macro_cls.return_value = mock_macro
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 507.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 507.0, "ask_price": 507.0}
@@ -782,6 +784,7 @@ def test_pipeline_market_order_sizes_from_live_market_price(
     mock_macro_cls.return_value = mock_macro
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 100.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
@@ -946,6 +949,7 @@ def test_pipeline_risk_rejected(
     mock_macro_cls.return_value = mock_macro
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 507.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 507.0, "ask_price": 507.0}
@@ -1368,6 +1372,7 @@ def test_full_sell_skips_residual_reprotect(tmp_path):
     from src.pipeline_stages import ExecutionStage
 
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = 100.0
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}
     pipeline.broker.submit_order.return_value = {
@@ -2921,6 +2926,7 @@ def test_pipeline_buys_use_refreshed_cash_after_sell_phase(
     )
 
     mock_broker = MagicMock()
+    mock_broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     mock_broker.is_trading_day.return_value = True
     mock_broker.get_latest_price.return_value = 100.0
     mock_broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}

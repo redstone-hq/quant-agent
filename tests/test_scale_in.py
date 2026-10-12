@@ -70,6 +70,7 @@ def _db(tmp_path) -> Database:
 
 def _pipeline(live_price=100.0, cash=50_000.0, positions=None):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     held = list(positions or [])
     pipeline.broker.get_latest_price.return_value = live_price
     pipeline.broker.get_latest_quote.return_value = {
@@ -173,6 +174,7 @@ def test_most_protective_long_stop_is_the_highest_trigger():
 
 def test_confirm_protective_cancels_requires_terminal_cancelled_not_assumption():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.wait_for_order_terminal.return_value = "canceled"
     ok, detail = confirm_protective_cancels(
         broker,
@@ -185,6 +187,7 @@ def test_confirm_protective_cancels_requires_terminal_cancelled_not_assumption()
 
 def test_confirm_protective_cancels_refuses_when_status_is_unknown():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.wait_for_order_terminal.return_value = None
     ok, detail = confirm_protective_cancels(
         broker,
@@ -196,6 +199,7 @@ def test_confirm_protective_cancels_refuses_when_status_is_unknown():
 
 def test_confirm_protective_cancels_aborts_when_the_stop_fills():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.wait_for_order_terminal.return_value = "filled"
     ok, detail = confirm_protective_cancels(
         broker,
@@ -207,6 +211,7 @@ def test_confirm_protective_cancels_aborts_when_the_stop_fills():
 
 def test_cover_qty_uses_broker_full_position_not_the_add_fill():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_positions.return_value = [_cop_position(qty=13.0)]
     qty = cover_qty_for_rearm(
         broker,
@@ -219,6 +224,7 @@ def test_cover_qty_uses_broker_full_position_not_the_add_fill():
 
 def test_cover_qty_falls_back_to_filled_plus_held_when_broker_unreadable():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_positions.side_effect = RuntimeError("broker down")
     qty = cover_qty_for_rearm(
         broker,
@@ -236,6 +242,7 @@ def test_cover_qty_falls_back_to_filled_plus_held_when_broker_unreadable():
 
 def test_prepare_long_add_is_noop_when_the_name_is_not_held():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     prep = prepare_long_add(
         broker=broker,
         db=MagicMock(),
@@ -250,6 +257,7 @@ def test_prepare_long_add_is_noop_when_the_name_is_not_held():
 def test_prepare_skips_buy_when_cancel_is_not_confirmed(tmp_path):
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.snapshot_protective_stops.return_value = (
         True,
         [{"id": "stop-1", "qty": 10, "stop_price": 88.0}],
@@ -276,6 +284,7 @@ def test_prepare_skips_buy_when_cancel_is_not_confirmed(tmp_path):
 def test_prepare_writes_wal_before_cancel(tmp_path):
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.snapshot_protective_stops.return_value = (
         True,
         [{"id": "stop-1", "qty": 10, "stop_price": 88.0}],
@@ -572,6 +581,7 @@ def test_cover_qty_short_fallback_covers_full_enlarged_short_not_just_add():
     fallback ``filled + max(0.0, held)`` covered only the ADD and left the
     existing short leg naked. The fix covers |filled| + |held|."""
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_positions.side_effect = RuntimeError("broker down")
     qty = cover_qty_for_rearm(
         broker,
@@ -584,6 +594,7 @@ def test_cover_qty_short_fallback_covers_full_enlarged_short_not_just_add():
 
 def test_prepare_short_add_is_noop_when_the_name_is_not_short():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     # Held LONG: not a short scale-in — caller opens a new short unchanged.
     prep = prepare_short_add(
         broker=broker,
@@ -602,6 +613,7 @@ def test_prepare_short_add_refuses_on_a_foreign_working_buy(tmp_path):
     cancelled."""
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_orders_checked.return_value = (True, ["foreign-buy-1"])
 
     prep = prepare_short_add(
@@ -625,6 +637,7 @@ def test_prepare_short_add_fails_closed_when_the_order_listing_errors(tmp_path):
     rather than betting Alpaca bounces a self-cross."""
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     # Listing could not be read (API error surfaced as ok=False, not empty).
     broker.list_open_entry_orders_checked.return_value = (False, [])
 
@@ -649,6 +662,7 @@ def test_prepare_short_add_aborts_when_the_buy_stop_fills(tmp_path):
     the WAL row is discharged."""
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_orders_checked.return_value = (True, [])
     broker.snapshot_protective_stops.return_value = (
         True,
@@ -681,6 +695,7 @@ def test_prepare_short_add_fill_but_not_flat_does_not_leave_a_sibling_naked(tmp_
     """
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_orders_checked.return_value = (True, [])
     broker.snapshot_protective_stops.return_value = (
         True,
@@ -721,6 +736,7 @@ def test_prepare_short_add_fill_not_flat_and_no_rearm_keeps_the_wal(tmp_path):
     land, the WAL row is KEPT (not discharged) so drain finishes the job."""
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_orders_checked.return_value = (True, [])
     broker.snapshot_protective_stops.return_value = (
         True,
@@ -749,6 +765,7 @@ def test_prepare_short_add_fill_not_flat_and_no_rearm_keeps_the_wal(tmp_path):
 def test_prepare_short_add_snapshots_and_wals_on_the_buy_side(tmp_path):
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_orders_checked.return_value = (True, [])
     broker.snapshot_protective_stops.return_value = (
         True,
@@ -1017,6 +1034,7 @@ def test_place_entry_protection_scale_in_sizes_stop_to_broker_full_qty(mock_tc_c
 
 def test_rearm_failure_after_scale_in_pages_the_owner():
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_order_fill_info.return_value = {"filled_qty": 3.0}
     spec = {
         "symbol": "COP",
@@ -1035,6 +1053,7 @@ def test_rearm_failure_after_scale_in_pages_the_owner():
 
 def test_ordinary_protection_failure_wording_is_unchanged():
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_order_fill_info.return_value = {"filled_qty": 7.0}
     spec = {"symbol": "NVDA", "stop_price": 95.0, "side": "buy"}
     with patch("src.notifier.send_owner_alert") as alert:
@@ -1084,6 +1103,7 @@ def test_drain_scale_in_rearms_broker_full_qty(tmp_path):
 
 def test_drain_scale_in_row_waits_for_leftover_entry_cancel():
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.list_open_entry_order_ids.return_value = ["buy-still-working"]
     broker.wait_for_order_terminal.return_value = "new"  # not confirmed
     row = {
@@ -1140,6 +1160,7 @@ def test_watchdog_skips_scale_in_symbol_while_session_lock_held(
         lambda: True,
     )
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.get_positions.return_value = [
         SimpleNamespace(symbol="COP", qty=10.0, current_price=100.0),
     ]
@@ -1573,6 +1594,7 @@ def test_scale_in_never_amends_a_resting_stop_and_survives_42210000(tmp_path):
     """
     db = _db(tmp_path)
     broker = MagicMock()
+    broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     broker.snapshot_protective_stops.return_value = (
         True,
         [{"id": "stop-1", "qty": 10.5, "stop_price": 88.0}],

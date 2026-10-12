@@ -61,6 +61,7 @@ def _pipeline(live_price=100.0, cash=50_000.0, *, fractional=False, min_risk_pct
     attributes); only the leaves these tests depend on are pinned to real
     values, because a MagicMock leaf silently reads as "not a number"."""
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price.return_value = live_price
     pipeline.broker.get_latest_quote.return_value = {"bid_price": live_price, "ask_price": live_price}
     pipeline._format_qty = lambda q: str(q)

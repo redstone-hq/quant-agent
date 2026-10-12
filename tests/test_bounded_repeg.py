@@ -66,6 +66,7 @@ def _exec_cfg(**overrides) -> ExecutionConfig:
 def _pipeline(db, cfg: ExecutionConfig | None = None):
     """A pipeline double with a REAL database — the WAL is the point."""
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.db = db
     pipeline.config.execution = cfg if cfg is not None else _exec_cfg()
     broker = pipeline.broker
@@ -161,6 +162,7 @@ def test_magicmock_config_never_reads_as_enabled():
     """~58 pipeline tests pass a MagicMock config whose attributes are all
     truthy. A MagicMock must never authorise replacing live orders."""
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     assert _repeg_settings(pipeline) is None
 
 
@@ -930,6 +932,7 @@ def _rc():
 
 def _stage_pipeline(db, cfg):
     pipeline = MagicMock()
+    pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.db = db
     pipeline.config.execution = cfg
     pipeline.broker.get_latest_price.return_value = 100.0
