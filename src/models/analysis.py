@@ -656,6 +656,12 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
     # (the order's take-profit is derived from structure), so the signal is
     # kept and this recorded flag travels with it for every AI reader.
     reference_target_wrong_side: bool = False
+    # VALIDATOR-SET (2026-10-12, XOM incident): the actionable-rating fields
+    # the analyst left out — any of `entry_price`, `stop_loss`, `setup_type`,
+    # `expected_horizon_sessions`, `thesis_invalid_if`. RECORDED, never a
+    # reason to drop the idea: sizing uses the live price and the stop is
+    # read from the bars when these are absent. Rendered to the PM as one line.
+    missing_levels: list[str] = Field(default_factory=list)
     # PYTHON-SET (2026-09-12, docs/WORK.md item 54), same pattern as the
     # two above, from the same bars: the last completed bar's low and high
     # — the SIGNAL bar the analyst judged — and how many completed sessions
@@ -861,11 +867,15 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
 
     @model_validator(mode="after")
     def _validate_rating_price_consistency(self):
-        """Enforce price fields match the rating's actionability.
+        """Check the rating's price geometry; RECORD absent fields.
 
-        - Actionable (strong_buy, buy, sell, strong_sell): entry_price AND stop_loss required.
-        - Stop must be on the protective side of entry (stop < entry for BUYs, stop > entry for SELLs).
-        - Neutral: prices should be null; we don't hard-fail but clear them to avoid stale hints.
+        - Actionable rating with a missing entry, stop, setup_type, horizon or
+          falsifier: kept, the gap recorded in `missing_levels` (2026-10-12,
+          XOM dropped at 9:35 ET for a missing entry). Sizing uses the live
+          price; the stop is read from the bars.
+        - A stop on the WRONG side of a present entry is a contradiction, not
+          an absence: still rejected.
+        - Neutral: prices cleared to avoid stale hints.
         """
         if self.rating == "neutral":
             # Coerce to None — PM's template would otherwise print stale numbers.
@@ -874,71 +884,64 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
             self.__dict__["stop_loss"] = None
             self.__dict__["setup_type"] = None
             self.__dict__["expected_horizon_sessions"] = None
+            self.__dict__["missing_levels"] = []
             return self
 
+        missing: list[str] = []
         if self.entry_price is None or self.entry_price <= 0:
-            raise ValueError(f"{self.symbol}: rating={self.rating} requires entry_price > 0")
+            self.__dict__["entry_price"] = None
+            missing.append("entry_price")
         if self.stop_loss is None or self.stop_loss <= 0:
-            raise ValueError(f"{self.symbol}: rating={self.rating} requires stop_loss > 0")
-        if self.rating in ("buy", "strong_buy"):
-            if self.stop_loss >= self.entry_price:
-                raise ValueError(
-                    f"{self.symbol}: BUY stop_loss {self.stop_loss} must be below entry {self.entry_price}"
-                )
-        else:  # sell / strong_sell — stop (buy-back) must be above entry
-            if self.stop_loss <= self.entry_price:
+            self.__dict__["stop_loss"] = None
+            missing.append("stop_loss")
+        if self.entry_price is not None and self.stop_loss is not None:
+            if self.rating in ("buy", "strong_buy"):
+                if self.stop_loss >= self.entry_price:
+                    raise ValueError(
+                        f"{self.symbol}: BUY stop_loss {self.stop_loss} must be below entry {self.entry_price}"
+                    )
+            elif self.stop_loss <= self.entry_price:  # sell / strong_sell — stop (buy-back) above entry
                 raise ValueError(
                     f"{self.symbol}: SELL stop_loss {self.stop_loss} must be above entry {self.entry_price}"
                 )
 
-        # --- Structural requirements for actionable ratings (2026-08-27) ----
-        # Setup type and horizon stay required. The analyst's target and
-        # named levels no longer are (owner rule 2026-10-09): stop and
-        # take-profit are both built from the desk's measured levels.
         # A missing or non-positive analyst target is RECORDED as "no
-        # target", not rejected (owner rule 2026-10-09: a missing chart
-        # level or target never blocks a trade). The take-profit is derived
-        # from measured structure (`derive_structural_target`) and the stop
-        # never reads this number, so rejecting here protected nothing.
+        # target", not rejected (owner rule 2026-10-09): the take-profit is
+        # derived from measured structure (`derive_structural_target`) and
+        # the stop never reads this number.
         if self.reference_target is not None and self.reference_target <= 0:
             self.__dict__["reference_target"] = None
         # A wrong-side guess is RECORDED, not rejected (owner rule
-        # 2026-10-09): the take-profit is derived from structure, never from
-        # this number, so dropping the whole signal over it lost real trades.
-        # Only checked when a target exists — there is no side to compare.
+        # 2026-10-09). Only checked when a target and an entry both exist.
         wrong_side = False
-        if self.reference_target is not None:
+        if self.reference_target is not None and self.entry_price is not None:
             if self.rating in ("buy", "strong_buy"):
                 wrong_side = self.reference_target <= self.entry_price
             else:
                 wrong_side = self.reference_target >= self.entry_price
         self.__dict__["reference_target_wrong_side"] = bool(wrong_side)
+        # No AI-named support/resistance is RECORDED as "no level named"
+        # (owner rule 2026-10-09); stops and take-profit come from
+        # `computed_levels`. setup_type, horizon and the "I'll sell if"
+        # falsifier are RECORDED when absent too (2026-10-12): they are
+        # nullable on the wire, and dropping the whole idea for them lost
+        # XOM. Nothing here invents a value for any of them.
         if self.setup_type is None:
-            raise ValueError(
-                f"{self.symbol}: rating={self.rating} requires setup_type "
-                f"('range' or 'breakout') — it determines how the exit is managed"
-            )
+            missing.append("setup_type")
         if self.expected_horizon_sessions is None or self.expected_horizon_sessions <= 0:
-            raise ValueError(
-                f"{self.symbol}: rating={self.rating} requires "
-                f"expected_horizon_sessions > 0 (pinned at entry; pace is measured against it)"
-            )
-        # No AI-named support/resistance is RECORDED as "no level named",
-        # not rejected (owner rule 2026-10-09). Stops and the take-profit
-        # are both built from the desk's own measured levels
-        # (`computed_levels`), never from these, so the rejection protected
-        # nothing. A dead feed still fails downstream under its own
-        # data-fault reason (`levels_coverage`), which this does not touch.
-        # Never-blank soft-exit (2026-09-17): an actionable rating without a
-        # real "I'll sell if" is not a tradeable idea. Empty and `unknown`
-        # are missing, not "the analyst had nothing to say". Neutrals may
-        # omit — the prompt says leave it empty. Nothing here invents a
-        # falsifier string; the chunk retry re-asks, then the name is
-        # refused before the book.
+            self.__dict__["expected_horizon_sessions"] = None
+            missing.append("expected_horizon_sessions")
         if self.rating in ACTIONABLE_TECH_RATINGS and missing_stated_falsifier(self.thesis_invalid_if):
-            raise ValueError(
-                f"{self.symbol}: rating={self.rating} requires a real "
-                f"non-empty thesis_invalid_if (I'll sell if); empty or "
-                f"{SOFT_EXIT_UNKNOWN!r} is not a falsifier"
-            )
+            missing.append("thesis_invalid_if")
+        self.__dict__["missing_levels"] = missing
         return self
+
+    @property
+    def missing_levels_text(self) -> str | None:
+        """One plain PM-prompt line naming the absent fields, or None."""
+        if not self.missing_levels:
+            return None
+        line = f"levels missing: {', '.join(self.missing_levels)}"
+        if "entry_price" in self.missing_levels or "stop_loss" in self.missing_levels:
+            line += " — the desk will size from the live price and derive the stop from the bars"
+        return line

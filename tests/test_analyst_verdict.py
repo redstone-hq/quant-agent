@@ -275,8 +275,8 @@ def test_a_missing_soft_invalidation_falls_back_to_the_analysts_own_stop():
     historical row (model_construct) still restates the analyst's own
     stop and SAYS so — nothing is invented and the verdict still
     validates."""
-    with pytest.raises(ValidationError, match="thesis_invalid_if"):
-        _tech("AAPL", "buy", invalid_if="")
+    # Recorded as a gap, not rejected, since 2026-10-12 (XOM incident).
+    assert _tech("AAPL", "buy", invalid_if="").missing_levels == ["thesis_invalid_if"]
     historical = TechAnalysisResult.model_construct(
         **_tech("AAPL", "buy").model_dump() | {"thesis_invalid_if": ""},
     )

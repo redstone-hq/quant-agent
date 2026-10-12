@@ -62,6 +62,7 @@ _DESK_FILLED_FIELDS = {
     "input_fingerprint",
     "read_state",
     "reference_target_wrong_side",
+    "missing_levels",
 }
 
 _VALID_ITEM = {
