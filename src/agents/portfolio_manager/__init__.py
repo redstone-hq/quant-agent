@@ -335,7 +335,8 @@ class PortfolioManagerAgent(
                 f"- {a.symbol}: {a.rating} ({a.conviction}{age_str}) | {rr_str} | "
                 f"Entry: {a.entry_price} | Stop: {a.stop_loss} | Target: {a.target_text}\n"
                 f"  Invalid if: {invalid}\n"
-                f"  Reasoning: {a.reasoning}"
+                + (f"  {a.missing_levels_text}\n" if getattr(a, "missing_levels_text", None) else "")
+                + f"  Reasoning: {a.reasoning}"
             )
 
         analyses_text = "\n".join(_fmt_tech(a) for a in analyses)

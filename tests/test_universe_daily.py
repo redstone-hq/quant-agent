@@ -35,6 +35,8 @@ def _run(
     batch=2,
     after_bars=None,
     yahoo=None,
+    get_role=None,
+    get_filings_override=None,
 ):
     calls = {"bars": [], "profile": [], "filings": [], "yahoo": []}
 
@@ -56,7 +58,8 @@ def _run(
         assets,
         get_bars_batch=get_bars,
         get_profile=get_profile,
-        get_filings=get_filings,
+        get_filings=get_filings_override or get_filings,
+        get_role=get_role or (lambda ref: "target"),
         th=TH,
         today=TODAY,
         deadline=deadline,
@@ -106,7 +109,11 @@ def test_every_name_gets_a_record_with_its_failing_check(tmp_path):
 
 
 def test_pending_takeover_is_recorded(tmp_path):
-    run, _ = _run([_asset("DEAL")], tmp_path, filings=[("DEFM14A", "2026-09-01", "")])
+    run, _ = _run(
+        [_asset("DEAL")],
+        tmp_path,
+        filings=[("DEFM14A", "2026-09-01", "", {"cik": "1", "accession": "0000000000-26-000001"})],
+    )
     assert run.records["DEAL"]["failures"] == ["pending_takeover"]
 
 
@@ -370,7 +377,7 @@ def test_no_yahoo_call_for_a_name_that_failed_another_check(tmp_path):
         tmp_path,
         bars={"PENY": _bars(300, price=2.0, rng=0.0005)},
         profile=lambda s: {**NO_SECTOR, "market_cap_usd": 1e6} if s == "TINY" else NO_SECTOR,
-        filings=[("DEFM14A", "2026-09-01", "")],
+        filings=[("DEFM14A", "2026-09-01", "", {"cik": "1", "accession": "0000000000-26-000001"})],
         yahoo=lambda s: {"sector": "Industrials"},
     )
     assert calls["yahoo"] == []

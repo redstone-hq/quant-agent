@@ -214,7 +214,7 @@ Actual prices where the chart has traded — prior consolidation boundaries, swi
 Decide how the position must be MANAGED, and be honest about which one you have:
 
 - **`"range"`** — there is identifiable resistance overhead (for a long) that price must overcome. `reference_target` is that level, and progress toward it is a meaningful measurement.
-- **`"breakout"`** — there is no overhead structure: the instrument is at or near highs, or has cleared its range cleanly and nothing above is being defended. Set `reference_target` to a **measured move** — the height of the consolidation price just left, projected from the breakout point — and say so in `reasoning`. This position is managed by a trailing stop rather than by taking profit at a level, because nobody knows where a trend ends.
+- **`"breakout"`** — there is no overhead structure: the instrument is at or near highs, or has cleared its range cleanly and nothing above is being defended. Set `reference_target` to a **measured move** — the height of the consolidation price just left, projected from the breakout point — and say so in `reasoning`. This position is managed by a trailing stop rather than by taking profit at a level, because nobody knows where a trend ends. **For a breakout, `entry_price` IS the trigger level, as a number** — e.g. a buy on a close above 163.50 has `"entry_price": 163.50`. Never leave the trigger only in `reasoning` text.
 
 If you find yourself inventing a resistance level so the setup looks like a range, it is a breakout. Say so.
 
