@@ -105,6 +105,7 @@ def _run_position_review_body(pipeline, session_type: str) -> dict:
         macro=pipeline._collab("macro"),
         macro_store=pipeline._collab("macro_store"),
         position_reviewer=pipeline._collab("position_reviewer"),
+        pipeline=pipeline,
     ).run(session_type)
 
 
