@@ -437,7 +437,7 @@ class ClosedPosition:
     r_multiple: float | None = None
 
 
-def _entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
+def entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
     """Per-lot risk summed over every entry lot, each against its OWN frozen
     initial stop. None if any lot's stop is missing or on the wrong side."""
     side = 1.0 if direction == "long" else -1.0
@@ -573,7 +573,7 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
             break
 
     signed_qty = open_qty if direction == "long" else -open_qty
-    risk = _entry_risk_dollars(opens, direction)
+    risk = entry_risk_dollars(opens, direction)
     r_value = round((exit_price - entry_price) * signed_qty / risk, 2) if risk else None
 
     decision_id = next(

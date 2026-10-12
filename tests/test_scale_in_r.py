@@ -65,3 +65,31 @@ def test_wrong_side_stop_gives_none():
     assert c.r_multiple is None
     s = summarize_closed_position([_row("SHORT", 10, 100.0, stop_loss=95.0), _row("COVER", 10, 90.0)])
     assert s.r_multiple is None
+
+
+def _open_r(rows, qty, avg_entry, price):
+    from src.storage.analytics.trade_review import open_position_r
+
+    pos = [{"symbol": "AAPL", "qty": qty, "avg_entry": avg_entry, "current_price": price}]
+    return open_position_r(pos, rows)["AAPL"]["unrealised_r"]
+
+
+def test_open_single_lot_unchanged():
+    rows = [_row("BUY", 10, 100.0, stop_loss=95.0)]
+    assert _open_r(rows, 10, 100.0, 107.0) == r_multiple(107.0, 100.0, 95.0, 10)
+
+
+def test_open_two_lot_long_uses_each_lots_stop():
+    rows = [
+        _row("BUY", 10, 100.0, stop_loss=90.0),
+        _row("BUY", 10, 110.0, stop_loss=105.0, timestamp="2026-01-02 10:00:00"),
+    ]
+    assert _open_r(rows, 20, 105.0, 120.0) == round(15 * 20 / 150, 2)
+
+
+def test_open_lot_without_stop_is_none():
+    rows = [
+        _row("BUY", 10, 100.0, stop_loss=90.0),
+        _row("BUY", 10, 110.0, stop_loss=0, timestamp="2026-01-02 10:00:00"),
+    ]
+    assert _open_r(rows, 20, 105.0, 120.0) is None
