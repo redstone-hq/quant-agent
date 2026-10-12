@@ -553,23 +553,11 @@ numbers:
       As above, plus the cap interacts with the per-seat cap in a way nothing
       measures.
   - id: src.config.RiskConfig.absolute_min_stop_atr_multiple
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: the distance in ATRs of every level-backed stop the desk actually places, split by
-        whether this floor BOUND it, counted by src/portfolio_constructor/absolute_floor_record.py
-        at the one site that applies the floor, plus (for the universe denominator) the distribution
-        of adverse excursion within the holding window in ATR units over the tradable universe
-      closes_when: the recorder has seen enough level-backed placements to show where the tightest
-        of them sit, and the absolute floor is set at the point below which a stop is inside
-        ordinary noise; it is DELETED, and the single minimum multiple governs alone, if the
-        observations cannot distinguish the absolute floor from the ordinary one
     value: 1
     status: owner-ruled
-    ruled_on: '2026-10-09'
-    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
-    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     engine_ab_2026_10_05: >-
       ENGINE A/B RAN AND RETURNED A NULL RESULT; recorded as a null result ONLY,
       and this row stays arbitrary. Method as for max_position_risk_pct above
@@ -1045,22 +1033,11 @@ numbers:
       A target 60 sessions out licenses a claim of roughly 8 ATRs of travel
       with nothing measured behind the horizon.
   - id: src.config.RiskConfig.max_target_reach_atr_multiple
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: 'the same sessions-to-traverse measurement over the universe the desk could trade,
-        on public daily bars, read on the other axis: how far in ATR units price travels within the
-        horizon, so the per-session reach allowance is read off observed travel rather than picked
-        at one and a half'
-      closes_when: the travel-per-session distribution is in hand and the allowance is set at a stated
-        percentile; it is DELETED if the reach test never changes a target that the horizon test did
-        not already change, since the two are then one constraint written twice
     value: 1.5
     status: owner-ruled
-    ruled_on: '2026-10-09'
-    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
-    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     site: src/config/__init__.py
     narrowed: >-
       NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this reach multiple changed [measured]: 1.5 to 5.0 changed the output in 11 windows (0.9%, the same 11 windows as the horizon cap above), 1.5 to 0.5 in 490 (41.7%). So the cap binds hard from below and almost never from above on this data; the engine-blind finding in this row is about the backtest, not the live finder, which does consult it. Pinned by tests/test_dead_branch_narrowing_levels.py.
@@ -3502,25 +3479,11 @@ numbers:
       existing indicator set rather than picked; changing it would require
       the desk to compute an average it does not compute.
   - id: src.risk.exit_guard.BREAK_CONFIRMATION_ATR_MULTIPLE
-    settles_by:
-      kind: recording
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        every structural break evaluation in `check_structural_protection`, each emitting
-        `rule=break_confirmation_margin` with the margin as an ATR multiple, the level tested, whether
-        the close cleared it, and whether the level held afterwards -- separately from the noise band,
-        which was one literal with this number until 2026-09-26 and may not be re-collapsed with it
-      closes_when: >-
-        enough break evaluations accumulate to show the margin at which a daily close beyond a level is
-        followed by the level staying broken, rather than an ATR magnitude no published work expresses
-        in ATRs. The strictly-positive floor on this number is already ratified as an arithmetic
-        non-degeneracy bound and that part does not reopen
     value: 1
     status: owner-ruled
-    ruled_on: '2026-10-09'
-    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
-    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     site: src/risk/exit_guard.py
     note: >-
       How far beyond a structural LEVEL a completed daily close must sit
@@ -4296,26 +4259,11 @@ numbers:
       https://www.ecfr.gov/current/title-17/section-242.612 Same mirror
       note as the at-or-above-$1 increment above.
   - id: src.risk.trailing.NOISE_BAND_ATR_MULTIPLE
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        across the tradable universe, how far price routinely retraces against a live trend in the
-        name's own ATR without the trend ending, so the distance a new stop must keep from price is
-        read off universe price behaviour and not off this desk's fills -- and, in the same pass,
-        whether this 1.25 and the exit guard's 1.0 of the same name are one quantity or two
-      closes_when: >-
-        the universe measurement names the retracement distance, AND the one-definition question is
-        settled either by collapsing the two noise bands into one ledgered quantity or by writing down
-        what makes them different. DELETE OUTCOME: if every stop placement refused by this band is also
-        refused by the minimum-ratchet gate or the chandelier, the band is redundant here and is
-        deleted
     value: 1.25
     status: owner-ruled
-    ruled_on: '2026-10-09'
-    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
-    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -4418,19 +4366,11 @@ numbers:
       exit rule, not a trail. It inherits `PIVOT_WINDOW`'s own unresolved
       question and adds none of its own.
   - id: src.risk.trailing.RANGE_BREAKEVEN_R_MULTIPLE
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        across the tradable universe, for range setups identified from price structure alone: how often
-        a name that reached a given multiple of its initial risk subsequently returned to its entry
-        level, measured on universe bars rather than on this desk's own trades
-      closes_when: >-
-        that curve shows the gain level beyond which giving the whole move back becomes the dominant
-        risk, so the breakeven trigger is read off price behaviour rather than set at a round 1R
     value: 1
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -4478,20 +4418,11 @@ numbers:
       Every range trade's stop moves on a borrowed convention; too early it
       exits winners at scratch, too late it gives back the bank.
   - id: src.risk.trailing.RANGE_SECOND_RATCHET_TRIGGER_R
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        the same universe measurement, extended: for names that reached each successive multiple of
-        initial risk, how far they subsequently retraced, so the depth at which a second stop move pays
-        for itself is visible
-      closes_when: >-
-        the retracement curve names the trigger level. DELETE OUTCOME: if the trigger is never reached
-        before the alignment exit or the chandelier has already moved the stop at least as high, the
-        second rung never binds and is deleted
     value: 2
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -4536,21 +4467,11 @@ numbers:
       at the lock for a scratch-plus, too late it gives back the bank on a
       reversal before +2R is tagged.
   - id: src.risk.trailing.RANGE_SECOND_RATCHET_LOCK_R
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        for each candidate lock level, how much of the eventual move was forgone by stopping out there
-        versus how much was handed back by locking lower, measured over the tradable universe's range
-        setups
-      closes_when: >-
-        the trade-off curve names the lock level against measured behaviour instead of the current
-        round 1R. DELETE OUTCOME: if the lock level cannot be set strictly above the level the
-        breakeven ratchet already established, the second rung moves no stop and is deleted rather than
-        re-picked
     value: 1
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -7436,9 +7357,9 @@ numbers:
   - id: src.pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]
     value: 0.5
     status: owner-ruled
-    ruled_on: '2026-10-09'
-    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
-    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
+    ruled_on: '2026-10-04'
+    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
+    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     site: src/pipeline_risk_gate.py
     note: >-
       Research pre-filter: a symbol whose MA20/MA50 spread is under 0.5 x
@@ -7452,18 +7373,6 @@ numbers:
     cost_while_unanswered: >-
       Decides which names the technical seat ever looks at; a name filtered
       out here cannot be traded that session.
-    settles_by:
-      kind: "recording"
-      state: "specified"
-      where: "docs/board_notes/item-090.md (item 90, the 2026-10-01 pipeline tranche)"
-      records: >-
-        every symbol this pre-filter DROPS each session together with its MA20/MA50 spread in ATR14s at the moment of
-        the drop, alongside the same spread for every symbol it admits, so the cut point is visible against the whole
-        universe and not only against the survivors
-      closes_when: >-
-        the recorded spreads show the point beyond which dropped names stop differing from admitted names in
-        subsequent realised RANGE -- a property of the instrument. Explicitly never the spread that would have
-        produced the best trades: that is fitting, and it is barred
   - id: src.pipeline_exits.ExitEngineMixin._midday_execute_llm_actions:factor[0]
     value: 1.25
     status: derived
