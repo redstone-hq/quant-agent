@@ -79,10 +79,10 @@ def holdings_outcome_payload(precheck, closed: set[str], ctx) -> dict[str, str]:
         return {}
     reasons_by = dict(_walk_order(precheck))
     below = {str(s).upper() for s in (getattr(precheck, "held_below_entry_bar", ()) or ())}
-    failed = failed_evidence_seats(ctx)
     parts = []
     for sym in examined:
         sym = str(sym).upper()
+        failed = failed_evidence_seats(ctx, sym)
         if sym in closed:
             outcome = "sale_proposed"
         elif sym in below and below_bar_only_on_incomplete_evidence(reasons_by.get(sym, ()), failed):

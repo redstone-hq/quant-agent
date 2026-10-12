@@ -263,6 +263,38 @@ def test_a_failed_supporting_seat_does_not_sell_on_net_evidence_alone():
     assert checked and "OLD=not_judged_seat_failed:news" in checked[0][4]["held_outcomes"]
 
 
+def _run_with_registry(pipeline, data_status, registry):
+    from src.agents.portfolio_manager import PortfolioManagerAgent
+
+    with patch.object(PortfolioManagerAgent, "build_evidence_registry", MagicMock(return_value=registry)):
+        return _run_recorded(pipeline, data_status)
+
+
+def test_a_partial_news_seat_with_the_holdings_own_news_read_still_sells():
+    """News is `partial` on most runs (one source down): an answer WAS read.
+    A holding whose own news evidence is present is judged on it."""
+    pipeline = _pipeline(_r5_only_precheck())
+    ctx, events = _run_with_registry(
+        pipeline,
+        {"tech": "ok", "news": "partial", "macro": "low_confidence", "smart_money": "degraded"},
+        {"OLD": {"technical": "neutral", "news": "bearish", "macro": "neutral", "smart_money": "neutral"}},
+    )
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+    assert not [e for e in events if e[1] == "rotation" and e[3] == "evidence_incomplete_seat_failed"]
+
+
+def test_a_partial_news_seat_missing_the_holdings_own_news_is_not_judged():
+    pipeline = _pipeline(_r5_only_precheck())
+    ctx, events = _run_with_registry(
+        pipeline,
+        {"tech": "ok", "news": "partial"},
+        {"OLD": {"technical": "neutral"}},
+    )
+    assert ctx.rotation is None
+    skips = [e for e in events if e[1] == "rotation" and e[3] == "evidence_incomplete_seat_failed"]
+    assert skips and skips[0][4]["failed_seats"] == "news"
+
+
 def test_net_evidence_below_bar_still_sells_when_every_seat_read():
     pipeline = _pipeline(_r5_only_precheck())
     ctx, _ = _run_recorded(pipeline, {"tech": "ok", "news": "ok", "macro": "ok"})

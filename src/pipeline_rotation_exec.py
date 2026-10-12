@@ -86,21 +86,31 @@ def _rotation_ranked_margin_enabled(pipeline) -> bool:
     return getattr(execution_cfg, "rotation_ranked_margin_enabled", None) is True
 
 
-#: A research seat whose reading THIS run is missing because it failed
-#: (provider outage, unparseable answer, a carry-forward that could not be
-#: read). Statuses that mean "read, nothing to say" or "deliberately not
-#: re-read" are not failures and are not listed.
-_SEAT_FAILED_STATUSES = frozenset(
+#: A research seat that returned NO usable reading this run (provider
+#: outage, unparseable answer, a carry-forward that could not be read). Every
+#: holding's evidence from such a seat is unknown.
+_SEAT_NO_READING_STATUSES = frozenset(
     {
         "failed",
         "provider_error",
         "parse_error",
+        "carry_forward_failed",
+    }
+)
+
+#: A seat whose answer WAS read but is incomplete (some sources or symbols
+#: missing, an answer cut off mid-generation, external coverage blind). News
+#: is `partial` on most runs (one source of eleven down, measured 12 Oct), so
+#: this counts against a holding ONLY when that holding has no evidence from
+#: the seat this run; otherwise the holding's own reading is complete.
+_SEAT_INCOMPLETE_READING_STATUSES = frozenset(
+    {
         "partial",
         "truncated",
-        "field_unreadable",
+        "degraded",
         "symbol_dropped",
+        "field_unreadable",
         "market_wide_blind",
-        "carry_forward_failed",
     }
 )
 
@@ -113,20 +123,29 @@ _SEAT_FAILED_STATUSES = frozenset(
 _NET_EVIDENCE_REASON_PREFIX = "R5 "
 
 
-def failed_evidence_seats(ctx) -> tuple[str, ...]:
-    """The non-technical seats that FAILED this run, sorted.
+def failed_evidence_seats(ctx, symbol: str | None = None) -> tuple[str, ...]:
+    """The non-technical seats whose reading for `symbol` is unknown this run.
 
-    Technical is per name, not run-wide: a holding whose own technical read
-    failed has no analysis and is never judged against the entry bar at all.
+    A seat with no reading at all counts for every holding. A seat whose
+    answer was read but is incomplete counts only when `symbol` has no
+    evidence from it in this run's evidence registry. Technical is per name:
+    a holding whose own technical read failed is never judged at all.
     """
     status = getattr(ctx, "data_status", None) or {}
     if not isinstance(status, dict):
         return ()
-    return tuple(
-        sorted(
-            str(seat) for seat, value in status.items() if str(seat) != "tech" and str(value) in _SEAT_FAILED_STATUSES
-        )
-    )
+    registry = getattr(ctx, "evidence_registry", None) or {}
+    own = registry.get(str(symbol or "").upper(), {}) if isinstance(registry, dict) else {}
+    failed = []
+    for seat, value in status.items():
+        seat, value = str(seat), str(value)
+        if seat == "tech":
+            continue
+        if value in _SEAT_NO_READING_STATUSES:
+            failed.append(seat)
+        elif value in _SEAT_INCOMPLETE_READING_STATUSES and own.get(seat) is None:
+            failed.append(seat)
+    return tuple(sorted(failed))
 
 
 def below_bar_only_on_incomplete_evidence(reasons, failed_seats: tuple[str, ...]) -> bool:
@@ -379,7 +398,7 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
                 qty=getattr(held_pos, "qty", None),
             )
             return None
-        failed_seats = failed_evidence_seats(ctx)
+        failed_seats = failed_evidence_seats(ctx, cand_symbol)
         if cand_opp.tier == "ineligible_hold" and below_bar_only_on_incomplete_evidence(cand_opp.reasons, failed_seats):
             _rotation_skip(
                 pipeline,
