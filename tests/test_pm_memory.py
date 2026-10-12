@@ -360,7 +360,10 @@ def test_run_intra_check_ok_when_within_loss_budget(tmp_path):
     assert result["intraday_scan"]["status"] == "paid_analysis_suspended"
     pipeline.broker.submit_order.assert_not_called()
     pipeline.cost_circuit.activate_session.assert_called_once()
-    pipeline.cost_circuit.require_paid_analysis.assert_called_once_with("intraday_tech_analyst")
+    # The gate now names the seat's model when it is a $0 route, so the
+    # circuit can admit it under a money-cap-only suspension (free-route rule).
+    pipeline.cost_circuit.require_paid_analysis.assert_called_once()
+    assert pipeline.cost_circuit.require_paid_analysis.call_args.args == ("intraday_tech_analyst",)
 
 
 def test_vol_adjusted_sizing_caps_qty_on_wide_stops():
