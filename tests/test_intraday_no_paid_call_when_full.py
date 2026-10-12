@@ -264,3 +264,35 @@ def test_the_real_decision_stage_judges_room_after_the_below_bar_sale():
     assert seen_sold == [("OLD",)]
     assert pipeline.portfolio_manager.decide.call_count == 0
     assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+
+
+def test_a_raising_below_bar_precheck_does_not_produce_a_no_room_skip():
+    """A failed pre-check must not skip the paid call on the pre-sale book:
+    the room check is not consulted and the PM is called as before."""
+    import tests.test_earn_its_place_without_pm as earn
+    from tests.test_earn_its_place_without_pm import _below_bar_precheck, _pipeline, _run_recorded
+
+    pipeline = _pipeline(_below_bar_precheck())
+    room_calls = []
+
+    def _room_check(_ctx, sold):
+        room_calls.append(sold)
+        return {"pm_call_skipped": NO_BUYING_ROOM}
+
+    real_start = earn.RunContext.start
+
+    def _start(*a, **kw):
+        ctx = real_start(*a, **kw)
+        ctx.pm_room_check = _room_check
+        return ctx
+
+    with (
+        patch.object(earn.RunContext, "start", side_effect=_start),
+        patch("src.intraday.buying_room.below_bar_sale_symbols", side_effect=RuntimeError("boom")),
+        patch("src.sentinel.guarded_site.record_site") as site,
+    ):
+        ctx, _events = _run_recorded(pipeline)
+    assert room_calls == []
+    assert getattr(ctx, "pm_skip_reason", None) != NO_BUYING_ROOM
+    assert pipeline.portfolio_manager.decide.call_count >= 1
+    assert site.call_args.args[1] == "buying_room_precheck"

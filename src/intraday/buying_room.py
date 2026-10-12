@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from src.intraday.no_room_text import no_room_sentence  # noqa: F401 -- re-exported
 from src.risk.min_risk import min_risk_shortfall
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,8 @@ def below_bar_sale_symbols(pipeline, pm_decide_kwargs: dict) -> tuple[str, ...]:
     """The holding this check's PM-free below-entry-bar sale will sell, read
     BEFORE the PM decision through the same deterministic pre-check
     `below_bar_sale_without_pm` uses (no model is called). Empty when
-    rotation is off, nothing is below the bar, or the pre-check fails."""
+    rotation is off or nothing is below the bar. A failing pre-check RAISES:
+    the caller must not judge room on the pre-sale book."""
     from src.pipeline_rotation_exec import _rotation_execution_enabled
     from src.rotation import RotationPrecheck
     from src.rotation_dispositions import _NONE_AS_EMPTY
@@ -122,9 +124,6 @@ def below_bar_sale_symbols(pipeline, pm_decide_kwargs: dict) -> tuple[str, ...]:
         pm.last_rotation_precheck = None
         pm.build_user_message(**kwargs)
         precheck = pm.last_rotation_precheck
-    except Exception as exc:  # noqa: BLE001 -- unknown sale = no room freed (PM call decided on today's book)
-        logger.warning("buying room: below-bar pre-check failed: %s", exc)
-        return ()
     finally:
         try:
             pm.last_rotation_precheck = None
@@ -189,20 +188,3 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols, sold_symbols=()) 
     if sold_symbols:
         note = f"{note}; after selling {', '.join(sorted(sold_symbols))} below the entry bar"
     return BuyingRoom(headroom, note, bool(ladder_backed), floor, ceiling_x, rows)
-
-
-def no_room_sentence(record: dict) -> str:
-    """The owner's plain sentence for a check whose paid PM call was skipped."""
-    headroom = record.get("headroom_usd")
-    head = f"${headroom:,.0f}" if isinstance(headroom, (int, float)) else "unknown"
-    ceiling = record.get("gross_ceiling_x")
-    where = f"under the {ceiling:g}x limit" if isinstance(ceiling, (int, float)) else "of settled cash"
-    needs = [
-        c["min_notional_usd"]
-        for c in record.get("candidates_considered") or []
-        if isinstance(c.get("min_notional_usd"), (int, float))
-    ]
-    tail = f"; the smallest needed ${min(needs):,.0f}" if needs and min(needs) > 0 else ""
-    if not needs and record.get("candidates_considered"):
-        tail = "; no mover had a readable stop"
-    return f"No paid buy check: no room to open even a minimum-size trade (headroom {head} {where}{tail})."

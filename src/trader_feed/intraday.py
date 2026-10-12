@@ -12,7 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from src.intraday.buying_room import no_room_sentence
+from src.intraday.no_room_text import no_room_sentence
 from src.intraday_scan_outcome import scan_failure_banner
 from src.notifier import (
     _actionable_coverage_gaps,

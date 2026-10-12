@@ -380,7 +380,17 @@ class DecisionStage:
         if not pm_skip_reason and callable(room_check):
             from src.intraday.buying_room import below_bar_sale_symbols
 
-            room_skip = room_check(ctx, below_bar_sale_symbols(pipeline, pm_decide_kwargs))
+            try:
+                sold_for_room = below_bar_sale_symbols(pipeline, pm_decide_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                # A failed pre-check must not skip the paid call on the
+                # pre-sale book: fall toward the existing behaviour (call
+                # the PM), recorded under a named site.
+                from src.sentinel.guarded_site import record_site
+
+                record_site(pipeline, "buying_room_precheck", exc, log=logger)
+                sold_for_room = None
+            room_skip = room_check(ctx, sold_for_room) if sold_for_room is not None else None
             if room_skip:
                 ctx.pm_room_skip = room_skip
                 pm_skip_reason = ctx.pm_skip_reason = room_skip["pm_call_skipped"]
