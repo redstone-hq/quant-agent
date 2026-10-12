@@ -70,9 +70,7 @@ def _position_pnl(position, rows: list[dict]) -> float:
 
 
 def _trade_record(position, rows: list[dict]) -> dict:
-    r = None
-    if position.initial_stop:
-        r = r_multiple(position.exit_price, position.entry_price, position.initial_stop, position.qty)
+    r = position.r_multiple
     opened, closed = _parse_utc(position.opened_at), _parse_utc(position.closed_at)
     hold = (closed - opened).total_seconds() if opened and closed else None
     return {
