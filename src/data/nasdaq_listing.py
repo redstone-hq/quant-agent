@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
-from src.universe_screen import _NON_COMMON_NAME
+from src.universe_screen import _ADR_NAME, _DEPOSITARY_WORD, _NON_COMMON_NAME
 
 STOCKS_URL = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true"
 FUNDS_URL = "https://api.nasdaq.com/api/screener/etf?tableonly=true&download=true"
@@ -28,7 +28,7 @@ HEADERS = {
 }
 
 FUND_CATEGORY_UNKNOWN = "UNKNOWN"
-_PREFERRED_WORDS = {"preferred", "depositary"}
+_PREFERRED_WORDS = {"preferred", "pfd"}
 
 
 class ListingUnavailable(RuntimeError):
@@ -77,7 +77,10 @@ def _market_cap(raw) -> Decimal | None:
 def _is_preferred(symbol: str, name: str) -> bool:
     if "^" in symbol:
         return True
-    return any(m.group(1).lower() in _PREFERRED_WORDS for m in _NON_COMMON_NAME.finditer(name))
+    if any(m.group(1).lower() in _PREFERRED_WORDS for m in _NON_COMMON_NAME.finditer(name)):
+        return True
+    # A depositary name that is not an ADR/ADS wrapper is a preferred wrapper.
+    return bool(_DEPOSITARY_WORD.search(name)) and not _ADR_NAME.search(name)
 
 
 def _rows(body, *path: str) -> list[dict]:
