@@ -217,39 +217,44 @@ def _is_executed_trade(row: dict) -> bool:
 
 
 def build_cockpit() -> str | None:
-    """Build this checkout's dashboard into STATIC_COCKPIT; return None or the error.
+    """Build this checkout's dashboard and swap it into STATIC_COCKPIT; return None or the reason.
 
-    Same approach as scripts/merge_and_deploy.sh: refuse a node other than
-    frontend/.nvmrc's, build into a temp folder, and swap it in only on
-    success -- vite empties its output folder first, so an in-place build
-    that failed would leave no dashboard at all.
+    Same shape as scripts/merge_and_deploy.sh: build OFF TO THE SIDE first (a
+    copy of frontend/ in a temp folder, so this checkout's own node_modules
+    and bundle are untouched), require node's major version from
+    frontend/.nvmrc, and swap the result in only on success. On failure the
+    previous bundle stays on disk and create_app() shows the reason at
+    /cockpit/ instead of serving it.
     """
-    new = STATIC_COCKPIT.with_name(".static_cockpit.new")
-    old = STATIC_COCKPIT.with_name(".static_cockpit.old")
-    shutil.rmtree(new, ignore_errors=True)
-    shutil.rmtree(old, ignore_errors=True)
-    want = "v" + (FRONTEND_DIR / ".nvmrc").read_text(encoding="utf-8").strip()
+    import tempfile
+
+    need = (FRONTEND_DIR / ".nvmrc").read_text(encoding="utf-8").strip().split(".")[0]
     try:
         have = subprocess.run(["node", "-v"], capture_output=True, text=True, check=True).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        return f"node could not be run: {exc}"
-    if have != want:
-        return f"node is {have}, frontend/.nvmrc pins {want}"
-    for cmd in (
-        ["npm", "ci", "--no-audit", "--no-fund"],
-        ["npm", "run", "build", "--", "--outDir", str(new), "--emptyOutDir"],
-    ):
-        proc = subprocess.run(cmd, cwd=FRONTEND_DIR, capture_output=True, text=True)
-        if proc.returncode != 0:
-            log = (proc.stdout + proc.stderr)[-6000:]
-            return f"`{' '.join(cmd)}` failed (exit {proc.returncode}):\n{log}"
-    if not (new / "index.html").is_file():
-        return "the build finished but wrote no index.html"
-    (new / COCKPIT_STAMP).write_text(_current_branch_sha()[1] + "\n", encoding="utf-8")
-    if STATIC_COCKPIT.exists():
-        STATIC_COCKPIT.rename(old)
-    new.rename(STATIC_COCKPIT)
-    shutil.rmtree(old, ignore_errors=True)
+    except (OSError, subprocess.CalledProcessError):
+        have = "none"
+    if not have.startswith(f"v{need}."):
+        return f"wrong node version (found {have}, need {need}.x)"
+    with tempfile.TemporaryDirectory(prefix="cockpit-build-", dir=REPO_ROOT.parent) as tmp:
+        work = Path(tmp)
+        src = work / "frontend"
+        out = work / "out"
+        shutil.copytree(FRONTEND_DIR, src, ignore=shutil.ignore_patterns("node_modules", "dist", "*.tsbuildinfo"))
+        for cmd in (
+            ["npm", "ci", "--no-audit", "--no-fund"],
+            ["npm", "run", "build", "--", "--outDir", str(out), "--emptyOutDir"],
+        ):
+            proc = subprocess.run(cmd, cwd=src, capture_output=True, text=True)
+            if proc.returncode != 0:
+                log = (proc.stdout + proc.stderr)[-6000:]
+                return f"`{' '.join(cmd)}` failed (exit {proc.returncode}):\n{log}"
+        if not (out / "index.html").is_file():
+            return "the build finished but wrote no index.html"
+        (out / COCKPIT_STAMP).write_text(_current_branch_sha()[1] + "\n", encoding="utf-8")
+        old = work / "old"
+        if STATIC_COCKPIT.exists():
+            shutil.move(str(STATIC_COCKPIT), str(old))
+        shutil.move(str(out), str(STATIC_COCKPIT))
     return None
 
 
