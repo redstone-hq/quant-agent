@@ -179,31 +179,82 @@ def behaviour_unchanged(before: str, after: str) -> bool:
     return a == b
 
 
-def _changed_text_paths(base: str, repo: Path) -> tuple[subprocess.CompletedProcess, list[str]]:
-    """Paths this change touches, minus binaries, plus the git result.
+def _is_candidate(path: str) -> bool:
+    """A path the gate may have to judge: never skipped, whatever git says about it."""
+    return is_guard(path) or is_allowlist(path) or path == PYPROJECT or _is_script(path)
 
-    `--numstat` marks a binary file with "-" counts. A binary (a font, an
-    image) cannot be a guard file and has no text to read, so it is skipped
-    here rather than crashing the read below with a UnicodeDecodeError.
+
+def _changed_paths(base: str, repo: Path) -> subprocess.CompletedProcess:
+    return dod._git("diff", "--name-only", "--no-renames", f"{base}...HEAD", repo=repo)
+
+
+def _text_at(base: str, path: str, repo: Path) -> tuple[str | None, str | None]:
+    """(base text, working text); None where the file is absent.
+
+    Raises UnicodeDecodeError when either side is not UTF-8 text. "Binary"
+    is decided by decoding the bytes, never by git's attributes: a
+    .gitattributes `binary`/`-diff` line must not be able to hide a file.
     """
-    r = dod._git("diff", "--numstat", "--no-renames", f"{base}...HEAD", repo=repo)
-    paths = []
-    for line in r.stdout.split("\n"):
-        parts = line.split("\t", 2)
-        if len(parts) == 3 and parts[0] != "-":
-            paths.append(parts[2])
-    return r, sorted(paths)
+    r = subprocess.run(["git", "-C", str(repo), "show", f"{base}:{path}"], capture_output=True, check=False)
+    before = r.stdout.decode("utf-8") if r.returncode == 0 else None
+    f = repo / path
+    after = f.read_bytes().decode("utf-8") if f.exists() else None
+    return before, after
+
+
+def _texts_or_flag(base: str, path: str, repo: Path, unreadable: list[str]) -> tuple[str | None, str | None] | None:
+    """Both texts of `path`, or None when it is not text.
+
+    Only a non-candidate (a font, an image) is skipped silently; a candidate
+    that cannot be decoded is added to `unreadable`, which fails the gate.
+    """
+    try:
+        return _text_at(base, path, repo)
+    except UnicodeDecodeError:
+        if _is_candidate(path):
+            unreadable.append(_undecodable(path))
+        return None
+
+
+def _undecodable(path: str) -> str:
+    return (
+        f"{path}: a file this gate must judge is not readable as UTF-8 text; "
+        "refusing rather than skipping it (an unreadable guard is never a pass)"
+    )
 
 
 def unenforced_touched(base: str, repo: Path) -> list[str]:
     """Identity-guards this change edits that the name rule does not cover."""
-    _, paths = _changed_text_paths(base, repo)
+    r = _changed_paths(base, repo)
     out = []
-    for path in (p for p in paths if _is_script(p)):
+    for path in sorted(p for p in r.stdout.split("\n") if _is_script(p)):
         f = repo / path
-        if not is_guard(path) and f.exists() and behaves_as_guard(f.read_text()):
+        if is_guard(path) or not f.exists():
+            continue
+        try:
+            text = f.read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            out.append(path)  # unreadable: reported, never assumed harmless
+            continue
+        if behaves_as_guard(text):
             out.append(path)
     return out
+
+
+def _touched_entry(path: str, before: str | None, after: str | None, enforce_behaviour: bool) -> str | None:
+    """How this edit is listed as needing justification, or None when it needs none."""
+    if adds_exception(path, before, after):
+        return path + " (adds an allow-list line or ruff exception)"
+    # judged on the BASE text: rewriting a guard so it stops looking like
+    # one cannot take it out of scope
+    source = before if before is not None else after
+    if not _covered(path, source, enforce_behaviour):
+        return None
+    if before is None:
+        return None  # brand-new guard: only adds refusals
+    if after is not None and behaviour_unchanged(before, after):
+        return None
+    return path + (" (deleted)" if after is None else "")
 
 
 def problems(
@@ -217,27 +268,20 @@ def problems(
             "than passing (inability to compare is never a pass)"
         ]
     repo = repo or dod.REPO_ROOT
-    r, paths = _changed_text_paths(base, repo)
+    r = _changed_paths(base, repo)
     if r.returncode != 0:
         return ["git diff against the base failed; refusing: " + r.stderr.strip()]
     touched = []
-    for path in paths:
-        before = dod.file_at(base, path, repo)
-        f = repo / path
-        after = f.read_text() if f.exists() else None
-        if adds_exception(path, before, after):
-            touched.append(path + " (adds an allow-list line or ruff exception)")
+    unreadable = []
+    for path in sorted(p for p in r.stdout.split("\n") if p):
+        texts = _texts_or_flag(base, path, repo, unreadable)
+        if texts is None:
             continue
-        # judged on the BASE text: rewriting a guard so it stops looking like
-        # one cannot take it out of scope
-        source = before if before is not None else after
-        if not _covered(path, source, enforce_behaviour):
-            continue
-        if before is None:
-            continue  # brand-new guard: only adds refusals
-        if after is not None and behaviour_unchanged(before, after):
-            continue
-        touched.append(path + (" (deleted)" if after is None else ""))
+        entry = _touched_entry(path, *texts, enforce_behaviour)
+        if entry is not None:
+            touched.append(entry)
+    if unreadable:
+        return unreadable
     if not touched:
         return []
     if messages is None:

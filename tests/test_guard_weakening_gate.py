@@ -249,3 +249,22 @@ def test_binary_deletion_does_not_crash_and_guard_edits_still_fail(tmp_path):
     _commit(repo, "loosen", "scripts/size_guard.py")
     out = _problems(repo, base)
     assert out and "size_guard.py" in out[0] and "Guard-rule-change:" in out[0]
+
+
+def test_gitattributes_binary_mark_cannot_hide_a_guard_edit(tmp_path):
+    # git reports "-" numstat counts for any text file .gitattributes marks
+    # `binary`; the gate decides by decoding, so the mark changes nothing.
+    repo, base = _base(tmp_path)
+    _write(repo, ".gitattributes", "scripts/size_guard.py binary\nscripts/*.py -diff\n")
+    _write(repo, "scripts/size_guard.py", '"""Doc."""\nLIMIT = 600\n')
+    _commit(repo, "loosen", ".gitattributes", "scripts/size_guard.py")
+    out = _problems(repo, base)
+    assert out and "size_guard.py" in out[0] and "Guard-rule-change:" in out[0]
+
+
+def test_undecodable_guard_file_fails_the_gate_even_with_justification(tmp_path):
+    repo, base = _base(tmp_path)
+    (repo / "scripts/size_guard.py").write_bytes(b'"""Doc."""\nLIMIT = 600  # \xa8\n')
+    _commit(repo, "loosen\n\n" + JUSTIFIED, "scripts/size_guard.py")
+    out = _problems(repo, base)
+    assert out == [gate._undecodable("scripts/size_guard.py")]
