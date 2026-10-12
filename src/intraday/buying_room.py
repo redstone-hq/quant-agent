@@ -77,15 +77,75 @@ class BuyingRoom:
         }
 
 
-def assess_buying_room(pipeline, ctx, analyses, mover_symbols) -> BuyingRoom:
-    """Headroom and, per mover, the smallest position that clears the floor."""
+def _sym(p) -> str:
+    get = p.get if isinstance(p, dict) else lambda k, _p=p: getattr(_p, k, None)
+    return str(get("symbol") or "").upper()
+
+
+def _post_sale_book(positions, cash, sold_symbols):
+    """The book and settled cash once this check's below-entry-bar sale has gone through.
+
+    The sold holding leaves the gross; a long's mark is added to cash. The
+    mark, not the live bid, can only OVERSTATE room, and overstating room
+    only means the PM is called -- the behaviour before this skip existed.
+    """
+    sold = {str(s).upper() for s in sold_symbols or ()}
+    if not sold:
+        return positions, cash
+    kept, freed = [], 0.0
+    for p in positions or []:
+        if _sym(p) in sold:
+            mv = _num(p.get("market_value") if isinstance(p, dict) else getattr(p, "market_value", None))
+            freed += mv if mv is not None and mv > 0 else 0.0
+            continue
+        kept.append(p)
+    return kept, (_num(cash) or 0.0) + freed
+
+
+def below_bar_sale_symbols(pipeline, pm_decide_kwargs: dict) -> tuple[str, ...]:
+    """The holding this check's PM-free below-entry-bar sale will sell, read
+    BEFORE the PM decision through the same deterministic pre-check
+    `below_bar_sale_without_pm` uses (no model is called). Empty when
+    rotation is off, nothing is below the bar, or the pre-check fails."""
+    from src.pipeline_rotation_exec import _rotation_execution_enabled
+    from src.rotation import RotationPrecheck
+    from src.rotation_dispositions import _NONE_AS_EMPTY
+
+    if not _rotation_execution_enabled(pipeline):
+        return ()
+    pm = getattr(pipeline, "portfolio_manager", None)
+    kwargs = dict(pm_decide_kwargs or {})
+    for key, empty in _NONE_AS_EMPTY.items():
+        if key in kwargs and not kwargs[key]:
+            kwargs[key] = empty()
+    try:
+        pm.last_rotation_precheck = None
+        pm.build_user_message(**kwargs)
+        precheck = pm.last_rotation_precheck
+    except Exception as exc:  # noqa: BLE001 -- unknown sale = no room freed (PM call decided on today's book)
+        logger.warning("buying room: below-bar pre-check failed: %s", exc)
+        return ()
+    finally:
+        try:
+            pm.last_rotation_precheck = None
+        except Exception:  # noqa: BLE001
+            pass
+    if not isinstance(precheck, RotationPrecheck):
+        return ()
+    opportunity = precheck.opportunity
+    if opportunity is None or opportunity.tier != "ineligible_hold" or not opportunity.held_symbol:
+        return ()
+    return (str(opportunity.held_symbol).upper(),)
+
+
+def assess_buying_room(pipeline, ctx, analyses, mover_symbols, sold_symbols=()) -> BuyingRoom:
+    """Headroom on the post-sale book and, per mover, the smallest position that clears the floor."""
     from src.pipeline_gross_ceiling import _session_gross_ceiling
     from src.pipeline_sizing import _entry_deployment_budget, _min_position_risk_pct
     from src.pipeline_stage_helpers import _macro_regime
 
-    headroom, ladder_backed, note = _entry_deployment_budget(
-        pipeline, ctx, ctx.positions, ctx.total_value, ctx.deployable_cash
-    )
+    positions, cash = _post_sale_book(ctx.positions, ctx.deployable_cash, sold_symbols)
+    headroom, ladder_backed, note = _entry_deployment_budget(pipeline, ctx, positions, ctx.total_value, cash)
     headroom = float(headroom)
     floor = _min_position_risk_pct(pipeline)
     equity = _num(ctx.total_value)
@@ -110,7 +170,7 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols) -> BuyingRoom:
             min_notional = check.min_notional
         needed = None
         if min_notional is not None:
-            needed = max(0.0, min_notional - _held_same_side_usd(ctx.positions, symbol, direction))
+            needed = max(0.0, min_notional - _held_same_side_usd(positions, symbol, direction))
         # A short does not draw on the settled-cash fallback (D11); a gross
         # ladder budget it consumes like a long.
         fits = needed is not None and (
@@ -126,6 +186,8 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols) -> BuyingRoom:
         )
     ceiling = _session_gross_ceiling(pipeline, ctx)
     ceiling_x = _num(getattr(ceiling, "ceiling_x", None)) if ceiling is not None else None
+    if sold_symbols:
+        note = f"{note}; after selling {', '.join(sorted(sold_symbols))} below the entry bar"
     return BuyingRoom(headroom, note, bool(ladder_backed), floor, ceiling_x, rows)
 
 

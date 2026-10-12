@@ -9,6 +9,8 @@ The below-entry-bar sale (its own PM-free step) still runs on a skipped check.
 
 from __future__ import annotations
 
+import json
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -75,8 +77,16 @@ def _check(movers: int, held_gross: float, *, below_bar_sale: bool, preview=(100
     seen: dict = {"pm_calls": 0}
 
     def _decide(ctx):
-        # Stand-in for DecisionStage: the paid PM call happens only when no
-        # skip reason is set; the below-entry-bar sale runs either way.
+        # Stand-in for DecisionStage, in its real order: the PM-free
+        # below-entry-bar sale is known first, the room is judged on the book
+        # after it, the paid PM call happens only when no skip reason is set,
+        # and the sale runs either way.
+        room_check = getattr(ctx, "pm_room_check", None)
+        if not getattr(ctx, "pm_skip_reason", None) and callable(room_check):
+            skip = room_check(ctx, ("OLD",) if below_bar_sale else ())
+            if skip:
+                ctx.pm_room_skip = skip
+                ctx.pm_skip_reason = skip["pm_call_skipped"]
         seen["pm_skip_reason"] = getattr(ctx, "pm_skip_reason", None)
         if not seen["pm_skip_reason"]:
             seen["pm_calls"] += 1
@@ -91,14 +101,24 @@ def _check(movers: int, held_gross: float, *, below_bar_sale: bool, preview=(100
     ctx.total_value = _EQUITY
     ctx.cash = 0.0
     ctx.deployable_cash = 0.0
-    with patch("src.pipeline_intraday.compute_indicators", return_value=MagicMock()):
+    events: list[dict] = []
+    with (
+        patch("src.pipeline_intraday.compute_indicators", return_value=MagicMock()),
+        patch("src.pipeline_candidate_records._persist_evidence", side_effect=lambda db, **kw: events.append(kw)),
+    ):
         result = p._run_intraday_opportunity_scan(ctx)
+    seen["events"] = [
+        {"symbol": e.get("symbol"), **json.loads(e["evidence_json"])}
+        for e in events
+        if e.get("kind") == "pipeline_event"
+    ]
     return p, ctx, result, seen
 
 
 def test_full_book_makes_no_pm_call_records_why_and_still_sells_below_bar():
-    # Held gross already at 2.0x equity: zero headroom for any new entry.
-    p, ctx, result, seen = _check(3, 2 * _EQUITY, below_bar_sale=True)
+    # Held gross above 2.0x equity: even after selling OLD ($1,002) below the
+    # entry bar, $502 is left -- under the $1,000 a 0.5% risk at a 5% stop needs.
+    p, ctx, result, seen = _check(3, 2 * _EQUITY + 500.0, below_bar_sale=True)
     assert seen["pm_calls"] == 0
     assert seen["pm_skip_reason"] == NO_BUYING_ROOM
     # The below-entry-bar sale still went through risk and execution.
@@ -107,8 +127,8 @@ def test_full_book_makes_no_pm_call_records_why_and_still_sells_below_bar():
     assert result["orders"][0]["symbol"] == "OLD"
     # Durable reason: which limit, the headroom, the candidates considered.
     assert result["pm_call_skipped"] == NO_BUYING_ROOM
-    assert result["headroom_usd"] == 0.0
-    assert "2.00x" in result["limit"]
+    assert result["headroom_usd"] == 502.0
+    assert "2.00x" in result["limit"] and "after selling OLD" in result["limit"]
     assert [c["symbol"] for c in result["candidates_considered"]] == ["M02", "M01", "M00"]
 
 
@@ -189,3 +209,58 @@ def test_the_hourly_telegram_summary_carries_the_skip_sentence(tmp_path, monkeyp
     assert msg is not None
     assert "No paid buy check: no room to open even a minimum-size trade (headroom $0 under the 2x limit" in msg
     assert "FAILED" not in msg
+
+
+def test_a_below_bar_sale_that_frees_room_lets_the_pm_fund_a_buy_in_the_same_check():
+    """Adversary 2026-10-12: room is judged AFTER the PM-free sale. At exactly
+    2.0x, selling OLD frees $1,002 -- enough for the $1,000 minimum trade."""
+    _p, _ctx, result, seen = _check(3, 2 * _EQUITY, below_bar_sale=True)
+    assert seen["pm_calls"] == 1
+    assert "pm_call_skipped" not in result
+
+
+def test_a_skipped_check_does_not_start_the_movers_cooldown():
+    p, _ctx, _result, seen = _check(3, 2 * _EQUITY, below_bar_sale=False)
+    assert seen["pm_calls"] == 0
+    p.db.record_intraday_evaluation.assert_not_called()
+
+
+def test_a_check_the_pm_saw_starts_the_cooldown_for_exactly_the_sent_movers():
+    p, _ctx, _result, seen = _check(8, 0.5 * _EQUITY, below_bar_sale=False)
+    assert seen["pm_calls"] == 1
+    cooled = [c.kwargs["symbol"] for c in p.db.record_intraday_evaluation.call_args_list]
+    assert cooled == ["M07", "M06", "M05", "M04", "M03"]
+
+
+def test_every_mover_gets_its_own_durable_row_on_a_skipped_check():
+    _p, _ctx, _result, seen = _check(3, 2 * _EQUITY, below_bar_sale=False)
+    rows = {e["symbol"]: e for e in seen["events"] if e.get("reason") == NO_BUYING_ROOM}
+    assert sorted(rows) == ["M00", "M01", "M02"]
+    assert all(r["headroom_usd"] == 0.0 and r["min_notional_usd"] == 1000.0 for r in rows.values())
+
+
+def test_the_real_decision_stage_judges_room_after_the_below_bar_sale():
+    """The real DecisionStage hands the room check the holding its PM-free
+    sale will sell, before deciding whether to call the PM."""
+    import tests.test_earn_its_place_without_pm as earn
+    from tests.test_earn_its_place_without_pm import _below_bar_precheck, _pipeline, _run_recorded
+
+    pipeline = _pipeline(_below_bar_precheck())
+    seen_sold = []
+
+    def _room_check(_ctx, sold):
+        seen_sold.append(tuple(sold))
+        return {"pm_call_skipped": NO_BUYING_ROOM}
+
+    real_start = earn.RunContext.start
+
+    def _start(*a, **kw):
+        ctx = real_start(*a, **kw)
+        ctx.pm_room_check = _room_check
+        return ctx
+
+    with patch.object(earn.RunContext, "start", side_effect=_start):
+        ctx, _events = _run_recorded(pipeline)
+    assert seen_sold == [("OLD",)]
+    assert pipeline.portfolio_manager.decide.call_count == 0
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"

@@ -288,21 +288,11 @@ class IntradayScanBody:
             symbols,
         )
         move_by_symbol = dict(candidates)
-        ledgered_symbols: list[str] = []
+        # The cooldown row is written only once the PM has actually seen the
+        # movers (adversary review 2026-10-12): a check that skipped the PM
+        # for no room, or stopped before it, must not hide them for
+        # `cooldown_hours` unseen. See `_record_mover_cooldown`.
         for symbol in symbols:
-            # Persist before any paid call. Every outcome—including a model
-            # failure or no target—now consumes the configured cooldown.
-            try:
-                self.db.record_intraday_evaluation(
-                    symbol=symbol,
-                    run_id=ctx.run_id,
-                    status="selected",
-                    detail=f"move_pct={move_by_symbol[symbol]:.4f}",
-                )
-            except Exception as exc:
-                _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
-                continue
-            ledgered_symbols.append(symbol)
             _record_pipeline_event(
                 self,
                 ctx,
@@ -312,9 +302,6 @@ class IntradayScanBody:
                 "intraday_move_threshold",
                 move_pct=move_by_symbol[symbol],
             )
-        symbols = ledgered_symbols
-        if not symbols and not held_only:
-            return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
 
         # Produce Technical for quiet holds on the same paid call. Discovery
         # stays mover-capped; coverage for names the PM can increase does
@@ -600,10 +587,15 @@ class IntradayScanBody:
         # account has no room to open any new position. Same headroom
         # execution sizes against, same minimum-risk floor at each mover's
         # own stop; the below-entry-bar sale still runs without the PM.
-        no_room = self._intraday_no_buying_room(ctx, analyses, symbols) if not held_only else None
-        if no_room is not None:
-            ctx.pm_skip_reason = NO_BUYING_ROOM
+        # The room is judged INSIDE the decision step, after the PM-free
+        # below-entry-bar sale is known, on the post-sale book: a sale that
+        # frees room can fund a buy in the same check.
+        if not held_only:
+            ctx.pm_room_check = lambda c, sold: self._intraday_no_buying_room(c, analyses, symbols, sold)
         self.decision_stage.run(ctx)
+        no_room = getattr(ctx, "pm_room_skip", None)
+        if not held_only and not getattr(ctx, "pm_skip_reason", None):
+            self._record_mover_cooldown(ctx, symbols, move_by_symbol)
         if not ctx.portfolio_decision and (held_only or no_room is not None):
             return {
                 "status": NO_BUYING_ROOM if no_room is not None else "intraday_scan_no_opportunity",
@@ -657,14 +649,29 @@ class IntradayScanBody:
             "run_id": ctx.run_id,
         }
 
-    def _intraday_no_buying_room(self, ctx: RunContext, analyses, symbols) -> dict | None:
+    def _record_mover_cooldown(self, ctx: RunContext, symbols, move_by_symbol) -> None:
+        """Start each mover's cooldown, now that the PM has seen it. Every PM
+        outcome (a decision, no target, or a model failure) consumes it."""
+        stamped = ctx.__dict__.get("_mover_ledger_detail") or {}
+        for symbol in symbols:
+            try:
+                self.db.record_intraday_evaluation(
+                    symbol=symbol,
+                    run_id=ctx.run_id,
+                    status="selected",
+                    detail=stamped.get(symbol.upper()) or f"move_pct={move_by_symbol[symbol]:.4f}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
+
+    def _intraday_no_buying_room(self, ctx: RunContext, analyses, symbols, sold=()) -> dict | None:
         """The durable skip record when no mover can be opened, else None (the PM is called).
 
         An unreadable assessment, or none (ranked-margin rotation switched
         on can free room), calls the PM as before.
         """
         try:
-            room = self._intraday_buying_room(ctx, analyses, symbols)
+            room = self._intraday_buying_room(ctx, analyses, symbols, sold)
         except Exception as exc:  # noqa: BLE001
             _site(self, "buying_room", exc, log=logger)
             return None
@@ -676,6 +683,17 @@ class IntradayScanBody:
             record["limit"],
             record["candidates_considered"],
         )
+        # One durable row per mover per skipped check, in the pipeline-event stream.
+        for row in record["candidates_considered"]:
+            record_dropped_name(
+                self,
+                ctx,
+                row["symbol"],
+                NO_BUYING_ROOM,
+                headroom_usd=record["headroom_usd"],
+                min_notional_usd=row["min_notional_usd"],
+                limit=record["limit"],
+            )
         return record
 
 
@@ -775,14 +793,14 @@ class IntradayMixin:
             atr_for_symbol=getattr(self, "_atr_for_symbol", None),
         )
 
-    def _intraday_buying_room(self, ctx: RunContext, analyses, symbols):
+    def _intraday_buying_room(self, ctx: RunContext, analyses, symbols, sold=()):
         """Buying room for this check's movers (src/intraday/buying_room.py); None while
         ranked-margin rotation is switched on, since it can free room."""
         from src.pipeline_rotation_exec import _rotation_ranked_margin_enabled
 
         if _rotation_ranked_margin_enabled(self):
             return None
-        return assess_buying_room(self, ctx, analyses, symbols)
+        return assess_buying_room(self, ctx, analyses, symbols, sold)
 
     def _intraday_scan_body(self) -> IntradayScanBody:
         """The IntradayScanBody part, wired to this host live; bodies in src/pipeline_intraday.py (IntradayScanBody)."""
