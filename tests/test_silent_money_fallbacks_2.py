@@ -7,8 +7,9 @@ before the read (``_plan_risk_targets`` resets both constructor sets at its
 top, with no early return before) or is a method on the owner's class
 (``TradingPipeline._sweeper``), so a missing one is a wiring fault.
 
-The AI cost limit needs no runtime alarm: settings loading already refuses an
-unset or empty limit, pinned below.
+The AI cost limit needs no runtime alarm: an unset limit falls back to the
+settings defaults ($0.90 per session, $1.50 per day), and settings loading
+refuses a zero, negative or infinite limit. Both are pinned below.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pydantic import ValidationError
 
 from src.config.llm_cost import LLMCostCircuitConfig
 from src.models.portfolio import TargetPosition
+from src.models.positions import Position
 from src.pipeline import TradingPipeline
 from src.portfolio_constructor import PortfolioConstructor
 from src.stage_decision import DecisionStage
@@ -92,8 +94,37 @@ def test_risk_stage_raises_without_sweeper(no_sweeper, monkeypatch):
         RiskStage(pipeline=pipe)._run_review(_ctx())
 
 
+def test_real_planner_resets_both_sets_before_a_close_reads_them():
+    """No stub: the real risk planner runs inside the order builder, sets both
+    per-run sets before they are read, and a full close of a held name is
+    emitted without AttributeError."""
+    c = PortfolioConstructor()
+    held = Position(
+        symbol="AAPL",
+        qty=10,
+        avg_entry=100.0,
+        current_price=100.0,
+        market_value=1_000.0,
+        unrealized_pnl=0.0,
+        sector="Technology",
+    )
+    close = TargetPosition(symbol="AAPL", target_weight_pct=0.0, conviction="medium", thesis="exit")
+    assert not hasattr(c, "_dollar_targets_refused")
+    assert not hasattr(c, "_reduce_only")
+    orders = c.construct_orders([close], [held], [], 100_000.0, price_map={"AAPL": 100.0})
+    assert c._dollar_targets_refused == set()
+    assert c._reduce_only == set()
+    assert [(o.symbol, o.action) for o in orders] == [("AAPL", "SELL")]
+
+
+def test_unset_ai_cost_limit_falls_back_to_defaults():
+    cfg = LLMCostCircuitConfig()
+    assert cfg.session_cost_limit_usd == 0.90
+    assert cfg.daily_cost_limit_usd == 1.50
+
+
 @pytest.mark.parametrize("field", ["session_cost_limit_usd", "daily_cost_limit_usd"])
-@pytest.mark.parametrize("value", [None, 0, -1.0, float("inf")])
-def test_settings_refuse_missing_or_empty_ai_cost_limit(field, value):
+@pytest.mark.parametrize("value", [0, -1.0, float("inf")])
+def test_settings_refuse_zero_negative_or_infinite_ai_cost_limit(field, value):
     with pytest.raises(ValidationError):
         LLMCostCircuitConfig(**{field: value})
