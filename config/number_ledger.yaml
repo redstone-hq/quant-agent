@@ -10983,10 +10983,10 @@ numbers:
     status: instrument
     site: src/quantities.py
     source: >-
-      https://www.roundhillinvestments.com/etf/dram/ (fetched 2026-10-12): Roundhill Memory ETF seeks exposure to a basket of global memory chip companies; the page states no daily leverage objective.
+      https://www.roundhillinvestments.com/etf/dram/ (fetched 2026-10-12): Roundhill Memory ETF seeks exposure to a basket of global memory chip companies. The same page's fund menu lists DRAM among the issuer's unleveraged thematic ETFs and lists the separate ticker RAM under its "Leveraged ETFs" heading, so the issuer's leveraged memory product is RAM, not DRAM.
     note: >-
       The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
-      multiplier for net directional exposure and the bearish-fund test. 1.0 is the absence of leverage: an ordinary equity ETF. Absence of a stated leverage objective on the issuer page is the evidence; the prospectus was not opened.
+      multiplier for net directional exposure and the bearish-fund test. 1.0 is the absence of leverage: an ordinary equity ETF. The issuer files its leveraged memory exposure under a different ticker (RAM), which is the evidence DRAM itself is unleveraged; the prospectus was not opened.
   - id: src.quantities.ETF_LEVERAGE['SMH']
     value: 1.0
     status: instrument
@@ -11000,9 +11000,13 @@ numbers:
     settles_by:
       kind: measurement
       state: specified
-      where: docs/board_notes/item-090.md
-      records: the rank correlation between the average dollar volume over windows of 10, 20 and 60 sessions and the realised slippage on this desk's fills, so the window is the shortest one that predicts slippage
-      closes_when: the window is set to the measured best predictor, or the number is recorded as insensitive; it is DELETED as a tuned number if every window ranks symbols the same way
+      where: docs/board_notes/item-090.md (the 2026-10-12 liquidity-window paragraph)
+      records: across the universe the desk could trade, on public daily bars, the rank correlation between average
+        dollar volume over windows of 10, 20 and 60 sessions and the cost of trading the symbol over the following
+        sessions, measured as the quoted half-spread and the daily price impact per dollar traded; never off this
+        desk's own fills
+      closes_when: the window is set to the shortest one that ranks symbols as well as the longer ones, or the number
+        is recorded as insensitive; it is DELETED as a tuned number if every window ranks symbols the same way
     value: 20
     status: arbitrary
     site: src/quantities.py
@@ -11010,9 +11014,9 @@ numbers:
       Sessions averaged for the liquidity admission measure (average dollar volume). The source comment says only
       that three call sites previously disagreed (20, 20, 21) and this unifies them on the name, config key and log
       lines that already said 20; that is consistency, not a derivation. 20 sessions is the conventional month, not
-      a measurement on this desk's fills. It decides which symbols pass the liquidity gate.
+      a measurement. It decides which symbols pass the liquidity gate.
     open_question: >-
-      Over how many sessions does average dollar volume best predict what this desk actually pays to trade a symbol?
+      Over how many sessions does average dollar volume best predict what it costs to trade a symbol, measured on market data for the tradable universe?
     cost_while_unanswered: >-
       Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
       keeps passing.
