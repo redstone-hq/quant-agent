@@ -7532,13 +7532,6 @@ numbers:
     note: >-
       Default risk floor of the allocator (src/risk/budget.py::allocate_risk_budget); every
       caller passes it. Same 0.5 as the ratified starter floor.
-  - id: src.risk.metrics.r_multiple(qty)
-    value: 1
-    status: not-trade-governing
-    site: src/risk/metrics.py
-    note: >-
-      Unit default for a quantity (src/risk/metrics.py::r_multiple); every caller
-      passes the real quantity.
   - id: src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)
     narrowed: >-
       NARROWED 2026-10-04 (wiring measured; value NOT settled). The hardcoded 50.0 is a keyword-only default on

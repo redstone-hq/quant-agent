@@ -281,6 +281,10 @@ class PositionItem(BaseModel):
     # and unleveraged); exposure is served on `AccountResponse.exposure`
     # instead, from the engine's own definition.
     direction: str = "long"
+    # Stop AT ENTRY and unrealised profit in R (display only). None when no usable stop
+    # was recorded: "R unknown", never zero. See src.storage.analytics.trade_review.
+    initial_stop: float | None = None
+    unrealised_r: float | None = None
 
 
 class PositionsResponse(BaseModel):
@@ -473,6 +477,9 @@ class LiveQuotesResponse(BaseModel):
 
 class TradeItem(BaseModel):
     id: int
+    # Realised profit in R on a closed position's final exit row (display only); None
+    # on every other row and whenever no usable stop was recorded -- "R unknown", never zero.
+    r_multiple: float | None = None
     symbol: str
     action: str
     qty: float | None = None
@@ -1182,11 +1189,8 @@ class AnalystScorecardResponse(BaseModel):
     #: "error" — the read failed; `read_error` says so and nothing is inferred.
     state: str = "empty"
     read_error: str | None = None
-    #: The notional dollars treated as put at risk on EVERY call, used to
-    #: express R in money. A presentation convention stated in one place so
-    #: the API and the panel cannot disagree about it — not a real position
-    #: size, and nothing compounds it.
-    risk_dollars_per_call: float = 100.0
+    #: Positions set aside because they opened before the clean-record start (counted, not deleted).
+    excluded_pre_clean_record_n: int = 0
     resolved_calls_total: int = 0
     #: Every month that has at least one resolved call, oldest first.
     months: list[str] = []

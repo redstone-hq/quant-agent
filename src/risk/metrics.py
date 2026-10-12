@@ -41,6 +41,8 @@ import logging
 import math
 from dataclasses import dataclass, field
 
+from src.quantities import r_multiple
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -48,7 +50,6 @@ __all__ = [
     "PortfolioHeat",
     "BookRiskPct",
     "full_value_charge",
-    "r_multiple",
     "position_risk",
     "portfolio_heat",
     "format_heat_block",
@@ -106,36 +107,6 @@ def unrealized_pnl_pct(position) -> float | None:
     if not cost or not math.isfinite(cost):
         return None
     return pnl / cost * 100
-
-
-def r_multiple(
-    current_price: float,
-    entry: float,
-    initial_stop: float,
-    qty: float = 1.0,
-) -> float | None:
-    """Profit in units of the risk originally taken, or None if undefined.
-
-    `initial_stop` is the stop the position was opened with. Returns None when
-    any input is missing/non-finite or when the initial stop was not on the
-    losing side of entry — a non-positive denominator means no risk was
-    defined at entry and an R-multiple would be a fabrication.
-
-    `qty` supplies only the SIDE. A negative qty is a short: risk per share is
-    `stop - entry` (the stop sits ABOVE entry) and profit accrues as price
-    falls, so both numerator and denominator flip. Defaults to +1.0 so every
-    existing long call site is unchanged.
-    """
-    cur = _finite(current_price)
-    ent = _finite(entry)
-    stop = _finite(initial_stop)
-    if cur is None or ent is None or stop is None:
-        return None
-    side = -1.0 if (_finite(qty) or 1.0) < 0 else 1.0
-    risk_per_share = side * (ent - stop)
-    if risk_per_share <= 0:
-        return None
-    return round(side * (cur - ent) / risk_per_share, 2)
 
 
 @dataclass(frozen=True)

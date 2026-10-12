@@ -153,7 +153,7 @@ class PromptExposure:
         unreadable.update([sym] if _live_read.unreadable else [])
         if _live_read.found:
             live_stops[sym] = _live_read.price
-        from src.execution.stop_records import recorded_initial_stop
+        from src.quantities import recorded_initial_stop
 
         try:
             qty = float(getattr(p, "qty", 0) or 0)
@@ -193,7 +193,7 @@ class PromptHistory:
         setup has been maturing vs stuck vs invalidated.
         """
         from datetime import date as _date
-        from src.execution.stop_records import recorded_initial_stop
+        from src.quantities import recorded_initial_stop
 
         out: dict[str, dict] = {}
         today = et_today()
@@ -439,7 +439,7 @@ class PromptPositionFacts:
             # write-back. R-multiple's denominator is the bet that was
             # actually made, not the level a trail later ratcheted it to
             # (audit §1.4).
-            from src.execution.stop_records import recorded_initial_stop
+            from src.quantities import recorded_initial_stop
 
             initial_stop = recorded_initial_stop(buy)
 

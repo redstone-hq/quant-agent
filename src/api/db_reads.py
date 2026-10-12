@@ -1245,6 +1245,10 @@ def get_conviction_ledger() -> dict:
             "SELECT agent_name, symbol, decision_id, evidence_json FROM specialist_evidence WHERE kind = ? ORDER BY id",
             (SEAT_STANCE_KIND,),
         ).fetchall()
+        opened_rows = conn.execute(
+            "SELECT position_id, MIN(timestamp) AS opened_at FROM trades "
+            "WHERE action IN ('BUY', 'SHORT') AND position_id IS NOT NULL GROUP BY position_id"
+        ).fetchall()
     except sqlite3.Error:
         return {
             "read_error": "conviction ledger unavailable",
@@ -1255,7 +1259,11 @@ def get_conviction_ledger() -> dict:
         if conn is not None:
             conn.close()
 
+    from src.storage.analytics.calibration import _opened_before_clean_record
+
+    opened_at_by_position = {r["position_id"]: r["opened_at"] for r in opened_rows}
     credits: list[dict] = []
+    excluded_positions: set = set()
     for row in credit_rows:
         payload = _parse_evidence_payload(row["evidence_json"])
         if payload is None:
@@ -1265,6 +1273,11 @@ def get_conviction_ledger() -> dict:
         except (KeyError, TypeError, ValueError):
             continue
         side = str(payload.get("side") or "")
+        # Clean record (owner ruling 2026-10-09): a call on a position opened before the start is
+        # set aside (counted, not deleted). An unknown opening time cannot prove the call is clean.
+        if _opened_before_clean_record(opened_at_by_position.get(payload.get("position_id"))):
+            excluded_positions.add(payload.get("position_id"))
+            continue
         credits.append(
             {
                 "analyst": str(payload.get("seat") or row["agent_name"] or ""),
@@ -1279,6 +1292,9 @@ def get_conviction_ledger() -> dict:
                 # a scored call out of the series for want of a date.
                 "resolved_at": str(payload.get("resolved_at") or row["timestamp"] or ""),
                 "position_id": payload.get("position_id"),
+                # When the position was opened (its first BUY/SHORT row), for the
+                # clean-record filter; None when no opening row can be found.
+                "opened_at": opened_at_by_position.get(payload.get("position_id")),
                 "decision_id": payload.get("decision_id") or row["decision_id"],
                 "direction": str(payload.get("direction") or "long"),
                 "nominated": bool(payload.get("nominated")),
@@ -1302,7 +1318,12 @@ def get_conviction_ledger() -> dict:
             }
         )
 
-    return {"read_error": None, "credits": credits, "stances": stances}
+    return {
+        "read_error": None,
+        "credits": credits,
+        "stances": stances,
+        "excluded_pre_clean_record_n": len(excluded_positions),
+    }
 
 
 def get_holding_why(symbol: str) -> dict | None:
@@ -1621,3 +1642,64 @@ def get_target_scorecard() -> dict:
             conn.close()
     result["read_error"] = None
     return result
+
+
+def get_trade_review_rows() -> dict:
+    """Every `trades` row that belongs to a position chain, oldest first, for the Trade Review tab.
+
+    Returns `{"read_error": str | None, "rows": [...]}`. A SQLite failure is an explicit
+    `read_error`, never an empty review.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE position_id IS NOT NULL AND position_id != '' ORDER BY timestamp, id"
+        ).fetchall()
+        return {"read_error": None, "rows": [dict(r) for r in rows]}
+    except sqlite3.Error:
+        return {"read_error": "trade history unavailable", "rows": []}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_open_entry_rows(symbols: list[str]) -> list[dict]:
+    """Opening (BUY/SHORT) rows for the given symbols, for the held-position stop and R display."""
+    if not symbols:
+        return []
+    conn = None
+    try:
+        conn = _connect()
+        marks = ",".join("?" for _ in symbols)
+        rows = conn.execute(
+            f"SELECT * FROM trades WHERE action IN ('BUY', 'SHORT') AND symbol IN ({marks}) ORDER BY timestamp, id",
+            [s.upper() for s in symbols],
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_position_chain_rows(position_ids: list[str]) -> list[dict]:
+    """Every `trades` row of the given position chains, oldest first (for the trades table R column)."""
+    ids = sorted({p for p in position_ids if p})
+    if not ids:
+        return []
+    conn = None
+    try:
+        conn = _connect()
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT * FROM trades WHERE position_id IN ({marks}) ORDER BY timestamp, id",
+            ids,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        if conn is not None:
+            conn.close()

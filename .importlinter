@@ -36,3 +36,13 @@ ignore_imports =
     src.execution.broker_parts.trade_stream -> alpaca
     src.execution.order_gates -> alpaca
     src.execution.stop_read -> alpaca
+
+[importlinter:contract:trade-review-display-only]
+name = Trade Review is display-only: agents and prompt facts may not import it
+type = forbidden
+source_modules =
+    src.agents
+    src.prompt_facts
+forbidden_modules =
+    src.storage.analytics.trade_review
+allow_indirect_imports = true
