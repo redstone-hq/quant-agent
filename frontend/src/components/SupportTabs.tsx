@@ -7,6 +7,7 @@ import { DirectionalBiasPanel } from "./DirectionalBiasPanel";
 import { MissedOpportunitiesPanel } from "./MissedOpportunitiesPanel";
 import { SearchPanel } from "./SearchPanel";
 import { HealthPanel } from "./HealthPanel";
+import { TradeReviewPanel } from "./TradeReview/TradeReviewPanel";
 
 /* The cockpit's lower support area — the iPad/phone fallback for
  * everything that isn't Positions/Chart/Decision (those three now have
@@ -18,7 +19,7 @@ import { HealthPanel } from "./HealthPanel";
  * — the two tabs the owner named as "not trading" — are now folded into
  * one Diagnostics tab instead of standing on their own (item 13). */
 
-type TabId = "orders" | "runs" | "bias" | "missed" | "diagnostics";
+type TabId = "orders" | "runs" | "bias" | "missed" | "review" | "diagnostics";
 
 export function SupportTabs({
   orders,
@@ -67,6 +68,7 @@ export function SupportTabs({
     { id: "runs", label: "Runs", badge: runs.length || undefined },
     { id: "bias", label: "Directional Bias" },
     { id: "missed", label: "Missed Opportunities" },
+    { id: "review", label: "Trade Review" },
     { id: "diagnostics", label: "Diagnostics" },
   ];
 
@@ -107,6 +109,7 @@ export function SupportTabs({
       {tab === "runs" && <RunsPanel runs={runs} error={runsError} loading={runsLoading} />}
       {tab === "bias" && <DirectionalBiasPanel />}
       {tab === "missed" && <MissedOpportunitiesPanel onSelectSymbol={onSelectPositionSymbol} />}
+      {tab === "review" && <TradeReviewPanel />}
       {tab === "diagnostics" && (
         <div className="flex flex-col gap-3">
           <HealthPanel health={health} error={healthError} />

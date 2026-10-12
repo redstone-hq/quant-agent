@@ -11,6 +11,9 @@ the shape the Mission Control panel renders.
 down; this module only adds them up. Concretely: no `r_multiple` is computed
 here and no stance is re-classified as supporting or opposing.
 
+**Everything is shown in R** (the old fixed $100-per-call dollar conversion was deleted), and only
+calls on positions opened on/after the clean-record start are counted (filtered in `db_reads`).
+
 **Credit is raw signed R.** There is no conviction weight to apply — it was
 removed by owner decision on 2026-08-31, because weighting an analyst's credit
 by its own declared confidence assumes the very thing the ledger exists to
@@ -66,10 +69,6 @@ router = APIRouter()
 #: Default number of resolved ideas returned in the trace list, newest first.
 DEFAULT_IDEA_LIMIT = 25
 MAX_IDEA_LIMIT = 200
-
-#: The notional risk per call used to express R in dollars. Stated once, here,
-#: and echoed in the response so the panel never invents its own figure.
-RISK_DOLLARS_PER_CALL = 100.0
 
 #: Declared-confidence levels in the order a reader expects, mirroring
 #: `src.conviction_ledger.CONFIDENCE_ORDER` (which this package may not
@@ -312,16 +311,18 @@ def build_scorecard(ledger: dict, idea_limit: int = DEFAULT_IDEA_LIMIT) -> Analy
             as_of=as_of,
             state="error",
             read_error=str(ledger["read_error"]),
-            risk_dollars_per_call=RISK_DOLLARS_PER_CALL,
         )
 
+    # The ledger read has already set aside calls on positions opened before the clean-record
+    # start (db_reads.get_conviction_ledger); this module only reports how many.
     credits: list[dict] = ledger.get("credits") or []
+    excluded = int(ledger.get("excluded_pre_clean_record_n") or 0)
     stances: list[dict] = ledger.get("stances") or []
     if not credits:
         return AnalystScorecardResponse(
             as_of=as_of,
             state="empty",
-            risk_dollars_per_call=RISK_DOLLARS_PER_CALL,
+            excluded_pre_clean_record_n=excluded,
         )
 
     per_analyst: dict[str, list[dict]] = defaultdict(list)
@@ -338,7 +339,7 @@ def build_scorecard(ledger: dict, idea_limit: int = DEFAULT_IDEA_LIMIT) -> Analy
     return AnalystScorecardResponse(
         as_of=as_of,
         state="populated",
-        risk_dollars_per_call=RISK_DOLLARS_PER_CALL,
+        excluded_pre_clean_record_n=excluded,
         resolved_calls_total=len(credits),
         months=months,
         analysts=analysts,

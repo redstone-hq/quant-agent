@@ -382,10 +382,31 @@ sanitized `read_error`). `idea_limit` is bounded 1..200 and rejected with 422
 outside it. Transport/server faults outside this known read condition remain
 ordinary 500s via the app's global handler.
 
-`risk_dollars_per_call` (100.0) is a labeled presentation convention, not a real
-position size: the ledger's numbers are in R, and this is the single figure the
-cockpit multiplies by so the API and the panel cannot disagree about how R is
-expressed in money.
+The scorecard is shown in R. The old fixed `risk_dollars_per_call` ($100) dollar
+conversion was deleted (it was a made-up number), and only calls on positions opened on or
+after the clean-record start (2026-10-12 09:30 ET) are counted; earlier ones are set aside,
+counted in `excluded_pre_clean_record_n`, and never deleted.
+
+### `/trade-review` and the R columns (display only)
+
+`GET /trade-review` feeds the dashboard's **Trade Review** tab (Orders & Trades, Runs, ...,
+Trade Review, Diagnostics). It is built by `src/storage/analytics/trade_review.py` from the
+`trades` rows of the clean record: today's P&L, wins, losses and win rate; the last 20 closed
+trades with R; an R histogram; N, largest/average winner and loser, profit factor ("n/a" with
+no trades, "no losses" when none lost, never infinity), expectancy in R and average hold for
+today / this week / the whole clean record; slices by side, entry time (30-minute ET buckets)
+and hold length, each with its N; drawdown in R, longest losing streak, cumulative R; and
+mean R / stdev R with a one-tailed t-test p-value that mean R > 0 (computed with `math`, no
+scipy). A trade with no usable stop is "R unknown": counted, left out of every R statistic,
+never zero. There is no minimum-trade threshold; every figure shows its N and the caveat
+"small samples and lopsided results make this unreliable". `/trades` rows carry `r_multiple`
+on a closed position's final exit row and `/positions` rows carry `initial_stop` and
+`unrealised_r`. Nothing here feeds sizing, stops or exits; `src.agents` and
+`src.prompt_facts` may not import `trade_review` (`.importlinter`). The same module's `close_review_summary` feeds the trade-review block at the end of the Telegram CLOSE REVIEW message (`src/trader_feed/trade_block.py`); the stored close report keeps structured fields only, so no agent or prompt reads that text back.
+
+R, closed-round-trip pairing and the entry-stop reader (`r_multiple`,
+`summarize_closed_position`, `recorded_initial_stop`) were moved verbatim into
+`src/quantities.py` so the API can use the one definition without reaching the money path.
 
 Advisory only, per spec §9.5 item 6: no score this endpoint serves feeds sizing,
 risk allocation or order construction. Per §9.5 item 8 there is no

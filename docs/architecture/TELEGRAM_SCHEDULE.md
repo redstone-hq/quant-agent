@@ -19,7 +19,7 @@ on how much the run has to process.
 | 9:45am–3:45pm, every 30 min | Intraday opportunity / flash check | Only if it finds something |
 | 9:30am–4:00pm, every 30 min | Stop-loss repair sweep | Only if a repair is needed |
 | 1:00pm | Midday session summary | Yes |
-| 3:30pm | Close session summary | Yes |
+| 3:30pm | Close session summary (CLOSE REVIEW; ends with a short trade-review block of today's closed trades: count, wins, losses, win rate, R total and average, best and worst with symbol, profit factor, trades beside the luck p-value; "No closed trades today." on an empty day; unreadable figures show "unknown"; skipped on stored replays) | Yes |
 | 4:30pm | Post-close desk health report | Yes |
 | 6:30pm | Price data refresh #2 | Only if it fails |
 | 8:00pm | Evening session summary | Yes |

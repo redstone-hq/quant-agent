@@ -4,7 +4,7 @@
  *
  * The backend returns everything in R (profit as a multiple of the risk the
  * position was opened with). Nothing in this product shows a reader the
- * letter "R": every number that reaches the screen goes through `toDollars`
+ * letter "R": every number that reaches the screen goes through `toR`
  * first, using the single `risk_dollars_per_call` figure the endpoint states.
  */
 
@@ -14,19 +14,19 @@ import type {
   ScorecardIdea,
 } from "../../api/client";
 
-/** R -> the worked-example dollars the page is written in. */
-export function toDollars(r: number | null | undefined, dollarsPerCall: number): number | null {
+/** R as shown: the scorecard reports profit in R (multiples of the risk taken at entry). */
+export function toR(r: number | null | undefined, rScale: number): number | null {
   if (r === null || r === undefined || !Number.isFinite(r)) return null;
-  return r * dollarsPerCall;
+  return r * rScale;
 }
 
-/** "+$210" / "-$60" / "$0". Always signed for a non-zero value, because the
+/** "+2.1R" / "−0.6R" / "0.0R". Always signed for a non-zero value, because the
  * sign is what carries the meaning when colour cannot. */
-export function signedMoney(v: number | null | undefined): string {
+export function signedR(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  const rounded = Math.round(v);
+  const rounded = Math.round(v * 10) / 10;
   const sign = rounded > 0 ? "+" : rounded < 0 ? "−" : "";
-  return `${sign}$${Math.abs(rounded).toLocaleString("en-US")}`;
+  return `${sign}${Math.abs(rounded).toFixed(1)}R`;
 }
 
 /** ▲ up, ▼ down, · flat. Paired with every signed figure so direction never
@@ -126,7 +126,7 @@ function atMonth<T>(
 export function buildDeskSlopes(
   analysts: AnalystScorecardItem[],
   months: string[],
-  dollarsPerCall: number,
+  rScale: number,
 ): DeskSlopes | null {
   const ordered = [...months].sort();
   if (ordered.length === 0 || analysts.length === 0) return null;
@@ -140,8 +140,8 @@ export function buildDeskSlopes(
     const hasFrom = firstMonth <= fromMonth;
     const fromHit = atMonth(item, fromMonth, (m) => m.hit_rate_pct ?? 0, 0);
     const toHit = atMonth(item, toMonth, (m) => m.hit_rate_pct ?? 0, 0);
-    const fromMoney = atMonth(item, fromMonth, (m) => m.cumulative * dollarsPerCall, 0);
-    const toMoney = atMonth(item, toMonth, (m) => m.cumulative * dollarsPerCall, 0);
+    const fromMoney = atMonth(item, fromMonth, (m) => m.cumulative * rScale, 0);
+    const toMoney = atMonth(item, toMonth, (m) => m.cumulative * rScale, 0);
     accuracy.push({
       analyst: item.analyst, from: fromHit, to: toHit,
       change: toHit - fromHit, hasFrom, firstMonth,
@@ -194,7 +194,7 @@ export function stampToEpochSeconds(stamp: string | null | undefined): number | 
   return null;
 }
 
-export function profitSeries(item: AnalystScorecardItem, dollarsPerCall: number): ProfitPoint[] {
+export function profitSeries(item: AnalystScorecardItem, rScale: number): ProfitPoint[] {
   const out: ProfitPoint[] = [];
   let previous = -Infinity;
   item.cumulative.forEach((point, index) => {
@@ -205,7 +205,7 @@ export function profitSeries(item: AnalystScorecardItem, dollarsPerCall: number)
     let time = parsed ?? (previous === -Infinity ? index : previous + 1);
     if (time <= previous) time = previous + 1;
     previous = time;
-    out.push({ time, dollars: point.cumulative * dollarsPerCall });
+    out.push({ time, dollars: point.cumulative * rScale });
   });
   return out;
 }
@@ -237,10 +237,10 @@ export interface BelowBestPoint {
   label: string;
 }
 
-export function belowBestSeries(item: AnalystScorecardItem, dollarsPerCall: number): BelowBestPoint[] {
-  const times = profitSeries(item, dollarsPerCall);
+export function belowBestSeries(item: AnalystScorecardItem, rScale: number): BelowBestPoint[] {
+  const times = profitSeries(item, rScale);
   return item.cumulative.map((point, index) => {
-    const depth = Math.abs(point.below_best * dollarsPerCall);
+    const depth = Math.abs(point.below_best * rScale);
     return {
       time: times[index]?.time ?? index,
       // `depth === 0 ? 0` rather than `-0`, which recharts renders as "-0" on
@@ -281,14 +281,14 @@ export interface WaterfallStep {
   callsRight: number;
 }
 
-export function waterfall(item: AnalystScorecardItem, dollarsPerCall: number): WaterfallStep[] {
+export function waterfall(item: AnalystScorecardItem, rScale: number): WaterfallStep[] {
   let previous = 0;
   return item.monthly.map((point) => {
-    const total = point.cumulative * dollarsPerCall;
+    const total = point.cumulative * rScale;
     const step: WaterfallStep = {
       month: point.month,
       label: monthLabel(point.month),
-      change: point.credit * dollarsPerCall,
+      change: point.credit * rScale,
       total,
       span: [previous, total],
       resolvedCalls: point.resolved_calls,

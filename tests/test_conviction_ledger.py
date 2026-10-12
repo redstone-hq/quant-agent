@@ -26,8 +26,8 @@ from src.conviction_ledger import (
     normalize_conviction,
     normalize_seat,
     score_position,
-    summarize_closed_position,
 )
+from src.quantities import summarize_closed_position
 from src.storage.db import Database
 from tests.session_clock import todays_session_stamp
 from tests.pipeline_factory import build_pipeline
@@ -292,9 +292,9 @@ def test_short_and_long_credits_aggregate_into_one_undifferentiated_record():
 
 
 def test_r_multiple_itself_makes_a_winning_short_positive():
-    """Read, not assumed: `src/risk/metrics.py::r_multiple` takes the SIDE
+    """Read, not assumed: `src/quantities.py::r_multiple` takes the SIDE
     from a signed qty, so the ledger never has to negate anything."""
-    from src.risk.metrics import r_multiple as _r
+    from src.quantities import r_multiple as _r
 
     # Short at 100, stop at 110 (above entry), covered at 90 → made money.
     assert _r(90.0, 100.0, 110.0, -10.0) == pytest.approx(+1.0)

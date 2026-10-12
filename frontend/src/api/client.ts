@@ -260,6 +260,9 @@ export interface PositionItem {
   sector: string | null;
   is_cash_equivalent: boolean;
   direction: PositionDirection;
+  /** Stop AT ENTRY and profit in R so far; null = no usable stop recorded (R unknown, never 0). */
+  initial_stop?: number | null;
+  unrealised_r?: number | null;
 }
 
 export interface PositionsResponse {
@@ -328,6 +331,8 @@ export interface TradeItem {
   requested_risk_pct?: number | null;
   allocated_risk_pct?: number | null;
   decision_model?: string | null;
+  /** Realised R on a closed position's final exit row; null when R is unknown. */
+  r_multiple?: number | null;
 }
 
 export interface TradesResponse {
@@ -985,7 +990,6 @@ export interface ResearchDailyResponse {
 //
 // `credit` / `r_multiple` / `cumulative` are in R: profit as a multiple of
 // the risk the position was opened with. The panel never shows R; it
-// multiplies by `risk_dollars_per_call` and shows dollars.
 // ---------------------------------------------------------------------
 
 export interface ScorecardPoint {
@@ -1068,7 +1072,8 @@ export interface AnalystScorecardResponse {
   as_of: string;
   state: "populated" | "empty" | "error";
   read_error: string | null;
-  risk_dollars_per_call: number;
+  /** Calls on positions opened before the clean-record start: set aside, counted here. */
+  excluded_pre_clean_record_n?: number;
   resolved_calls_total: number;
   months: string[];
   analysts: AnalystScorecardItem[];
@@ -1201,6 +1206,7 @@ export const api = {
   journalDay: (date: string) => getJSON<JournalDayResponse>(`/journal/${encodeURIComponent(date)}`),
   researchDaily: (date: string) =>
     getJSON<ResearchDailyResponse>(`/research/daily/${encodeURIComponent(date)}`),
+  tradeReview: () => getJSON<TradeReviewResponse>(`/trade-review`),
   analystScorecard: (ideaLimit = 25) =>
     getJSON<AnalystScorecardResponse>(`/analysts/scorecard?idea_limit=${ideaLimit}`),
   targetScorecard: () => getJSON<TargetScorecardResponse>(`/analysts/target-scorecard`),
@@ -1225,4 +1231,68 @@ export interface TargetScorecardResponse {
   };
   positions: Record<string, unknown>[];
   best_move_is_lower_bound: boolean;
+}
+
+
+// ---------------------------------------------------------------------
+// /trade-review — closed trades since the clean-record start, in R.
+// Every figure carries its N; there is no minimum-trade threshold.
+// ---------------------------------------------------------------------
+
+export interface TradeReviewTrade {
+  position_id: string;
+  symbol: string;
+  side: "long" | "short";
+  pnl: number;
+  r: number | null;
+  opened_at: string;
+  closed_at: string;
+  hold_seconds: number | null;
+}
+
+export interface TradeReviewWindow {
+  n: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number | null;
+  total_pnl_usd: number;
+  profit_factor: number | string;
+  expectancy_r: number | null;
+  r_unknown: number;
+  avg_hold_seconds: number | null;
+  largest_winner_r: number | null;
+  largest_winner_usd: number | null;
+  average_winner_r: number | null;
+  average_winner_usd: number | null;
+  largest_loser_r: number | null;
+  largest_loser_usd: number | null;
+  average_loser_r: number | null;
+  average_loser_usd: number | null;
+}
+
+export interface TradeReviewSlice {
+  label: string;
+  n: number;
+  win_rate_pct: number | null;
+  expectancy_r: number | null;
+  total_pnl_usd: number;
+  r_unknown: number;
+}
+
+export interface TradeReviewResponse {
+  state: "ok" | "error";
+  read_error: string | null;
+  as_of?: string;
+  caveat?: string;
+  excluded_pre_clean_record_n?: number;
+  n_closed?: number;
+  today?: { pnl_usd: number; n: number; wins: number; losses: number; win_rate_pct: number | null };
+  last_trades?: TradeReviewTrade[];
+  r_histogram?: { label: string; count: number }[];
+  windows?: { today: TradeReviewWindow; week: TradeReviewWindow; all: TradeReviewWindow };
+  slices?: { by_side: TradeReviewSlice[]; by_entry_time_et: TradeReviewSlice[]; by_hold: TradeReviewSlice[] };
+  drawdown_r?: number;
+  longest_losing_streak?: number;
+  cumulative_r?: { closed_at: string; symbol: string; cumulative_r: number }[];
+  quality?: { n: number; mean_r: number | null; stdev_r: number | null; score: number | null; p_value: number | null; caveat: string };
 }
