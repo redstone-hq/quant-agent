@@ -171,7 +171,7 @@ class ConvictionLedgerStore:
         with self._lock:
             rows = self.conn.execute(
                 "SELECT id, position_id, symbol, action, qty, price, fill_qty, "
-                "fill_price, fill_status, stop_loss, decision_id, run_id, "
+                "fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, "
                 "timestamp FROM trades WHERE position_id IS NOT NULL "
                 "ORDER BY position_id, timestamp, id",
             ).fetchall()
