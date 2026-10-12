@@ -819,3 +819,15 @@ either of them yet.
 
 Both tables are created by one appended, idempotent migration step
 (`src/storage/schema/sentinel_tables.py`).
+
+## R-multiple of a closed position (scale-in rule)
+
+A position's risk is the sum over its entry lots of (lot filled qty x |lot fill price - that lot's own
+initial stop|). R = realised P&L / that total risk. If any lot lacks a readable initial stop, or its stop
+is on the wrong side of entry, R is None ("R unknown"); another lot's stop is never substituted. A
+single-lot position gives the same R as before. One path: `summarize_closed_position` sets
+`ClosedPosition.r_multiple`; the conviction ledger scorer and trade review both read it.
+
+Open positions: unrealised R = unrealised P&L on the shares still held / the same per-lot risk sum scaled
+by held qty / total entry qty. A partial sell therefore leaves R at the same price unchanged. Closed
+positions use the full-lot sum, because realised P&L covers every share sold.

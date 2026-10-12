@@ -430,6 +430,41 @@ class ClosedPosition:
     qty: float
     opened_at: str
     closed_at: str
+    #: Sum over entry lots of lot qty x |lot fill price - that lot's own initial
+    #: stop|. None ("R unknown") if any lot has no readable or a wrong-side stop.
+    entry_risk_dollars: float | None = None
+    #: Realised R = P&L / entry_risk_dollars. The ONLY R callers may use.
+    r_multiple: float | None = None
+
+
+def entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
+    """Per-lot risk summed over every entry lot, each against its OWN frozen
+    initial stop. None if any lot's stop is missing or on the wrong side."""
+    side = 1.0 if direction == "long" else -1.0
+    total = 0.0
+    for row in opens:
+        qty, price = _executed_qty(row), _executed_price(row)
+        if qty <= 0:
+            continue
+        stop = recorded_initial_stop(row)
+        per_share = side * (price - stop)
+        if price <= 0 or stop <= 0 or per_share <= 0:
+            return None
+        total += qty * per_share
+    return total if total > 0 else None
+
+
+def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: float) -> float | None:
+    """Risk on the shares still HELD: the full per-lot sum scaled pro rata by
+    held qty / total entry qty, so a partial sell leaves average risk per share
+    (and therefore unrealised R) unchanged. None if any lot has no usable stop.
+    Closed positions use the full sum (`entry_risk_dollars`) instead."""
+    full = entry_risk_dollars(opens, direction)
+    entered = sum(_executed_qty(r) for r in opens)
+    held = abs(_finite(held_qty) or 0.0)
+    if full is None or entered <= 0 or held <= 0:
+        return None
+    return full * min(1.0, held / entered)
 
 
 def _executed_qty(row: dict) -> float:
@@ -508,6 +543,14 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
         TRAIL_STOP is protection sitting there, not an exit — the same
         distinction `_is_filled_trail_stop` already draws).
 
+    R RULE (scale-ins): a position's risk is the sum over its entry lots of
+    (lot filled qty x |lot fill price - that lot's own initial stop|), and
+    R = realised P&L / that total risk (`entry_risk_dollars`, `r_multiple`).
+    If ANY lot lacks a readable initial stop, or its stop is on the wrong side
+    of entry, R is None ("R unknown"); another lot's stop is never substituted.
+    A single-lot position gives the same R as `r_multiple()`. `initial_stop`
+    (first lot's) is informational only and must not be used to compute R.
+
     A chain with no `stop_loss` on any entry row IS returned, with
     `initial_stop=None`; the caller skips it rather than inventing a
     denominator, and the distinction is worth preserving for the caller's
@@ -542,6 +585,10 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
             initial_stop = stop
             break
 
+    signed_qty = open_qty if direction == "long" else -open_qty
+    risk = entry_risk_dollars(opens, direction)
+    r_value = round((exit_price - entry_price) * signed_qty / risk, 2) if risk else None
+
     decision_id = next(
         (row.get("decision_id") for row in opens if row.get("decision_id")),
         None,
@@ -561,6 +608,8 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
         qty=open_qty if direction == "long" else -open_qty,
         opened_at=str(opens[0].get("timestamp") or ""),
         closed_at=str(exits[-1].get("timestamp") or ""),
+        entry_risk_dollars=risk,
+        r_multiple=r_value,
     )
 
 
