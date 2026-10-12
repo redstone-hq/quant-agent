@@ -16,6 +16,7 @@ from src.cost_circuit.refusal import (
     any_payment_refusal,
 )
 from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.cost_circuit.free_route import admit_free_route_locked
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,16 @@ class Settlement:
                 run_id=reservation.run_id,
                 mode=reservation.mode,
             )
-            if int(state.get("suspended") or 0):
+            if int(state.get("suspended") or 0) and not admit_free_route_locked(
+                conn,
+                day=day,
+                run_id=reservation.run_id,
+                mode=reservation.mode,
+                agent_name=reservation.agent_name,
+                model=model,
+                boundary="before_provider_attempt",
+                log=False,
+            ):
                 conn.commit()
                 self._notify_if_needed()
                 raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)
@@ -123,7 +133,16 @@ class Settlement:
                 run_id=reservation.run_id,
                 mode=reservation.mode,
             )
-            if int(state.get("suspended") or 0):
+            if int(state.get("suspended") or 0) and not admit_free_route_locked(
+                conn,
+                day=day,
+                run_id=reservation.run_id,
+                mode=reservation.mode,
+                agent_name=reservation.agent_name,
+                model=model,
+                boundary="before_provider_attempt",
+                log=False,
+            ):
                 conn.commit()
                 self._notify_if_needed()
                 raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)

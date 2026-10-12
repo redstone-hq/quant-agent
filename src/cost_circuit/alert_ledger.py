@@ -358,7 +358,8 @@ class UnavailableLLMCostCircuit:
         self._alert()
         return self._state()
 
-    def require_paid_analysis(self, agent_name: str = "analysis") -> None:
+    def require_paid_analysis(self, agent_name: str = "analysis", model: str | None = None) -> None:
+        # Unavailable ledger refuses everything, $0 routes included.
         self._alert()
         state = self._state()
         raise PaidAnalysisSuspended(self._trigger(), state)

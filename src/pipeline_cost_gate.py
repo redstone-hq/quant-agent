@@ -23,6 +23,7 @@ import logging
 
 from src.agents.base import BaseAgent
 from src.cost_circuit import PaidAnalysisSuspended, UnavailableLLMCostCircuit
+from src.cost_circuit.free_route import is_free_route
 
 #: The moved code logged under `src.pipeline` before the move and still does;
 #: binding the name rather than `__name__` keeps log records byte-identical.
@@ -61,6 +62,25 @@ def _activate_cost_session(self, run_id: str, mode: str) -> None:
             circuit.activate_session(run_id, mode)
 
 
+def _primary_model_for(self, agent_name: str) -> str | None:
+    """The primary model of the agent a preflight label names, or None.
+
+    Labels are the agent attribute (`tech_analyst`) or a mode-prefixed form of
+    it (`intraday_tech_analyst`). Unresolvable labels return None, which the
+    circuit treats as paid -- fail closed.
+    """
+
+    candidates = [agent_name]
+    if "_" in agent_name:
+        candidates.append(agent_name.split("_", 1)[1])
+    for attr in candidates:
+        agent = getattr(self, attr, None)
+        if isinstance(agent, BaseAgent):
+            model = getattr(agent, "model", None)
+            return model if isinstance(model, str) and model else None
+    return None
+
+
 def _require_paid_analysis(self, agent_name: str) -> None:
     circuit = getattr(self, "cost_circuit", None)
     if circuit is None:
@@ -70,8 +90,13 @@ def _require_paid_analysis(self, agent_name: str) -> None:
             "mandatory paid-analysis cost circuit is not initialized",
             {"available": False, "suspended": True},
         )
+    model = _primary_model_for(self, agent_name)
     try:
-        circuit.require_paid_analysis(agent_name)
+        if model is not None and is_free_route(model):
+            # A $0 primary route may run under a money-cap-only suspension.
+            circuit.require_paid_analysis(agent_name, model=model)
+        else:
+            circuit.require_paid_analysis(agent_name)
     except PaidAnalysisSuspended:
         raise
     except Exception as exc:
