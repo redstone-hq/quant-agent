@@ -18,7 +18,7 @@ MISSING = "AI credit: could not read"
 def rig(monkeypatch, tmp_path):
     """A real notifier with the wire stubbed; the alert state file is in tmp."""
     monkeypatch.chdir(tmp_path)  # the alert state path is relative
-    monkeypatch.setattr("src.notifier.send_funnel.APPEND_CREDIT_LINE", True)
+    monkeypatch.setattr("src.notifier.credit_line.APPEND_CREDIT_LINE", True)
     monkeypatch.delenv("TELEGRAM_DISABLED", raising=False)
     monkeypatch.setattr(delivery.time, "sleep", lambda s: None)
     wire = []

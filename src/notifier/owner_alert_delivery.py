@@ -15,6 +15,7 @@ from typing import Callable
 
 from src.notifier.base import logger
 from src.notifier.category import was_suppressed
+from src.notifier.credit_line import with_credit
 
 from src import infra_retry_policy as _retry
 
@@ -92,8 +93,6 @@ def _with_credit_line(notifier, text: str, send_kwargs: dict) -> str:
     gets the "AI credit" line here, once, before any retry."""
     if getattr(getattr(notifier, "send", None), "_is_delivery_funnel", None) is not True:
         return text
-    from src.notifier.send_funnel import with_credit
-
     return with_credit(notifier, text, **send_kwargs)
 
 
