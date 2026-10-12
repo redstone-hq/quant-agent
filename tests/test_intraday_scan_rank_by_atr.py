@@ -1,5 +1,6 @@
-"""The intraday scan ranks movers by move / own ATR, has no name cap and no
-flat move trigger, and stops only when the paid-analysis budget refuses.
+"""The intraday scan ranks movers by move / own ATR, has no flat move
+trigger, and sends ONE paid batch per check: the strongest-ranked five
+(owner ruling 2026-10-12). The paid-analysis budget is a backstop.
 
 ATR is expressed as a percent of the prior close (prev=100 here, so an ATR
 of 8.0 is an 8%/day name). Every name is outside its cooldown unless a test
@@ -13,7 +14,14 @@ from src.cost_circuit import PaidAnalysisSuspended
 from src.pipeline_context import RunContext
 from tests.test_intraday_scan import _intraday_pipeline, _snapshot
 
-_DROP_REASONS = {"no_atr", "budget_refused", "cooling_down", "over_name_cap", "below_move_threshold"}
+_DROP_REASONS = {
+    "no_atr",
+    "budget_refused",
+    "cooling_down",
+    "over_name_cap",
+    "below_move_threshold",
+    "not_sent_weaker_rank",
+}
 
 
 def _scan(moves: dict, atrs: dict, *, require_paid=None):
@@ -31,7 +39,11 @@ def _scan(moves: dict, atrs: dict, *, require_paid=None):
         patch("src.pipeline_intraday.compute_indicators", return_value=MagicMock()),
         patch("src.pipeline_candidate_records._persist_evidence", side_effect=lambda db, **kw: events.append(kw)),
     ):
-        p._run_intraday_opportunity_scan(RunContext.start("intra_check"))
+        try:
+            p._run_intraday_opportunity_scan(RunContext.start("intra_check"))
+        except PaidAnalysisSuspended:
+            # Nothing sent: the suspension is the scan's outcome, as before.
+            pass
     calls = [[d["symbol"] for d in c.args[0]] for c in p.tech_analyst.analyze_batch.call_args_list]
     submitted = [s for batch in calls for s in batch]
     dropped = {}
@@ -58,33 +70,31 @@ def test_low_move_high_relative_name_is_sent_and_outranks_big_mover():
     assert "QUIET" not in dropped
 
 
-def test_no_cap_at_five():
+def test_one_paid_batch_per_check_strongest_first():
+    # Was test_no_cap_at_five (pinned the loop of batches until the cap).
+    # Owner ruling 2026-10-12: later batches are weaker moves; send one.
     moves = {f"S{i}": 1.0 + i for i in range(8)}
     atrs = {s: 2.0 for s in moves}
     submitted, dropped = _scan(moves, atrs)
-    assert len(submitted) == 8
-    # Sent in consecutive paid calls of at most five names, in rank order.
-    assert [len(batch) for batch in _scan.last_calls] == [5, 3]
-    assert not any(ev["reason"] == "over_name_cap" for ev in dropped.values())
+    assert [len(batch) for batch in _scan.last_calls] == [5]
+    assert submitted == ["S7", "S6", "S5", "S4", "S3"]
+    for rank, sym in ((6, "S2"), (7, "S1"), (8, "S0")):
+        assert dropped[sym]["reason"] == "not_sent_weaker_rank" and dropped[sym]["rank"] == rank
 
 
-def test_budget_refusal_ends_sending_in_rank_order():
-    """The spent-money cap is re-checked before every paid call; once it
-    refuses, the rest are recorded budget_refused with their rank."""
-    calls = {"n": 0}
+def test_budget_refusal_before_the_one_call_records_every_mover():
+    """Was test_budget_refusal_ends_sending_in_rank_order (pinned a refusal
+    before a SECOND call). The cap stays as a backstop before the one call:
+    a refusal sends nothing and records every mover budget_refused by rank."""
 
     def require_paid(agent_name):
-        calls["n"] += 1
-        # 1: before call one, 2: the seat's own check inside call one,
-        # 3: before call two -- the cap refuses here.
-        if calls["n"] == 3:
-            raise PaidAnalysisSuspended("daily cost limit reached", {"suspended": True})
+        raise PaidAnalysisSuspended("daily cost limit reached", {"suspended": True})
 
     moves = {f"S{i}": 1.0 for i in range(7)}
     atrs = {f"S{i}": 1.0 / (i + 1) for i in range(7)}  # S0 lowest multiple ... S6 highest
     submitted, dropped = _scan(moves, atrs, require_paid=require_paid)
-    assert submitted == ["S6", "S5", "S4", "S3", "S2"]
-    assert dropped["S1"]["reason"] == "budget_refused" and dropped["S1"]["rank"] == 6
+    assert submitted == []
+    assert dropped["S6"]["reason"] == "budget_refused" and dropped["S6"]["rank"] == 1
     assert dropped["S0"]["reason"] == "budget_refused" and dropped["S0"]["rank"] == 7
 
 

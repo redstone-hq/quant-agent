@@ -23,7 +23,7 @@ def record_dropped_name(owner, ctx, symbol: str, reason: str, **details) -> None
     """One durable pipeline event per name the scan drops, once per run and reason.
 
     stage=opportunity, outcome=dropped, reason cooling_down | no_atr |
-    budget_refused. Never raises: the scan must not fail on its
+    budget_refused | not_sent_weaker_rank. Never raises: the scan must not fail on its
     own bookkeeping. Deliberately NOT an intraday_evaluations row, because
     any row there starts the cooldown for the name.
     """
@@ -232,9 +232,8 @@ class IntradayCandidates:
                 record_dropped_name(self, ctx, symbol, "no_atr", move_pct=move_pct)
                 continue
             ranked.append((symbol, move_pct, move_atr))
-        # Largest move-in-own-ATR first. No cap and no move threshold: the
-        # paid-analysis budget (llm_cost_circuit) is the only stop, applied
-        # by the scan body in this order.
+        # Largest move-in-own-ATR first. No move threshold: the scan body
+        # sends only the strongest-ranked batch (owner ruling 2026-10-12).
         ranked.sort(key=lambda t: -t[2])
         candidates = [(symbol, move_pct) for symbol, move_pct, _ in ranked]
         return candidates, snapshots
