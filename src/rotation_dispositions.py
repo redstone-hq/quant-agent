@@ -59,14 +59,56 @@ def disposition_payload(
     }
 
 
+def holdings_outcome_payload(precheck, closed: set[str], ctx) -> dict[str, str]:
+    """Pure: one outcome per holding the entry-bar pass examined this run.
+
+    `sale_proposed` (closed this run), `below_bar_kept` (below the bar and
+    not closed; the `dispositions` row and the name's own `skipped` row say
+    why), `not_judged_seat_failed:<seats>` (below the bar only on the
+    evidence sum while a seat feeding it failed), `meets_bar` otherwise.
+    Run-scoped (symbols in the payload) for the same reason as the
+    `precheck` row: a symbol-scoped event reads as "considered as a new idea".
+    """
+    from src.pipeline_rotation_exec import (
+        below_bar_only_on_incomplete_evidence,
+        failed_evidence_seats,
+    )
+
+    examined = tuple(getattr(precheck, "held_examined", ()) or ())
+    if not examined:
+        return {}
+    reasons_by = dict(_walk_order(precheck))
+    below = {str(s).upper() for s in (getattr(precheck, "held_below_entry_bar", ()) or ())}
+    failed = failed_evidence_seats(ctx)
+    parts = []
+    for sym in examined:
+        sym = str(sym).upper()
+        if sym in closed:
+            outcome = "sale_proposed"
+        elif sym in below and below_bar_only_on_incomplete_evidence(reasons_by.get(sym, ()), failed):
+            outcome = "not_judged_seat_failed:" + "+".join(failed)
+        elif sym in below:
+            outcome = "below_bar_kept"
+        else:
+            outcome = "meets_bar"
+        parts.append(f"{sym}={outcome}")
+    return {"held_outcomes": "|".join(parts)}
+
+
 def apply_rotation_recording_dispositions(
     pipeline,
     ctx,
     portfolio_decision,
     positions,
     position_history,
+    *,
+    pm_status: str = "answered",
 ) -> None:
     """Run the rotation acting path, then record why each below-bar name stayed.
+
+    Also records, every run, one outcome per examined holding
+    (`holdings_outcome_payload`), with `pm_status` saying whether the PM
+    answered, was deliberately skipped, or failed.
 
     Never raises on the bookkeeping side: a failed record must not take a
     live session with it.
@@ -110,6 +152,17 @@ def apply_rotation_recording_dispositions(
                 "below_bar_names",
                 **payload,
             )
+        outcomes = holdings_outcome_payload(precheck, closed, ctx)
+        if outcomes:
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                None,
+                "rotation",
+                "holdings_checked",
+                pm_status,
+                **outcomes,
+            )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Rotation dispositions record failed: %s", exc)
 
@@ -134,7 +187,7 @@ _NONE_AS_EMPTY = {
 _NO_PM_REASONING = "not decided: no portfolio-manager answer this run; below-entry-bar sale only"
 
 
-def below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs: dict):
+def below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs: dict, *, pm_status: str = "failed"):
     """The below-entry-bar sale as its own step, with no paid PM call.
 
     Owner rulings 2026-10-01 (a holding that fails the desk's own fresh-entry
@@ -194,6 +247,21 @@ def below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs: dict):
         return None
     opportunity = precheck.opportunity
     if opportunity is None or opportunity.tier != "ineligible_hold":
+        # Nothing to sell: still one outcome per holding, every check.
+        try:
+            outcomes = holdings_outcome_payload(precheck, set(), ctx)
+            if outcomes:
+                _record_pipeline_event(
+                    pipeline,
+                    ctx,
+                    None,
+                    "rotation",
+                    "holdings_checked",
+                    pm_status,
+                    **outcomes,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Holdings outcome record failed: %s", exc)
         return None
     return PortfolioDecision(
         reasoning_chain=ReasoningChain(

@@ -367,17 +367,26 @@ class DecisionStage:
             real_reward_risk_by_symbol=real_reward_risk_by_symbol,
             constructor_refusals_by_symbol=constructor_refusals_by_symbol,
         )
-        portfolio_decision, pm_result = pipeline.portfolio_manager.decide(
-            **pm_decide_kwargs,
-        )
-        # Board item 164: read NOW — the candidate-accounting re-ask below
-        # calls decide() again, which resets this list.
-        _pm_dropped = getattr(pipeline.portfolio_manager, "last_dropped_targets", None)
-        pm_dropped_targets = list(_pm_dropped) if isinstance(_pm_dropped, list) else []
-        _pm_blocked = getattr(pipeline.portfolio_manager, "last_blocked", None)
-        pm_blocked = dict(_pm_blocked) if isinstance(_pm_blocked, dict) else {}
-        _pm_ranked = getattr(pipeline.portfolio_manager, "last_candidate_ranking", None)
-        pm_ranked = list(_pm_ranked) if isinstance(_pm_ranked, list) else []
+        # A caller that deliberately runs WITHOUT the PM (an intraday check
+        # with no movers: only the below-entry-bar sale is due) names why on
+        # the context. The PM is then not called at all, and the run is
+        # recorded as a deliberate skip, never as a PM failure.
+        pm_skip_reason = getattr(ctx, "pm_skip_reason", None) or None
+        if pm_skip_reason:
+            portfolio_decision, pm_result = None, None
+            pm_dropped_targets, pm_blocked, pm_ranked = [], {}, []
+        else:
+            portfolio_decision, pm_result = pipeline.portfolio_manager.decide(
+                **pm_decide_kwargs,
+            )
+            # Board item 164: read NOW — the candidate-accounting re-ask below
+            # calls decide() again, which resets this list.
+            _pm_dropped = getattr(pipeline.portfolio_manager, "last_dropped_targets", None)
+            pm_dropped_targets = list(_pm_dropped) if isinstance(_pm_dropped, list) else []
+            _pm_blocked = getattr(pipeline.portfolio_manager, "last_blocked", None)
+            pm_blocked = dict(_pm_blocked) if isinstance(_pm_blocked, dict) else {}
+            _pm_ranked = getattr(pipeline.portfolio_manager, "last_candidate_ranking", None)
+            pm_ranked = list(_pm_ranked) if isinstance(_pm_ranked, list) else []
         # Board item 78: same "read NOW" reason — the accounting re-ask
         # resets the heal record too. One durable row per name, whether the
         # heal worked or not.
@@ -447,7 +456,7 @@ class DecisionStage:
         # to ExecutionStage regardless of whether this call ultimately
         # produced a valid decision — a failed/unparseable PM call still
         # carries no trades, so an unused decision_model is harmless.
-        ctx.decision_model = pm_result.model
+        ctx.decision_model = pm_result.model if pm_result is not None else None
         # Conviction ledger (spec §9.5): the nomination rows this run wrote
         # during MorningResearchStage carry decision_id NULL because the id
         # did not exist yet. Join them now — before the PM-failure early
@@ -474,36 +483,46 @@ class DecisionStage:
         _journal_refused_candidates(pipeline, ctx, pm_blocked)
         _journal_ranked_candidates(pipeline, ctx, pm_ranked)
 
-        pm_log_kwargs = agent_log_kwargs(pm_result)
-        if portfolio_decision is None:
-            ctx.analysis_failure_status = pm_result.semantic_status or "pm_agent_failure"
-            ctx.analysis_failure_error = pm_result.semantic_error or "no valid PM decision"
-        pipeline.db.insert_agent_log(
-            **seat_acceptance_kwargs(
-                "no_valid_grounded_decision" if not portfolio_decision else None,
-                result=pm_result,
-            ),
-            agent_name="portfolio_manager",
-            run_id=run_id,
-            input_summary=f"{len(analyses)} analyses, ${total_value:.0f} total",
-            input_message=pm_result.user_message,
-            output_summary=(
-                portfolio_decision.portfolio_view
-                if portfolio_decision
-                else f"{ctx.analysis_failure_status}: {ctx.analysis_failure_error}"
-            ),
-            full_response=pm_result.raw_text,
-            model=pm_result.model,
-            tokens_used=pm_result.tokens_used,
-            input_tokens=pm_result.input_tokens,
-            output_tokens=pm_result.output_tokens,
-            cost_usd=pm_result.cost_usd,
-            decision_id=decision_id,
-            **pm_log_kwargs,
-        )
+        if pm_result is not None:
+            pm_log_kwargs = agent_log_kwargs(pm_result)
+            if portfolio_decision is None:
+                ctx.analysis_failure_status = pm_result.semantic_status or "pm_agent_failure"
+                ctx.analysis_failure_error = pm_result.semantic_error or "no valid PM decision"
+            pipeline.db.insert_agent_log(
+                **seat_acceptance_kwargs(
+                    "no_valid_grounded_decision" if not portfolio_decision else None,
+                    result=pm_result,
+                ),
+                agent_name="portfolio_manager",
+                run_id=run_id,
+                input_summary=f"{len(analyses)} analyses, ${total_value:.0f} total",
+                input_message=pm_result.user_message,
+                output_summary=(
+                    portfolio_decision.portfolio_view
+                    if portfolio_decision
+                    else f"{ctx.analysis_failure_status}: {ctx.analysis_failure_error}"
+                ),
+                full_response=pm_result.raw_text,
+                model=pm_result.model,
+                tokens_used=pm_result.tokens_used,
+                input_tokens=pm_result.input_tokens,
+                output_tokens=pm_result.output_tokens,
+                cost_usd=pm_result.cost_usd,
+                decision_id=decision_id,
+                **pm_log_kwargs,
+            )
 
         pm_answered = bool(portfolio_decision)
-        if not portfolio_decision:
+        if pm_skip_reason:
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                None,
+                "portfolio_manager",
+                "skipped",
+                str(pm_skip_reason),
+            )
+        elif not portfolio_decision:
             _record_pipeline_event(
                 pipeline,
                 ctx,
@@ -521,10 +540,16 @@ class DecisionStage:
                 decision_id=decision_id,
                 evidence_json=('{"failure":"no_valid_grounded_decision","stage":"portfolio_manager","decision":null}'),
             )
+        if not portfolio_decision:
             # Owner rulings 2026-10-01 / 2026-10-12: the below-entry-bar sale
             # is its own step and does not wait on the PM. With no PM answer
             # it still runs, through the same sell path and every guard.
-            portfolio_decision = below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs)
+            portfolio_decision = below_bar_sale_without_pm(
+                pipeline,
+                ctx,
+                pm_decide_kwargs,
+                pm_status=(f"skipped:{pm_skip_reason}" if pm_skip_reason else "failed"),
+            )
             if portfolio_decision is None:
                 ctx.portfolio_decision = None
                 return ctx
@@ -761,6 +786,7 @@ class DecisionStage:
             portfolio_decision,
             positions,
             position_history,
+            pm_status=("answered" if pm_answered else f"skipped:{pm_skip_reason}" if pm_skip_reason else "failed"),
         )
         if not pm_answered and not portfolio_decision.targets:
             # The PM-free step proposed no sale (every below-bar name was

@@ -86,6 +86,59 @@ def _rotation_ranked_margin_enabled(pipeline) -> bool:
     return getattr(execution_cfg, "rotation_ranked_margin_enabled", None) is True
 
 
+#: A research seat whose reading THIS run is missing because it failed
+#: (provider outage, unparseable answer, a carry-forward that could not be
+#: read). Statuses that mean "read, nothing to say" or "deliberately not
+#: re-read" are not failures and are not listed.
+_SEAT_FAILED_STATUSES = frozenset(
+    {
+        "failed",
+        "provider_error",
+        "parse_error",
+        "partial",
+        "truncated",
+        "field_unreadable",
+        "symbol_dropped",
+        "market_wide_blind",
+        "carry_forward_failed",
+    }
+)
+
+#: The one entry-bar reason that is a SUM over seat evidence (R5, net
+#: independent source score). A seat that failed contributes nothing to that
+#: sum, so a failure can push a sound holding to "net <= 0". R2 (neutral
+#: technical), R3 (not BUY-eligible), R6 (constructor refusal) and R7 (a seat
+#: actively opposed) are each a positive reading that a missing seat cannot
+#: manufacture.
+_NET_EVIDENCE_REASON_PREFIX = "R5 "
+
+
+def failed_evidence_seats(ctx) -> tuple[str, ...]:
+    """The non-technical seats that FAILED this run, sorted.
+
+    Technical is per name, not run-wide: a holding whose own technical read
+    failed has no analysis and is never judged against the entry bar at all.
+    """
+    status = getattr(ctx, "data_status", None) or {}
+    if not isinstance(status, dict):
+        return ()
+    return tuple(
+        sorted(
+            str(seat) for seat, value in status.items() if str(seat) != "tech" and str(value) in _SEAT_FAILED_STATUSES
+        )
+    )
+
+
+def below_bar_only_on_incomplete_evidence(reasons, failed_seats: tuple[str, ...]) -> bool:
+    """Unknown is not fail: True when the ONLY grounds a holding fails the
+    entry bar on is the evidence sum, and a seat that feeds that sum failed
+    this run. Such a holding is not judged below the bar this run."""
+    if not failed_seats:
+        return False
+    texts = [str(r) for r in (reasons or ())]
+    return bool(texts) and all(t.startswith(_NET_EVIDENCE_REASON_PREFIX) for t in texts)
+
+
 def _rotation_skip(pipeline, ctx, opportunity, reason: str, **details) -> None:
     """One durable `rotation` / `skipped` audit row. Every refusal to act
     lands here so the evening review can see WHY a surfaced comparison did
@@ -324,6 +377,17 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
                 cand_opp,
                 "held_symbol_is_not_a_long_position",
                 qty=getattr(held_pos, "qty", None),
+            )
+            return None
+        failed_seats = failed_evidence_seats(ctx)
+        if cand_opp.tier == "ineligible_hold" and below_bar_only_on_incomplete_evidence(cand_opp.reasons, failed_seats):
+            _rotation_skip(
+                pipeline,
+                ctx,
+                cand_opp,
+                "evidence_incomplete_seat_failed",
+                failed_seats=",".join(failed_seats),
+                held_reasons=list(cand_opp.reasons),
             )
             return None
         if any(t.symbol.upper() == cand_symbol for t in targets):

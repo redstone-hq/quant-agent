@@ -248,11 +248,12 @@ class IntradayScanBody:
                 return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
             candidates, snapshots = self._intraday_scan_mover_candidates(ctx)
 
-        if not snapshots:
-            return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
-
-        if not candidates:
-            return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
+        if not snapshots or not candidates:
+            # Owner rulings 2026-10-01 ("multiple times a day") and
+            # 2026-10-12: with no movers there is no new idea to price, but
+            # every held name is still re-read and the below-entry-bar sale
+            # still runs - with NO portfolio-manager call.
+            return self._intraday_scan_call(ctx, [], snapshots or {}, include_holds=True)
 
         # Largest move in the name's own ATR first, sent in consecutive paid
         # calls of at most `_NAMES_PER_PAID_CALL` names. The spent-money cap
@@ -296,6 +297,8 @@ class IntradayScanBody:
         """
         cfg = self.config.intraday_scan
         symbols = [s for s, _ in candidates]
+        # No movers: a held-book check only (below-entry-bar sale, no PM).
+        held_only = not symbols
         logger.info(
             "Intraday scan: %d symbol(s) ranked by move/ATR, outside the %.1fh cooldown, within budget: %s",
             len(symbols),
@@ -328,7 +331,7 @@ class IntradayScanBody:
                 move_pct=move_by_symbol[symbol],
             )
         symbols = ledgered_symbols
-        if not symbols:
+        if not symbols and not held_only:
             return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
 
         # Produce Technical for quiet holds on the same paid call. Discovery
@@ -340,6 +343,8 @@ class IntradayScanBody:
             if include_holds
             else []
         )
+        if held_only and not held_for_tech:
+            return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
         if held_for_tech:
             logger.info(
                 "Intraday scan: producing Technical for %d held name(s) the mover list did not cover: %s",
@@ -607,7 +612,15 @@ class IntradayScanBody:
             gate_skip["candidates"] = symbols
             return gate_skip
 
+        if held_only:
+            ctx.pm_skip_reason = "intraday_no_movers"
         self.decision_stage.run(ctx)
+        if not ctx.portfolio_decision and held_only:
+            return {
+                "status": "intraday_scan_no_opportunity",
+                "held_book_checked": True,
+                "run_id": ctx.run_id,
+            }
         if not ctx.portfolio_decision:
             logger.error(
                 "Intraday scan: PM failed (%s): %s",

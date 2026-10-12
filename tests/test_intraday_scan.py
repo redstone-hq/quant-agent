@@ -465,21 +465,24 @@ def test_held_quiet_name_joins_intraday_tech_batch(mock_compute_indicators):
 
 
 @patch("src.pipeline_intraday.compute_indicators")
-def test_quiet_book_without_movers_does_not_pay_tech_just_for_holds(
+def test_quiet_book_without_movers_reads_holds_and_skips_the_pm(
     mock_compute_indicators,
 ):
-    """Holds do not themselves trigger a paid scan. No movers → no Tech call.
-    Midday/close review still owns the quiet book."""
+    """Owner rulings 2026-10-01 / 2026-10-12 (reverses the old "no movers ->
+    no Tech" pin): every intraday check re-reads the held names so the
+    below-entry-bar sale can run, and with no movers the PM is deliberately
+    skipped (named on the context, never a PM failure)."""
     mock_compute_indicators.return_value = MagicMock()
     p = _intraday_pipeline(universe=["MSFT"], atr={})
     p.broker.get_intraday_snapshots.return_value = {
         "MSFT": _snapshot(last=100.2, prev=100.0),  # no ATR — not rankable
     }
+    p.tech_analyst.analyze_batch.return_value = ({}, None)
     ctx = RunContext.start("intra_check")
     ctx.positions = [_held_position("MSFT")]
-    result = p._run_intraday_opportunity_scan(ctx)
-    assert result == {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
-    p.tech_analyst.analyze_batch.assert_not_called()
+    p._run_intraday_opportunity_scan(ctx)
+    submitted = [s["symbol"] for s in p.tech_analyst.analyze_batch.call_args.args[0]]
+    assert submitted == ["MSFT"]
 
 
 @patch("src.pipeline_intraday.compute_indicators")

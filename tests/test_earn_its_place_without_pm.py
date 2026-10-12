@@ -195,3 +195,134 @@ def test_switched_off_rotation_keeps_todays_no_decision_behaviour():
     assert ctx.rotation is None
     assert ctx.portfolio_decision is None
     assert pipeline.portfolio_manager.build_user_message.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Unknown is not fail: a seat outage must not fake a below-bar reading
+# ---------------------------------------------------------------------------
+
+R5_ONLY = ("R5 net evidence +0 if long — no rung",)
+
+
+def _r5_only_precheck() -> RotationPrecheck:
+    return RotationPrecheck(
+        opportunity=RotationOpportunity(
+            new_symbol=None,
+            new_score=None,
+            held_symbol="OLD",
+            held_score=None,
+            tier="ineligible_hold",
+            reasons=R5_ONLY,
+            ineligible_candidates=(("OLD", R5_ONLY),),
+        ),
+        headroom_pct=5.0,
+        ceiling_pct=25.0,
+        floor_pct=0.5,
+        held_below_entry_bar=("OLD",),
+        held_examined=("OLD", "KEEP"),
+    )
+
+
+def _run_recorded(pipeline, data_status=None, pm_skip_reason=None):
+    ctx = RunContext.start("intra_check")
+    ctx.data_status = dict(data_status or {})
+    if pm_skip_reason:
+        ctx.pm_skip_reason = pm_skip_reason
+    ctx.positions = [_pos("OLD"), _pos("KEEP")]
+    ctx.analyses = []
+    ctx.macro_analysis = None
+    ctx.total_value = 100_000.0
+    ctx.last_equity = 100_000.0
+    ctx.cash = 50_000.0
+    ctx.deployable_cash = 50_000.0
+    ctx.admitted_symbols = set()
+    events: list[tuple] = []
+
+    def _rec(_pipeline, _ctx, symbol, stage, outcome, reason, **details):
+        events.append((symbol, stage, outcome, reason, details))
+
+    with (
+        patch("src.pipeline_stages._persist_evidence", MagicMock()),
+        patch("src.pipeline_stages._record_pipeline_event", _rec),
+    ):
+        try:
+            DecisionStage(pipeline=pipeline).run(ctx)
+        except Exception:  # noqa: BLE001
+            pass
+    return ctx, events
+
+
+def test_a_failed_supporting_seat_does_not_sell_on_net_evidence_alone():
+    pipeline = _pipeline(_r5_only_precheck())
+    ctx, events = _run_recorded(pipeline, {"tech": "ok", "news": "failed", "macro": "ok"})
+    assert ctx.rotation is None, "a net-evidence reading with a failed seat is unknown, not a fail"
+    skips = [e for e in events if e[1] == "rotation" and e[2] == "skipped"]
+    assert [(s[0], s[3]) for s in skips] == [("OLD", "evidence_incomplete_seat_failed")]
+    assert skips[0][4]["failed_seats"] == "news"
+    checked = [e for e in events if e[1] == "rotation" and e[2] == "holdings_checked"]
+    assert checked and "OLD=not_judged_seat_failed:news" in checked[0][4]["held_outcomes"]
+
+
+def test_net_evidence_below_bar_still_sells_when_every_seat_read():
+    pipeline = _pipeline(_r5_only_precheck())
+    ctx, _ = _run_recorded(pipeline, {"tech": "ok", "news": "ok", "macro": "ok"})
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+
+
+def test_an_active_opposition_still_sells_through_a_seat_failure():
+    pipeline = _pipeline(_below_bar_precheck())  # R7: a seat actively opposed
+    ctx, _ = _run_recorded(pipeline, {"news": "failed"})
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+
+
+# ---------------------------------------------------------------------------
+# Deliberate PM skip: no PM call, recorded as a skip, the sale still runs
+# ---------------------------------------------------------------------------
+
+
+def test_a_deliberate_pm_skip_sells_without_calling_the_pm_and_says_skipped():
+    pipeline = _pipeline(_below_bar_precheck())
+    ctx, events = _run_recorded(pipeline, pm_skip_reason="intraday_no_movers")
+    assert pipeline.portfolio_manager.decide.call_count == 0
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+    pm_rows = [(e[2], e[3]) for e in events if e[1] == "portfolio_manager"]
+    assert pm_rows == [("skipped", "intraday_no_movers")]
+    checked = [e for e in events if e[1] == "rotation" and e[2] == "holdings_checked"]
+    assert checked[0][3] == "skipped:intraday_no_movers"
+    assert checked[0][4]["held_outcomes"] == "OLD=sale_proposed|KEEP=meets_bar"
+
+
+# ---------------------------------------------------------------------------
+# Intraday: a check with zero movers still re-reads holds and can sell
+# ---------------------------------------------------------------------------
+
+
+@patch("src.pipeline_intraday.compute_indicators")
+def test_an_intraday_check_with_zero_movers_still_sells_a_below_bar_holding(mock_ci):
+    from tests.test_intraday_scan import _held_position, _intraday_pipeline, _ta_result
+
+    mock_ci.return_value = MagicMock()
+    p = _intraday_pipeline(universe=["OLD"], atr={})
+    p.broker.get_intraday_snapshots.return_value = {}  # no movers at all
+    p.tech_analyst.analyze_batch.return_value = (
+        {"OLD": _ta_result("OLD", rating="neutral")},
+        MagicMock(
+            user_message="m", raw_text="{}", tokens_used=1, input_tokens=1, output_tokens=1, cost_usd=0.0, model="t"
+        ),
+    )
+    seen = {}
+
+    def _decide(ctx):
+        seen["pm_skip_reason"] = getattr(ctx, "pm_skip_reason", None)
+        ctx.portfolio_decision = SimpleNamespace(decisions=[SimpleNamespace(action="SELL", symbol="OLD")])
+
+    p.decision_stage.run.side_effect = _decide
+    p.risk_stage.run.return_value = None
+    p.execution_stage.run.return_value = [{"id": "o1", "action": "SELL", "symbol": "OLD"}]
+    ctx = RunContext.start("intra_check")
+    ctx.positions = [_held_position("OLD")]
+    result = p._run_intraday_opportunity_scan(ctx)
+    assert [s["symbol"] for s in p.tech_analyst.analyze_batch.call_args.args[0]] == ["OLD"]
+    assert seen["pm_skip_reason"] == "intraday_no_movers"
+    assert result["status"] == "intraday_executed"
+    p.risk_stage.run.assert_called_once_with(ctx)
