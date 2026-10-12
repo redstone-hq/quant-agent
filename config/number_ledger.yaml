@@ -7534,7 +7534,7 @@ numbers:
     status: not-trade-governing
     site: src/risk/metrics.py
     note: >-
-      Unit default for a quantity (src/risk/metrics.py::r_multiple); every caller
+      Unit default for a quantity (src/quantities.py::r_multiple); every caller
       passes the real quantity.
   - id: src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)
     narrowed: >-

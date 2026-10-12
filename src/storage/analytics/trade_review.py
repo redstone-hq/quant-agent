@@ -26,26 +26,34 @@ from src.util.time import ET
 
 CAVEAT = "small samples and lopsided results make this unreliable"
 
-#: (label, upper bound inclusive) — a trade falls in the first bucket whose bound is >= its R.
-R_BUCKETS: tuple[tuple[str, float], ...] = (
-    ("<= -2R", -2.0),
-    ("-2R to -1R", -1.0),
-    ("-1R to 0R", 0.0),
-    ("0R to 1R", 1.0),
-    ("1R to 2R", 2.0),
-    ("2R to 3R", 3.0),
-    ("> 3R", math.inf),
-)
 
-#: Hold-length slices: (label, upper bound in seconds, exclusive).
-HOLD_BUCKETS: tuple[tuple[str, float], ...] = (
-    ("under 1 hour", 3600.0),
-    ("1 hour to 1 day", 86400.0),
-    ("1 to 3 days", 3 * 86400.0),
-    ("3 days or more", math.inf),
-)
+def _r_buckets() -> tuple[tuple[str, float], ...]:
+    """Histogram layout: (label, upper bound inclusive); a trade falls in the first bucket whose bound >= its R.
 
-LAST_N = 20
+    Display layout only (it governs no trade), so it is a function-local literal, not a module-level constant.
+    """
+    return (
+        ("<= -2R", -2.0),
+        ("-2R to -1R", -1.0),
+        ("-1R to 0R", 0.0),
+        ("0R to 1R", 1.0),
+        ("1R to 2R", 2.0),
+        ("2R to 3R", 3.0),
+        ("> 3R", math.inf),
+    )
+
+
+def _hold_buckets() -> tuple[tuple[str, float], ...]:
+    """Hold-length slices: (label, upper bound in seconds, exclusive). Display layout only."""
+    hour, day = 3600.0, 86400.0
+    return (("under 1 hour", hour), ("1 hour to 1 day", day), ("1 to 3 days", 3 * day), ("3 days or more", math.inf))
+
+
+def _recent(trades: list[dict]) -> list[dict]:
+    """The last 20 closed trades, newest first (a display length)."""
+    return trades[-20:][::-1]
+
+
 _OPEN_ACTIONS = ("BUY", "SHORT")
 
 
@@ -166,13 +174,14 @@ def window_stats(trades: list[dict]) -> dict:
 
 
 def r_histogram(trades: list[dict]) -> list[dict]:
-    counts = [0] * len(R_BUCKETS)
+    buckets = _r_buckets()
+    counts = [0] * len(buckets)
     for t in trades:
         if t["r"] is None:
             continue
-        idx = next(i for i, (_, hi) in enumerate(R_BUCKETS) if t["r"] <= hi)
+        idx = next(i for i, (_, hi) in enumerate(buckets) if t["r"] <= hi)
         counts[idx] += 1
-    return [{"label": label, "count": c} for (label, _), c in zip(R_BUCKETS, counts, strict=True)]
+    return [{"label": label, "count": c} for (label, _), c in zip(buckets, counts, strict=True)]
 
 
 def _slice_stats(trades: list[dict]) -> dict:
@@ -199,7 +208,7 @@ def _entry_bucket(opened_at: str) -> str:
 def _hold_bucket(seconds: float | None) -> str:
     if seconds is None:
         return "unknown"
-    return next(label for label, hi in HOLD_BUCKETS if seconds < hi)
+    return next(label for label, hi in _hold_buckets() if seconds < hi)
 
 
 def _group(trades: list[dict], key_fn, order: list[str] | None = None) -> list[dict]:
@@ -214,7 +223,7 @@ def slices(trades: list[dict]) -> dict:
     return {
         "by_side": _group(trades, lambda t: t["side"], ["long", "short"]),
         "by_entry_time_et": _group(trades, lambda t: _entry_bucket(t["opened_at"])),
-        "by_hold": _group(trades, lambda t: _hold_bucket(t["hold_seconds"]), [b for b, _ in HOLD_BUCKETS]),
+        "by_hold": _group(trades, lambda t: _hold_bucket(t["hold_seconds"]), [b for b, _ in _hold_buckets()]),
     }
 
 
@@ -337,7 +346,7 @@ def build_trade_review(rows: list[dict], now: datetime | None = None) -> dict:
             "losses": today_stats["losses"],
             "win_rate_pct": today_stats["win_rate_pct"],
         },
-        "last_trades": trades[-LAST_N:][::-1],
+        "last_trades": _recent(trades),
         "r_histogram": r_histogram(trades),
         "windows": {"today": today_stats, "week": window_stats(this_week), "all": window_stats(trades)},
         "slices": slices(trades),

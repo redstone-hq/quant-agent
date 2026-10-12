@@ -153,8 +153,6 @@ def _holding_is_short(broker: Any, symbol: str) -> bool | None:
     return None
 
 
-
-
 def write_back_stop_loss(
     db: Any,
     symbol: str,

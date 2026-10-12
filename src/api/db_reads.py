@@ -1673,8 +1673,7 @@ def get_open_entry_rows(symbols: list[str]) -> list[dict]:
         conn = _connect()
         marks = ",".join("?" for _ in symbols)
         rows = conn.execute(
-            f"SELECT * FROM trades WHERE action IN ('BUY', 'SHORT') AND symbol IN ({marks}) "
-            "ORDER BY timestamp, id",
+            f"SELECT * FROM trades WHERE action IN ('BUY', 'SHORT') AND symbol IN ({marks}) ORDER BY timestamp, id",
             [s.upper() for s in symbols],
         ).fetchall()
         return [dict(r) for r in rows]

@@ -151,8 +151,20 @@ def test_trade_review_endpoint_and_trades_r_column(tmp_path, monkeypatch):
         db.conn.execute(
             "INSERT INTO trades (symbol, action, qty, price, fill_qty, fill_price, fill_status, stop_loss, "
             "initial_stop_loss, timestamp, position_id, realized_pnl) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (r["symbol"], r["action"], r["qty"], r["price"], r["fill_qty"], r["fill_price"], "filled",
-             r["stop_loss"], r["stop_loss"], r["timestamp"], r["position_id"], r["realized_pnl"]),
+            (
+                r["symbol"],
+                r["action"],
+                r["qty"],
+                r["price"],
+                r["fill_qty"],
+                r["fill_price"],
+                "filled",
+                r["stop_loss"],
+                r["stop_loss"],
+                r["timestamp"],
+                r["position_id"],
+                r["realized_pnl"],
+            ),
         )
     db.conn.commit()
     import src.api.db_reads as db_reads

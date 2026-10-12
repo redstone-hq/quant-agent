@@ -109,8 +109,6 @@ def unrealized_pnl_pct(position) -> float | None:
     return pnl / cost * 100
 
 
-
-
 @dataclass(frozen=True)
 class PositionRisk:
     """One position's contribution to the book's risk."""

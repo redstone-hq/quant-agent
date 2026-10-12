@@ -292,7 +292,7 @@ def test_short_and_long_credits_aggregate_into_one_undifferentiated_record():
 
 
 def test_r_multiple_itself_makes_a_winning_short_positive():
-    """Read, not assumed: `src/risk/metrics.py::r_multiple` takes the SIDE
+    """Read, not assumed: `src/quantities.py::r_multiple` takes the SIDE
     from a signed qty, so the ledger never has to negate anything."""
     from src.quantities import r_multiple as _r
 

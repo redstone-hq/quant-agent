@@ -294,8 +294,6 @@ class SeatRecord:
         return round(self.calls_right / self.resolved_calls * 100, 2)
 
 
-
-
 def score_position(
     *,
     symbol: str,
@@ -447,11 +445,3 @@ def _confidence_record(conviction: str, rows: list[SeatCredit]) -> ConfidenceRec
         avg_loss=round(sum(losses) / len(losses), 4) if losses else None,
         cumulative_credit=round(sum(c.credit for c in rows), 4),
     )
-
-
-
-
-
-
-
-
