@@ -952,7 +952,10 @@ def test_the_prompt_names_the_constraint_that_is_actually_binding():
     )
     assert "Capital is constrained" in result
     assert "$92.20 still deployable for new entries" in result
-    assert "below the $5,000.00 position that, at the best candidate's own stop, carries the owner's minimum risk" in result
+    assert (
+        "below the $5,000.00 position that, at the best candidate's own stop, carries the owner's minimum risk"
+        in result
+    )
     assert "real room exists" not in result
 
 

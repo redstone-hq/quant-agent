@@ -5,11 +5,12 @@ the floor the desk does not trade. The floor's value is the setting
 `risk.min_position_risk_pct` (`PortfolioConstructorConfig.min_risk_pct` in
 the constructor); nothing here hard-codes it.
 
-Reading of the rule (kept deliberately, owner rule 2026-08-27): the WHOLE
-position after the order — held same-side size plus this order — must risk
-at least the floor at its stop, not the order alone. An add that leaves the
-position above the floor passes; a remnant whose whole position is under it
-is refused.
+Reading of the rule (owner ruling 2026-10-12, "we also must filter out small
+trade churn"): the WHOLE position after the order — held same-side size plus
+this order — must risk at least the floor at its stop, not the order alone.
+An add that leaves the position above the floor passes; a remnant whose whole
+position is under it is refused. Per the same ruling an order is never sized
+UP to reach the floor: below it, the order is refused.
 
 Before this module the rule was computed three ways (constructor by weight,
 execution by shares x stop distance, rotation by flat notional against

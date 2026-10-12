@@ -768,7 +768,7 @@ class PortfolioConstructor:
         kept: list[TradeDecision] = []
         for decision in orders:
             plan = risk_plan.get(decision.symbol)
-            if decision.action not in ("BUY", "SHORT") or (plan is not None and plan.sized_from_live_stop):
+            if decision.action not in ("BUY", "SHORT"):
                 kept.append(decision)
                 continue
             # The order's own entry and stop; the plan's only when the order
@@ -784,9 +784,10 @@ class PortfolioConstructor:
             rounding_pct = 0.0
             if isinstance(entry, (int, float)) and isinstance(stop, (int, float)) and entry > 0:
                 rounding_pct = 0.005 / gross * abs(entry - stop) / entry
-            # Owner rule 2026-08-27, read as the WHOLE position after the
-            # order (held same-side weight + this order) at least the floor;
-            # weights are percent of book, so equity is 100.
+            # The 0.5% floor is owner rule 2026-08-27; judging it on the WHOLE
+            # position after the order (held same-side weight + this order),
+            # and refusing rather than sizing up, is owner ruling 2026-10-12.
+            # Weights are percent of book, so equity is 100.
             check = min_risk_shortfall(
                 position_notional=(held_same + float(decision.allocation_pct)) / gross,
                 entry=entry,
