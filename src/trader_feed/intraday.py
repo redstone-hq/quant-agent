@@ -12,6 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from src.intraday.buying_room import no_room_sentence
 from src.intraday_scan_outcome import scan_failure_banner
 from src.notifier import (
     _actionable_coverage_gaps,
@@ -92,6 +93,9 @@ def _format_intraday(outer: dict, nested: dict, elapsed: float) -> str:
     lines = [f"⚡ INTRADAY OPPORTUNITY · {fmt_time_12h(et_now())} · {outcome}"]
 
     def _render_status_banner(lines: list[str]) -> None:
+        if nested.get("pm_call_skipped"):
+            # Owner ruling 2026-10-12: a deliberate skip, never a PM failure.
+            lines.append(f"🔵 {no_room_sentence(nested)}")
         if status == "paid_analysis_suspended":
             lines.append(
                 "🛑 SUSPENDED: paid opportunity discovery is suspended by the "
@@ -465,6 +469,8 @@ def _movers_scanned_text(nested: dict | None) -> str:
         return "disabled"
     if status == "intraday_scan_lock_contended":
         return "skipped (lock contended)"
+    if nested.get("pm_call_skipped"):
+        return f"ran this tick. {no_room_sentence(nested)}"
     return "ran this tick"
 
 

@@ -54,6 +54,9 @@ class BuyingRoom:
     limit: str
     ladder_backed: bool
     floor_pct: float
+    #: the §11.2 gross ceiling as a multiple of equity; None when unresolved
+    #: (the headroom is then settled cash)
+    ceiling_x: float | None = None
     #: one row per mover considered: symbol, direction, min_notional_usd (None = no stop)
     candidates: list[dict] = field(default_factory=list)
 
@@ -66,6 +69,7 @@ class BuyingRoom:
             "pm_call_skipped": NO_BUYING_ROOM,
             "limit": self.limit,
             "headroom_usd": round(self.headroom_usd, 2),
+            "gross_ceiling_x": self.ceiling_x if self.ladder_backed else None,
             "min_position_risk_pct": self.floor_pct,
             "candidates_considered": [
                 {k: row[k] for k in ("symbol", "direction", "min_notional_usd")} for row in self.candidates
@@ -75,6 +79,7 @@ class BuyingRoom:
 
 def assess_buying_room(pipeline, ctx, analyses, mover_symbols) -> BuyingRoom:
     """Headroom and, per mover, the smallest position that clears the floor."""
+    from src.pipeline_gross_ceiling import _session_gross_ceiling
     from src.pipeline_sizing import _entry_deployment_budget, _min_position_risk_pct
     from src.pipeline_stage_helpers import _macro_regime
 
@@ -119,4 +124,23 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols) -> BuyingRoom:
                 "fits": fits,
             }
         )
-    return BuyingRoom(headroom, note, bool(ladder_backed), floor, rows)
+    ceiling = _session_gross_ceiling(pipeline, ctx)
+    ceiling_x = _num(getattr(ceiling, "ceiling_x", None)) if ceiling is not None else None
+    return BuyingRoom(headroom, note, bool(ladder_backed), floor, ceiling_x, rows)
+
+
+def no_room_sentence(record: dict) -> str:
+    """The owner's plain sentence for a check whose paid PM call was skipped."""
+    headroom = record.get("headroom_usd")
+    head = f"${headroom:,.0f}" if isinstance(headroom, (int, float)) else "unknown"
+    ceiling = record.get("gross_ceiling_x")
+    where = f"under the {ceiling:g}x limit" if isinstance(ceiling, (int, float)) else "of settled cash"
+    needs = [
+        c["min_notional_usd"]
+        for c in record.get("candidates_considered") or []
+        if isinstance(c.get("min_notional_usd"), (int, float))
+    ]
+    tail = f"; the smallest needed ${min(needs):,.0f}" if needs and min(needs) > 0 else ""
+    if not needs and record.get("candidates_considered"):
+        tail = "; no mover had a readable stop"
+    return f"No paid buy check: no room to open even a minimum-size trade (headroom {head} {where}{tail})."

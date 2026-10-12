@@ -157,3 +157,35 @@ def test_the_real_decision_stage_sells_below_bar_without_the_pm_on_a_no_room_ski
     assert pipeline.portfolio_manager.decide.call_count == 0
     assert [(e[2], e[3]) for e in events if e[1] == "portfolio_manager"] == [("skipped", NO_BUYING_ROOM)]
     assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+
+
+_SKIP_RECORD = {
+    "status": NO_BUYING_ROOM,
+    "pm_call_skipped": NO_BUYING_ROOM,
+    "headroom_usd": 0.0,
+    "gross_ceiling_x": 2.0,
+    "candidates_considered": [{"symbol": "M00", "direction": "long", "min_notional_usd": 1000.0}],
+    "run_id": "intra_check-full",
+}
+
+
+def test_the_skip_sentence_says_why_in_plain_words():
+    from src.intraday.buying_room import no_room_sentence
+
+    assert no_room_sentence(_SKIP_RECORD) == (
+        "No paid buy check: no room to open even a minimum-size trade "
+        "(headroom $0 under the 2x limit; the smallest needed $1,000)."
+    )
+
+
+def test_the_hourly_telegram_summary_carries_the_skip_sentence(tmp_path, monkeypatch):
+    from src import trader_feed
+    from tests.test_trader_feed import _TOP_OF_HOUR_TIME, _make_db, _pin_clock
+
+    _make_db(tmp_path, monkeypatch)
+    _pin_clock(monkeypatch, _TOP_OF_HOUR_TIME)
+    outer = {"status": "ok", "run_id": "intra_check-full", "daily_pnl": 1.0, "intraday_scan": dict(_SKIP_RECORD)}
+    msg = trader_feed.format_session_result("intra_check", outer, 4.0)
+    assert msg is not None
+    assert "No paid buy check: no room to open even a minimum-size trade (headroom $0 under the 2x limit" in msg
+    assert "FAILED" not in msg
