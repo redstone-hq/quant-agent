@@ -26,12 +26,12 @@ class ReviewBlocked:
     ) -> None:
         self.db = db
 
-    def _record_cut_bite(self, *, run_id, unfilled, repeats, max_lines) -> None:
-        """Record what the two count cuts here removed, for THIS session.
+    def _record_cut_bite(self, *, run_id, unfilled, repeats) -> None:
+        """Record what the count cut here removed, for THIS session.
 
         `min_proposals` cuts the never-filled symbols down to the repeat
-        offenders; `max_lines` cuts those down to the ones the prompt prints.
-        Both edges are counted here, where the cut happens. The seat's verdict
+        offenders; every offender is printed. The edge is counted here, where
+        the cut happens. The seat's verdict
         is NOT guessed here -- it is formed later in this same session and is
         joined to this row by `run_id` when the observation is read back.
         """
@@ -39,7 +39,7 @@ class ReviewBlocked:
 
         from src.storage.analytics.cut_bite import record_cut_bite
 
-        shown = repeats[:max_lines]
+        shown = repeats
         oldest_age: float | None = None
         stamps = [ts for _, rows in shown for ts, _ in rows if ts]
         if stamps:
@@ -54,7 +54,6 @@ class ReviewBlocked:
             site=CUT_SITE,
             cuts={
                 "min_proposals": {"before": len(unfilled), "survived": len(repeats)},
-                "max_lines": {"before": len(repeats), "survived": len(shown)},
             },
             oldest_surviving_age_days=oldest_age,
         )
@@ -63,7 +62,6 @@ class ReviewBlocked:
         self,
         lookback_days: int = 21,
         min_proposals: int = 3,
-        max_lines: int = 5,
         run_id: str | None = None,
     ) -> str:
         """PM memory: names it keeps asking for and never gets, and why.
@@ -337,7 +335,6 @@ class ReviewBlocked:
             run_id=run_id,
             unfilled=unfilled,
             repeats=repeats,
-            max_lines=max_lines,
         )
         if not repeats:
             lines.append(
@@ -347,7 +344,7 @@ class ReviewBlocked:
             return "\n".join(lines)
 
         lines.append(f"Repeat blocked names ({min_proposals}+ proposals, 0 fills):")
-        for sym, rows in repeats[:max_lines]:
+        for sym, rows in repeats:
             rows = sorted(rows, key=lambda r: r[0], reverse=True)  # newest first
             sessions = len({ts[:10] for ts, _ in rows if ts})
             recent = ", ".join(str(reason) for _, reason in rows[:3])

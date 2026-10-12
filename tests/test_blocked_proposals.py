@@ -291,17 +291,6 @@ def test_window_excludes_proposals_older_than_lookback(tmp_path):
     assert "- STALE: proposed 3×" in wide
 
 
-def test_max_lines_caps_the_section(tmp_path):
-    """A section the model skims is worse than no section."""
-    pipeline, db = _pipeline(tmp_path)
-    for sym in ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG"):
-        for i, day in enumerate((5, 4, 3)):
-            _target(db, f"r-{sym}-{i}", f"d-{sym}-{i}", sym, days_ago=day)
-
-    out = pipeline._build_blocked_proposals(max_lines=5)
-    assert len([ln for ln in out.split("\n") if ln.startswith("- ")]) == 5
-
-
 # --- the reasons --------------------------------------------------------
 
 

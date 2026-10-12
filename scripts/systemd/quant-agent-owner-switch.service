@@ -1,0 +1,31 @@
+[Unit]
+Description=QAMC owner switch: records Stop / Freeze / Start from the owner's phone (no trading)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/qamc/quant-agent
+# OWNER_SWITCH_OWNER_LOGIN and OWNER_SWITCH_ORIGIN come from .env (never the repo,
+# which is public). See docs/OWNER_SWITCH.md.
+EnvironmentFile=/home/qamc/quant-agent/.env
+Environment=OWNER_SWITCH_PORT=8801
+ExecStart=/home/qamc/quant-agent/.venv/bin/python -m src.owner_switch
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# NO owner Stop gate (ExecCondition=) on purpose: Start is pressed through this
+# unit, so a Stopped desk could never be started again if it were gated.
+# tests/test_owner_stop_timers.py names it as an exemption.
+
+# The owner token is the file ~/credentials/owner_switch_token, mode 0600,
+# owned by the service user (the code's default path; nothing about it is set
+# here). Not LoadCredential=: that is reserved for the broker-key units
+# (tests/test_credentials.py). The service refuses to start if the file is
+# missing, short, or readable by group/others; exit status 2 (refused config)
+# is not restarted in a loop.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

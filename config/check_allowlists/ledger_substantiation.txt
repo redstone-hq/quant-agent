@@ -28,8 +28,6 @@ src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_thesis_health_contex
 src.prompt_facts.pm_facts._PM_PROFILE_SYMBOL_CAP	src/pipeline.py@`RiskVerdict,`	dead
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(lookback_days)	src/stage_decision.py::DecisionStage.run	no_mention
-src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(max_lines)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
-src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(max_lines)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(min_proposals)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(min_proposals)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.review.calibration.ReviewCalibration._build_calibration_note(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention

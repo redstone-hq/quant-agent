@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner switch</title>
+<link rel="stylesheet" href="/switch.css">
+<script src="/switch.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Owner switch</h1>
+  <label for="token">Owner token (kept in this page only; reload forgets it)</label>
+  <input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div id="choose">
+    <button data-action="stop" class="stop">Stop<small>desk fully off; positions and broker stops kept</small></button>
+    <button data-action="freeze" class="freeze">Freeze<small>no new buys; exits keep working</small></button>
+    <button data-action="start" class="start">Start<small>clears Stop and Freeze</small></button>
+  </div>
+  <div id="confirm" hidden>
+    <p id="question"></p>
+    <button id="yes">Yes, record it</button>
+    <button id="no">Cancel</button>
+  </div>
+  <p id="result" role="status"></p>
+</main>
+</body>
+</html>

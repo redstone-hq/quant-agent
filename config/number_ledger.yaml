@@ -715,7 +715,10 @@ numbers:
     value: 40
     engine_ab_2026_10_05: >-
       ENGINE A/B ATTEMPTED 2026-10-05, NO SETTLEMENT, for the same structural reason as max_portfolio_risk_pct: a cluster share can only bind on a day the risk budget binds, and src/backtest/engine.py calls any run with a contested budget day a NON-RESULT (measured 2026-10-05, scripts/backtest.py, eight names over calendar 2025 on public daily bars: 128 contested days of 212 entry days). A run small enough to avoid contention is too small for the cluster cap to bind. No value changed; the built realised-risk-budget recording stays the route.
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-09-25'
+    ruling_summary: "Owner ruled on 2026-09-25 that no group of related stocks may hold more than 40% of total risk, which is 10% of the account at the 25% total-risk ceiling."
+    ruling_record: docs/OUTCOME.md, section 'Risk envelope (owner-ratified 2026-08-27)'
     site: src/config/__init__.py
     note: >-
       The share of total risk one correlation cluster may hold, owner-ratified
@@ -739,42 +742,6 @@ numbers:
       max_portfolio_risk_pct: the cluster cap only bites on a binding-budget day, and the engine
       resolves those by alphabetical ticker tie-break rather than a quality ranking, so a
       measured delta on max_cluster_risk_share_pct would not be attributable to the cap.
-    open_question: >-
-      NOT AN OWNER QUESTION ANY MORE. Under the owner's 2026-09-30 ruling the
-      appetite question previously routed here ("what share of the risk budget
-      may one correlated cluster take") is WITHDRAWN, not pending. ITEM 186
-      PASS 2026-10-01, and BOTH derivation attempts failed. (1) THE ALGEBRA
-      CANCELS, and this is the attempt that looked per-name and was not: 40%
-      of the 25% book ceiling is 10% of equity, which at the ratified 5%
-      per-trade envelope is exactly TWO full-size positions. The cluster share
-      is therefore not an independent risk quantity at all — it is "two names
-      per theme" written as a percentage — so deriving it reduces to picking
-      a name count, the same circularity that killed the book ceiling. (2) NO
-      RECORDING: cluster membership is recomputed every session from live
-      correlations and discarded, and the production database holds no cluster
-      table (verified 2026-10-01, 24 tables, none of them clusters), so there
-      is no series of realised per-cluster risk shares to measure crowding
-      against.
-    cost_while_unanswered: >-
-      Either correlated names consume more than one bet's budget, or genuinely
-      separate ideas are refused as if they were the same bet.
-    settles_by:
-      kind: recording
-      state: built
-      writes:
-      - realised_risk_budget.committed_pct
-      - realised_risk_budget.cluster_shares_json
-      - realised_risk_budget.held_only_pct
-      - realised_risk_budget.allocator_ran
-      where: docs/board_notes/ (item 186, the 2026-10-01 pass)
-      records: >-
-        each session's cluster membership as the correlation-distance tree cut
-        it, with every cluster's share of the book's total at-risk and the
-        session date
-      closes_when: >-
-        a run of sessions shows what share one cluster actually reaches, so
-        the cap is set against observed crowding rather than against an
-        implied two-names-per-theme count nobody chose
   - id: src.config.RiskConfig.max_gross_exposure_x
     note: 'DERIVED 2026-10-02 (fix #4, first slice), and the derivation is that NO CHOICE WAS MADE:
       2.0x is not an appetite this desk set, it is the maximum gross an overnight margin account is
@@ -1190,7 +1157,10 @@ numbers:
       structure is ignored and every stop is widened to the unbacked floor.
   - id: src.config.RiskConfig.min_position_risk_pct
     value: 0.5
-    status: derived
+    status: owner-ruled
+    ruled_on: '2026-08-27'
+    ruling_summary: "Owner ruled on 2026-08-27 that 0.5% of equity at risk is the minimum per trade; below it the desk does not trade."
+    ruling_record: docs/OUTCOME.md, section 'Risk envelope (owner-ratified 2026-08-27)'
     site: src/config/__init__.py
     derived_from: src.risk.constants.STARTER_POSITION_RISK_PCT
     base_value: 0.5
@@ -6923,37 +6893,6 @@ numbers:
     settles_by:
       kind: "recording"
       state: "specified"
-      where: "docs/board_notes/item-090.md (item 90, the 2026-10-01 pipeline tranche)"
-      records: >-
-        every build of this prompt block, with the count of candidate rows available BEFORE this cut, the count that
-        survived it, the age of the oldest surviving row and the seat's verdict, so the bite of the cut is a recorded
-        series instead of an assumption nobody can inspect
-      closes_when: >-
-        a run of sessions shows the surviving-row count beyond which the seat's verdict stops changing; the window or
-        cap is then set at that point, read off the recording, instead of at a round number. Never set from which
-        window would have traded best
-  - id: src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(max_lines)
-    value: 5
-    status: arbitrary
-    site: src/prompt_facts/review/blocked.py
-    note: >-
-      Maximum blocked names shown to the PM in that memory
-      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::DecisionStage.run) passes nothing, so this
-      default is live. Same class as the smart-money prompt-truncation caps
-      classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
-    open_question: >-
-      How much history does this memory need before its signal is
-      distinguishable from noise, and how much before older rows stop changing
-      the seat's decision -- measured on the recorded decision rows?
-    cost_while_unanswered: >-
-      The seat's feedback memory is cut at a round number: too short and it
-      cannot see a repeating pattern, too long and stale rows steer today's
-      decision.
-    settles_by:
-      kind: "recording"
-      state: "built"
-      writes: ["reconciliation_runs.detail"]
       where: "docs/board_notes/item-090.md (item 90, the 2026-10-01 pipeline tranche)"
       records: >-
         every build of this prompt block, with the count of candidate rows available BEFORE this cut, the count that

@@ -85,6 +85,7 @@ EXCLUDED_IMPORTS = {
     "import urllib.error\n": "urllib.error",
     "from urllib.parse import urlsplit\n": "urllib.parse",
     "import urllib.parse\n": "urllib.parse",
+    "from http.server import ThreadingHTTPServer\n": "http.server",
     "from alpaca.trading.requests import GetOrdersRequest\n": "alpaca.trading.requests",
     "from alpaca.trading.enums import OrderSide\n": "alpaca.trading.enums",
 }
@@ -102,6 +103,7 @@ def test_the_exclusion_list_is_exactly_these_names():
     assert set(replay_outbound_guard.NOT_CLIENT_SUBMODULES) == {
         "urllib.error",
         "urllib.parse",
+        "http.server",
         "alpaca.trading.requests",
         "alpaca.trading.enums",
     }
@@ -147,3 +149,9 @@ def test_a_new_outbound_import_in_a_cleared_file_is_refused(monkeypatch):
     monkeypatch.setattr(replay_outbound_guard, "working_sites", lambda: grown)
     bad = replay_outbound_guard.violations()
     assert len(bad) == 1 and path in bad[0] and "alpaca" in bad[0], bad
+
+
+def test_http_client_is_still_a_client_after_the_http_server_exclusion():
+    """The listener exclusion is by submodule: an outbound http.client import still bites."""
+    assert replay_outbound_guard.scan_text("import http.client\n") == {"http"}
+    assert replay_outbound_guard.scan_text("from http.client import HTTPSConnection\n") == {"http"}

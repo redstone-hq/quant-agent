@@ -31,6 +31,7 @@ EXEMPT = {
     # The owner's panel API: Start is pressed through it, so a Stopped desk
     # could never be started again if it were gated.
     "quant-agent-api.service": "the owner presses Start through it",
+    "quant-agent-owner-switch.service": "the owner's phone records Start through it",
 }
 
 

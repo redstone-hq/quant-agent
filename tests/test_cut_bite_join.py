@@ -49,8 +49,7 @@ def _funnel():
     """Four never-filled symbols proposed 3,3,2,1 times, plus one that filled.
 
     At min_proposals=3 the repeat list is AAA and BBB, so that cut's edge is
-    4 -> 2. At max_lines=1 the printed list is one name, so that cut's edge is
-    2 -> 1. Both are read off this fixture by hand, not off the code.
+    4 -> 2. It is read off this fixture by hand, not off the code.
     """
     evidence = []
     for sym, times in (("AAA", 3), ("BBB", 3), ("CCC", 2), ("DDD", 1), ("EEE", 1)):
@@ -75,7 +74,6 @@ def test_cut_site_record_is_durably_written_and_read_back():
     ReviewBlocked(db=db)._build_blocked_proposals(
         lookback_days=365,
         min_proposals=3,
-        max_lines=1,
         run_id="RUN-1",
     )
     # Read the raw table, not the helper, so the helper cannot pass by
@@ -89,7 +87,6 @@ def test_cut_site_record_is_durably_written_and_read_back():
     seen = read_cut_bite(db=db, site=CUT_SITE)
     assert len(seen) == 1
     assert seen[0]["cuts"]["min_proposals"] == {"before": 4, "survived": 2}
-    assert seen[0]["cuts"]["max_lines"] == {"before": 2, "survived": 1}
     assert seen[0]["oldest_surviving_age_days"] is not None
 
 
@@ -100,7 +97,6 @@ def test_a_run_with_no_verdict_yields_no_observation():
     ReviewBlocked(db=db)._build_blocked_proposals(
         lookback_days=365,
         min_proposals=3,
-        max_lines=1,
         run_id="RUN-1",
     )
     assert read_cut_bite(db=db, site=CUT_SITE)[0]["complete"] is False
@@ -113,7 +109,6 @@ def test_the_verdict_joins_on_run_id_and_only_on_its_own_run():
     ReviewBlocked(db=db)._build_blocked_proposals(
         lookback_days=365,
         min_proposals=3,
-        max_lines=1,
         run_id="RUN-1",
     )
     # A verdict belonging to a DIFFERENT session must not complete this one.
@@ -133,7 +128,6 @@ def test_the_verdict_joins_on_run_id_and_only_on_its_own_run():
     assert len(done) == 1
     assert done[0]["verdict"] == "BUY AAA"
     assert done[0]["cuts"]["min_proposals"] == {"before": 4, "survived": 2}
-    assert done[0]["cuts"]["max_lines"] == {"before": 2, "survived": 1}
     assert done[0]["oldest_surviving_age_days"] is not None
 
 
@@ -142,13 +136,11 @@ def test_recording_does_not_change_the_prompt_text():
     with_run = ReviewBlocked(db=_Db(_conn(), _funnel()))._build_blocked_proposals(
         lookback_days=365,
         min_proposals=3,
-        max_lines=1,
         run_id="RUN-1",
     )
     without = ReviewBlocked(db=_Db(_conn(), _funnel()))._build_blocked_proposals(
         lookback_days=365,
         min_proposals=3,
-        max_lines=1,
     )
     assert with_run == without
     assert "AAA" in with_run
