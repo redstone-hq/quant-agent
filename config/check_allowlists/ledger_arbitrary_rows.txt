@@ -37,9 +37,7 @@ src.config.ExecutionConfig.max_entry_slippage_bps
 src.config.IntradayScanConfig.cooldown_hours
 src.config.NominationConfig.max_per_seat_per_run
 src.config.NominationConfig.max_total_per_run
-src.config.RiskConfig.absolute_min_stop_atr_multiple
 src.config.RiskConfig.max_target_horizon_sessions
-src.config.RiskConfig.max_target_reach_atr_multiple
 src.config.RiskConfig.min_level_touches_for_stop_honor
 src.config.RiskConfig.target_divergence_warn_pct
 src.config.SmartMoneyConfig.cluster_window_days
@@ -80,7 +78,6 @@ src.exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)
 src.models.analysis.RATING_MAGNITUDE['buy']
 src.models.analysis.RATING_MAGNITUDE['strong_buy']
 src.pipeline_intraday._NAMES_PER_PAID_CALL
-src.pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]
 src.portfolio_constructor.config.ConstructorConfig.structural_stop_buffer_pct
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)
 src.prompt_facts.decisions.PromptDecisions._build_pm_recent_decisions(limit)
@@ -97,7 +94,6 @@ src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)
 src.risk.constants.REWARD_RISK_FLOOR
 src.risk.constants.STARTER_POSITION_RISK_PCT
-src.risk.exit_guard.BREAK_CONFIRMATION_ATR_MULTIPLE
 src.risk.exit_guard_deltas._NOISE_FLOOR['distance_to_stop_pct']
 src.risk.exit_guard_deltas._NOISE_FLOOR['pace']
 src.risk.exit_guard_deltas._NOISE_FLOOR['r_multiple']
@@ -110,11 +106,7 @@ src.risk.gross_ladder.GROSS_LADDER[2][0]
 src.risk.gross_ladder.GROSS_LADDER[2][1]
 src.risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS
 src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)
-src.risk.trailing.NOISE_BAND_ATR_MULTIPLE
 src.risk.trailing.PIVOT_WINDOW
-src.risk.trailing.RANGE_BREAKEVEN_R_MULTIPLE
-src.risk.trailing.RANGE_SECOND_RATCHET_LOCK_R
-src.risk.trailing.RANGE_SECOND_RATCHET_TRIGGER_R
 src.rotation.evaluate_rotation(margin_pct)
 src.rotation.evaluate_rotation_opportunity(margin_pct)
 src.rotation_parts.types.ROTATION_MARGIN_PCT
