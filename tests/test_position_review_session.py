@@ -1,7 +1,10 @@
-"""Boundary witness: PositionReviewSession runs with no pipeline behind it.
+"""Boundary witness: PositionReviewSession runs from stubs alone.
 
 Every collaborator is an explicit constructor argument, so the session can be
-built from stubs alone. These tests exercise the two earliest return paths.
+built from stubs alone. `pipeline` is one of them (the §11.2 ladder resolver's
+owner); a MagicMock carries a callable `_resolve_gross_ceiling`, so the
+construction-time check passes. These tests exercise the two earliest return
+paths.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ def _build(**overrides) -> PositionReviewSession:
     return PositionReviewSession(**kwargs)
 
 
-def test_constructible_without_a_pipeline_and_skips_on_holiday():
+def test_constructible_from_stubs_and_skips_on_holiday():
     session = _build(is_trading_day=lambda: False)
     result = session.run("midday")
     assert result["status"] == "market_holiday"

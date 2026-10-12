@@ -66,7 +66,21 @@ class PositionReviewSession:
         macro,
         macro_store,
         position_reviewer,
+        pipeline,
     ) -> None:
+        # The §11.2 helpers (`_entry_deployment_budget`, `_session_gross_ceiling`)
+        # read the pipeline's ladder resolver, cash-park symbol, broker and
+        # config. Missing wiring is a BUILD-time error, never a mid-run one:
+        # a raise inside `run` would skip the trails and risk exits that
+        # follow the margin-capacity block. Checked directly on the object,
+        # not via `_collab`, whose stand-in would hide the absence.
+        if not callable(getattr(pipeline, "_resolve_gross_ceiling", None)):
+            raise TypeError(
+                "PositionReviewSession: `pipeline` has no callable "
+                "`_resolve_gross_ceiling` — the reviewer's margin headroom "
+                f"cannot be ladder-backed (got {type(pipeline).__name__})"
+            )
+        self._pipeline = pipeline
         self._activate_cost_session = activate_cost_session
         self._adjudicate_target_revision_flags = adjudicate_target_revision_flags
         self._apply_deterministic_trails = apply_deterministic_trails
@@ -606,13 +620,13 @@ class PositionReviewSession:
             )
 
             margin_headroom_usd, margin_ladder_backed, _margin_headroom_note = _entry_deployment_budget(
-                self,
+                self._pipeline,
                 ctx,
                 review_positions,
                 total_value,
                 review_cash,
             )
-            _margin_ceiling = _session_gross_ceiling(self, ctx)
+            _margin_ceiling = _session_gross_ceiling(self._pipeline, ctx)
             margin_ladder_multiple = _margin_ceiling.ceiling_x if _margin_ceiling is not None else None
             margin_ladder_rung = _margin_ceiling.rung if _margin_ceiling is not None else None
 
