@@ -92,6 +92,25 @@ def _with_credit_line(self, text, line, link_url, link_label, preserve_structura
 APPEND_CREDIT_LINE = True
 
 
+def with_credit(self, text, link_url=None, link_label=None, preserve_structural_markup=False, **_ignored) -> str:
+    """Run the $3 check and return `text` with the "AI credit" line.
+
+    Called once per message by `deliver_with_outcome`, the one function both
+    ordinary sends and owner alerts pass through, before any retry.
+    Owner ruling 2026-10-09: $3 credit alert, checked on every send; it goes
+    out through this same funnel (re-entry is skipped inside the check).
+    Owner ruling 2026-10-12: the same single fetch also gives every message an
+    "AI credit" line.
+    """
+    from src.llm_balance_runway import check_balance_on_send
+
+    credit = _CreditFetch()
+    check_balance_on_send(fetch=credit.fetch, send=lambda message: send(self, message, kind="llm_credit_alert"))
+    if APPEND_CREDIT_LINE and credit.called:
+        return _with_credit_line(self, text, credit.line(), link_url, link_label, preserve_structural_markup)
+    return text
+
+
 def send(
     self,
     text: str,
@@ -110,16 +129,6 @@ def send(
     -- and a False here means every attempt failed AND a durable undelivered
     row was written. Never raises.
     """
-    from src.llm_balance_runway import check_balance_on_send
-
-    # Owner ruling 2026-10-09: $3 credit alert, checked on every send; it goes
-    # out through this same funnel (re-entry is skipped inside the check).
-    # Owner ruling 2026-10-12: the same single fetch also gives every message
-    # an "AI credit" line. It is added once, here, never per delivery attempt.
-    credit = _CreditFetch()
-    check_balance_on_send(fetch=credit.fetch, send=lambda message: send(self, message, kind="llm_credit_alert"))
-    if APPEND_CREDIT_LINE and credit.called:
-        text = _with_credit_line(self, text, credit.line(), link_url, link_label, preserve_structural_markup)
     delivered, suppressed = deliver_with_outcome(
         self,
         text,

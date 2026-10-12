@@ -87,6 +87,16 @@ def _record_undelivered(
         logger.exception("could not record an undelivered owner alert")
 
 
+def _with_credit_line(notifier, text: str, send_kwargs: dict) -> str:
+    """The real Telegram notifier: every message, ordinary or owner alert,
+    gets the "AI credit" line here, once, before any retry."""
+    if getattr(getattr(notifier, "send", None), "_is_delivery_funnel", None) is not True:
+        return text
+    from src.notifier.send_funnel import with_credit
+
+    return with_credit(notifier, text, **send_kwargs)
+
+
 def deliver_with_outcome(
     notifier,
     text: str,
@@ -102,6 +112,7 @@ def deliver_with_outcome(
     """
     attempts = 0
     try:
+        text = _with_credit_line(notifier, text, send_kwargs)
         for attempt in range(max_attempts):
             attempts = attempt + 1
             try:
