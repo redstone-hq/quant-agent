@@ -347,3 +347,15 @@ def _the_suite_is_not_the_production_desk(request, monkeypatch):
     # set both sides themselves.
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_credit_line_on_alerts(monkeypatch):
+    """Tests that are not about credit see the historical payload.
+
+    The public send appends an "AI credit" line (owner ruling 2026-10-12). With
+    no network in tests that line would read "could not read" and break every
+    exact-payload assert. tests/test_credit_on_every_alert.py sets the switch
+    back to True explicitly.
+    """
+    monkeypatch.setattr("src.notifier.send_funnel.APPEND_CREDIT_LINE", False)
