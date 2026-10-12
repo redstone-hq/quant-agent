@@ -454,6 +454,19 @@ def entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
     return total if total > 0 else None
 
 
+def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: float) -> float | None:
+    """Risk on the shares still HELD: the full per-lot sum scaled pro rata by
+    held qty / total entry qty, so a partial sell leaves average risk per share
+    (and therefore unrealised R) unchanged. None if any lot has no usable stop.
+    Closed positions use the full sum (`entry_risk_dollars`) instead."""
+    full = entry_risk_dollars(opens, direction)
+    entered = sum(_executed_qty(r) for r in opens)
+    held = abs(_finite(held_qty) or 0.0)
+    if full is None or entered <= 0 or held <= 0:
+        return None
+    return full * min(1.0, held / entered)
+
+
 def _executed_qty(row: dict) -> float:
     """Shares this row actually moved. Prefers the reconciled fill over the
     requested quantity, mirroring `compute_trade_calibration`."""
