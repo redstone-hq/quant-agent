@@ -226,3 +226,26 @@ def test_pyproject_edits_outside_ruff_tables_are_not_caught(tmp_path):
     _write(repo, "pyproject.toml", _PYPROJECT.replace('name = "x"', 'name = "y"'))
     _commit(repo, "rename", "pyproject.toml")
     assert _problems(repo, base) == []
+
+
+FONT_BYTES = b"wOF2\x00\x01\xa8\xff\x00binary font body \xa8\xfe"
+
+
+def test_binary_deletion_does_not_crash_and_guard_edits_still_fail(tmp_path):
+    # A deleted binary (here a font, as when the dashboard bundle was
+    # untracked) once crashed the gate with UnicodeDecodeError on its
+    # base contents. Binaries cannot be guard files: they are skipped.
+    repo, base = _base(tmp_path)
+    (repo / "src/font.woff2").write_bytes(FONT_BYTES)
+    _commit(repo, "add font", "src/font.woff2")
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    (repo / "src/font.woff2").unlink()
+    _commit(repo, "drop font", "src/font.woff2")
+    assert _problems(repo, base) == []
+    # The same binary deletion alongside an unjustified guard edit still fails.
+    _write(repo, "scripts/size_guard.py", '"""Doc."""\nLIMIT = 600\n')
+    _commit(repo, "loosen", "scripts/size_guard.py")
+    out = _problems(repo, base)
+    assert out and "size_guard.py" in out[0] and "Guard-rule-change:" in out[0]

@@ -578,7 +578,9 @@ def test_diary_mount_survives_missing_directory(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "No diary entries yet" in resp.text
     assert client.get("/board").status_code == 200
-    assert client.get("/cockpit/index.html").status_code == 200
+    # /cockpit/ serves build output that exists only after `npm run build`;
+    # its 200 is asserted by test_cockpit_static_mount_serves_the_built_index,
+    # which the CI `frontend` job runs against a fresh build.
     assert client.get("/ui/index.html").status_code == 200
     assert client.get("/").json()["service"] == "qamc-mission-control-api"
 

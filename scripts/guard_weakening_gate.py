@@ -52,6 +52,7 @@ from __future__ import annotations
 import ast
 import fnmatch
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -178,11 +179,27 @@ def behaviour_unchanged(before: str, after: str) -> bool:
     return a == b
 
 
+def _changed_text_paths(base: str, repo: Path) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """Paths this change touches, minus binaries, plus the git result.
+
+    `--numstat` marks a binary file with "-" counts. A binary (a font, an
+    image) cannot be a guard file and has no text to read, so it is skipped
+    here rather than crashing the read below with a UnicodeDecodeError.
+    """
+    r = dod._git("diff", "--numstat", "--no-renames", f"{base}...HEAD", repo=repo)
+    paths = []
+    for line in r.stdout.split("\n"):
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and parts[0] != "-":
+            paths.append(parts[2])
+    return r, sorted(paths)
+
+
 def unenforced_touched(base: str, repo: Path) -> list[str]:
     """Identity-guards this change edits that the name rule does not cover."""
-    r = dod._git("diff", "--name-only", "--no-renames", f"{base}...HEAD", repo=repo)
+    _, paths = _changed_text_paths(base, repo)
     out = []
-    for path in sorted(p for p in r.stdout.split("\n") if _is_script(p)):
+    for path in (p for p in paths if _is_script(p)):
         f = repo / path
         if not is_guard(path) and f.exists() and behaves_as_guard(f.read_text()):
             out.append(path)
@@ -200,11 +217,11 @@ def problems(
             "than passing (inability to compare is never a pass)"
         ]
     repo = repo or dod.REPO_ROOT
-    r = dod._git("diff", "--name-only", "--no-renames", f"{base}...HEAD", repo=repo)
+    r, paths = _changed_text_paths(base, repo)
     if r.returncode != 0:
         return ["git diff against the base failed; refusing: " + r.stderr.strip()]
     touched = []
-    for path in sorted(p for p in r.stdout.split("\n") if p):
+    for path in paths:
         before = dod.file_at(base, path, repo)
         f = repo / path
         after = f.read_text() if f.exists() else None
