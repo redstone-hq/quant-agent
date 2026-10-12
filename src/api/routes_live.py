@@ -29,7 +29,9 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
+from src.api.db_reads import get_open_entry_rows
 from src.api.loud_reads import record_dashboard_fault
+from src.storage.analytics.trade_review import open_position_r
 from src.api.drift_state import deploy_drift_state as _deploy_drift_state
 from src.api.margin_interest_view import _compute_margin_interest
 from src.api.broker_reads import (
@@ -598,8 +600,14 @@ def get_account() -> AccountResponse:
 def get_positions() -> PositionsResponse:
     try:
         result = read_positions()
+        rs = open_position_r(
+            result.get("positions", []),
+            get_open_entry_rows([str(p.get("symbol")) for p in result.get("positions", []) if p.get("symbol")]),
+        )
         items = [
             PositionItem(
+                initial_stop=rs.get(str(p.get("symbol")).upper(), {}).get("initial_stop"),
+                unrealised_r=rs.get(str(p.get("symbol")).upper(), {}).get("unrealised_r"),
                 symbol=p.get("symbol"),
                 qty=p.get("qty"),
                 avg_entry=p.get("avg_entry"),
