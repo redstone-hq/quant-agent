@@ -166,10 +166,10 @@ def test_builder_hands_the_session_the_pipeline_itself(caplog):
     assert any(r.levelno == logging.CRITICAL and "_resolve_gross_ceiling" in r.getMessage() for r in caplog.records)
 
 
-def test_the_real_pipeline_class_carries_the_resolver():
-    from src.pipeline import TradingPipeline
+def test_the_real_pipeline_carries_the_resolver():
+    from tests.pipeline_factory import build_pipeline
 
-    assert callable(getattr(TradingPipeline, "_resolve_gross_ceiling", None))
+    assert callable(getattr(build_pipeline(), "_resolve_gross_ceiling", None))
 
 
 def test_resolver_raising_mid_run_still_runs_trails_and_exits():
