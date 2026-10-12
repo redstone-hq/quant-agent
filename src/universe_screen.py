@@ -129,10 +129,42 @@ NON_EQUITY_SUFFIXES = (".WS", ".WSA", ".WSB", ".U", ".UN", ".RT", "-WS", "-U", "
 #: boundaries matter: the pre-existing gate's `" unit"` substring also
 #: matches "First United", which this does not.
 _NON_COMMON_NAME = re.compile(
-    r"\b(warrants?|units?|rights?|preferred|depositary|american deposit\w*|"
-    r"notes?|debentures?)\b",
+    r"\b(warrants?|units?|rights?|preferred|pfd|notes?|debentures?)\b",
     re.IGNORECASE,
 )
+
+#: A foreign ADR is common equity in a depositary wrapper (owner ruling
+#: 2026-10-10: ADRs are in the universe). Plain "Depositary Shares" is NOT
+#: matched: on the real listings it is the wrapper of a preferred (CDZIP,
+#: MNSBP, WAFDP, EQH$A, MET$E, TFC$I) unless it says "Global".
+_ADR_NAME = re.compile(
+    r"\b(american\s+deposit\w*|global\s+deposit\w*|ads|adr)\b",
+    re.IGNORECASE,
+)
+_DEPOSITARY_WORD = re.compile(r"\bdeposit\w*\b", re.IGNORECASE)
+
+#: Markers that keep a depositary name out even when it says ADS/ADR. "Series"
+#: alone is not one when it names an underlying share class ("8 Series B
+#: shares"); "right to receive" is how ADS describe themselves, not a right.
+_ADR_REFUSE = re.compile(
+    r"\b(warrants?|units?|rights?(?!\s+to\b)|preferred|pfd|notes?|debentures?)\b"
+    r"|%|\bseries\b(?!\s+\w+\s+(?:ordinary\s+)?shares?\b)",
+    re.IGNORECASE,
+)
+
+
+def is_non_common_name(name: str | None) -> bool:
+    """True when the security name marks something other than a common share.
+
+    One rule for the screen and the Nasdaq listing. An ADR/ADS name is common
+    equity unless it also marks a preferred, note, warrant, unit or right; any
+    other depositary name (plain "Depositary Shares") is a preferred wrapper.
+    """
+    text = str(name or "")
+    if _ADR_NAME.search(text):
+        return bool(_ADR_REFUSE.search(text))
+    return bool(_NON_COMMON_NAME.search(text) or _DEPOSITARY_WORD.search(text))
+
 
 #: Security-name words that mark a fund. A fund is not refused at the asset
 #: stage: Yahoo's `quoteType` decides at the profile stage whether it is an
@@ -401,7 +433,7 @@ def _enum_text(value) -> str:
 
 def is_non_common_security(symbol: str, name: str) -> bool:
     upper = str(symbol or "").upper()
-    return upper.endswith(NON_EQUITY_SUFFIXES) or bool(_NON_COMMON_NAME.search(str(name or "")))
+    return upper.endswith(NON_EQUITY_SUFFIXES) or is_non_common_name(name)
 
 
 def is_fund_name(name: str) -> bool:
