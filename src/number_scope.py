@@ -16,6 +16,8 @@ __all__ = ["SCOPED_PATHS", "py_universe"]
 #: `scripts/unscoped_number_guard.py` is what stops it from silently lagging.
 #: A directory entry covers every `.py` under it.
 SCOPED_PATHS: tuple[str, ...] = (
+    # 2026-10-12: shared quantities the read side and trading path both import; previously unscoped.
+    "src/quantities.py",
     # 2026-10-05: the position-history reader behind the prompt facts; its one limit is a dead default.
     "src/data/tech_store.py",
     "src/risk",

@@ -10942,3 +10942,85 @@ numbers:
     status: not-trade-governing
     site: scripts/trend_alignment/data.py
     note: "Offline research script; no module under src/, scripts/ or main.py imports it (the only reference is the unrelated exit-reason enum name), so no order, size, stop or exit reads it. How many times one ticker's history fetch is tried before a short history is fatal; a picked research parameter, not measured. Value defined at scripts/trend_alignment/data.py::fetch_bars."
+  - id: src.quantities.ETF_LEVERAGE['SH']
+    value: -1.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.proshares.com/our-etfs/leveraged-and-inverse/sh (fetched 2026-10-12): ProShares Short S&P500 seeks daily investment results, before fees and expenses, that correspond to the inverse (-1x) of the daily performance of the S&P 500.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test.
+  - id: src.quantities.ETF_LEVERAGE['SDS']
+    value: -2.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.proshares.com/our-etfs/leveraged-and-inverse/sds (fetched 2026-10-12): ProShares UltraShort S&P500 seeks daily investment results, before fees and expenses, that correspond to two times the inverse (-2x) of the daily performance of the S&P 500.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test.
+  - id: src.quantities.ETF_LEVERAGE['PSQ']
+    value: -1.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.proshares.com/our-etfs/leveraged-and-inverse/psq (fetched 2026-10-12): ProShares Short QQQ seeks daily investment results, before fees and expenses, that correspond to the inverse (-1x) of the daily performance of the Nasdaq-100.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test.
+  - id: src.quantities.ETF_LEVERAGE['SQQQ']
+    value: -3.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.proshares.com/our-etfs/leveraged-and-inverse/sqqq (fetched 2026-10-12): ProShares UltraPro Short QQQ seeks daily investment results, before fees and expenses, that correspond to three times the inverse (-3x) of the daily performance of the Nasdaq-100.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test.
+  - id: src.quantities.ETF_LEVERAGE['DRAM']
+    value: 1.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.roundhillinvestments.com/etf/dram/ (fetched 2026-10-12): Roundhill Memory ETF seeks exposure to a basket of global memory chip companies; the page states no daily leverage objective.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test. 1.0 is the absence of leverage: an ordinary equity ETF. Absence of a stated leverage objective on the issuer page is the evidence; the prospectus was not opened.
+  - id: src.quantities.ETF_LEVERAGE['SMH']
+    value: 1.0
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/ (fetched 2026-10-12): VanEck Semiconductor ETF, an index-tracking equity ETF.
+    note: >-
+      The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
+      multiplier for net directional exposure and the bearish-fund test. 1.0 is the absence of leverage. NOT CONFIRMED this session: the VanEck page did not return text to the fetch used, so the unlevered status rests on SMH being a plain index fund, not on a quoted objective.
+  - id: src.quantities.AVG_DOLLAR_VOLUME_WINDOW
+    settles_by:
+      kind: measurement
+      state: specified
+      where: docs/board_notes/item-090.md
+      records: the rank correlation between the average dollar volume over windows of 10, 20 and 60 sessions and the realised slippage on this desk's fills, so the window is the shortest one that predicts slippage
+      closes_when: the window is set to the measured best predictor, or the number is recorded as insensitive; it is DELETED as a tuned number if every window ranks symbols the same way
+    value: 20
+    status: arbitrary
+    site: src/quantities.py
+    note: >-
+      Sessions averaged for the liquidity admission measure (average dollar volume). The source comment says only
+      that three call sites previously disagreed (20, 20, 21) and this unifies them on the name, config key and log
+      lines that already said 20; that is consistency, not a derivation. 20 sessions is the conventional month, not
+      a measurement on this desk's fills. It decides which symbols pass the liquidity gate.
+    open_question: >-
+      Over how many sessions does average dollar volume best predict what this desk actually pays to trade a symbol?
+    cost_while_unanswered: >-
+      Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
+      keeps passing.
+  - id: src.quantities.r_multiple(qty)
+    value: 1.0
+    status: not-trade-governing
+    site: src/quantities.py
+    note: >-
+      Dead default (src/risk/metrics.py::position_risk): a grep on 2026-10-12 of every .py under src, scripts and main.py for calls to
+      `r_multiple(` finds only the two production calls in src/risk/metrics.py, and both pass `qty_f` explicitly, so
+      this default is never used. Dynamic calls through getattr or star-args were not searched.

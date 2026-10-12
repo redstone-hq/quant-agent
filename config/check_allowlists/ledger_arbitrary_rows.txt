@@ -119,3 +119,4 @@ src.verdicts.SEAT_WEIGHT['earnings']
 src.verdicts.SEAT_WEIGHT['macro']
 src.verdicts.SEAT_WEIGHT['smart_money']
 src.verdicts.SEAT_WEIGHT['technical']
+src.quantities.AVG_DOLLAR_VOLUME_WINDOW
