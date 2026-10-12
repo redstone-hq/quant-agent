@@ -758,7 +758,7 @@ def test_shorts_can_now_be_opened_and_covered_by_the_constructor():
     open_decisions = constructor.construct_orders(
         targets=[
             TargetPosition(
-                symbol="TSLA", direction="short", target_weight_pct=5.0, conviction="high", thesis="overvalued"
+                symbol="TSLA", direction="short", target_weight_pct=15.0, conviction="high", thesis="overvalued"
             )
         ],
         positions=[],

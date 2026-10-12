@@ -51,7 +51,7 @@ def _target():
     return TargetPosition(
         symbol="NVDA",
         direction="long",
-        target_weight_pct=8.0,
+        target_weight_pct=15.0,
         conviction="high",
         thesis="t",
     )

@@ -39,7 +39,7 @@ def _rc() -> ReasoningChain:
     )
 
 
-def _pipeline(live_price=100.0, cash=50_000.0):
+def _pipeline(live_price=100.0, cash=50_000.0, equity=100_000.0):
     pipeline = MagicMock()
     pipeline.broker.get_latest_price.return_value = live_price
     # A market entry is sized against the quote side it pays (ask / bid).
@@ -47,7 +47,7 @@ def _pipeline(live_price=100.0, cash=50_000.0):
     pipeline._format_qty = lambda q: str(q)
     pipeline._order_accepted.return_value = True
     pipeline._refresh_account_state.return_value = (
-        {"cash": cash, "portfolio_value": 100_000.0},
+        {"cash": cash, "portfolio_value": equity},
         [],
         {},
     )
@@ -110,7 +110,7 @@ def test_partial_confirmed_cash_resizes_instead_of_dropping_buy():
     that clears the $500 minimum. The sub-floor case is asserted as a
     REFUSAL in tests/test_cash_sweep_plumbing.py.
     """
-    pipeline = _pipeline(live_price=100.0, cash=645.11)
+    pipeline = _pipeline(live_price=100.0, cash=645.11, equity=6_000.0)
     pipeline.broker.submit_order.return_value = {
         "id": "ord-partial",
         "status": "accepted",
@@ -122,13 +122,16 @@ def test_partial_confirmed_cash_resizes_instead_of_dropping_buy():
                 symbol="XLE",
                 allocation_pct=10,
                 entry_price=100.0,
-                stop_loss=95.0,
+                stop_loss=92.0,
                 take_profit=115.0,
                 reasoning="approved but unfunded",
             )
         ],
         cash=645.11,
     )
+    # Owner floor: 6 shares risk $48 at the $92 stop; that must be >= 0.5% of equity.
+    ctx.total_value = 6_000.0
+    ctx.last_equity = 6_000.0
 
     orders = ExecutionStage(pipeline=pipeline).run(ctx)
 

@@ -167,7 +167,7 @@ def _short_analysis(
     )
 
 
-def _short_target(symbol="TSLA", weight=5.0, suggested_stop=None) -> TargetPosition:
+def _short_target(symbol="TSLA", weight=15.0, suggested_stop=None) -> TargetPosition:
     return TargetPosition(
         symbol=symbol,
         direction="short",
@@ -675,14 +675,14 @@ def test_short_level_backed_stop_inside_one_atr_is_floored_at_one_atr():
     floor moved 3.0 -> 1.5 -> 2.5, but the destination rule is unchanged.)"""
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
-        targets=[_short_target()],
+        targets=[_short_target(weight=20.0)],  # 4% floor stop: 20% weight risks 0.8%, over the owner's 0.5% floor
         positions=[],
         analyses=[
             _short_analysis(
                 entry=_S_ENTRY,
                 stop=252.0,
                 target=_S_TARGET_LEVEL,
-                atr_14=_S_ATR,
+                atr_14=10.0,  # 1 ATR = $10 (4%): the module's $5 ATR floors at 2%, under the owner's risk floor at the 20% weight cap
                 computed=[_S_TARGET_LEVEL, 252.0],
             )
         ],
@@ -690,8 +690,8 @@ def test_short_level_backed_stop_inside_one_atr_is_floored_at_one_atr():
         price_map={"TSLA": _S_ENTRY},
     )
     assert len(decisions) == 1
-    assert decisions[0].stop_loss == _S_HARD_FLOOR
-    assert decisions[0].stop_loss != _S_BAND_EDGE
+    assert decisions[0].stop_loss == _S_ENTRY + 10.0  # exactly 1x the $10 ATR
+    assert decisions[0].stop_loss != _S_ENTRY + 2.5 * 10.0
 
 
 def test_short_near_miss_outside_the_tolerance_is_not_level_backed():

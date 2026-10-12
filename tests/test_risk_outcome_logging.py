@@ -704,7 +704,7 @@ def test_legacy_notional_target_leaves_risk_fields_none_on_trade_decision():
     constructor = PortfolioConstructor()
     target = TargetPosition(
         symbol="NVDA",
-        target_weight_pct=8.0,
+        target_weight_pct=15.0,
         conviction="high",
         thesis="x",
     )

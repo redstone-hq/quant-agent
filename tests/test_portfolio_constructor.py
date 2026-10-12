@@ -79,7 +79,7 @@ def test_construct_orders_opens_new_position():
     """Target on a symbol not currently held → BUY for the full target weight."""
     constructor = PortfolioConstructor()
     targets = [TargetPosition(symbol="NVDA", target_weight_pct=8.0, conviction="high", thesis="AI")]
-    analyses = [_analysis("NVDA", entry=100, stop=95, target=115)]
+    analyses = [_analysis("NVDA", entry=100, stop=92, target=120)]
     price_map = {"NVDA": 100.0}
 
     decisions = constructor.construct_orders(
@@ -94,9 +94,9 @@ def test_construct_orders_opens_new_position():
     assert d.action == "BUY"
     assert d.symbol == "NVDA"
     assert d.entry_price == 100.0
-    assert d.stop_loss == 95.0
-    assert d.take_profit == 115.0
-    # allocation bounded by risk budget: $100k × 0.5% = $500 at risk, $5/share →
+    assert d.stop_loss == 92.0
+    assert d.take_profit == 120.0
+    # allocation bounded by risk budget: $100k × 0.5% = $500 at risk, $8/share →
     # 100 shares max; 100 shares × $100 = $10k = 10% weight. Target was 8%, so
     # alloc stays at 8 (under the cap).
     assert d.allocation_pct == 8.0
@@ -156,7 +156,7 @@ def test_construct_orders_nudges_a_tiny_delta_when_measurable():
     decisions = constructor.construct_orders(
         targets=targets,
         positions=positions,
-        analyses=[_analysis("NVDA", entry=100, stop=95, target=140)],
+        analyses=[_analysis("NVDA", entry=100, stop=92, target=140)],
         total_value=100_000,
         price_map={"NVDA": 100.0},
     )
@@ -222,7 +222,7 @@ def test_construct_orders_orders_sells_before_buys():
         TargetPosition(symbol="AAPL", target_weight_pct=0.0, conviction="low", thesis="close"),
         TargetPosition(symbol="NVDA", target_weight_pct=8.0, conviction="high", thesis="open"),
     ]
-    analyses = [_analysis("NVDA", entry=100, stop=95, target=115)]
+    analyses = [_analysis("NVDA", entry=100, stop=92, target=120)]
 
     decisions = constructor.construct_orders(
         targets=targets,
@@ -246,8 +246,8 @@ def test_construct_orders_orders_buys_by_weight_descending():
         TargetPosition(symbol="NVDA", target_weight_pct=8.0, conviction="high", thesis="larger"),
     ]
     analyses = [
-        _analysis("AAPL", entry=200, stop=190, target=220),
-        _analysis("NVDA", entry=100, stop=95, target=115),
+        _analysis("AAPL", entry=200, stop=160, target=260),
+        _analysis("NVDA", entry=100, stop=92, target=120),
     ]
 
     decisions = constructor.construct_orders(
@@ -266,12 +266,12 @@ def test_construct_orders_uses_suggested_stop_when_provided():
     constructor = PortfolioConstructor()
     targets = [
         TargetPosition(
-            symbol="NVDA", target_weight_pct=5.0, conviction="medium", thesis="tighter stop", suggested_stop_price=97.5
+            symbol="NVDA", target_weight_pct=5.0, conviction="medium", thesis="tighter stop", suggested_stop_price=89.0
         )
     ]
     # Low ATR so the PM's tighter stop sits OUTSIDE the noise band and is
     # left alone — this test is about stop precedence, not stop widening.
-    analyses = [_analysis("NVDA", entry=100, stop=95, target=110, atr=0.7)]
+    analyses = [_analysis("NVDA", entry=100, stop=85, target=125, atr=0.7)]
 
     decisions = constructor.construct_orders(
         targets=targets,
@@ -281,7 +281,7 @@ def test_construct_orders_uses_suggested_stop_when_provided():
         price_map={"NVDA": 100.0},
     )
     assert len(decisions) == 1
-    assert decisions[0].stop_loss == 97.5  # PM's override, not TA's 95
+    assert decisions[0].stop_loss == 89.0  # PM's override, not TA's 85
 
 
 def test_construct_orders_rejects_buy_without_price_reference():
@@ -892,8 +892,8 @@ def test_uncapped_buy_has_no_provenance_note():
         thesis_invalid_if="",
         catalyst="",
     )
-    # Tight stop: entry 100, stop 99 -> cap = 0.5%*100/1 = 50% >> 5%.
-    analysis = _analysis("XLF", entry=100.0, stop=99.0, target=110.0)
+    # Stop 12% away: a 5% weight risks 0.60%, above the 0.5% floor and under any cap.
+    analysis = _analysis("XLF", entry=100.0, stop=88.0, target=125.0)
     decisions = constructor.construct_orders(
         targets=[target],
         positions=[],
@@ -952,7 +952,7 @@ def test_dropped_target_reason_is_captured_not_silently_lost():
 
     # A second call must not leak the first call's reasons onto a run that
     # dropped nothing — each call's capture is fresh, not cumulative.
-    clean_analysis = _analysis("XLF", entry=100.0, stop=99.0, target=110.0)
+    clean_analysis = _analysis("XLF", entry=100.0, stop=88.0, target=125.0)
     clean_target = TargetPosition(symbol="XLF", target_weight_pct=5.0, conviction="medium", thesis="clean")
     constructor.construct_orders(
         targets=[clean_target],
@@ -1009,7 +1009,7 @@ def test_buy_thesis_invalid_if_survives_full_length_unlike_embedded_reasoning():
         thesis="AI leadership",
         thesis_invalid_if=_LONG_INVALID_IF,
     )
-    analyses = [_analysis("NVDA", entry=100, stop=95, target=115)]
+    analyses = [_analysis("NVDA", entry=100, stop=92, target=120)]
     decisions = constructor.construct_orders(
         targets=[target],
         positions=[],
@@ -1045,20 +1045,20 @@ def test_short_thesis_invalid_if_survives_full_length_unlike_embedded_reasoning(
         symbol="TSLA",
         rating="sell",
         entry_price=250.0,
-        stop_loss=262.5,
+        stop_loss=280.0,
         reference_target=200.0,
         reasoning="test",
         support_levels=[200.0],
-        resistance_levels=[262.5],
-        # 375 is a distant computed ceiling: a short needs a level ABOVE
+        resistance_levels=[280.0],
+        # 420 is a distant computed ceiling: a short needs a level ABOVE
         # entry to have a stop rest on ("no floor, no trade", 2026-09-12);
-        # it is nowhere near the 262.5 stop, so the stop stays unbacked.
-        computed_levels=[200.0, 375.0],
-        computed_level_touches={200.0: 5, 375.0: 5},
+        # it is nowhere near the 280 stop, so the stop stays unbacked.
+        computed_levels=[200.0, 420.0],
+        computed_level_touches={200.0: 5, 420.0: 5},
         setup_type="range",
         expected_horizon_sessions=60,
         reasoning_chain=_tech_rc(),
-        atr_14=(262.5 - 250.0) / 3.5,
+        atr_14=(280.0 - 250.0) / 3.5,
         thesis_invalid_if="closes below support",
     )
     decisions = constructor.construct_orders(

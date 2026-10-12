@@ -91,7 +91,7 @@ def _measured(atr: float) -> TechAnalysisResult:
 
 
 def test_null_entry_and_stop_size_from_live_price_and_read_stop_from_bars():
-    target = TargetPosition(symbol="XOM", direction="long", target_weight_pct=5.0, conviction="high", thesis="t")
+    target = TargetPosition(symbol="XOM", direction="long", target_weight_pct=20.0, conviction="high", thesis="t")
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[target], positions=[], analyses=[_measured(2.4)], total_value=100_000, price_map={"XOM": 163.0}

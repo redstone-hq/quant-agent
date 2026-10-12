@@ -347,7 +347,7 @@ def test_a_real_construct_orders_run_lands_a_populated_row_in_the_store(
     constructor = PortfolioConstructor()
     names = ["AAA", "BBB", "CCC"]
     decisions = constructor.construct_orders(
-        targets=[TargetPosition(symbol=s, target_weight_pct=4.0, conviction="high", thesis="t") for s in names],
+        targets=[TargetPosition(symbol=s, target_weight_pct=20.0, conviction="high", thesis="t") for s in names],
         positions=[],
         analyses=[_analysis(s) for s in names],
         total_value=100_000,

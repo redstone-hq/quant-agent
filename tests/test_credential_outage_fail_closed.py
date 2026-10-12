@@ -117,7 +117,7 @@ def _pm_decision() -> PortfolioDecision:
         targets=[
             TargetPosition(
                 symbol="SPY",
-                target_weight_pct=10.0,
+                target_weight_pct=20.0,
                 conviction="high",
                 thesis="Buy",
                 thesis_invalid_if="closes below support",

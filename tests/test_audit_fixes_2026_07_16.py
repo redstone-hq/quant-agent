@@ -188,17 +188,17 @@ def test_leveraged_etf_target_is_converted_to_raw_notional():
     c = PortfolioConstructor()
     decisions = c.construct_orders(
         # Owner rule 2026-08-27: under 0.5% risk the desk does not trade, so
-        # the fixture is sized to clear it: 30% gross / 3x = 10% raw at a 10%
-        # stop risks 1.0% of equity.
-        targets=[_target("SQQQ", 30.0)],
+        # the fixture is sized to clear it: the 20% target cap is the most a
+        # target can ask for.
+        targets=[_target("SQQQ", 20.0)],
         positions=[],
-        analyses=[_analysis("SQQQ", stop=90.0, target=130.0)],
+        analyses=[_analysis("SQQQ", stop=70.0, target=160.0)],
         total_value=100_000.0,
         price_map={"SQQQ": 100.0},
     )
     buys = [d for d in decisions if d.action == "BUY"]
     assert len(buys) == 1
-    assert buys[0].allocation_pct == pytest.approx(10.0, abs=0.01)  # 30% gross / 3x
+    assert buys[0].allocation_pct == pytest.approx(20.0 / 3.0, abs=0.01)  # 20% gross / 3x
 
 
 def test_unleveraged_target_is_unchanged():

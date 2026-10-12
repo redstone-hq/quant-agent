@@ -212,7 +212,7 @@ class TestBothDirections:
                 TargetPosition(
                     symbol="TSLA",
                     direction="short",
-                    target_weight_pct=5.0,
+                    target_weight_pct=15.0,
                     conviction="high",
                     thesis="overvalued",
                 )
@@ -561,7 +561,7 @@ class TestRefusals:
             targets=[
                 TargetPosition(
                     symbol="NVDA",
-                    target_weight_pct=8.0,
+                    target_weight_pct=15.0,
                     conviction="high",
                     thesis="AI",
                 )
@@ -591,7 +591,7 @@ class TestDataFaultsAtTheConstructor:
         return TargetPosition(
             symbol=symbol,
             direction=direction,
-            target_weight_pct=8.0,
+            target_weight_pct=15.0,
             conviction="high",
             thesis="t",
         )
@@ -1027,7 +1027,7 @@ class TestModelTargetIsEvidence:
             targets=[
                 TargetPosition(
                     symbol="NVDA",
-                    target_weight_pct=8.0,
+                    target_weight_pct=15.0,
                     conviction="high",
                     thesis="AI",
                 )
@@ -1174,7 +1174,7 @@ class TestSLB:
             targets=[
                 TargetPosition(
                     symbol="SLB",
-                    target_weight_pct=5.0,
+                    target_weight_pct=15.0,
                     conviction="high",
                     thesis="oilfield services recovery",
                 )

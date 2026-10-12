@@ -202,7 +202,7 @@ def _target(symbol, direction="long", risk_pct=None) -> TargetPosition:
     return TargetPosition(
         symbol=symbol,
         direction=direction,
-        target_weight_pct=5.0,
+        target_weight_pct=15.0,
         conviction="high",
         thesis="t",
     )
