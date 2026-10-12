@@ -566,7 +566,10 @@ numbers:
         ordinary noise; it is DELETED, and the single minimum multiple governs alone, if the
         observations cannot distinguish the absolute floor from the ordinary one
     value: 1
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
+    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
     engine_ab_2026_10_05: >-
       ENGINE A/B RAN AND RETURNED A NULL RESULT; recorded as a null result ONLY,
       and this row stays arbitrary. Method as for max_position_risk_pct above
@@ -1054,7 +1057,10 @@ numbers:
         percentile; it is DELETED if the reach test never changes a target that the horizon test did
         not already change, since the two are then one constraint written twice
     value: 1.5
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
+    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
     site: src/config/__init__.py
     narrowed: >-
       NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this reach multiple changed [measured]: 1.5 to 5.0 changed the output in 11 windows (0.9%, the same 11 windows as the horizon cap above), 1.5 to 0.5 in 490 (41.7%). So the cap binds hard from below and almost never from above on this data; the engine-blind finding in this row is about the backtest, not the live finder, which does consult it. Pinned by tests/test_dead_branch_narrowing_levels.py.
@@ -1659,6 +1665,12 @@ numbers:
     value: 3
     status: arbitrary
     site: src/config/__init__.py
+    published_study: >-
+      Cohen, Malloy & Pomorski (2012), "Decoding Inside Information", Journal of Finance 67(3):1009-1043
+      (https://papers.ssrn.com/abstract=1692517). The paper splits insiders into routine (a trading pattern
+      by calendar month repeated over several years) and opportunistic (no such pattern). Matches per citing
+      paper, unverified: the abstract and summaries confirm the routine/opportunistic split but not that the
+      paper's own cut-off is exactly 3 years, so 3 is NOT yet confirmed against the paper's method section.
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -3505,7 +3517,10 @@ numbers:
         in ATRs. The strictly-positive floor on this number is already ratified as an arithmetic
         non-degeneracy bound and that part does not reopen
     value: 1
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
+    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
     site: src/risk/exit_guard.py
     note: >-
       How far beyond a structural LEVEL a completed daily close must sit
@@ -4297,7 +4312,10 @@ numbers:
         refused by the minimum-ratchet gate or the chandelier, the band is redundant here and is
         deleted
     value: 1.25
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
+    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -7417,7 +7435,10 @@ numbers:
       sell while the deficit stands would delete this haircut entirely.
   - id: src.pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]
     value: 0.5
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a value expressed as a multiple of the stock's own ATR (its normal daily move) is measured from the stock, not guessed (\"the 1x daily-move stop minimum is your rule\"); this is the ATR multiple applied under that ruling."
+    ruling_record: owner ruling 2026-10-09, "the 1x daily-move stop minimum is your rule"
     site: src/pipeline_risk_gate.py
     note: >-
       Research pre-filter: a symbol whose MA20/MA50 spread is under 0.5 x
