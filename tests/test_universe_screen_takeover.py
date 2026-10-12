@@ -7,6 +7,9 @@ network. The old rule (any latest takeover-form filing without a later
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from src import universe_screen as us
@@ -227,10 +230,101 @@ def test_submissions_rows_carry_a_locator():
     }
     rows = sf.filing_rows(payload, "0000111111")
     assert rows[0][:3] == ("SC 14D9", "2026-09-01", "")
-    assert rows[0][3] == sf.FilingRef("111111", "0001193125-26-000003", "d14d9.htm", "SC 14D9")
+    locator = rows[0][3]
+    assert locator == {
+        "cik": "111111",
+        "accession": "0001193125-26-000003",
+        "primary_doc": "d14d9.htm",
+        "form": "SC 14D9",
+    }
+    assert json.loads(json.dumps(rows))[0][3] == locator  # survives the daily JSON cache
+    ref = sf.FilingRef.of(locator)
     reader = sf.TakeoverRoleReader(lambda url: TENDER_HEADER)
-    assert reader.header_url(rows[0][3]).endswith("/111111/000119312526000003/0001193125-26-000003-index-headers.html")
-    assert reader.document_url(rows[0][3]).endswith("/111111/000119312526000003/d14d9.htm")
+    assert reader.header_url(ref).endswith("/111111/000119312526000003/0001193125-26-000003-index-headers.html")
+    assert reader.document_url(ref).endswith("/111111/000119312526000003/d14d9.htm")
+    assert reader.role(locator) == sf.TARGET
+
+
+def test_a_row_without_a_locator_or_reader_is_undetermined():
+    # The form alone never decides (the old rule did, and dropped bidders).
+    assert us.check_takeover([("DEFM14A", "2026-09-01", "")]) == (
+        ["takeover_role_undetermined"],
+        {"takeover_filing": "2026-09-01"},
+    )
+    assert us.check_takeover([("DEFM14A", "2026-09-01", "", {"cik": "1"})]) == (
+        ["takeover_role_undetermined"],
+        {"takeover_filing": "2026-09-01"},
+    )
+
+
+# ------------------------------------------------- daily reader, wired ----
+
+SUBMISSIONS = {
+    "filings": {
+        "recent": {
+            "form": ["SC TO-T", "8-K"],
+            "filingDate": ["2026-09-01", "2026-08-01"],
+            "items": ["", "1.01"],
+            "accessionNumber": ["0001193125-26-000001", "0001193125-26-000004"],
+            "primaryDocument": ["d1.htm", "d8k.htm"],
+        }
+    }
+}
+
+
+class _Response:
+    def __init__(self, body):
+        self._body = body
+
+    def json(self):
+        return self._body
+
+    @property
+    def text(self):
+        return self._body
+
+
+class _StubSEC:
+    """Stands in for `SECForm4Provider`: the reads it answers are recorded."""
+
+    submissions_url = "https://sec.invalid/submissions"
+    archives_url = "https://sec.invalid/Archives/edgar/data"
+    urls: list[str] = []
+
+    def __init__(self, **_):
+        pass
+
+    def listed_map(self, deadline):
+        return {"222222": {"BIDR": "NYSE"}, "111111": {"TGT": "NYSE"}}
+
+    def _get(self, url, *, params, deadline):
+        type(self).urls.append(url)
+        if url.endswith(".json"):
+            return _Response(SUBMISSIONS)
+        if url.endswith("-index-headers.html"):
+            return _Response(TENDER_HEADER)
+        raise RuntimeError(f"unrecorded SEC read: {url}")
+
+
+def test_daily_reader_admits_the_bidder_and_drops_the_target(monkeypatch, tmp_path):
+    import src.data.smart_money as sm
+    from src import universe_daily as ud
+    from tests.test_universe_daily import _asset, _run
+
+    monkeypatch.setattr(sm, "SECForm4Provider", _StubSEC)
+    _StubSEC.urls = []
+    get_filings, get_role = ud._filings_reader(SimpleNamespace(smart_money=SimpleNamespace()), deadline=1e9)
+    run, _ = _run(
+        [_asset("BIDR"), _asset("TGT"), _asset("NONE")], tmp_path, get_filings_override=get_filings, get_role=get_role
+    )
+    assert run.records["BIDR"]["status"] == "passed"
+    assert run.records["BIDR"]["failures"] == []
+    assert run.records["TGT"]["failures"] == ["pending_takeover"]
+    assert run.records["NONE"]["failures"] == ["takeover_status_unknown"]
+    assert [u for u in _StubSEC.urls if u.endswith("-index-headers.html")] == [
+        "https://sec.invalid/Archives/edgar/data/222222/000119312526000001/0001193125-26-000001-index-headers.html",
+        "https://sec.invalid/Archives/edgar/data/111111/000119312526000001/0001193125-26-000001-index-headers.html",
+    ]
 
 
 # --------------------------------------------------- live targets note ----
@@ -244,6 +338,8 @@ def test_submissions_rows_carry_a_locator():
 #     golden-parachute vote -- `target`
 #     (test_a_self_filed_proxy_with_the_parachute_vote_is_the_target);
 #   * only an all-stock JOINT proxy lands in `undetermined`, which is
-#     recorded inconclusive -- still never admitted.
-# So a genuine target stays flagged; the role reading can only move a
-# name from "dropped" to "inconclusive", never to "admitted".
+#     recorded inconclusive -- never admitted, never dropped.
+# So a genuine target stays flagged. The names that move are the BIDDERS
+# (header: FILED BY only, or a self-filed proxy with no parachute vote),
+# which are now admitted when every other check passes
+# (test_daily_reader_admits_the_bidder_and_drops_the_target).

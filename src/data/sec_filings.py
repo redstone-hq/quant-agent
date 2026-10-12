@@ -39,10 +39,6 @@ logger = logging.getLogger(__name__)
 
 SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 
-#: Contact string SEC requires on every request. Used only by the
-#: production reader; tests never touch the network.
-TAKEOVER_USER_AGENT = "QAMC research qamc-research@example.invalid"
-
 #: Role values returned to the screen.
 TARGET = "target"
 BIDDER = "bidder"
@@ -76,6 +72,23 @@ class FilingRef:
     @property
     def folder(self) -> str:
         return f"{int(self.cik)}/{self.accession.replace('-', '')}"
+
+    def locator(self) -> dict[str, str]:
+        """JSON-safe form, as the daily cache stores filing rows."""
+        return {"cik": self.cik, "accession": self.accession, "primary_doc": self.primary_doc, "form": self.form}
+
+    @classmethod
+    def of(cls, ref: Any) -> "FilingRef":
+        if isinstance(ref, cls):
+            return ref
+        if isinstance(ref, dict):
+            return cls(
+                cik=_norm_cik(ref.get("cik")),
+                accession=str(ref.get("accession") or ""),
+                primary_doc=str(ref.get("primary_doc") or ""),
+                form=str(ref.get("form") or ""),
+            )
+        raise TypeError(f"not a filing locator: {ref!r}")
 
 
 def _norm_cik(value: Any) -> str:
@@ -168,8 +181,9 @@ class TakeoverRoleReader:
     def document_url(self, ref: FilingRef) -> str:
         return f"{self._archives}/{ref.folder}/{ref.primary_doc}"
 
-    def role(self, ref: FilingRef) -> str:
-        key = ref.accession
+    def role(self, ref: FilingRef | dict) -> str:
+        ref = FilingRef.of(ref)
+        key = f"{ref.cik}:{ref.accession}"  # both sides of one deal share the accession
         if key in self._seen:
             return self._seen[key]
         header = self._get(self.header_url(ref))
@@ -187,10 +201,36 @@ class TakeoverRoleReader:
         return found
 
 
-def filing_rows(payload: dict, cik: Any) -> list[tuple[str, str, str, FilingRef]]:
-    """Screen rows ``(form, filing_date, items, ref)`` from a submissions
+def screen_readers(sec: Any, deadline: float, listed: dict | None = None) -> tuple[Callable, Callable]:
+    """(get_filings, get_role) for `ScreenSources`, on the desk's existing
+    SEC client (`SECForm4Provider`: its rate limiter, its configured
+    User-Agent). The issuer's submissions JSON gives the rows; the role
+    reader then costs one header read for the one open takeover filing,
+    plus the document for a self-filed proxy. Every read raises on failure
+    and the screen records takeover_lookup_failed. `listed` is the cached
+    CIK -> {ticker: exchange} map; read once here when not handed in."""
+    if listed is None:
+        listed = sec.listed_map(deadline)
+
+    def get_filings(symbol: str):
+        wanted = str(symbol or "").strip().upper()
+        cik = next((c for c, tickers in listed.items() if wanted in tickers), None)
+        if cik is None:
+            return None  # no SEC issuer: takeover_status_unknown
+        payload = sec._get(f"{sec.submissions_url}/CIK{int(cik):010d}.json", params=None, deadline=deadline).json()
+        return filing_rows(payload, cik)
+
+    reader = TakeoverRoleReader(
+        lambda url: sec._get(url, params=None, deadline=deadline).text, archives_url=sec.archives_url
+    )
+    return get_filings, reader.role
+
+
+def filing_rows(payload: dict, cik: Any) -> list[tuple[str, str, str, dict[str, str]]]:
+    """Screen rows ``(form, filing_date, items, locator)`` from a submissions
     JSON payload (``filings.recent``). Mirrors the three-column reader in
-    ``src/data/smart_money.py::recent_filings`` plus the locator."""
+    ``src/data/smart_money.py::recent_filings`` plus a JSON-safe locator
+    (the daily cache stores rows as JSON)."""
     filings = payload.get("filings", {}) if isinstance(payload, dict) else {}
     recent = filings.get("recent", {}) if isinstance(filings, dict) else {}
     if not isinstance(recent, dict):
@@ -207,5 +247,5 @@ def filing_rows(payload: dict, cik: Any) -> list[tuple[str, str, str, FilingRef]
         ref = FilingRef(
             cik=_norm_cik(cik), accession=str(accessions[i] or ""), primary_doc=str(docs[i] or ""), form=form_text
         )
-        rows.append((form_text, str(filed or "").strip()[:10], str(items[i] or ""), ref))
+        rows.append((form_text, str(filed or "").strip()[:10], str(items[i] or ""), ref.locator()))
     return rows

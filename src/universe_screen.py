@@ -253,8 +253,8 @@ CLOSING_ITEM = "2.01"
 #: self-filed merger proxy, from the Rule 14a-21(c) golden-parachute vote.
 #: See `src/data/sec_filings.py`. A bidder is never pending. A role that
 #: cannot be attributed (a joint proxy) is INCONCLUSIVE, never dropped and
-#: never admitted. A row with no locator (legacy three-column rows) keeps
-#: the pre-2026-10 reading: the latest open takeover filing is pending.
+#: never admitted. A row with no locator, or a screen with no role reader,
+#: is also undetermined: the form alone never decides.
 ROLE_TARGET = "target"
 ROLE_UNDETERMINED = "undetermined"
 
@@ -641,7 +641,7 @@ def pending_takeover(filings, role_of: Callable[[Any], str] | None = None) -> tu
     if day is None:
         return False, None
     if ref is None or role_of is None:
-        return True, day
+        return None, day  # the form alone never decides
     role = role_of(ref)
     if role == ROLE_TARGET:
         return True, day
@@ -701,7 +701,7 @@ class ScreenSources:
     get_profile(symbol) -> {"market_cap_usd", "sector"} | None
     get_filings(symbol) -> [(form, filing_date, items[, locator])] | None (None = no SEC issuer)
     get_role(locator) -> "target" | "bidder" | "not_target" | "undetermined"
-        (None = no role reader; a legacy row's open takeover filing is pending)
+        (None = no role reader; an open takeover filing is then undetermined)
     """
 
     get_asset: Callable[[str], Any]
