@@ -18,6 +18,7 @@ MISSING = "AI credit: could not read"
 def rig(monkeypatch, tmp_path):
     """A real notifier with the wire stubbed; the alert state file is in tmp."""
     monkeypatch.chdir(tmp_path)  # the alert state path is relative
+    monkeypatch.setattr("src.notifier.send_funnel.APPEND_CREDIT_LINE", True)
     monkeypatch.delenv("TELEGRAM_DISABLED", raising=False)
     monkeypatch.setattr(delivery.time, "sleep", lambda s: None)
     wire = []
@@ -106,3 +107,12 @@ def test_probe_message_carries_no_line(rig, monkeypatch):
     assert texts, "probe sent nothing, so this test proves nothing"
     assert all("AI credit" not in b for b in texts)
     assert fetches == []
+
+
+def test_sent_record_keeps_the_body_as_sent_including_the_line(rig, monkeypatch):
+    n, wire, _ = rig
+    recorded = []
+    monkeypatch.setattr(n, "_safe_record_send", lambda **k: recorded.append(k))
+    assert n.send("Bought AAPL") is True
+    sent = [r for r in recorded if r.get("status") == "sent"]
+    assert [r["text"] for r in sent] == wire == ["Bought AAPL\n\n" + LINE]

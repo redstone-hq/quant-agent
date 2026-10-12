@@ -57,4 +57,4 @@ def test_fetch_failure_still_sends_the_message(monkeypatch):
     )
     n = TelegramNotifier.__new__(TelegramNotifier)
     assert n.send("hello") is True
-    assert seen == ["hello\n\nAI credit: could not read"]
+    assert seen == ["hello"]

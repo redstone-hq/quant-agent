@@ -88,6 +88,10 @@ def _with_credit_line(self, text, line, link_url, link_label, preserve_structura
     return body + suffix
 
 
+#: Module switch, not config: only tests turn it off (see tests/conftest.py).
+APPEND_CREDIT_LINE = True
+
+
 def send(
     self,
     text: str,
@@ -114,7 +118,7 @@ def send(
     # an "AI credit" line. It is added once, here, never per delivery attempt.
     credit = _CreditFetch()
     check_balance_on_send(fetch=credit.fetch, send=lambda message: send(self, message, kind="llm_credit_alert"))
-    if credit.called:
+    if APPEND_CREDIT_LINE and credit.called:
         text = _with_credit_line(self, text, credit.line(), link_url, link_label, preserve_structural_markup)
     delivered, suppressed = deliver_with_outcome(
         self,
