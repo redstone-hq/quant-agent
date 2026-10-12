@@ -212,8 +212,9 @@ class RiskStage:
         # 2026-08-19 SGOV/deployable-liquidity forensic note below).
         from src.execution.cash_sweep import CashSweeper
 
-        sweeper = getattr(pipeline, "_sweeper", None)
-        sweeper = sweeper() if callable(sweeper) else None
+        # Direct read: `_sweeper` is a TradingPipeline method, so a pipeline
+        # without it is a wiring fault and raises here.
+        sweeper = pipeline._sweeper()
         rm_positions = positions
         if isinstance(sweeper, CashSweeper):
             rm_positions, _parked = sweeper.split_positions(positions)

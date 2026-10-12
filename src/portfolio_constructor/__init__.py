@@ -423,7 +423,10 @@ class PortfolioConstructor:
         # `_plan_risk_targets` (defect 2026-10-09: they used to bypass it
         # entirely). One refused there produces no order; the rest are sized
         # the old way, exactly as before.
-        refused_dollar = getattr(self, "_dollar_targets_refused", None) or set()
+        # Direct read: `_plan_risk_targets` (called unconditionally above, no
+        # early return before it sets this) resets it every run, so a missing
+        # set is a wiring fault and raises here.
+        refused_dollar = self._dollar_targets_refused
         if refused_dollar:
             targets = [t for t in targets if t.symbol not in refused_dollar]
 
@@ -489,7 +492,7 @@ class PortfolioConstructor:
                 signed_target = 0.0
 
             plan_for_sym = risk_plan.get(sym) if target.risk_allocation_pct is not None else None
-            if sym in (getattr(self, "_reduce_only", None) or ()) and abs(signed_target) > abs(current_pct):
+            if sym in self._reduce_only and abs(signed_target) > abs(current_pct):
                 # Book risk is UNKNOWN: this request was let through only
                 # because it asked for no more risk than the name carries, so
                 # it may shrink the position but never grow it.
