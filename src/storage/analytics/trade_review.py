@@ -351,6 +351,39 @@ def build_trade_review(rows: list[dict], now: datetime | None = None) -> dict:
     }
 
 
+def close_review_summary(rows: list[dict], now: datetime | None = None) -> dict:
+    """Today's closed-trade figures for the Telegram close review. Pure; display only.
+
+    Reuses `closed_trades`, `window_stats` and `quality`. Adds only the R total and the best
+    and worst trade by R with their symbols, which the window stats do not carry. Any R that
+    is unreadable makes the R total and average None (unknown), never zero.
+    """
+    now = now or datetime.now(UTC)
+    today = now.astimezone(ET).date()
+    trades, _excluded = closed_trades(rows)
+    todays = [t for t in trades if _et_date(t["closed_at"]) == today]
+    stats = window_stats(todays)
+    known = [t for t in todays if t["r"] is not None]
+    all_known = bool(todays) and len(known) == len(todays)
+    total_r = _round(sum(t["r"] for t in known)) if all_known else None
+    best = max(known, key=lambda t: t["r"], default=None)
+    worst = min(known, key=lambda t: t["r"], default=None)
+    q = quality(trades)
+    return {
+        "n": stats["n"],
+        "wins": stats["wins"],
+        "losses": stats["losses"],
+        "win_rate_pct": stats["win_rate_pct"],
+        "total_r": total_r,
+        "average_r": stats["expectancy_r"] if all_known else None,
+        "best": None if best is None else {"symbol": best["symbol"], "r": _round(best["r"])},
+        "worst": None if worst is None else {"symbol": worst["symbol"], "r": _round(worst["r"])},
+        "profit_factor": stats["profit_factor"],
+        "quality_n": q["n"],
+        "p_value": q["p_value"],
+    }
+
+
 # ----------------------------------------------------- open-position R (display)
 
 
