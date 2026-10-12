@@ -253,7 +253,12 @@ def _execution_payoff_skip_reason(
 # the only authority on what is still working, so it is read here.
 #
 # An order ADDS exposure unless it closes a held position (a SELL against a
-# long, a BUY against a short) — the same rule the freeze sweep uses. The
+# long, a BUY against a short) — the same rule the freeze sweep uses. "Held"
+# is the broker's ACTUAL book, read here alongside the listing, never the
+# caller's `positions`: a rotation passes a PROJECTED post-sale book with the
+# outgoing name removed, and that name's protective sell-stop, still resting
+# at the broker, would otherwise read as a fresh short entry and erase the
+# very room the sale frees. The
 # part of a closing order larger than the held size would flip the book and
 # so counts. A `held` bracket leg is the dormant mirror of its parent entry
 # and is skipped; counting it would double the parent.
@@ -320,7 +325,7 @@ def _adding_notional(pipeline, order, held: dict):
     return side, notional, None
 
 
-def _open_entry_order_notional(pipeline, positions):
+def _open_entry_order_notional(pipeline):
     """`(long_usd, short_usd, None)` still working at the broker, or `(None, None, reason)`."""
     try:
         listed, orders = pipeline.broker.list_open_orders_checked()
@@ -328,7 +333,15 @@ def _open_entry_order_notional(pipeline, positions):
         return None, None, f"open broker orders unreadable ({type(exc).__name__})"
     if listed is not True or not isinstance(orders, list):
         return None, None, "open broker orders unreadable (listing failed)"
-    held = _held_qty_by_symbol(positions)
+    if not orders:
+        return 0.0, 0.0, None
+    try:
+        broker_book = pipeline.broker.get_positions()
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"broker held book unreadable ({type(exc).__name__})"
+    if not isinstance(broker_book, list):
+        return None, None, "broker held book unreadable (not a list)"
+    held = _held_qty_by_symbol(broker_book)
     long_usd = short_usd = 0.0
     for order in orders:
         side, notional, why = _adding_notional(pipeline, order, held)
@@ -399,7 +412,7 @@ def _entry_deployment_budget(pipeline, ctx, positions, equity, cash):
             if isinstance(cash, (int, float)) and not isinstance(cash, bool) and math.isfinite(float(cash))
             else 0.0
         )
-        pending_long, _pending_short, why = _open_entry_order_notional(pipeline, positions)
+        pending_long, _pending_short, why = _open_entry_order_notional(pipeline)
         if why is not None:
             logger.warning("§11.2: %s — refusing every new entry this run", why)
             return 0.0, False, f"{why} — no new entry permitted"
@@ -438,7 +451,7 @@ def _entry_deployment_budget(pipeline, ctx, positions, equity, cash):
     # total that quietly excluded a position, and it is the pre-trade gate's
     # job — a BUY carrying one is already hard-blocked before this loop.
     held_gross = gross_exposure(positions, cash_park_symbol=park)
-    pending_long, pending_short, why = _open_entry_order_notional(pipeline, positions)
+    pending_long, pending_short, why = _open_entry_order_notional(pipeline)
     if why is not None:
         logger.warning("§11.2: %s — refusing every new entry this run", why)
         return 0.0, True, f"{why} — no new entry permitted"

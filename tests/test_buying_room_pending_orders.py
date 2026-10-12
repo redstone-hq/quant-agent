@@ -24,11 +24,12 @@ CEILING_X = 2.0
 FULL_ROOM = CEILING_X * EQUITY  # empty book, no open orders
 
 
-def _pipeline(open_orders=(), *, listed=True, last_price=None):
+def _pipeline(open_orders=(), *, listed=True, last_price=None, broker_held=()):
     pipeline = SimpleNamespace()
     pipeline.broker = MagicMock(name="broker")
     pipeline.broker.list_open_orders_checked.return_value = (listed, list(open_orders))
     pipeline.broker.get_latest_price.return_value = last_price
+    pipeline.broker.get_positions.return_value = list(broker_held)
     pipeline._resolve_gross_ceiling = lambda ctx: GrossCeiling(
         ceiling_x=CEILING_X, base_x=CEILING_X, drawdown_pct=None, alert_owner=False, rung="none", reason="test"
     )
@@ -106,6 +107,26 @@ def test_a_short_entry_counts_but_exits_and_dormant_bracket_legs_do_not():
         _order(oid="exit", symbol="AAPL", side="sell", qty=20, limit_price=10.0),
         _order(oid="leg", symbol="NVDA", side="sell", qty=10, limit_price=45.0, status="held"),
     ]
-    pipeline = _pipeline(orders)
+    pipeline = _pipeline(orders, broker_held=[_held("AAPL", 20, 10.0)])
     room, _ = _room(pipeline, positions=[_held("AAPL", 20, 10.0)])
     assert room == pytest.approx(FULL_ROOM - 20 * 10.0 - 5 * 100.0)
+
+
+def test_a_rotation_projected_book_does_not_turn_the_outgoing_stop_into_a_short_entry():
+    """Rotation passes the PROJECTED post-sale book, with the outgoing name
+    already removed. Its protective sell-stop is still resting at the
+    broker; classified against the projection it would look like a fresh
+    short and erase the room the sale frees. Orders are classified against
+    the broker's ACTUAL held book instead."""
+    stop = _order(oid="stop-x", symbol="XOUT", side="sell", qty=30, limit_price=None, status="new")
+    pipeline = _pipeline([stop], last_price=100.0, broker_held=[_held("XOUT", 30, 100.0)])
+    room, _ = _room(pipeline, positions=[])  # projected book: XOUT already sold
+    assert room == pytest.approx(FULL_ROOM)
+
+
+def test_an_unreadable_broker_held_book_gives_zero_room_when_orders_are_open():
+    pipeline = _pipeline([_order(qty=10, limit_price=50.0)])
+    pipeline.broker.get_positions.side_effect = RuntimeError("broker down")
+    room, note = _room(pipeline)
+    assert room == 0.0
+    assert "held book unreadable" in note
