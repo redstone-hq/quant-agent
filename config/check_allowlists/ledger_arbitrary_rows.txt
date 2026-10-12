@@ -92,6 +92,7 @@ src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(min_age_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)
+src.quantities.AVG_DOLLAR_VOLUME_WINDOW
 src.risk.constants.REWARD_RISK_FLOOR
 src.risk.constants.STARTER_POSITION_RISK_PCT
 src.risk.exit_guard_deltas._NOISE_FLOOR['distance_to_stop_pct']
