@@ -332,6 +332,8 @@ def test_yahoo_failure_is_inconclusive_never_dropped_or_admitted(tmp_path):
         assert row["status"] == "inconclusive" and row["failures"] == ["profile_unavailable"]
     run, _ = _run([_asset("BRKB")], tmp_path / "stock", profile=NO_SECTOR, yahoo=boom)
     assert run.records["BRKB"]["status"] == "inconclusive"
+    # A raised read keeps Yahoo's own error in the record, not just in a log line.
+    assert run.records["BRKB"]["reason"] == "Yahoo read failed: RuntimeError: yahoo down"
     assert run.records["BRKB"]["failures"] == ["profile_unavailable"]
     assert run.summary()["yahoo_second_pass"]["failures"] == 1
 

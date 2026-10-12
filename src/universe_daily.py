@@ -90,6 +90,7 @@ UNREACHED = "unreached_time_limit"
 UNREACHED_TEXT = "unreached: time limit"
 YAHOO_LIMITED = "unreached_yahoo_rate_limit"
 YAHOO_LIMITED_TEXT = "unreached: Yahoo rate limit earlier this run"
+_READ_FAILED = object()  # a raised Yahoo read, already recorded for the name
 
 #: Stand-in sector while a stock with no Nasdaq sector runs its remaining
 #: (takeover) check; always replaced before the record is written.
@@ -386,9 +387,11 @@ class _DailyScreen:
                 self.run.record(symbol, "unreached", [UNREACHED])
                 continue
             else:
-                value, read_on_day = self._yahoo_read(symbol, kind), self.run.today.isoformat()
+                value, read_on_day = self._yahoo_read(symbol, kind, measured, read_on), self.run.today.isoformat()
                 if self.yahoo_blocked:
                     self.run.record(symbol, "unreached", [YAHOO_LIMITED], measured, reason=YAHOO_LIMITED_TEXT)
+                    continue
+                if value is _READ_FAILED:
                     continue
             extra = {**read_on, "yahoo_read_on": read_on_day if value else None}
             text = str((value or {}).get(kind) or "").strip() if isinstance(value, dict) else ""
@@ -401,9 +404,11 @@ class _DailyScreen:
                 # Error, rate limit, blank or an unknown sector name: could not read.
                 self.run.record(symbol, "inconclusive", ["profile_unavailable"], measured, **extra)
 
-    def _yahoo_read(self, symbol: str, kind: str) -> dict | None:
-        """One `.info` read -> {kind: text}, cached when not blank; None on failure.
-        The first rate limit sets `yahoo_blocked`: no further read this run."""
+    def _yahoo_read(self, symbol: str, kind: str, measured: dict, read_on: dict):
+        """One `.info` read -> {kind: text}, cached when not blank; None when blank.
+        A raised read is recorded for the name, with Yahoo's own error text, and
+        returns `_READ_FAILED`. The first rate limit sets `yahoo_blocked`: no
+        further read this run."""
         if self.yahoo_blocked:
             return None
         self.run.yahoo["calls"] += 1
@@ -416,7 +421,15 @@ class _DailyScreen:
                 self.yahoo_blocked = True
             else:
                 logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
-            return None
+            self.run.record(
+                symbol,
+                "inconclusive",
+                ["profile_unavailable"],
+                measured,
+                reason=f"Yahoo read failed: {type(exc).__name__}: {exc}",
+                **{**read_on, "yahoo_read_on": None},
+            )
+            return _READ_FAILED
         key = "category" if kind == "fund" else "sector"
         text = str(info.get(key) or "").strip() if isinstance(info, dict) else ""
         if not text:
