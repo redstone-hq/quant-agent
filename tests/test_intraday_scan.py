@@ -1622,8 +1622,10 @@ def test_an_unreadable_atr_is_recorded_as_unreadable_not_dropped(
 def test_a_ledger_write_failure_on_the_stamp_never_breaks_the_scan(
     mock_compute_indicators,
 ):
-    """A measurement must not cost a trade. If the stamp write raises, the
-    scan completes exactly as it would have without it."""
+    """A measurement must not cost a trade. If the ledger write that carries
+    the stamp raises, the scan completes exactly as it would have without it.
+    (Since 2026-10-12 the stamp rides on the ONE row written after the PM has
+    seen the mover, so there is one write, not a selection write + a stamp.)"""
     mock_compute_indicators.return_value = SimpleNamespace(atr_14=2.0)
     p = _intraday_pipeline(universe=["AAPL"])
     p.broker.get_intraday_snapshots.return_value = {
@@ -1633,8 +1635,7 @@ def test_a_ledger_write_failure_on_the_stamp_never_breaks_the_scan(
 
     def _flaky(**kwargs):
         calls["n"] += 1
-        if calls["n"] > 1:  # the selection write succeeds, the stamp fails
-            raise RuntimeError("disk full")
+        raise RuntimeError("disk full")
 
     p.db.record_intraday_evaluation.side_effect = _flaky
     p.tech_analyst.analyze_batch.return_value = (
@@ -1656,4 +1657,4 @@ def test_a_ledger_write_failure_on_the_stamp_never_breaks_the_scan(
     result = p._run_intraday_opportunity_scan(RunContext.start("intra_check"))
 
     assert result["status"] == "intraday_executed"
-    assert calls["n"] == 2
+    assert calls["n"] == 1

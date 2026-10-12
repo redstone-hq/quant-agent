@@ -372,6 +372,28 @@ class DecisionStage:
         # the context. The PM is then not called at all, and the run is
         # recorded as a deliberate skip, never as a PM failure.
         pm_skip_reason = getattr(ctx, "pm_skip_reason", None) or None
+        # Intraday (owner ruling 2026-10-12): no paid PM call when no mover
+        # can be opened. Judged HERE, once this check's PM-free
+        # below-entry-bar sale is known, on the book after that sale, so a
+        # sale that frees room can still fund a buy in the same check.
+        room_check = getattr(ctx, "pm_room_check", None)
+        if not pm_skip_reason and callable(room_check):
+            from src.intraday.buying_room import below_bar_sale_symbols
+
+            try:
+                sold_for_room = below_bar_sale_symbols(pipeline, pm_decide_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                # A failed pre-check must not skip the paid call on the
+                # pre-sale book: fall toward the existing behaviour (call
+                # the PM), recorded under a named site.
+                from src.sentinel.guarded_site import record_site
+
+                record_site(pipeline, "buying_room_precheck", exc, log=logger)
+                sold_for_room = None
+            room_skip = room_check(ctx, sold_for_room) if sold_for_room is not None else None
+            if room_skip:
+                ctx.pm_room_skip = room_skip
+                pm_skip_reason = ctx.pm_skip_reason = room_skip["pm_call_skipped"]
         if pm_skip_reason:
             portfolio_decision, pm_result = None, None
             pm_dropped_targets, pm_blocked, pm_ranked = [], {}, []

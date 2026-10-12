@@ -23,7 +23,7 @@ def record_dropped_name(owner, ctx, symbol: str, reason: str, **details) -> None
     """One durable pipeline event per name the scan drops, once per run and reason.
 
     stage=opportunity, outcome=dropped, reason cooling_down | no_atr |
-    budget_refused. Never raises: the scan must not fail on its
+    budget_refused | not_sent_weaker_rank. Never raises: the scan must not fail on its
     own bookkeeping. Deliberately NOT an intraday_evaluations row, because
     any row there starts the cooldown for the name.
     """
@@ -232,9 +232,8 @@ class IntradayCandidates:
                 record_dropped_name(self, ctx, symbol, "no_atr", move_pct=move_pct)
                 continue
             ranked.append((symbol, move_pct, move_atr))
-        # Largest move-in-own-ATR first. No cap and no move threshold: the
-        # paid-analysis budget (llm_cost_circuit) is the only stop, applied
-        # by the scan body in this order.
+        # Largest move-in-own-ATR first. No move threshold: the scan body
+        # sends only the strongest-ranked batch (owner ruling 2026-10-12).
         ranked.sort(key=lambda t: -t[2])
         candidates = [(symbol, move_pct) for symbol, move_pct, _ in ranked]
         return candidates, snapshots
@@ -297,13 +296,12 @@ class IntradayCandidates:
         snapshots: dict,
         indicators,
     ) -> None:
-        """Stamp the ATR denominator onto a mover's existing ledger row.
+        """Stamp the ATR denominator onto the detail of a mover's ledger row.
 
-        Upsert on (symbol, run_id), so this updates the row
-        `record_intraday_evaluation` already wrote at selection time rather
-        than adding one: no new row, no change to the cooldown the row
-        enforces, no extra market or model call. Best-effort — a
-        measurement must never cost the scan that carries it.
+        Held on the run context and written with the row itself, which
+        starts the cooldown and is written only once the PM has seen the
+        mover (adversary review 2026-10-12): no new row, no extra market or
+        model call. Best-effort — a measurement must never cost the scan.
         """
         upper = symbol.upper()
         if upper not in mover_symbols:
@@ -322,15 +320,7 @@ class IntradayCandidates:
             detail += ";atr_pct=unreadable;move_atr=unreadable"
         else:
             detail += f";atr_pct={atr_pct:.4f};move_atr={move_atr:.4f}"
-        try:
-            self.db.record_intraday_evaluation(
-                symbol=upper,
-                run_id=ctx.run_id,
-                status="selected",
-                detail=detail,
-            )
-        except Exception as exc:  # noqa: BLE001 — measurement, never the scan
-            _site(self, "trigger_atr_context", exc, context={"symbol": upper})
+        ctx.__dict__.setdefault("_mover_ledger_detail", {})[upper] = detail
 
     def _intraday_paid_scan_skip(self, ctx: RunContext, movers: list[str]) -> dict:
         """Durable skip: lock still held, movers named, no silent drop."""

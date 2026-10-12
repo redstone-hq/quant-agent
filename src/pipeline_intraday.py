@@ -24,6 +24,7 @@ import logging
 from src.agents.base import agent_log_kwargs, seat_acceptance_kwargs
 from src.cost_circuit import PaidAnalysisSuspended
 from src.data.technical import compute_indicators
+from src.intraday.buying_room import NO_BUYING_ROOM, assess_buying_room
 from src.intraday.candidates import IntradayCandidates, record_dropped_name
 from src.intraday.gating import IntradayGating
 from src.intraday.safety import IntradaySafety
@@ -58,14 +59,15 @@ class _HostState:
         setattr(self._host, name, value)
 
 
-#: Most ranked names sent in ONE paid call; the spent-money cap
-#: (`llm_cost_circuit`) is re-checked before every call, so it can be overshot
-#: by at most one call. 5 is the batch size the desk has always sent (the old
-#: per-scan name cap), so that one-call overshoot is measured, not guessed:
-#: the most expensive intraday call on record is a portfolio_manager decision
-#: at $0.389885 [measured: production agent_logs, intraday runs
-#: 2026-08-25..2026-10-09, 117 calls]; the largest intraday tech batch was
-#: $0.1237169 [same source, 139 calls]. Ledgered in config/number_ledger.yaml.
+#: The ranked movers sent in a check's ONE paid call (owner ruling
+#: 2026-10-12: at most one batch per check, the strongest-ranked). 5 is the
+#: batch size the desk has always sent (the old per-scan name cap). The
+#: spent-money cap (`llm_cost_circuit`) is checked before the call and can be
+#: overshot by at most that one call: the most expensive intraday call on
+#: record is a portfolio_manager decision at $0.389885 [measured: production
+#: agent_logs, intraday runs 2026-08-25..2026-10-09, 117 calls]; the largest
+#: intraday tech batch was $0.1237169 [same source, 139 calls]. Ledgered in
+#: config/number_ledger.yaml.
 _NAMES_PER_PAID_CALL = 5
 
 
@@ -73,18 +75,6 @@ def _shim(fn):
     """Mark a mixin method as this module's own shim so a live collaborator can tell it apart."""
     fn._intraday_shim = fn.__name__
     return fn
-
-
-def _merge_call_results(results: list[dict]) -> dict:
-    """One scan result from its paid calls; a single call's result is returned unchanged."""
-    if len(results) == 1:
-        return results[0]
-    merged = dict(results[-1])
-    merged["candidates"] = [s for r in results for s in (r.get("candidates") or [])]
-    if any("orders" in r for r in results):
-        merged["orders"] = [o for r in results for o in (r.get("orders") or [])]
-    merged["calls"] = results
-    return merged
 
 
 class IntradayScanBody:
@@ -110,6 +100,7 @@ class IntradayScanBody:
         compute_deployable_cash=None,
         evidence_gate_skip=None,
         heal_lost_research_seats=None,
+        intraday_buying_room=None,
         intraday_held_tech_symbols=None,
         intraday_open_overlap_skip=None,
         intraday_paid_scan_skip=None,
@@ -138,6 +129,7 @@ class IntradayScanBody:
         self._compute_deployable_cash = compute_deployable_cash
         self._evidence_gate_skip = evidence_gate_skip
         self._heal_lost_research_seats = heal_lost_research_seats
+        self._intraday_buying_room = intraday_buying_room
         self._intraday_held_tech_symbols = intraday_held_tech_symbols
         self._intraday_open_overlap_skip = intraday_open_overlap_skip
         self._intraday_paid_scan_skip = intraday_paid_scan_skip
@@ -255,40 +247,30 @@ class IntradayScanBody:
             # still runs - with NO portfolio-manager call.
             return self._intraday_scan_call(ctx, [], snapshots or {}, include_holds=True)
 
-        # Largest move in the name's own ATR first, sent in consecutive paid
-        # calls of at most `_NAMES_PER_PAID_CALL` names. The spent-money cap
-        # is re-checked before every call and is the only stop: a refusal
-        # ends sending, and every unsent name is recorded `budget_refused`
-        # with its rank. Nothing sent at all keeps the suspension as the
-        # scan's status, as before.
-        results: list[dict] = []
-        for start in range(0, len(candidates), _NAMES_PER_PAID_CALL):
-            try:
-                self._require_paid_analysis("intraday_tech_analyst")
-            except PaidAnalysisSuspended as exc:
-                for rank, (late, late_move) in enumerate(candidates[start:], start=start + 1):
-                    record_dropped_name(
-                        self, ctx, late, "budget_refused", rank=rank, move_pct=late_move, detail=str(exc)
-                    )
-                if not results:
-                    raise
-                break
-            if start:
-                # A later call must size against what the earlier one did.
-                try:
-                    account, positions, _ = self._refresh_account_state()
-                    ctx.account = account
-                    ctx.positions = positions
-                    ctx.cash = account["cash"]
-                    ctx.deployable_cash = self._compute_deployable_cash(ctx.cash, positions)
-                    ctx.total_value = account.get("portfolio_value", ctx.total_value)
-                    self._sync_positions_from_broker(positions)
-                except Exception as exc:  # noqa: BLE001
-                    _site(self, "between_call_refresh", exc, log=logger)
-                    break
-            chunk = candidates[start : start + _NAMES_PER_PAID_CALL]
-            results.append(self._intraday_scan_call(ctx, chunk, snapshots, include_holds=not start))
-        return _merge_call_results(results)
+        # Owner ruling 2026-10-12: "Later batches are weaker moves. So why
+        # send them at all?" ONE paid call per check: the strongest-ranked
+        # `_NAMES_PER_PAID_CALL` movers (largest move in the name's own ATR
+        # first). The spent-money cap stays as a backstop: a refusal records
+        # every mover `budget_refused` with its rank and keeps the suspension
+        # as the scan's status. Names past the batch are recorded
+        # `not_sent_weaker_rank`, never dropped silently.
+        try:
+            self._require_paid_analysis("intraday_tech_analyst")
+        except PaidAnalysisSuspended as exc:
+            for rank, (late, late_move) in enumerate(candidates, start=1):
+                record_dropped_name(self, ctx, late, "budget_refused", rank=rank, move_pct=late_move, detail=str(exc))
+            raise
+        for rank, (late, late_move) in enumerate(candidates[_NAMES_PER_PAID_CALL:], start=_NAMES_PER_PAID_CALL + 1):
+            record_dropped_name(
+                self,
+                ctx,
+                late,
+                "not_sent_weaker_rank",
+                rank=rank,
+                move_pct=late_move,
+                detail=f"one paid call per check; only the top {_NAMES_PER_PAID_CALL} ranked movers are sent",
+            )
+        return self._intraday_scan_call(ctx, candidates[:_NAMES_PER_PAID_CALL], snapshots, include_holds=True)
 
     def _intraday_scan_call(self, ctx: RunContext, candidates, snapshots, *, include_holds: bool) -> dict:
         """One paid call's worth of ranked movers through Tech -> PM -> RM -> execution.
@@ -306,21 +288,11 @@ class IntradayScanBody:
             symbols,
         )
         move_by_symbol = dict(candidates)
-        ledgered_symbols: list[str] = []
+        # The cooldown row is written only once the PM has actually seen the
+        # movers (adversary review 2026-10-12): a check that skipped the PM
+        # for no room, or stopped before it, must not hide them for
+        # `cooldown_hours` unseen. See `_record_mover_cooldown`.
         for symbol in symbols:
-            # Persist before any paid call. Every outcome—including a model
-            # failure or no target—now consumes the configured cooldown.
-            try:
-                self.db.record_intraday_evaluation(
-                    symbol=symbol,
-                    run_id=ctx.run_id,
-                    status="selected",
-                    detail=f"move_pct={move_by_symbol[symbol]:.4f}",
-                )
-            except Exception as exc:
-                _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
-                continue
-            ledgered_symbols.append(symbol)
             _record_pipeline_event(
                 self,
                 ctx,
@@ -330,9 +302,6 @@ class IntradayScanBody:
                 "intraday_move_threshold",
                 move_pct=move_by_symbol[symbol],
             )
-        symbols = ledgered_symbols
-        if not symbols and not held_only:
-            return {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
 
         # Produce Technical for quiet holds on the same paid call. Discovery
         # stays mover-capped; coverage for names the PM can increase does
@@ -614,11 +583,24 @@ class IntradayScanBody:
 
         if held_only:
             ctx.pm_skip_reason = "intraday_no_movers"
+        # Owner ruling 2026-10-12 (approved): no paid PM buy call when the
+        # account has no room to open any new position. Same headroom
+        # execution sizes against, same minimum-risk floor at each mover's
+        # own stop; the below-entry-bar sale still runs without the PM.
+        # The room is judged INSIDE the decision step, after the PM-free
+        # below-entry-bar sale is known, on the post-sale book: a sale that
+        # frees room can fund a buy in the same check.
+        if not held_only:
+            ctx.pm_room_check = lambda c, sold: self._intraday_no_buying_room(c, analyses, symbols, sold)
         self.decision_stage.run(ctx)
-        if not ctx.portfolio_decision and held_only:
+        no_room = getattr(ctx, "pm_room_skip", None)
+        if not held_only and not getattr(ctx, "pm_skip_reason", None):
+            self._record_mover_cooldown(ctx, symbols, move_by_symbol)
+        if not ctx.portfolio_decision and (held_only or no_room is not None):
             return {
-                "status": "intraday_scan_no_opportunity",
+                "status": NO_BUYING_ROOM if no_room is not None else "intraday_scan_no_opportunity",
                 "held_book_checked": True,
+                **({"candidates": symbols, **no_room} if no_room is not None else {}),
                 "run_id": ctx.run_id,
             }
         if not ctx.portfolio_decision:
@@ -645,6 +627,7 @@ class IntradayScanBody:
         early_exit = self.risk_stage.run(ctx)
         if early_exit is not None:
             early_exit["candidates"] = symbols
+            early_exit.update(no_room or {})
             stop_updates = getattr(
                 getattr(self, "broker", None),
                 "stop_trade_updates",
@@ -662,8 +645,56 @@ class IntradayScanBody:
             "status": "intraday_executed" if orders else "intraday_no_trades",
             "candidates": symbols,
             "orders": orders,
+            **(no_room or {}),
             "run_id": ctx.run_id,
         }
+
+    def _record_mover_cooldown(self, ctx: RunContext, symbols, move_by_symbol) -> None:
+        """Start each mover's cooldown, now that the PM has seen it. Every PM
+        outcome (a decision, no target, or a model failure) consumes it."""
+        stamped = ctx.__dict__.get("_mover_ledger_detail") or {}
+        for symbol in symbols:
+            try:
+                self.db.record_intraday_evaluation(
+                    symbol=symbol,
+                    run_id=ctx.run_id,
+                    status="selected",
+                    detail=stamped.get(symbol.upper()) or f"move_pct={move_by_symbol[symbol]:.4f}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
+
+    def _intraday_no_buying_room(self, ctx: RunContext, analyses, symbols, sold=()) -> dict | None:
+        """The durable skip record when no mover can be opened, else None (the PM is called).
+
+        An unreadable assessment, or none (ranked-margin rotation switched
+        on can free room), calls the PM as before.
+        """
+        try:
+            room = self._intraday_buying_room(ctx, analyses, symbols, sold)
+        except Exception as exc:  # noqa: BLE001
+            _site(self, "buying_room", exc, log=logger)
+            return None
+        if room is None or room.has_room:
+            return None
+        record = room.as_record()
+        logger.info(
+            "Intraday scan: no paid PM call -- no room to open any mover (%s; candidates %s)",
+            record["limit"],
+            record["candidates_considered"],
+        )
+        # One durable row per mover per skipped check, in the pipeline-event stream.
+        for row in record["candidates_considered"]:
+            record_dropped_name(
+                self,
+                ctx,
+                row["symbol"],
+                NO_BUYING_ROOM,
+                headroom_usd=record["headroom_usd"],
+                min_notional_usd=row["min_notional_usd"],
+                limit=record["limit"],
+            )
+        return record
 
 
 class IntradayMixin:
@@ -762,6 +793,15 @@ class IntradayMixin:
             atr_for_symbol=getattr(self, "_atr_for_symbol", None),
         )
 
+    def _intraday_buying_room(self, ctx: RunContext, analyses, symbols, sold=()):
+        """Buying room for this check's movers (src/intraday/buying_room.py); None while
+        ranked-margin rotation is switched on, since it can free room."""
+        from src.pipeline_rotation_exec import _rotation_ranked_margin_enabled
+
+        if _rotation_ranked_margin_enabled(self):
+            return None
+        return assess_buying_room(self, ctx, analyses, symbols, sold)
+
     def _intraday_scan_body(self) -> IntradayScanBody:
         """The IntradayScanBody part, wired to this host live; bodies in src/pipeline_intraday.py (IntradayScanBody)."""
         return IntradayScanBody(
@@ -782,6 +822,7 @@ class IntradayMixin:
             compute_deployable_cash=getattr(self, "_compute_deployable_cash", None),
             evidence_gate_skip=getattr(self, "_evidence_gate_skip", None),
             heal_lost_research_seats=getattr(self, "_heal_lost_research_seats", None),
+            intraday_buying_room=getattr(self, "_intraday_buying_room", None),
             intraday_held_tech_symbols=getattr(self, "_intraday_held_tech_symbols", None),
             intraday_open_overlap_skip=getattr(self, "_intraday_open_overlap_skip", None),
             intraday_paid_scan_skip=getattr(self, "_intraday_paid_scan_skip", None),

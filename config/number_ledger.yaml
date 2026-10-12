@@ -442,10 +442,13 @@ numbers:
     status: arbitrary
     site: src/pipeline_intraday.py
     note: >-
-      Most ranked intraday movers sent in one paid call. The spent-money cap
-      is re-checked before every call, so it is overshot by at most one call.
-      5 is the batch size the desk has always sent (the deleted per-scan name
-      cap), so the one-call overshoot is measured: the costliest intraday call
+      The ONE batch of ranked intraday movers each check sends to paid
+      analysis: owner ruling 2026-10-12, "Later batches are weaker moves. So
+      why send them at all?" -- one batch per check, the strongest-ranked.
+      The SIZE 5 is still arbitrary: it is the batch size the desk has always
+      sent (the deleted per-scan name cap), not a measured optimum. The
+      spent-money cap is checked before the one call, so it is overshot by at
+      most that call, and that overshoot is measured: the costliest intraday call
       on record is a portfolio_manager decision at $0.389885, and the largest
       intraday tech batch $0.1237169 (production agent_logs, intraday runs
       2026-08-25..2026-10-09, 117 and 139 calls).
