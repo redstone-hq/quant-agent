@@ -112,3 +112,99 @@ def apply_rotation_recording_dispositions(
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Rotation dispositions record failed: %s", exc)
+
+
+#: The keyword arguments `PortfolioManagerAgent.decide` turns from None into
+#: an empty container before it assembles the prompt. The no-PM step below
+#: hands the SAME kwargs to the same prompt assembly, so it applies the same
+#: normalisation rather than letting a None reach a renderer `decide` never
+#: lets one reach.
+_NONE_AS_EMPTY = {
+    "earnings_analyses": list,
+    "smart_money_findings": list,
+    "recent_performance": dict,
+    "position_history": dict,
+    "symbol_sectors": dict,
+    "allowed_buy_symbols": set,
+    "transient_admitted_symbols": set,
+}
+
+#: Every mandatory reasoning field of the empty decision the no-PM step
+#: carries. Says what it is; never reads as a model's reasoning.
+_NO_PM_REASONING = "not decided: no portfolio-manager answer this run; below-entry-bar sale only"
+
+
+def below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs: dict):
+    """The below-entry-bar sale as its own step, with no paid PM call.
+
+    Owner rulings 2026-10-01 (a holding that fails the desk's own fresh-entry
+    bar is SOLD, unconditionally, every run) and 2026-10-12 (that sale must
+    not depend on the portfolio manager answering). Before this step the
+    sale was only ever proposed inside a run whose PM call returned a
+    decision, so a run with no PM answer could not sell.
+
+    Computes the below-bar set itself through the PM agent's own
+    deterministic prompt assembly (`build_user_message`: candidate ranking,
+    the conviction bar and `rotation_precheck`) -- nothing is sent to a model
+    -- and returns an EMPTY, PM-free decision for the existing sell path
+    (`apply_rotation_recording_dispositions` -> `_apply_rotation_execution`)
+    to append the close to, so every per-holding guard, the constructor, the
+    hard risk rules and the AI risk-manager review apply exactly as today.
+
+    Returns None -- today's no-decision behaviour -- when rotation execution
+    is switched off, when nothing categorical is below the bar, or when the
+    below-bar set cannot be computed (fail closed, recorded). The
+    ranked-margin tier is never acted on here: it sells an eligible name to
+    fund a PM buy, so with no PM answer it has no reason to sell.
+    """
+    from src.models import PortfolioDecision, ReasoningChain
+    from src.pipeline_rotation_exec import _rotation_execution_enabled
+    from src.pipeline_stages import _record_pipeline_event
+    from src.rotation import RotationPrecheck
+
+    if not _rotation_execution_enabled(pipeline):
+        return None
+    pm = getattr(pipeline, "portfolio_manager", None)
+    kwargs = dict(pm_decide_kwargs or {})
+    for key, empty in _NONE_AS_EMPTY.items():
+        if key in kwargs and not kwargs[key]:
+            kwargs[key] = empty()
+    try:
+        # Reset first: a value left by an earlier run, or by a PM call that
+        # failed before its pre-check, must never be acted on in this one.
+        pm.last_rotation_precheck = None
+        pm.build_user_message(**kwargs)
+        precheck = pm.last_rotation_precheck
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Below-entry-bar pre-check without the PM failed: %s", exc)
+        try:
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                None,
+                "rotation",
+                "skipped",
+                "below_bar_precheck_failed_without_pm",
+                detail=str(exc)[:400],
+            )
+        except Exception as rec_exc:  # noqa: BLE001
+            logger.warning("Rotation skip record failed: %s", rec_exc)
+        return None
+    if not isinstance(precheck, RotationPrecheck):
+        return None
+    opportunity = precheck.opportunity
+    if opportunity is None or opportunity.tier != "ineligible_hold":
+        return None
+    return PortfolioDecision(
+        reasoning_chain=ReasoningChain(
+            macro_filter=_NO_PM_REASONING,
+            news_check=_NO_PM_REASONING,
+            earnings_check=_NO_PM_REASONING,
+            signal_conflicts=_NO_PM_REASONING,
+            sizing_logic=_NO_PM_REASONING,
+            portfolio_balance=_NO_PM_REASONING,
+            cash_target=_NO_PM_REASONING,
+        ),
+        portfolio_view=_NO_PM_REASONING,
+        targets=[],
+    )

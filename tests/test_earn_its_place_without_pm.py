@@ -1,0 +1,197 @@
+"""The below-entry-bar sale is its own step and does not wait on the PM.
+
+Owner rulings: 2026-10-01 (a holding that fails the desk's own fresh-entry
+bar is SOLD, unconditionally, every run) and 2026-10-12 (that sale needs no
+paid portfolio-manager call). Before this change the sale was proposed only
+inside a run whose PM call returned a decision: a run with no PM answer
+returned early and the below-bar holding was kept.
+
+Hermetic: the PM is a mock that returns NO decision. Its deterministic prompt
+assembly (`build_user_message`) is the one place the below-bar set is
+computed, and is stubbed to leave the pre-check a real assembly would.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from src.models import Position
+from src.pipeline_stages import DecisionStage, RunContext
+from src.risk.exit_guard import StructuralProtectionCheck
+from src.rotation import RotationOpportunity, RotationPrecheck
+from tests.pipeline_factory import build_pipeline
+
+REASONS = ("R7 conviction bar: technical seat opposed",)
+
+
+def _below_bar_precheck() -> RotationPrecheck:
+    return RotationPrecheck(
+        opportunity=RotationOpportunity(
+            new_symbol=None,
+            new_score=None,
+            held_symbol="OLD",
+            held_score=None,
+            tier="ineligible_hold",
+            reasons=REASONS,
+            ineligible_candidates=(("OLD", REASONS),),
+        ),
+        headroom_pct=5.0,
+        ceiling_pct=25.0,
+        floor_pct=0.5,
+        held_below_entry_bar=("OLD",),
+        held_examined=("OLD", "KEEP"),
+    )
+
+
+def _nothing_below_bar_precheck() -> RotationPrecheck:
+    return RotationPrecheck(
+        opportunity=None,
+        headroom_pct=5.0,
+        ceiling_pct=25.0,
+        floor_pct=0.5,
+        held_examined=("KEEP",),
+    )
+
+
+def _pos(symbol: str) -> Position:
+    return Position(
+        symbol=symbol,
+        qty=10.0,
+        avg_entry=100.0,
+        current_price=95.0,
+        market_value=950.0,
+        unrealized_pnl=-50.0,
+        sector="Technology",
+    )
+
+
+def _pipeline(precheck: RotationPrecheck):
+    p = build_pipeline(db=MagicMock())
+    p.db.get_latest_insights.return_value = None
+    p.db.get_trades.return_value = []
+    p.db.get_pending_protection_restores.return_value = []
+    p.db.get_pending_repegs.return_value = []
+    p._sweeper = MagicMock(return_value=None)
+    for name in ("_compute_recent_performance", "_build_position_history"):
+        setattr(p, name, MagicMock(return_value={}))
+    for name in (
+        "_build_weekly_narrative",
+        "_build_macro_trajectory",
+        "_build_active_state_changes",
+        "_build_rm_recent_verdicts",
+        "_build_pm_recent_decisions",
+        "_build_projected_portfolio",
+        "_build_calibration_note",
+        "_build_macro_tech_alignment",
+        "_build_recent_missed_lessons",
+        "_build_recent_loss_pits",
+    ):
+        setattr(p, name, MagicMock(return_value=""))
+    p._build_pm_facts = MagicMock(return_value=MagicMock())
+    p._ensure_correlation_matrix = MagicMock(return_value={})
+    p._require_paid_analysis = MagicMock(return_value=None)
+    p._record_heal = MagicMock(return_value=None)
+    p.config = MagicMock()
+    p.config.risk.allow_margin = False
+    p.config.trading.universe = []
+    p.config.execution = SimpleNamespace(rotation_enabled=True, rotation_ranked_margin_enabled=False)
+    p._last_symbol_sectors = {}
+    p.portfolio_constructor = MagicMock()
+    p.portfolio_constructor.real_reward_risk_preview.return_value = {}
+    p.portfolio_constructor.last_refusals = {}
+    p.broker = MagicMock()
+    p._structural_protection_for_holding = MagicMock(
+        return_value=StructuralProtectionCheck(protected=True, basis="structural_level_intact", detail="intact")
+    )
+    pm = MagicMock()
+    pm.last_rotation_precheck = None
+    # The PM gives NO decision this run. Its prompt assembly is deterministic
+    # and is the one place the below-bar set is computed.
+    pm.decide.return_value = (
+        None,
+        MagicMock(
+            user_message="",
+            raw_text="",
+            tokens_used=0,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            model="none",
+            semantic_status="pm_not_answered",
+            semantic_error="no PM answer this run",
+        ),
+    )
+
+    def _assemble(**_kwargs):
+        pm.last_rotation_precheck = precheck
+        return "prompt"
+
+    pm.build_user_message.side_effect = _assemble
+    p.portfolio_manager = pm
+    return p
+
+
+def _run(pipeline):
+    ctx = RunContext.start("intra_check")
+    ctx.positions = [_pos("OLD"), _pos("KEEP")]
+    ctx.analyses = []
+    ctx.macro_analysis = None
+    ctx.total_value = 100_000.0
+    ctx.last_equity = 100_000.0
+    ctx.cash = 50_000.0
+    ctx.deployable_cash = 50_000.0
+    ctx.admitted_symbols = set()
+    with patch("src.pipeline_stages._persist_evidence", MagicMock()):
+        try:
+            DecisionStage(pipeline=pipeline).run(ctx)
+        except Exception:  # noqa: BLE001
+            # Construction onward is not stood up here; the sale decision
+            # has already been made by then.
+            pass
+    return ctx
+
+
+def _constructed_symbols(pipeline) -> list[str]:
+    calls = pipeline.portfolio_constructor.construct_orders.call_args_list
+    return [t.symbol for c in calls for t in c.kwargs.get("targets", [])]
+
+
+def test_a_below_bar_holding_is_sold_with_no_pm_answer():
+    pipeline = _pipeline(_below_bar_precheck())
+    ctx = _run(pipeline)
+    assert ctx.rotation is not None, "no PM answer must not stop the below-entry-bar sale"
+    assert ctx.rotation["held_symbol"] == "OLD"
+    assert ctx.rotation["tier"] == "ineligible_hold"
+    assert _constructed_symbols(pipeline) == ["OLD"], "the close goes through the ordinary constructor"
+    # The structurally protected holding is still sold on the categorical
+    # tier, exactly as with a PM answer (protection measured, never a veto).
+    assert pipeline._structural_protection_for_holding.called
+    # Only the original PM call: the step itself pays for nothing.
+    assert pipeline.portfolio_manager.decide.call_count == 1
+
+
+def test_a_holding_above_the_bar_is_not_sold():
+    pipeline = _pipeline(_nothing_below_bar_precheck())
+    ctx = _run(pipeline)
+    assert ctx.rotation is None
+    assert ctx.portfolio_decision is None, "no sale and no PM answer ends as a no-decision run"
+    assert pipeline.portfolio_constructor.construct_orders.call_count == 0
+
+
+def test_a_per_holding_guard_still_refuses_the_sale_with_no_pm_answer():
+    pipeline = _pipeline(_below_bar_precheck())
+    pipeline.db.get_trades.return_value = [{"action": "BUY", "fill_status": "filled"}]
+    ctx = _run(pipeline)
+    assert ctx.rotation is None, "bought today: the existing guard still refuses"
+    assert ctx.portfolio_decision is None
+    assert pipeline.portfolio_constructor.construct_orders.call_count == 0
+
+
+def test_switched_off_rotation_keeps_todays_no_decision_behaviour():
+    pipeline = _pipeline(_below_bar_precheck())
+    pipeline.config.execution = SimpleNamespace(rotation_enabled=False)
+    ctx = _run(pipeline)
+    assert ctx.rotation is None
+    assert ctx.portfolio_decision is None
+    assert pipeline.portfolio_manager.build_user_message.call_count == 0

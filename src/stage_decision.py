@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from src.pipeline_risk_budget_recording import _record_realised_concentration
-from src.rotation_dispositions import apply_rotation_recording_dispositions
+from src.rotation_dispositions import apply_rotation_recording_dispositions, below_bar_sale_without_pm
 from src.soft_exit_never_blank import add_constructor_dropped
 from src.risk.min_risk import MinRiskFloor
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
@@ -502,6 +502,7 @@ class DecisionStage:
             **pm_log_kwargs,
         )
 
+        pm_answered = bool(portfolio_decision)
         if not portfolio_decision:
             _record_pipeline_event(
                 pipeline,
@@ -520,60 +521,70 @@ class DecisionStage:
                 decision_id=decision_id,
                 evidence_json=('{"failure":"no_valid_grounded_decision","stage":"portfolio_manager","decision":null}'),
             )
-            ctx.portfolio_decision = None
-            return ctx
+            # Owner rulings 2026-10-01 / 2026-10-12: the below-entry-bar sale
+            # is its own step and does not wait on the PM. With no PM answer
+            # it still runs, through the same sell path and every guard.
+            portfolio_decision = below_bar_sale_without_pm(pipeline, ctx, pm_decide_kwargs)
+            if portfolio_decision is None:
+                ctx.portfolio_decision = None
+                return ctx
 
-        import json as _json
+        # The PM's own reasoning, targets, sizing narrative and candidate
+        # accounting exist only when the PM answered. The accounting can
+        # re-ask the PM (a paid call), so it must never run for the
+        # PM-free below-entry-bar decision.
+        if pm_answered:
+            import json as _json
 
-        _persist_evidence(
-            pipeline.db,
-            run_id=run_id,
-            agent_name="portfolio_manager",
-            kind="reasoning",
-            scope="run",
-            decision_id=decision_id,
-            evidence_json=_json.dumps(
-                {
-                    "portfolio_view": portfolio_decision.portfolio_view,
-                    "reasoning_chain": portfolio_decision.reasoning_chain.model_dump(),
-                }
-            ),
-        )
-        for target in portfolio_decision.targets:
             _persist_evidence(
                 pipeline.db,
                 run_id=run_id,
                 agent_name="portfolio_manager",
-                kind="target",
-                scope="symbol",
-                symbol=target.symbol,
+                kind="reasoning",
+                scope="run",
                 decision_id=decision_id,
-                evidence_json=target.model_dump_json(),
+                evidence_json=_json.dumps(
+                    {
+                        "portfolio_view": portfolio_decision.portfolio_view,
+                        "reasoning_chain": portfolio_decision.reasoning_chain.model_dump(),
+                    }
+                ),
             )
-        # Board item 163: cross-check the PM's whole-book sizing NARRATIVE
-        # (`reasoning_chain.sizing_logic`) against each symbol's own emitted
-        # `risk_allocation_pct`. Detection only -- it records the mismatch to
-        # the evidence stream and NEVER changes a target, size, price or exit;
-        # `risk_allocation_pct` stays authoritative. Wrapped so a bookkeeping
-        # check can never take a live PM session down, matching the posture of
-        # `_account_for_pm_candidates` below. The audit helper records one
-        # `checked` row per session as well as any mismatch, so an empty
-        # stream distinguishes agreement from a path that never ran.
-        try:
-            from src.sizing_narrative_audit import audit_sizing_narrative
+            for target in portfolio_decision.targets:
+                _persist_evidence(
+                    pipeline.db,
+                    run_id=run_id,
+                    agent_name="portfolio_manager",
+                    kind="target",
+                    scope="symbol",
+                    symbol=target.symbol,
+                    decision_id=decision_id,
+                    evidence_json=target.model_dump_json(),
+                )
+            # Board item 163: cross-check the PM's whole-book sizing NARRATIVE
+            # (`reasoning_chain.sizing_logic`) against each symbol's own emitted
+            # `risk_allocation_pct`. Detection only -- it records the mismatch to
+            # the evidence stream and NEVER changes a target, size, price or exit;
+            # `risk_allocation_pct` stays authoritative. Wrapped so a bookkeeping
+            # check can never take a live PM session down, matching the posture of
+            # `_account_for_pm_candidates` below. The audit helper records one
+            # `checked` row per session as well as any mismatch, so an empty
+            # stream distinguishes agreement from a path that never ran.
+            try:
+                from src.sizing_narrative_audit import audit_sizing_narrative
 
-            audit_sizing_narrative(pipeline, ctx, portfolio_decision)
-        except Exception:
-            logger.exception("sizing_narrative_check audit failed")
-        _account_for_pm_candidates(
-            pipeline,
-            ctx,
-            run_id=run_id,
-            analyses=analyses,
-            positions=positions,
-            decision=portfolio_decision,
-            pm_decide_kwargs=pm_decide_kwargs,
-        )
+                audit_sizing_narrative(pipeline, ctx, portfolio_decision)
+            except Exception:
+                logger.exception("sizing_narrative_check audit failed")
+            _account_for_pm_candidates(
+                pipeline,
+                ctx,
+                run_id=run_id,
+                analyses=analyses,
+                positions=positions,
+                decision=portfolio_decision,
+                pm_decide_kwargs=pm_decide_kwargs,
+            )
 
         price_map = {p.symbol: p.current_price for p in positions}
         # A new name (one not already held) needs a live price to SIZE its
@@ -751,6 +762,12 @@ class DecisionStage:
             positions,
             position_history,
         )
+        if not pm_answered and not portfolio_decision.targets:
+            # The PM-free step proposed no sale (every below-bar name was
+            # refused by its own per-holding guard, each recorded above):
+            # nothing to construct, so the run ends as a no-decision run did.
+            ctx.portfolio_decision = None
+            return ctx
         _record_seat_stances(
             pipeline,
             ctx,
