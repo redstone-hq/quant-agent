@@ -8,48 +8,49 @@ file stops importing.
 
 import json
 import sqlite3
+import subprocess
 import sys
 import threading
+from pathlib import Path
 
 from src.storage.conviction_ledger_store import (
     CONVICTION_CREDIT_KIND,
     ConvictionLedgerStore,
     build_conviction_ledger_store,
 )
+from src.storage.schema import DatabaseSchema
 from src.storage.seat_stances import SEAT_STANCE_KIND, read_seat_stances
-
-SCHEMA = """
-CREATE TABLE specialist_evidence (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL,
-    decision_id TEXT,
-    agent_name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    scope TEXT NOT NULL,
-    symbol TEXT,
-    evidence_json TEXT NOT NULL,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    position_id TEXT, symbol TEXT, action TEXT, qty REAL, price REAL,
-    fill_qty REAL, fill_price REAL, fill_status TEXT, stop_loss REAL,
-    decision_id TEXT, run_id TEXT, timestamp TEXT
-);
-"""
 
 
 def _conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
+    # The REAL schema builder (plain connection in, no `Database` involved),
+    # so this file cannot drift from production columns.
+    schema = DatabaseSchema(conn=conn)
+    schema._create_tables()
+    schema._migrate()
     return conn
 
 
 def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
     conn.executescript("")
     rows = [
-        (position_id, "AAPL", "BUY", 10, 100.0, 10, 100.0, "filled", 90.0, "dec-1", "run-1", "2026-09-01T14:00:00"),
+        (
+            position_id,
+            "AAPL",
+            "BUY",
+            10,
+            100.0,
+            10,
+            100.0,
+            "filled",
+            90.0,
+            90.0,
+            "dec-1",
+            "run-1",
+            "2026-09-01T14:00:00",
+        ),
         (
             position_id,
             "AAPL",
@@ -60,6 +61,7 @@ def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
             exit_price,
             "filled",
             0.0,
+            None,
             "dec-1",
             "run-1",
             "2026-09-05T14:00:00",
@@ -67,8 +69,8 @@ def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
     ]
     conn.executemany(
         "INSERT INTO trades (position_id, symbol, action, qty, price, fill_qty,"
-        " fill_price, fill_status, stop_loss, decision_id, run_id, timestamp)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, timestamp)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         rows,
     )
     conn.execute(
@@ -102,6 +104,20 @@ def test_the_builder_hands_back_the_collaborators_given():
     assert isinstance(store, ConvictionLedgerStore)
     assert store.conn is conn
     assert store._lock is lock
+
+
+def test_building_the_real_schema_and_store_never_imports_the_database_module():
+    """Fresh interpreter, so other tests in the run cannot pollute sys.modules."""
+    code = (
+        "import sys, sqlite3, threading\n"
+        "from src.storage.schema import DatabaseSchema\n"
+        "from src.storage.conviction_ledger_store import build_conviction_ledger_store\n"
+        "c = sqlite3.connect(':memory:'); c.row_factory = sqlite3.Row\n"
+        "s = DatabaseSchema(conn=c); s._create_tables(); s._migrate()\n"
+        "build_conviction_ledger_store(conn=c, lock=threading.Lock())\n"
+        "assert 'src.storage.db' not in sys.modules\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=Path(__file__).resolve().parents[1])
 
 
 def test_the_store_does_not_import_the_database_module():
@@ -169,7 +185,7 @@ def test_a_chain_with_no_seat_stances_is_counted_never_fabricated():
 def test_a_chain_with_no_entry_stop_has_no_honest_r_and_is_skipped():
     conn = _conn()
     _seed_round_trip(conn)
-    conn.execute("UPDATE trades SET stop_loss = 0 WHERE action = 'BUY'")
+    conn.execute("UPDATE trades SET stop_loss = 0, initial_stop_loss = 0 WHERE action = 'BUY'")
     conn.commit()
     store = build_conviction_ledger_store(conn=conn, lock=threading.Lock())
     counters = store.resolve_conviction_ledger()

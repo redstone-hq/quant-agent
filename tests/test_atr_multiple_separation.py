@@ -84,16 +84,17 @@ def test_three_distinct_names_not_one_shared_constant() -> None:
 
 
 def test_ledger_marks_each_job_separately_and_honestly() -> None:
-    """Each job carries its OWN entry, marked `arbitrary` while it is unsourced."""
+    """Each job carries its OWN entry, marked `owner-ruled` (per-stock multiples, ruling 2026-10-04)."""
     entries = _ledger_entries()
 
     for ident in (*_EXIT_GUARD_IDS, _MIN_STOP_ID):
         assert ident in entries, f"{ident} has no ledger entry"
         entry = entries[ident]
-        assert entry["status"] == "arbitrary", (
-            f"{ident} is marked {entry['status']!r}; it is still unsourced "
-            "(item 213) and overstating it is the same failure as understating it"
+        assert entry["status"] == "owner-ruled", (
+            f"{ident} is marked {entry['status']!r}; owner ruling 2026-10-04 "
+            "closed per-stock ATR multipliers as ruled, not measured"
         )
+        assert entry["ruled_on"] == "2026-10-04"
         assert float(entry["value"]) == 1.0
 
     # The constructor copy is a checked MIRROR of the config value, deliberately

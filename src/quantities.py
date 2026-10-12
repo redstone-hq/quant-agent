@@ -38,7 +38,10 @@ decision — it is arithmetic with an agreed meaning.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any, Iterable
+
+from src.stop_price_classification import classify_stop_price
 
 __all__ = [
     "ETF_LEVERAGE",
@@ -369,3 +372,259 @@ def collapse_stances(values: Iterable[Any]) -> str | None:
     if cleaned <= {"neutral", "mixed"}:
         return "neutral" if cleaned == {"neutral"} else "mixed"
     return "mixed"
+
+
+# ---------------------------------------------------------------------------
+# Moved here verbatim so src/api can import them (this module is the stdlib-only seam).
+# ---------------------------------------------------------------------------
+
+
+def r_multiple(
+    current_price: float,
+    entry: float,
+    initial_stop: float,
+    qty: float = 1.0,
+) -> float | None:
+    """Profit in units of the risk originally taken, or None if undefined.
+
+    `initial_stop` is the stop the position was opened with. Returns None when
+    any input is missing/non-finite or when the initial stop was not on the
+    losing side of entry — a non-positive denominator means no risk was
+    defined at entry and an R-multiple would be a fabrication.
+
+    `qty` supplies only the SIDE. A negative qty is a short: risk per share is
+    `stop - entry` (the stop sits ABOVE entry) and profit accrues as price
+    falls, so both numerator and denominator flip. Defaults to +1.0 so every
+    existing long call site is unchanged.
+    """
+    cur = _finite(current_price)
+    ent = _finite(entry)
+    stop = _finite(initial_stop)
+    if cur is None or ent is None or stop is None:
+        return None
+    side = -1.0 if (_finite(qty) or 1.0) < 0 else 1.0
+    risk_per_share = side * (ent - stop)
+    if risk_per_share <= 0:
+        return None
+    return round(side * (cur - ent) / risk_per_share, 2)
+
+
+@dataclass(frozen=True)
+class ClosedPosition:
+    """A position chain that has gone flat, reduced to what scoring needs.
+
+    Produced by `summarize_closed_position` from one `position_id`'s trades
+    rows. `initial_stop` is the stop the position was OPENED with — the
+    R-multiple denominator — and is None when no entry row recorded one, in
+    which case the position is not scorable and is skipped rather than
+    scored against a fabricated risk.
+    """
+
+    position_id: str
+    symbol: str
+    direction: str
+    decision_id: str | None
+    entry_price: float
+    exit_price: float
+    initial_stop: float | None
+    qty: float
+    opened_at: str
+    closed_at: str
+    #: Sum over entry lots of lot qty x |lot fill price - that lot's own initial
+    #: stop|. None ("R unknown") if any lot has no readable or a wrong-side stop.
+    entry_risk_dollars: float | None = None
+    #: Realised R = P&L / entry_risk_dollars. The ONLY R callers may use.
+    r_multiple: float | None = None
+
+
+def entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
+    """Per-lot risk summed over every entry lot, each against its OWN frozen
+    initial stop. None if any lot's stop is missing or on the wrong side."""
+    side = 1.0 if direction == "long" else -1.0
+    total = 0.0
+    for row in opens:
+        qty, price = _executed_qty(row), _executed_price(row)
+        if qty <= 0:
+            continue
+        stop = recorded_initial_stop(row)
+        per_share = side * (price - stop)
+        if price <= 0 or stop <= 0 or per_share <= 0:
+            return None
+        total += qty * per_share
+    return total if total > 0 else None
+
+
+def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: float) -> float | None:
+    """Risk on the shares still HELD: the full per-lot sum scaled pro rata by
+    held qty / total entry qty, so a partial sell leaves average risk per share
+    (and therefore unrealised R) unchanged. None if any lot has no usable stop.
+    Closed positions use the full sum (`entry_risk_dollars`) instead."""
+    full = entry_risk_dollars(opens, direction)
+    entered = sum(_executed_qty(r) for r in opens)
+    held = abs(_finite(held_qty) or 0.0)
+    if full is None or entered <= 0 or held <= 0:
+        return None
+    return full * min(1.0, held / entered)
+
+
+def _executed_qty(row: dict) -> float:
+    """Shares this row actually moved. Prefers the reconciled fill over the
+    requested quantity, mirroring `compute_trade_calibration`."""
+    try:
+        fill = float(row.get("fill_qty") or 0)
+    except (TypeError, ValueError):
+        fill = 0.0
+    if fill > 0:
+        return fill
+    try:
+        return float(row.get("qty") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _executed_price(row: dict) -> float:
+    try:
+        fill = float(row.get("fill_price") or 0)
+    except (TypeError, ValueError):
+        fill = 0.0
+    if fill > 0:
+        return fill
+    try:
+        return float(row.get("price") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+#: Opening actions, mapped to the direction the position carries. Both sides
+#: are live: `_assign_position_ids` (src/storage/db.py) mints a chain on a
+#: SHORT exactly as it does on a BUY, and a COVER retires it exactly as a SELL
+#: retires a long (owner decision, 2026-08-31 — shorts count identically to
+#: longs). The `qty` this function returns is NEGATIVE for a short, which is
+#: the only place direction is expressed: it is what tells `r_multiple` which
+#: side the position was, so a profitable short comes back as a positive R.
+_OPEN_ACTIONS: dict[str, str] = {"BUY": "long", "SHORT": "short"}
+
+
+def _split_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:
+    """(opening rows, exit rows, direction) of one position chain. Split out of
+    `summarize_closed_position` unchanged, only to keep each function simple."""
+    opens: list[dict] = []
+    exits: list[dict] = []
+    direction: str | None = None
+    for row in rows:
+        action = str(row.get("action") or "").upper()
+        if action in _OPEN_ACTIONS:
+            if direction is None:
+                direction = _OPEN_ACTIONS[action]
+            opens.append(row)
+        elif action == "TRAIL_STOP":
+            # Only a FILLED trail stop closed anything.
+            status = str(row.get("fill_status") or "").lower()
+            filled = status == "filled" or (status == "" and _executed_qty(row) > 0)
+            if filled and _executed_qty(row) > 0:
+                exits.append(row)
+        elif action:
+            exits.append(row)
+    return opens, exits, direction
+
+
+def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
+    """Reduce one position chain's trades rows to a scorable round trip.
+
+    `rows` are every `trades` row sharing one `position_id`, oldest first,
+    each a dict with at least symbol/action/qty/price/fill_qty/fill_price/
+    fill_status/stop_loss/decision_id/timestamp.
+
+    Returns None — never a guess — when the chain is not scorable:
+      - it never opened (no BUY/SHORT row),
+      - it is still open (executed exit quantity has not retired the entries),
+      - entry or exit price is missing or non-positive,
+      - or the exit rows moved no shares (a placed-but-never-filled
+        TRAIL_STOP is protection sitting there, not an exit — the same
+        distinction `_is_filled_trail_stop` already draws).
+
+    R RULE (scale-ins): a position's risk is the sum over its entry lots of
+    (lot filled qty x |lot fill price - that lot's own initial stop|), and
+    R = realised P&L / that total risk (`entry_risk_dollars`, `r_multiple`).
+    If ANY lot lacks a readable initial stop, or its stop is on the wrong side
+    of entry, R is None ("R unknown"); another lot's stop is never substituted.
+    A single-lot position gives the same R as `r_multiple()`. `initial_stop`
+    (first lot's) is informational only and must not be used to compute R.
+
+    A chain with no `stop_loss` on any entry row IS returned, with
+    `initial_stop=None`; the caller skips it rather than inventing a
+    denominator, and the distinction is worth preserving for the caller's
+    own reporting.
+    """
+    opens, exits, direction = _split_chain(rows)
+    if not opens or direction is None or not exits:
+        return None
+
+    open_qty = sum(_executed_qty(r) for r in opens)
+    exit_qty = sum(_executed_qty(r) for r in exits)
+    if open_qty <= 0 or exit_qty <= 0:
+        return None
+    if exit_qty + 1e-6 < open_qty:
+        return None  # still open — outcome is not known yet
+
+    def _vwap(chain: list[dict]) -> float:
+        total_qty = sum(_executed_qty(r) for r in chain)
+        if total_qty <= 0:
+            return 0.0
+        return sum(_executed_qty(r) * _executed_price(r) for r in chain) / total_qty
+
+    entry_price = _vwap(opens)
+    exit_price = _vwap(exits)
+    if entry_price <= 0 or exit_price <= 0:
+        return None
+
+    initial_stop: float | None = None
+    for row in opens:
+        stop = recorded_initial_stop(row)
+        if stop > 0:
+            initial_stop = stop
+            break
+
+    signed_qty = open_qty if direction == "long" else -open_qty
+    risk = entry_risk_dollars(opens, direction)
+    r_value = round((exit_price - entry_price) * signed_qty / risk, 2) if risk else None
+
+    decision_id = next(
+        (row.get("decision_id") for row in opens if row.get("decision_id")),
+        None,
+    )
+    position_id = next(
+        (row.get("position_id") for row in rows if row.get("position_id")),
+        "",
+    )
+    return ClosedPosition(
+        position_id=str(position_id or ""),
+        symbol=str(opens[0].get("symbol") or "").strip().upper(),
+        direction=direction,
+        decision_id=decision_id,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        initial_stop=initial_stop,
+        qty=open_qty if direction == "long" else -open_qty,
+        opened_at=str(opens[0].get("timestamp") or ""),
+        closed_at=str(exits[-1].get("timestamp") or ""),
+        entry_risk_dollars=risk,
+        r_multiple=r_value,
+    )
+
+
+def recorded_initial_stop(row: dict | None) -> float:
+    """The stop AT ENTRY, even after later write-backs of the live level.
+
+    Prefers `initial_stop_loss` when that column is present on the row.
+    A present-but-empty value is 0 — it must not fall back to `stop_loss`,
+    because after a write-back that column is the live level, and a row
+    that opened with no stop must not mint an entry bet from a later
+    repair. Test doubles that omit the key entirely still fall back to
+    `stop_loss` (legacy shape, entry == live). Never invents a price.
+    """
+    if not row:
+        return 0.0
+    if "initial_stop_loss" in row:
+        return classify_stop_price(row.get("initial_stop_loss"))[1]
+    return classify_stop_price(row.get("stop_loss"))[1]

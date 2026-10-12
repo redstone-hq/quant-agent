@@ -31,10 +31,8 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
     reason, without a row per stock per tick. Recording only: nothing
     here reads the record back to decide anything but whether to write.
     """
-    from src.execution.stop_records import (
-        recorded_initial_stop,
-        replace_stop_and_record,
-    )
+    from src.execution.stop_records import replace_stop_and_record
+    from src.quantities import recorded_initial_stop
     from src.execution.exit_path_records import (
         last_trail_states,
         record_trail_code_census,

@@ -9,7 +9,8 @@ erased.
 
 import pytest
 
-from src.execution.stop_records import recorded_initial_stop, write_back_stop_loss
+from src.execution.stop_records import write_back_stop_loss
+from src.quantities import recorded_initial_stop
 from src.conviction_ledger import SeatStance
 from src.storage.db import Database
 

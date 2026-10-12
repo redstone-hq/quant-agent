@@ -13,9 +13,9 @@ import {
   longestSpellBelowBest,
   monthLabel,
   profitSeries,
-  signedMoney,
+  signedR,
   stampToEpochSeconds,
-  toDollars,
+  toR,
   trendGlyph,
   waterfall,
   zeroCrossings,
@@ -46,7 +46,6 @@ function response(overrides: Partial<AnalystScorecardResponse> = {}): AnalystSco
     as_of: "2026-08-31T00:00:00+00:00",
     state: "empty",
     read_error: null,
-    risk_dollars_per_call: 100,
     resolved_calls_total: 0,
     months: [],
     analysts: [],
@@ -56,12 +55,11 @@ function response(overrides: Partial<AnalystScorecardResponse> = {}): AnalystSco
 }
 
 describe("plain-language formatting", () => {
-  it("always signs money and never emits an R unit", () => {
-    expect(signedMoney(210)).toBe("+$210");
-    expect(signedMoney(-60)).toBe("−$60");
-    expect(signedMoney(0)).toBe("$0");
-    expect(signedMoney(null)).toBe("—");
-    expect(signedMoney(1234.6)).toBe("+$1,235");
+  it("always signs R and shows one decimal", () => {
+    expect(signedR(2.1)).toBe("+2.1R");
+    expect(signedR(-0.6)).toBe("−0.6R");
+    expect(signedR(0)).toBe("0.0R");
+    expect(signedR(null)).toBe("—");
   });
 
   it("pairs every direction with a glyph so colour is never the only cue", () => {
@@ -72,8 +70,8 @@ describe("plain-language formatting", () => {
   });
 
   it("converts the backend's R into the page's worked-example dollars", () => {
-    expect(toDollars(2.4, 100)).toBe(240);
-    expect(toDollars(null, 100)).toBeNull();
+    expect(toR(2.4, 100)).toBe(240);
+    expect(toR(null, 100)).toBeNull();
   });
 
   it("shows raw counts next to any percentage — spec §9.5 item 8", () => {
@@ -246,7 +244,7 @@ describe("the committed example", () => {
     const slopes = buildDeskSlopes(
       ANALYST_SCORECARD_EXAMPLE.analysts,
       ANALYST_SCORECARD_EXAMPLE.months,
-      ANALYST_SCORECARD_EXAMPLE.risk_dollars_per_call,
+      1,
     );
     // `news` gets more accurate while losing money — the single most
     // important thing the page shows, so the example must contain it.
