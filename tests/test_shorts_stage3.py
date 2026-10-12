@@ -682,7 +682,7 @@ def test_short_level_backed_stop_inside_one_atr_is_floored_at_one_atr():
                 entry=_S_ENTRY,
                 stop=252.0,
                 target=_S_TARGET_LEVEL,
-                atr_14=10.0,  # 1 ATR = $10 (4%): the module's $5 ATR floors at 2%, under the owner's risk floor at the 20% weight cap
+                atr_14=10.0,  # 1 ATR = $10 (4%): the $5 ATR floors at 2%, under the owner risk floor at the weight cap
                 computed=[_S_TARGET_LEVEL, 252.0],
             )
         ],

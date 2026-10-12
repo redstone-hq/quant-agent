@@ -891,10 +891,18 @@ def _rotation_buy_leg_projected_refusal(
     # gate the held name could be sold and the replacement buy then refused
     # for `below_owner_min_risk`, stranding the cash.
     checked.append("below_owner_min_risk")
-    from src.execution.scale_in import held_signed_qty
     from src.risk.min_risk import min_risk_shortfall
 
-    held_signed = held_signed_qty(projected_positions, symbol)
+    # Broker-signed qty of the symbol on the projected book; read inline so
+    # this module does not widen the set reaching the broker seam.
+    held_signed = next(
+        (
+            float(getattr(p, "qty", 0) or 0)
+            for p in projected_positions
+            if str(getattr(p, "symbol", "") or "").upper() == str(symbol or "").upper()
+        ),
+        0.0,
+    )
     held_same = max(0.0, -held_signed if is_short else held_signed)
     floor_pct = _min_position_risk_pct(pipeline)
     buy_stop = getattr(buy_decision, "stop_loss", None)

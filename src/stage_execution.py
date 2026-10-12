@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.delever.risk_number import _optional_risk_number
 from src.entry_evidence import (
     record_scale_in_own_verdict as _record_scale_in_own_verdict,
     resolve_entry_pins as _resolve_entry_pins,
@@ -891,7 +892,7 @@ class ExecutionStage:
                     floor_check = min_risk_shortfall(
                         position_notional=(held_long + qty) * sizing_price,
                         entry=sizing_price,
-                        stop=stop_price,
+                        stop=_optional_risk_number(stop_price),
                         equity=total_value,
                         floor_pct=floor_pct,
                     )
@@ -974,7 +975,7 @@ class ExecutionStage:
                         floor_check = min_risk_shortfall(
                             position_notional=(held_short + qty) * sizing_price,
                             entry=sizing_price,
-                            stop=stop_price,
+                            stop=_optional_risk_number(stop_price),
                             equity=total_value,
                             floor_pct=floor_pct,
                         )

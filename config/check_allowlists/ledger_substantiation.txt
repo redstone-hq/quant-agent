@@ -19,7 +19,6 @@ src.pipeline_sizing._DEFAULT_RISK_BUDGET_PCT	src/pipeline_sizing.py@`# connected
 src.pipeline_stages.LEVELS_DEGRADED_RUN_EMPTY_SHARE	src/pipeline_stages.py@`STARTER_POSITION_RISK_PCT,`	dead
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.decisions.PromptDecisions._build_pm_recent_decisions(limit)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
-src.prompt_facts.decisions.PromptDecisions._build_pm_recent_decisions(limit)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.decisions.PromptDecisions._build_rm_recent_verdicts(limit)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.decisions.PromptDecisions._build_rm_recent_verdicts(limit)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(min_top_mover_dollar_volume_m)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
@@ -29,7 +28,6 @@ src.prompt_facts.pm_facts._PM_PROFILE_SYMBOL_CAP	src/pipeline.py@`RiskVerdict,`	
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(lookback_days)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(min_proposals)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
-src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(min_proposals)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.review.calibration.ReviewCalibration._build_calibration_note(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.calibration.ReviewCalibration._build_calibration_note(lookback_days)	src/stage_decision.py::DecisionStage.run	no_mention
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
