@@ -69,7 +69,7 @@ class DeleverMixin:
         return DeleverEnforce(
             is_margin_floor_breach=getattr(self, "_is_margin_floor_breach", None),
             open_exit_relief=getattr(self, "_open_exit_relief", None),
-            resolve_gross_ceiling=getattr(self, "_resolve_gross_ceiling", None),
+            resolve_gross_ceiling=self._resolve_gross_ceiling,  # a class method: never absent on a real pipeline
             submit_gross_ceiling_trims=getattr(self, "_submit_gross_ceiling_trims", None),
             sweep_symbol=getattr(self, "_sweep_symbol", None),
             config=getattr(self, "config", None),
@@ -102,7 +102,7 @@ class DeleverMixin:
             full_sell_qty=getattr(self, "_full_sell_qty", None),
             live_delever_price=getattr(self, "_live_delever_price", None),
             record_delever_shortfall=getattr(self, "_record_delever_shortfall", None),
-            resolve_gross_ceiling=getattr(self, "_resolve_gross_ceiling", None),
+            resolve_gross_ceiling=self._resolve_gross_ceiling,  # a class method: never absent on a real pipeline
             submit_protected_sell=getattr(self, "_submit_protected_sell", None),
             broker=getattr(self, "broker", None),
             config=getattr(self, "config", None),
