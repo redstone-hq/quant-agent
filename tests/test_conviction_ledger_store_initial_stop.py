@@ -16,21 +16,32 @@ def db(tmp_path):
 
 def test_scorer_uses_entry_stop_after_trail_above_entry(db):
     db.insert_trade(
-        symbol="AAPL", action="BUY", qty=10, price=100.0, reasoning="entry",
-        run_id="run-1", stop_loss=90.0, fill_status="filled", decision_id="dec-1",
+        symbol="AAPL",
+        action="BUY",
+        qty=10,
+        price=100.0,
+        reasoning="entry",
+        run_id="run-1",
+        stop_loss=90.0,
+        fill_status="filled",
+        decision_id="dec-1",
     )
     db.update_open_stop_loss("AAPL", 105.0, action="BUY")  # trailed above entry
     db.insert_trade(
-        symbol="AAPL", action="SELL", qty=10, price=110.0, reasoning="exit",
-        run_id="run-2", fill_status="filled",
+        symbol="AAPL",
+        action="SELL",
+        qty=10,
+        price=110.0,
+        reasoning="exit",
+        run_id="run-2",
+        fill_status="filled",
     )
     db.record_seat_stances(
-        run_id="run-1", decision_id="dec-1",
+        run_id="run-1",
+        decision_id="dec-1",
         stances=[SeatStance(seat="technical", symbol="AAPL", stance="buy")],
     )
-    row = db.conn.execute(
-        "SELECT stop_loss, initial_stop_loss FROM trades WHERE action = 'BUY'"
-    ).fetchone()
+    row = db.conn.execute("SELECT stop_loss, initial_stop_loss FROM trades WHERE action = 'BUY'").fetchone()
     assert (row["stop_loss"], row["initial_stop_loss"]) == (105.0, 90.0)
 
     result = db.conviction.resolve_conviction_ledger()
