@@ -873,12 +873,7 @@ Accepted live configuration:
 - maximum candidates per tick: **5**;
 - approved bearish-expression ETFs: `SH`, `SDS`, `PSQ`, `SQQQ`.
 
-Bearish expression currently runs through approved inverse ETFs. **Direct stock
-shorting and margin are authorized as of 2026-08-27** (owner ratification; see
-`docs/OUTCOME.md`) and are pending implementation — the broker layer contains no
-short-selling capability at all today. The prior exclusion was an engineering scope
-decision recorded here as an accepted constraint; it was never an owner requirement.
-Options and theta strategies remain outside the accepted architecture.
+Bearish views are expressed with direct short sales, which are live (owner authorization 2026-08-27; `config/prompts/portfolio_manager.md` states shorts are enabled). Inverse and leveraged funds are refused by the universe screen (`src/universe_screen.py`, the fund rule citing SEC Rule 18f-4), so the inverse-ETF expression is retired. Options and theta strategies remain outside the accepted architecture.
 
 *Correction (2026-08-30):* the "pending implementation" / "no short-selling
 capability at all today" claim above is now false. Real short selling was built in
