@@ -54,6 +54,7 @@ from src.trader_feed.common import (
     _ticker_co,
     _wrap_details,
 )
+from src.trader_feed.trade_block import append_trade_block
 from src.trader_feed.decision import (
     _append_blocked,
     _append_book,
@@ -200,6 +201,11 @@ def _format_position_review(mode: str, result: dict, elapsed: float) -> str:
 
     _new_block(detail_lines, _render_gate_and_outcome)
     _wrap_details(lines, detail_lines)
+
+    # Close review only, and never on a stored replay (its "today" would be
+    # the wrong day): today's closed trades, all figures from trade_review.
+    if mode == "close" and "_positions" not in result:
+        _new_block(lines, append_trade_block)
 
     _new_block(lines, _append_footer, snap, elapsed)
     return "\n".join(lines)

@@ -177,7 +177,9 @@ from src.trader_feed.stored import (  # noqa: F401
     render_stored_session_report,
 )
 
-_SUBMODULES = tuple(f"src.trader_feed.{m}" for m in ("common", "decision", "evening", "intraday", "dispatch", "stored"))
+_SUBMODULES = tuple(
+    f"src.trader_feed.{m}" for m in ("common", "decision", "evening", "intraday", "dispatch", "stored", "trade_block")
+)
 
 # --- Patch mirroring. Tests patch names on `src.trader_feed` (`_DB_PATH`,
 # `et_now`, `_read_run`, `_lookup_company_profiles`, ...) and expect the moved
