@@ -207,10 +207,9 @@ def test_paid_retry_merge_does_not_change_size_or_invent_catalyst():
 
 
 def test_actionable_tech_without_falsifier_does_not_validate():
-    with pytest.raises(ValidationError, match="thesis_invalid_if"):
-        TechAnalysisResult(**_tech(thesis_invalid_if=""))
-    with pytest.raises(ValidationError, match="thesis_invalid_if"):
-        TechAnalysisResult(**_tech(thesis_invalid_if=SOFT_EXIT_UNKNOWN))
+    # Recorded as a gap, not rejected, since 2026-10-12 (XOM incident).
+    assert "thesis_invalid_if" in TechAnalysisResult(**_tech(thesis_invalid_if="")).missing_levels
+    assert "thesis_invalid_if" in TechAnalysisResult(**_tech(thesis_invalid_if=SOFT_EXIT_UNKNOWN)).missing_levels
     ok = TechAnalysisResult(**_tech())
     assert stated_soft_exit(ok.thesis_invalid_if)
 

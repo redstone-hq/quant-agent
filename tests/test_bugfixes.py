@@ -1853,20 +1853,21 @@ def test_tech_analysis_rr_handles_malformed_geometry():
 
 def test_tech_analysis_thesis_invalid_if_required_on_actionable():
     """Actionable ratings need a real I'll-sell-if. Neutrals may omit."""
-    with pytest.raises(ValidationError, match="thesis_invalid_if"):
-        TechAnalysisResult(
-            symbol="SPY",
-            rating="buy",
-            entry_price=500,
-            stop_loss=490,
-            reference_target=525,
-            support_levels=[490.0],
-            resistance_levels=[525.0],
-            setup_type="range",
-            expected_horizon_sessions=10,
-            reasoning="x",
-            reasoning_chain=_trc(),
-        )
+    # Recorded as a gap, not rejected, since 2026-10-12 (XOM incident).
+    missing = TechAnalysisResult(
+        symbol="SPY",
+        rating="buy",
+        entry_price=500,
+        stop_loss=490,
+        reference_target=525,
+        support_levels=[490.0],
+        resistance_levels=[525.0],
+        setup_type="range",
+        expected_horizon_sessions=10,
+        reasoning="x",
+        reasoning_chain=_trc(),
+    )
+    assert missing.missing_levels == ["thesis_invalid_if"]
     r = TechAnalysisResult(
         symbol="SPY",
         rating="buy",

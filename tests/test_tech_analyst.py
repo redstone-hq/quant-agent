@@ -516,7 +516,11 @@ def test_schema_invalid_row_is_retried_then_marked_failed(
                 "symbol": "SPY",
                 "rating": "buy",
                 "conviction": "high",
-                # entry_price omitted -> model validator rejects a `buy` without it
+                # Stop ABOVE entry on a buy: a contradiction the validator still
+                # rejects. (A missing entry is recorded, not rejected, since
+                # 2026-10-12 — tests/test_tech_missing_levels_reach_pm.py.)
+                "entry_price": 100.0,
+                "stop_loss": 105.0,
                 "reasoning_chain": {
                     "trend": "x",
                     "momentum": "x",
@@ -544,13 +548,13 @@ def test_schema_invalid_row_is_retried_then_marked_failed(
 
 
 @patch("anthropic.Anthropic")
-def test_actionable_row_missing_falsifier_is_retried_then_filled(
+def test_actionable_row_missing_falsifier_is_recorded_not_retried(
     mock_cls,
     sample_indicators,
     sample_bars,
 ):
-    """A buy that omits thesis_invalid_if is invalid. One paid retry that
-    states a real falsifier recovers the symbol. Nothing is invented."""
+    """A buy that omits thesis_invalid_if is kept with the gap RECORDED
+    (2026-10-12, XOM incident): no paid retry, nothing invented."""
     missing = json.loads(_valid_response_for("SPY"))[0]
     missing.pop("thesis_invalid_if")
     filled = json.loads(_valid_response_for("SPY"))[0]
@@ -573,8 +577,8 @@ def test_actionable_row_missing_falsifier_is_retried_then_filled(
     results, _ = agent.analyze_batch(_sym_data("SPY", sample_bars, sample_indicators))
 
     assert results["SPY"] is not None
-    assert results["SPY"].thesis_invalid_if.startswith("Price closes below")
-    assert calls["n"] == 2
+    assert results["SPY"].missing_levels == ["thesis_invalid_if"]
+    assert calls["n"] == 1
 
 
 @patch("anthropic.Anthropic")

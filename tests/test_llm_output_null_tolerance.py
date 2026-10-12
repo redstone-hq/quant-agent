@@ -158,14 +158,14 @@ def test_actionable_missing_soft_exit_is_refused_not_kept_as_unknown():
     2026-09-16 coerce-to-unknown kept the analysis and fed Risk a blank
     name. Never-blank: the object does not validate. Neutral may omit.
     """
-    with pytest.raises(ValidationError):
-        TechAnalysisResult(**{k: v for k, v in _tech().items() if k != "thesis_invalid_if"})
-    with pytest.raises(ValidationError):
-        TechAnalysisResult(**_tech(thesis_invalid_if=None))
-    with pytest.raises(ValidationError):
-        TechAnalysisResult(**_tech(thesis_invalid_if=""))
-    with pytest.raises(ValidationError):
-        TechAnalysisResult(**_tech(thesis_invalid_if=SOFT_EXIT_UNKNOWN))
+    # 2026-10-12 (XOM incident): kept with the gap RECORDED, never dropped.
+    for kept in (
+        TechAnalysisResult(**{k: v for k, v in _tech().items() if k != "thesis_invalid_if"}),
+        TechAnalysisResult(**_tech(thesis_invalid_if=None)),
+        TechAnalysisResult(**_tech(thesis_invalid_if="")),
+        TechAnalysisResult(**_tech(thesis_invalid_if=SOFT_EXIT_UNKNOWN)),
+    ):
+        assert kept.missing_levels == ["thesis_invalid_if"]
     omitted_neutral = TechAnalysisResult(
         **{
             k: v
@@ -370,16 +370,11 @@ def test_empty_string_matching_the_fields_own_default_is_not_double_processed():
 
 LOAD_BEARING_NULLS = [
     # (label, callable that must raise)
-    ("tech.stop_loss", lambda: TechAnalysisResult(**_tech(stop_loss=None))),
-    ("tech.entry_price", lambda: TechAnalysisResult(**_tech(entry_price=None))),
-    # reference_target and the AI-named level lists are NOT load-bearing
-    # (owner rule 2026-10-09): a null is kept and recorded as "no target" /
-    # "no level named"; see tests/test_analysis_optional_levels.py.
-    ("tech.setup_type", lambda: TechAnalysisResult(**_tech(setup_type=None))),
-    ("tech.expected_horizon", lambda: TechAnalysisResult(**_tech(expected_horizon_sessions=None))),
-    ("tech.thesis_invalid_if_null", lambda: TechAnalysisResult(**_tech(thesis_invalid_if=None))),
-    ("tech.thesis_invalid_if_empty", lambda: TechAnalysisResult(**_tech(thesis_invalid_if=""))),
-    ("tech.thesis_invalid_if_unknown", lambda: TechAnalysisResult(**_tech(thesis_invalid_if=SOFT_EXIT_UNKNOWN))),
+    # reference_target, the AI-named level lists (owner rule 2026-10-09) and
+    # entry/stop/setup_type/horizon/thesis_invalid_if (2026-10-12, XOM
+    # incident) are NOT load-bearing on the tech read: a null is kept and
+    # RECORDED in `missing_levels`; sizing uses the live price and the stop
+    # is read from the bars. See tests/test_tech_missing_levels_reach_pm.py.
     # Required fields: no default exists, so there is nothing safe to fall back to.
     ("tech.rating", lambda: TechAnalysisResult(**_tech(rating=None))),
     ("tech.symbol", lambda: TechAnalysisResult(**_tech(symbol=None))),
@@ -461,10 +456,9 @@ def test_neutral_rating_still_clears_prices_rather_than_inventing_them():
 
 
 def test_null_coercion_is_recorded_in_parse_telemetry():
-    """Actionable null still tallies, then the after-validator refuses the name."""
+    """Actionable null still tallies; the gap is then recorded on the read."""
     assert parse_telemetry.total_null_coercions() == 0
-    with pytest.raises(ValidationError):
-        TechAnalysisResult(**_tech(thesis_invalid_if=None))
+    assert TechAnalysisResult(**_tech(thesis_invalid_if=None)).missing_levels == ["thesis_invalid_if"]
     snap = parse_telemetry.snapshot()
     assert snap.get(("TechAnalysisResult", "thesis_invalid_if")) == 1
     assert "TechAnalysisResult.thesis_invalid_if" in parse_telemetry.describe_null_coercions()
