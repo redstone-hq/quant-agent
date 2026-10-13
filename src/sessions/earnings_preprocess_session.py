@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 class EarningsPreprocessSession:
     """Earnings pre-processing session (moved verbatim from TradingPipeline)."""
 
+    # No broker stop audit in this session; see src/sessions/stop_audit.py.
+    AUDITS_BROKER_STOPS = False
+
     def __init__(
         self,
         *,
