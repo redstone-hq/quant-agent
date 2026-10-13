@@ -1518,7 +1518,6 @@ def test_held_for_orders_on_day_sliver_is_covered_when_broker_already_holds_it()
             symbol="BRK-B",
             qty=0.4393,
             stop_price=485.0,
-            limit_price=470.0,
             side="sell",
             leg="DAY fractional",
         )

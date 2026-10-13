@@ -197,7 +197,6 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None = None,
         side: str,
         leg: str,
     ) -> dict | None:
@@ -229,7 +228,6 @@ class StopPlacer:
                     symbol=symbol,
                     qty=qty,
                     stop_price=stop_price,
-                    limit_price=limit_price,
                     side=side,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -336,7 +334,6 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None = None,
         side: str,
     ) -> dict | None:
         """Spec §11.1 guard 1 — submit protective stop coverage for `qty`,
@@ -408,7 +405,6 @@ class StopPlacer:
                 symbol=symbol,
                 qty=qty,
                 stop_price=stop_price,
-                limit_price=limit_price,
                 side=side,
                 leg="GTC",
             )
@@ -428,7 +424,6 @@ class StopPlacer:
             symbol=symbol,
             qty=frac,
             stop_price=stop_price,
-            limit_price=limit_price,
             side=side,
             leg="DAY fractional",
         )
@@ -449,7 +444,6 @@ class StopPlacer:
                 symbol=symbol,
                 qty=whole,
                 stop_price=stop_price,
-                limit_price=limit_price,
                 side=side,
                 leg="GTC whole-share",
             )
@@ -491,7 +485,6 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None = None,
         *,
         side: str = "sell",
     ) -> dict:
@@ -504,16 +497,16 @@ class StopPlacer:
         PRIMARY: a stop-MARKET (`StopOrderRequest`) — owner ratified
         2026-09-25 for a GUARANTEED exit. An elected market stop fills at the
         next print instead of resting unfilled past a limit on a gap, which
-        is the exposure the stop exists to close. `limit_price` is therefore
-        IGNORED on the primary order (a market stop has no limit).
+        is the exposure the stop exists to close. A market stop has no
+        limit, so this method takes no limit price at all (removed
+        2026-10-13; it used to be accepted and silently ignored).
 
         NO FALLBACK. The stop-LIMIT fallback (and its 3% buffer) was deleted
         2026-10-13: it was taken 0 times in 60 recorded placements. A broker
         refusal of the stop-MARKET now RAISES like any other refusal, so
         `_submit_protective_stop_retrying` retries it and, if every attempt
         fails, logs CRITICAL "UNPROTECTED" and returns None — the caller's
-        owner alert and the coverage repair then take over. `limit_price` is
-        accepted for caller compatibility and ignored.
+        owner alert and the coverage repair then take over.
 
         TIME IN FORCE IS DERIVED FROM `qty`, NOT PASSED IN (spec §11.1
         hybrid fractional stops). Whole share counts get GTC exactly as
@@ -640,7 +633,6 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None = None,
         side: str = "sell",
     ) -> list[dict]:
         """Submit the protective stop LEG(S) covering `qty`, all-or-nothing.
@@ -687,7 +679,6 @@ class StopPlacer:
                     symbol=symbol,
                     qty=leg_qty,
                     stop_price=stop_price,
-                    limit_price=limit_price,
                     side=side,
                 )
                 # A kill-switch refusal does not raise (`id=None` dict) —
@@ -828,7 +819,6 @@ class StopPlacer:
                     symbol=symbol,
                     qty=spec["qty"],
                     stop_price=spec["stop_price"],
-                    limit_price=spec.get("limit_price"),
                     side=side,
                 )
                 record_guarded_pass(self, "stop_place.restore_stop_orders.resubmit", context={"symbol": symbol})

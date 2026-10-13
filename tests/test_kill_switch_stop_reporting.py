@@ -63,7 +63,6 @@ def test_whole_share_kill_switch_block_is_never_reported_as_placed(tmp_path):
         symbol="AAA",
         qty=10,
         stop_price=90.0,
-        limit_price=None,
         side="sell",
     )
     assert result is None
@@ -78,7 +77,6 @@ def test_fractional_hybrid_kill_switch_block_is_never_reported_as_placed(tmp_pat
         symbol="AAA",
         qty=10.5,
         stop_price=90.0,
-        limit_price=None,
         side="sell",
     )
     assert result is None

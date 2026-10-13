@@ -545,7 +545,6 @@ def test_reprotect_residual_picks_highest_stop_for_a_long_unchanged():
         symbol="AMZN",
         qty=41.0,
         stop_price=248.5,
-        limit_price=None,
         side="sell",
     )
 
@@ -570,7 +569,6 @@ def test_reprotect_residual_picks_lowest_stop_for_a_short():
         symbol="AMZN",
         qty=41.0,
         stop_price=252.5,
-        limit_price=None,
         side="buy",
     )
 
