@@ -345,6 +345,30 @@ def avg_dollar_volume(
     return sum(values) / len(values)
 
 
+def sp_traded_value(bars: Iterable[Any]) -> float | None:
+    """S&P's annual traded value: average close x total volume over `bars`.
+
+    S&P DJI's float-adjusted liquidity ratio (2024-12-09 clarification)
+    multiplies the window's AVERAGE closing price by its TOTAL share volume,
+    not the sum of each day's close x volume; the caller slices the window.
+    A bar whose close or volume is not a real, finite, non-negative number is
+    dropped, as in `dollar_volumes`, which can only lower the total (stricter).
+    None when no usable bar is left: no trading to measure, never 0.0.
+    """
+    closes: list[float] = []
+    volume = 0.0
+    for bar in bars or []:
+        close = _finite(_field(bar, "close"))
+        shares = _finite(_field(bar, "volume"))
+        if close is None or shares is None or close < 0 or shares < 0:
+            continue
+        closes.append(close)
+        volume += shares
+    if not closes:
+        return None
+    return (sum(closes) / len(closes)) * volume
+
+
 def collapse_stances(values: Iterable[Any]) -> str | None:
     """Reduce several per-source stance labels to one, or `None` if there is
     nothing usable to reduce.

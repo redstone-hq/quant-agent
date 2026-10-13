@@ -615,6 +615,23 @@ def test_select_for_run_rotates_least_recently_offered_first():
 # ------------------------------------------------------- pipeline wiring ----
 
 
+def _fake_listing(**records):
+    from decimal import Decimal
+
+    from src.data.nasdaq_listing import Listing, ListingRecord
+
+    base = {"ACME": ListingRecord("ACME", "Acme", Decimal("5e9"), False, "Industrials")}
+    base.update(records)
+    return Listing({k: v for k, v in base.items() if v is not None})
+
+
+@pytest.fixture(autouse=True)
+def _side_door_listing(monkeypatch):
+    """The side door reads size, sector and fund type from the Nasdaq listing,
+    never the network in a test: one stand-in listing per test."""
+    monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing())
+
+
 def _pipeline(tmp_path, *, enabled=True):
     pipeline = build_pipeline(broker=MagicMock(), market=MagicMock(), sec_form4_provider=MagicMock())
     pipeline.config = SimpleNamespace(
@@ -695,6 +712,33 @@ def test_side_door_keeps_its_old_gate_when_off(tmp_path, monkeypatch):
     assert ok is True  # 30 bars would fail the screen's one-year history
     pipeline.broker.get_transient_equity_eligibility.assert_called_once()
     pipeline.sec_form4_provider._get.assert_not_called()
+
+
+def test_side_door_reads_company_size_from_the_listing_not_yahoo(tmp_path, monkeypatch):
+    """Yahoo says $5B; the listing has no size: the listing decides, so the
+    name is dropped as size unknown and Yahoo is never asked."""
+    from src.data.nasdaq_listing import ListingRecord
+
+    no_size = ListingRecord("ACME", "Acme", None, False, "Industrials")
+    monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing(ACME=no_size))
+    pipeline = _pipeline(tmp_path)
+    ok, reason, _ = pipeline.admission._evaluate_external_admission_gates("ACME")
+    assert ok is False
+    assert reason == "market_cap_unknown"
+    pipeline.market.get_company_profile.assert_not_called()
+
+
+def test_side_door_keeps_the_fund_flag(tmp_path, monkeypatch):
+    """A fund reaching the side door is judged as a fund, never dropped as a
+    stock of unknown size."""
+    from src.data.nasdaq_listing import ListingRecord
+
+    fund = ListingRecord("ACME", "Acme Fund", None, True, None)
+    monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing(ACME=fund))
+    pipeline = _pipeline(tmp_path)
+    ok, reason, _ = pipeline.admission._evaluate_external_admission_gates("ACME")
+    assert ok is False
+    assert reason == "fund_category_not_listed"
 
 
 def test_nomination_door_uses_the_screen(tmp_path, monkeypatch):

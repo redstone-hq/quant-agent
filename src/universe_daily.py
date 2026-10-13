@@ -5,7 +5,9 @@ equity ETFs, run fresh every trading day, dropping only clearly dead names,
 with every dropped name recorded with its reason. The "is anything
 happening" cut-off is not designed yet, so this module only RECORDS: it runs
 the existing eligibility checks of `src/universe_screen.py` (asset, history,
-price, spread, volatility, size, sector, plain equity fund, takeover) over the
+price, spread, volatility, S&P liquidity ratio, size, sector, plain equity fund,
+takeover; the session screen runs the liquidity ratio first, here the free
+bar checks run in the bars pass and the ratio opens the per-name pass) over the
 whole Alpaca active US-equity asset list (read through the read-only broker
 the API uses) and writes one durable record per
 name. It sends nothing to any AI, admits nothing, removes nothing and never
@@ -350,7 +352,9 @@ class _DailyScreen:
                 get_role=self.get_role,
             )
             try:
-                result = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                result = screen_symbol(
+                    symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol], today=self.run.today
+                )
                 failures, measured = result.failures, result.measured
                 kind = None
                 if self.get_yahoo is not None and failures == ["fund_category_not_listed"]:
@@ -360,7 +364,9 @@ class _DailyScreen:
                     # sector, so Yahoo is read only for a name that passed it.
                     held = {**seen["profile"], "sector": _SECTOR_PENDING}
                     sources.get_profile = lambda s, _p=held: _p
-                    rerun = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                    rerun = screen_symbol(
+                        symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol], today=self.run.today
+                    )
                     measured = {**rerun.measured, "sector": "Unknown"}
                     if rerun.failures:
                         failures = ["unresolved_sector", *rerun.failures]

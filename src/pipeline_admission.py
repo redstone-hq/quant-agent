@@ -215,19 +215,24 @@ class AdmissionService:
 
     def _universe_screen_sources(self, deadline: float, listed: dict | None = None):
         """The screen's read path: broker asset directory, yfinance bars and
-        company profile, SEC filing history. Every source is read-only."""
+        Nasdaq listing for size, sector and fund type, SEC filing history. Every source is read-only."""
         from src.data.sec_filings import screen_readers
         from src.sector_reference import _canonicalize_sector
         from src.universe_screen import HISTORY_FETCH_DAYS, ScreenSources
 
-        def _profile(symbol: str):
-            raw = self.market.get_company_profile(symbol)
-            if raw is None:
-                return None
-            sector = _canonicalize_sector(raw.get("sector_raw"))
-            if sector == "Unknown":
-                sector = _get_sector(symbol) or "Unknown"
-            return {"market_cap_usd": raw.get("market_cap_usd"), "sector": sector}
+        # Company value and the fund flag come from the same Nasdaq listing the
+        # daily record reads, never Yahoo: one source for every admission path.
+        # An unavailable listing leaves every profile unreadable (undecided).
+        from src.data.nasdaq_fetch import fetch_json
+        from src.data.nasdaq_listing import ListingUnavailable, load_listing
+        from src.universe_daily import _profile_reader
+
+        try:
+            listing = load_listing(fetch=fetch_json)
+        except ListingUnavailable as exc:
+            logger.warning("universe screen: Nasdaq listing unavailable: %s", exc)
+            listing = None
+        _profile = _profile_reader(listing, _canonicalize_sector)
 
         provider = getattr(self, "sec_form4_provider", None)
         if provider is None:
@@ -262,6 +267,7 @@ class AdmissionService:
         import time as _time
 
         from src.universe_screen import ScreenThresholds, screen_symbol
+        from src.util.time import et_today
 
         # Only the SEC reads take a deadline (the broker and yfinance reads
         # carry their own timeouts): at most the ticker-map refresh plus the
@@ -274,6 +280,7 @@ class AdmissionService:
                 self.config,
                 self._constructor_cfg_or_none(),
             ),
+            today=et_today(),
         )
         if not result.passed:
             logger.info(

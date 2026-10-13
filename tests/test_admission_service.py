@@ -11,11 +11,30 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.config import UniverseScreenConfig
 from src.models import OHLCV, TradeDecision
 from src.admission_build import AdmissionSlot
 from src.pipeline_admission import AdmissionService
 from tests.fake_event_journal import InMemoryEventJournal
+
+
+def _fake_listing(**records):
+    from decimal import Decimal
+
+    from src.data.nasdaq_listing import Listing, ListingRecord
+
+    base = {"ACME": ListingRecord("ACME", "Acme", Decimal("5e9"), False, "Industrials")}
+    base.update(records)
+    return Listing({k: v for k, v in base.items() if v is not None})
+
+
+@pytest.fixture(autouse=True)
+def _side_door_listing(monkeypatch):
+    """The side door reads size, sector and fund type from the Nasdaq listing,
+    never the network in a test: one stand-in listing per test."""
+    monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing())
 
 
 def _bars(n=300, price=50.0):

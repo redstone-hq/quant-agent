@@ -7816,6 +7816,30 @@ numbers:
       between the first and last bar, and this only has to reach past a
       year. It never decides a verdict unless set BELOW a year, which would
       fail every symbol's history test visibly.
+  - id: src.universe_screen.SP_MIN_LIQUIDITY_RATIO
+    value: 0.75
+    status: sourced
+    site: src/universe_screen.py
+    source: >-
+      S&P Dow Jones Indices, 2023-01-04, update to S&P Composite 1500 eligibility:
+      "The FALR ratio eligibility requirement will be lowered from 1.00 to 0.75";
+      the float-adjusted liquidity ratio "must be greater than or equal to 0.75 at
+      the time of addition".
+      https://press.spglobal.com/2023-01-04-S-P-Dow-Jones-Indices-Announces-Update-to-S-P-Composite-1500-Market-Cap-Guidelines-and-Results-of-S-P-Composite-1500-Index-Consultation-on-Market-Capitalization-and-Liquidity-Eligibility-Criteria
+      (fetched 2026-10-13). Owner ruling 2026-10-13: this is the universe's
+      first filter. Denominator here is total market cap (no float source),
+      which can only lower the ratio.
+  - id: src.universe_screen.SP_LIQUIDITY_LOOKBACK_DAYS
+    value: 365
+    status: sourced
+    site: src/universe_screen.py
+    source: >-
+      S&P Dow Jones Indices, 2024-12-09, Float Adjusted Liquidity Ratio
+      clarification: annual dollar value traded is "the average closing price
+      multiplied by the historical volume over the 365 calendar days prior to
+      the evaluation date".
+      https://press.spglobal.com/2024-12-09-S-P-Dow-Jones-Indices-Float-Adjusted-Liquidity-Ratio-Clarification-for-Certain-U-S-Indices
+      (fetched 2026-10-13).
   - id: src.data.levels.STOP_LEVEL_BASIS_VERSION
     value: 1
     status: not-trade-governing
