@@ -51,6 +51,7 @@ def repair_stop_coverage(
     resting_stops: list | None = None,
     caller: str = "",
     market: Any = None,
+    close_breached: Callable[..., str | None] | None = None,
 ) -> bool:
     """Best-effort: re-place protective stop coverage on an uncovered
     position using the stop level recorded on its last opening row (BUY for
@@ -320,6 +321,7 @@ def repair_stop_coverage(
             recorded_level=stop_price,
             resting_stops=resting_stops,
             is_short=is_short,
+            closer_supplied=close_breached is not None,
         )
         if breach is None:
             return _execute_breached_stop(
@@ -330,6 +332,7 @@ def repair_stop_coverage(
                 is_short=is_short,
                 stop_price=exec_level,
                 level_source=level_source,
+                close_breached=close_breached,
                 stamped=stamped,
                 outcome=outcome,
                 rec=rec,
@@ -488,6 +491,7 @@ def _breach_blocker(
     recorded_level: float,
     resting_stops: list | None,
     is_short: bool,
+    closer_supplied: bool = False,
     **checks: Any,
 ) -> tuple[str | None, float, str]:
     """`(blocker, level, level_source)`: blocker None when the breach may be
@@ -501,6 +505,10 @@ def _breach_blocker(
     crossed, block execution.
     """
     blocker = _breach_precondition(**checks)
+    if blocker is None and not closer_supplied:
+        # The execution layer may not import the protection layer; the exit
+        # path is injected by a caller above both. None injected: fail closed.
+        blocker = "this caller supplied no exit path for a breached stop"
     levels = set()
     for spec in resting_stops or []:
         level = spec.get("stop_price") if isinstance(spec, dict) else None
@@ -608,48 +616,6 @@ def _working_exit_order(broker: Any, symbol: str, side: str) -> tuple[bool, str 
     return True, None
 
 
-class _RepairState:
-    """The get/set view `ProtectedSell` keeps its per-call refusal in; this
-    repair has no host pipeline (the watchdog must never build one)."""
-
-    def __init__(self) -> None:
-        self._values: dict = {}
-
-    def get(self, name: str):
-        return self._values.get(name)
-
-    def set(self, name: str, value) -> None:
-        self._values[name] = value
-
-
-def _protected_sell(broker: Any, db: Any, state: _RepairState):
-    """The desk's protected sell path, built from its standalone collaborators.
-
-    The same `ProtectedSell` every exit uses (write-ahead stop clear, fresh
-    position re-read and re-size, guarded submit, restore on failure), wired
-    the way `pipeline_protection._build_protected_sell` wires it, minus the
-    pipeline: each collaborator here is the static body that pipeline's shim
-    delegates to. `trim_book=None` runs the broker's own bound trim methods.
-    """
-    from src.protection.fill_reconciler import FillReconciler
-    from src.protection.owner_alerts import OwnerAlerts
-    from src.protection.protected_sell import ProtectedSell
-    from src.protection.sell_finalization import _WAL_SELL_SENTINEL
-    from src.protection.wal_restore_write import write_ahead_restore_row
-
-    def write_ahead(symbol, position_qty_before_sell, specs, *, side="sell"):
-        return write_ahead_restore_row(db, logger, _WAL_SELL_SENTINEL, symbol, position_qty_before_sell, specs, side)
-
-    return ProtectedSell(
-        broker=broker,
-        db=db,
-        alert_owner_exit_declined=OwnerAlerts._alert_owner_exit_declined,
-        order_accepted=FillReconciler._order_accepted,
-        write_ahead_protection_restore=write_ahead,
-        state=state,
-    )
-
-
 def _held_now(broker: Any, symbol: str, is_short: bool) -> float | None:
     """What a closing order may close right now, from a FRESH position read:
     the long for a sell, the short for a cover. None when the read fails."""
@@ -676,6 +642,7 @@ def _execute_breached_stop(
     is_short: bool,
     stop_price: float,
     level_source: str,
+    close_breached: Callable[..., str | None],
     stamped: Any,
     outcome: dict | None,
     rec: dict,
@@ -738,24 +705,18 @@ def _execute_breached_stop(
         )
         return record(tail, "breached_stop_partial_cover_refused", evidence)
     label = ("COVER" if is_short else "SELL") if whole_exit else "PARTIAL_SELL"
-    evidence.update(qty=qty, label=label)
-    state = _RepairState()
-    sale = _protected_sell(broker, db, state)._submit_protected_sell(
-        symbol=symbol,
-        qty=qty,
-        limit_price=None,
-        reference_price=print_price,
-        position_qty_before_sell=held,
-        label=label,
-        side=side,
-    )
-    if sale is None:
-        why = state.get("_last_stop_clear_refusal") or "the order was not accepted"
+    evidence.update(qty=qty, label=label, print_price=print_price)
+    try:
+        order_id = close_breached(symbol, qty, is_short, label, evidence)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("breached-stop exit for %s raised: %s", symbol, exc)
+        evidence["refusal"] = f"the exit path raised: {exc}"
+        order_id = None
+    if not order_id:
+        why = evidence.get("refusal") or "the order was not accepted"
         logger.error("BREACHED STOP NOT EXECUTED for %s: the protected sell path declined it (%s)", symbol, why)
         return record(f"; the protected sell path declined the {label} ({why})", "breached_stop_exit_refused", evidence)
-    order, _prot = sale
-    order_id = order.get("id") if isinstance(order, dict) else None
-    placed = {**evidence, "order_id": order_id, "status": order.get("status") if isinstance(order, dict) else None}
+    placed = {**evidence, "order_id": order_id}
     try:
         db.insert_trade(
             symbol=symbol,

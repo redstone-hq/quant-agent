@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 from src.execution.broker_parts.market_data import LivePrice
 from src.execution.broker_parts.trim_book import trim_keeps_shares
 from src.execution.stop_repair import repair_stop_coverage
+from src.protection.breached_stop_closer import build_breached_stop_closer
+from src.protection.fill_reconciler import FillReconciler
 from src.trading_calendar import ET
 
 _TUE_0931 = datetime(2026, 10, 13, 9, 31, tzinfo=ET)
@@ -42,13 +44,21 @@ def _broker(reading, *, held, open_orders=None, readable=True, resting=()):
     return b
 
 
-def _run(broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None, now=_TUE_0931, resting=None):
+def _closer(broker, db):
+    """The real protected-sell closer the session caller injects."""
+    return build_breached_stop_closer(
+        broker=broker, db=db, order_accepted=FillReconciler._order_accepted, alert_exit_declined=MagicMock()
+    )
+
+
+def _run(
+    broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None, now=_TUE_0931, resting=None, closer=True
+):
     db = MagicMock()
     with (
         patch("src.storage.trades.pending_stop_amends_store.get_all", return_value=list(owed)),
         patch("src.trading_calendar.et_now", return_value=now),
         patch("src.execution.exit_path_records.record_stop_repair_refusal") as rec,
-        patch("src.protection.owner_alerts.OwnerAlerts._alert_owner_exit_declined"),
     ):
         result = repair_stop_coverage(
             broker=broker,
@@ -59,6 +69,7 @@ def _run(broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None
             db=db,
             outcome=outcome,
             resting_stops=resting,
+            close_breached=_closer(broker, db) if closer else None,
         )
     return result, rec, db
 
@@ -191,3 +202,20 @@ def test_kill_switch_refusal_is_recorded_not_reported_as_executed():
     assert result is False
     assert rec.call_args.kwargs["code"] == "breached_stop_exit_refused"
     db.insert_trade.assert_not_called()
+
+
+def test_no_injected_exit_path_keeps_the_refusal_and_says_why():
+    b = _broker(_print(85.0), held=0.3456)
+    result, rec, db = _run(b, closer=False)
+    b.submit_order.assert_not_called()
+    assert rec.call_args.kwargs["code"] == "would_fire_immediately"
+    assert "no exit path" in rec.call_args.kwargs["reason"]
+
+
+def test_execution_layer_does_not_import_the_protection_layer():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "src" / "execution" / "stop_repair.py").read_text())
+    names = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    assert not [m for m in names if m.startswith("src.protection")]
