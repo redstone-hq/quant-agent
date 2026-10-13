@@ -23,7 +23,7 @@ def record_dropped_name(owner, ctx, symbol: str, reason: str, **details) -> None
     """One durable pipeline event per name the scan drops, once per run and reason.
 
     stage=opportunity, outcome=dropped, reason cooling_down | no_atr |
-    budget_refused | not_sent_weaker_rank. Never raises: the scan must not fail on its
+    budget_refused | not_sent_weaker_rank | pm_cadence. Never raises: the scan must not fail on its
     own bookkeeping. Deliberately NOT an intraday_evaluations row, because
     any row there starts the cooldown for the name.
     """
