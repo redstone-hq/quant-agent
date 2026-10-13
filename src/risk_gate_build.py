@@ -43,7 +43,8 @@ def build_risk_gate(
 class RiskGateSlot:
     """Descriptor giving an object a `risk_gate`, rebuilt from its live values.
 
-    ~58 tests build the pipeline via `__new__` and assign `risk_engine`, `db`,
+    Tests build the pipeline via `__new__` (see tests/test_boundary_risk_gate.py)
+    and assign `risk_engine`, `db`,
     `config` or `_sweeper` afterwards, so a stored gate is reused only while it
     holds the very collaborators the owner holds now; otherwise a fresh one is
     built from them and stored. Assignable. It lives here, not on the pipeline,
