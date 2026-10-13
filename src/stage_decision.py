@@ -55,6 +55,13 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     uuid,
 )
 from src.rotation_margins import record_rotation_margins
+from src.velocity import candidate_velocity
+
+#: W, the velocity record's hold horizon in sessions. OWNER INTENT, not a
+#: measurement: owner ruling 2026-10-13: hold about a couple of weeks (two
+#: five-session weeks). Recorded only (step A): it orders, sizes, targets and
+#: stops nothing; see `src.velocity`.
+VELOCITY_HOLD_SESSIONS = 10
 
 if TYPE_CHECKING:
     from src.agents.earnings_analyst import EarningsAnalystAgent
@@ -218,6 +225,10 @@ class DecisionStage:
         # Each candidate's entry and the stop the constructor would ship,
         # for the rotation pre-check's minimum-risk funding test.
         candidate_entry_stop: dict[str, tuple[float, float]] = {}
+        # Owner ruling 2026-10-13 (velocity), step A: RECORDED ONLY on each
+        # `candidate_ranked` event, beside the recorded-only reward:risk, off
+        # the same preview. Never shown to the PM, never ranks or sizes.
+        velocity_by_symbol: dict[str, dict] = {}
         for _a in analyses:
             _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
             try:
@@ -231,6 +242,12 @@ class DecisionStage:
                 _preview = None
             if isinstance(_preview, tuple) and len(_preview) == 3:
                 candidate_entry_stop[_a.symbol.upper()] = (_preview[0], _preview[1])
+            velocity_by_symbol[_a.symbol.upper()] = candidate_velocity(
+                getattr(ctx, "symbols_bars", None),
+                _a,
+                _preview,
+                horizon_sessions=VELOCITY_HOLD_SESSIONS,
+            )
             real_reward_risk_by_symbol[_a.symbol.upper()] = pipeline.portfolio_constructor.real_reward_risk_preview(
                 _a,
                 _direction,
@@ -504,7 +521,7 @@ class DecisionStage:
             )
 
         _journal_refused_candidates(pipeline, ctx, pm_blocked)
-        _journal_ranked_candidates(pipeline, ctx, pm_ranked)
+        _journal_ranked_candidates(pipeline, ctx, pm_ranked, velocity_by_symbol)
 
         if pm_result is not None:
             pm_log_kwargs = agent_log_kwargs(pm_result)
@@ -956,13 +973,19 @@ def _journal_refused_candidates(pipeline, ctx, blocked: dict) -> None:
         )
 
 
-def _journal_ranked_candidates(pipeline, ctx, ranked: list) -> None:
+def _journal_ranked_candidates(pipeline, ctx, ranked: list, velocity_by_symbol: dict | None = None) -> None:
     """One durable `candidate_ranked` event per ranked survivor, with its score.
 
     Recording only: stores the composite score, its components and each
     seat's conviction/magnitude so session-to-session score noise can be
     measured. Rank is 1-based position in the PM's own order.
+
+    `velocity` (owner ruling 2026-10-13, step A) is the candidate's
+    `src.velocity` record, keyed by upper-case symbol; None when it was not
+    measured. It is written here only, never into `components` (whose sum is
+    the score), so it cannot move the order it is recorded beside.
     """
+    velocity_by_symbol = velocity_by_symbol or {}
     for rank, cand in enumerate(ranked, start=1):
         seats = {
             str(v.seat): {
@@ -984,4 +1007,5 @@ def _journal_ranked_candidates(pipeline, ctx, ranked: list) -> None:
             score=cand.score,
             components=dict(cand.components),
             seats=seats,
+            velocity=velocity_by_symbol.get(str(cand.symbol).upper()),
         )
