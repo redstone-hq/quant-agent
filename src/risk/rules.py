@@ -482,11 +482,22 @@ def apply_gross_ceiling(
     if over <= 1e-6:
         return out
 
-    already_exiting_fully = {
-        str(d.symbol or "").strip().upper()
-        for d in out.decisions
-        if d.action in ("SELL", "COVER") and d.allocation_pct >= 100
-    }
+    # NEVER SELL MORE THAN IS HELD. Every SELL/COVER already in the plan is
+    # sized against the shares held NOW, as is the cut below, so the cut must
+    # take only the share of the position the plan has not already sold —
+    # summed across every planned sale of that symbol. Ordering 100% on top
+    # of a planned 40% partial would sell 140% of the holding and could flip
+    # the account short.
+    planned_sold_pct: dict[str, float] = {}
+    for d in out.decisions:
+        if d.action not in ("SELL", "COVER"):
+            continue
+        pct = float(d.allocation_pct or 0.0)
+        if not math.isfinite(pct) or pct <= 0:
+            continue
+        sym = str(d.symbol or "").strip().upper()
+        planned_sold_pct[sym] = min(100.0, planned_sold_pct.get(sym, 0.0) + pct)
+    already_exiting_fully = {sym for sym, pct in planned_sold_pct.items() if pct >= 100}
     candidates = []
     for p in positions:
         symbol = str(getattr(p, "symbol", "") or "").strip().upper()
@@ -497,7 +508,9 @@ def apply_gross_ceiling(
         market_value = float(getattr(p, "market_value", 0.0) or 0.0)
         if not math.isfinite(market_value) or market_value == 0:
             continue
-        position_gross = abs(market_value) * _gross_multiplier(symbol) - exit_relief.get(symbol, 0.0)
+        position_gross = (
+            abs(market_value) * _gross_multiplier(symbol) * (1.0 - planned_sold_pct.get(symbol, 0.0) / 100.0)
+        )
         if position_gross <= 0:
             continue
         candidates.append((p, symbol, position_gross))
@@ -554,16 +567,25 @@ def apply_gross_ceiling(
             why = f"no losers left; up ${pnl:,.0f} unrealised, {order}"
         is_short = position_side(position) == SECTOR_SIDE_SHORT
         verb = "Covering" if is_short else "Selling"
+        # The rest of the position: 100% of what the plan has not already
+        # sold, expressed against the shares held now (see planned_sold_pct).
+        # Rounded DOWN to 0.1% so the two orders together never exceed it.
+        cut_pct = math.floor((100.0 - planned_sold_pct.get(symbol, 0.0)) * 10.0) / 10.0
+        if cut_pct <= 0:
+            continue
+        sells_rest = symbol in planned_sold_pct
         trim = TradeDecision(
             action="COVER" if is_short else "SELL",
             symbol=position.symbol,
-            allocation_pct=100.0,
+            allocation_pct=cut_pct,
             entry_price=0.0,
             stop_loss=0.0,
             take_profit=0.0,
             reasoning=(
                 f"Drawdown cut #{rank} ({GROSS_EXPOSURE_RULE}): {verb} ALL of "
-                f"{position.symbol} — {why}. The book owns "
+                f"{position.symbol}"
+                f"{f' (the {cut_pct:g}% the plan is not already selling)' if sells_rest else ''}"
+                f" — {why}. The book owns "
                 f"${out.held_gross_after_exits:,.0f} against a "
                 f"${out.ceiling_usd:,.0f} ceiling ({ceiling.ceiling_x:.1f}x "
                 f"equity). New exposure was blocked first. {ceiling.reason}"

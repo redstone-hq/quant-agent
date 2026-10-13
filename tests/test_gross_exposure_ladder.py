@@ -3473,3 +3473,33 @@ def test_a_symbol_absent_from_the_cut_order_is_unread_not_opposed():
         conviction_rank={"OPP": (OPPOSED, 0)},  # GONE deliberately absent
     )
     assert outcome.trims[0].symbol == "OPP"
+
+
+def test_the_drawdown_cut_never_sells_more_than_is_held_on_top_of_a_planned_partial():
+    """A planned partial sell plus the ladder's whole-position cut must add up
+    to the holding, never more. Before the fix the cut ordered 100% of the
+    shares held on top of a planned 40% sell — 140% of the position, which
+    could leave the account short."""
+    positions = [
+        _position("NVDA", qty=100.0, avg_entry=120.0, current_price=100.0),  # $10k, losing
+        _position("AMD", qty=100.0, avg_entry=90.0, current_price=100.0),  # $10k, winning
+    ]
+    partial = TradeDecision(
+        action="SELL",
+        symbol="NVDA",
+        allocation_pct=40.0,
+        entry_price=0.0,
+        stop_loss=0.0,
+        take_profit=0.0,
+        reasoning="partial",
+    )
+    ceiling = resolve_gross_ceiling(-25.0, base_x=BASE_X)  # 0.5x -> $5k
+
+    outcome = apply_gross_ceiling([partial], positions, EQUITY, ceiling)
+
+    nvda_cut = [t for t in outcome.trims if t.symbol == "NVDA"]
+    assert len(nvda_cut) == 1, "the loser is cut first"
+    total_pct = partial.allocation_pct + nvda_cut[0].allocation_pct
+    assert total_pct <= 100.0, f"plan sells {total_pct}% of NVDA — more than is held"
+    assert total_pct == pytest.approx(100.0, abs=0.1), "the cut still sells the whole loser"
+    assert [t.allocation_pct for t in outcome.trims if t.symbol == "AMD"] == [100.0]
