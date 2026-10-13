@@ -211,7 +211,7 @@ class EveningSession:
         # first paid news/model request. A latched breaker still persists the
         # P&L audit row and returns a truthful suspended status.
         try:
-            self._require_paid_analysis("evening_news")
+            self._require_paid_analysis("news_analyst")
         except PaidAnalysisSuspended as exc:
             equity_close = None
             try:

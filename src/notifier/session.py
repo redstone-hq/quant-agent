@@ -13,6 +13,7 @@ from src.notifier.sections import (
     _new_block,
     _new_section,
     fmt_time_12h,
+    headline_status,
     humanize_status,
     mode_label,
 )
@@ -125,7 +126,7 @@ def format_session_result(
             f"\U0001f9fe took {elapsed_str}"
         )
 
-    status = str(result.get("status", "unknown"))
+    status = headline_status(mode, result)
 
     # === Per-mode noise policy ===
     if mode == "intra_check" and status in ("ok", "market_holiday"):
