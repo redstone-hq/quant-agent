@@ -99,6 +99,35 @@ def et_now() -> datetime:
     return datetime.now(ET)
 
 
+def utc_now() -> datetime:
+    """Current instant as a timezone-aware datetime in UTC: the same clock as ``et_now``.
+
+    THE desk clock. Every row stamp, prune cutoff and day boundary is read
+    from here (or ``et_now``), never from SQLite's ``datetime('now')`` and
+    never from a bare ``datetime.now`` elsewhere -- ``scripts/one_clock_guard.py``
+    refuses both outside this module.
+    """
+    return datetime.now(UTC)
+
+
+SQL_STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def sql_utc_stamp(when: datetime | None = None) -> str:
+    """``when`` (default: now) in the exact text SQLite's ``datetime('now')`` stores.
+
+    Naive-UTC, second precision, ``'YYYY-MM-DD HH:MM:SS'``. Bind it as a
+    parameter wherever SQL used to read its own clock, so a row written and a
+    row compared are dated by the one Python clock -- the one a test can freeze.
+    A naive ``when`` is taken as UTC, the way stored stamps are read back.
+    """
+    if when is None:
+        when = utc_now()
+    elif when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when.astimezone(UTC).strftime(SQL_STAMP_FORMAT)
+
+
 def et_today() -> date:
     """Current trading-day date in US/Eastern.
 

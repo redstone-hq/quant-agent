@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 import sqlite3
-from datetime import date, datetime, time as dt_time, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo
+
+from src.trading_calendar import sql_utc_stamp
 
 
 _ET = ZoneInfo("America/New_York")
@@ -96,6 +98,16 @@ class _ClockPinnedConnection:
 
     def __setattr__(self, name, value):
         setattr(self._conn, name, value)
+
+
+def _sql_stamp(*, minutes_ago: float = 0.0) -> str:
+    """This circuit's clock, ``minutes_ago`` back, as the text SQLite stores.
+
+    The parts bind this where their SQL used to read ``datetime('now')``, so a
+    test that freezes ``_now_utc`` freezes every stamp the circuit writes or
+    compares -- no SQL rewriting needed for those sites.
+    """
+    return sql_utc_stamp(_now_utc() - timedelta(minutes=minutes_ago))
 
 
 def _et_day_and_utc_bounds(now: datetime | None = None) -> tuple[str, str, str]:
