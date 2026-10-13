@@ -127,13 +127,61 @@ def intake(db_path) -> list:
         conn.close()
 
 
+STOP_CANCEL_FAILED = "owner_intents.stop_cancel_failed"
+
+
+def cancel_resting_at_stop(broker_factory, *, notifier=None):
+    """Cancel resting UNFILLED entries for a Stop; any fault is a failure the owner hears about.
+
+    Called by the process that RECORDS the Stop (the owner switch) at that
+    moment, and again by `honour_stop` as the in-run backstop. Protective stops
+    and exits are kept (src/execution/freeze_cancel.py). `cancel_resting_entries`
+    never raises on a broker refusal or an unreachable broker -- it returns the
+    fault in `faults` -- so the faults are read here, not just exceptions.
+    Returns the SweepResult, or None when the broker could not be reached at all.
+    Every failure writes a durable counted row and pushes an owner alert.
+    """
+    from src.execution.freeze_cancel import cancel_resting_entries
+
+    try:
+        result = cancel_resting_entries(broker_factory())
+    except Exception as exc:  # noqa: BLE001 - reported below; Stop itself still holds
+        _report_stop_cancel_failure(exc, None, notifier)
+        return None
+    if result.faults:
+        _report_stop_cancel_failure(RuntimeError(f"cancel faults: {result.faults}"), result, notifier)
+    else:
+        logger.warning("owner Stop: resting entries cancelled=%s shrunk=%s", result.cancelled, result.shrunk)
+    return result
+
+
+def _report_stop_cancel_failure(exc, result, notifier) -> None:
+    from src.notifier.owner_alert_funnel import send_owner_alert_with_outcome
+    from src.sentinel.counted import record_swallowed
+
+    record_swallowed(STOP_CANCEL_FAILED, exc, log=logger)
+    if result is None:
+        text = (
+            "Stop is on, but the desk could not reach the broker to cancel unfilled orders. "
+            "Check the broker and cancel any unfilled orders there by hand. Positions and stops are kept."
+        )
+    else:
+        n = len(result.faults)
+        text = (
+            f"Stop is on, but {n} unfilled order{'s' if n != 1 else ''} could not be cancelled. "
+            "Cancel them at the broker by hand. Positions and stops are kept."
+        )
+    send_owner_alert_with_outcome(text, notifier=notifier, kind="owner_stop_cancel_failed", pnl_header=False)
+
+
 def honour_stop(db_path, broker_factory) -> bool:
     """Owner Stop at a one-shot entry: pick up intents; if stopped, cancel resting entries.
 
     Returns True when Stop is in force, and the caller must then exit without
     doing any work. `broker_factory` is called ONLY when stopped, so a stopped
-    process constructs nothing but the broker it cancels through; the cancel is
-    the Freeze sweep (protective stops and exits are kept).
+    process constructs nothing but the broker it cancels through. This is the
+    in-run BACKSTOP: the owner switch already cancelled when the Stop was
+    recorded (`cancel_resting_at_stop`); a fault here alerts the owner too.
     """
     from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
 
@@ -145,56 +193,5 @@ def honour_stop(db_path, broker_factory) -> bool:
         record_guarded_pass(NO_LEDGER, "owner_intents.stop_pickup", exc, log=logger)
     if not stop_in_force(db_path):
         return False
-    broker = None
-    try:
-        broker = broker_factory()
-        result = broker.sweep_frozen_resting_orders(db_path)
-        logger.warning("owner Stop in force: desk off; resting entries swept (%s)", result)
-        _mark_stop_swept(db_path)
-    except Exception as exc:  # noqa: BLE001 - recorded; Stop still holds and the next pickup retries
-        record_guarded_pass(broker or NO_LEDGER, "owner_intents.stop_sweep", exc, log=logger)
+    cancel_resting_at_stop(broker_factory)
     return True
-
-
-def _swept_file(db_path) -> str:
-    return f"{db_path}.stop_swept"
-
-
-def _latest_stop_id(db_path):
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
-    try:
-        row = conn.execute("SELECT MAX(id) FROM owner_intents WHERE state='acted' AND action=?", (STOP,)).fetchone()
-        return row[0] if row else None
-    finally:
-        conn.close()
-
-
-def _mark_stop_swept(db_path) -> None:
-    """Remember which acted Stop the resting-entry sweep has been done for."""
-    try:
-        stop_id = _latest_stop_id(db_path)
-        with open(_swept_file(db_path), "w") as fh:
-            fh.write(str(stop_id))
-    except Exception as exc:  # noqa: BLE001 - recorded; the sweep is simply owed again
-        from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
-
-        record_guarded_pass(NO_LEDGER, "owner_intents.stop_swept_mark", exc, log=logger)
-
-
-def stop_sweep_owed(db_path) -> bool:
-    """True until a resting-entry sweep has succeeded for the latest acted Stop.
-
-    The owner Stop gate (src/owner_stop_gate.py) holds no broker credentials,
-    so it cannot sweep; it reads this to let one credentialed session unit
-    through to `honour_stop`, which sweeps, marks, and exits without work.
-    A missing or unreadable mark means owed: an extra sweep is harmless, a
-    missed one leaves entries resting at the broker.
-    """
-    stop_id = _latest_stop_id(db_path)
-    if stop_id is None:
-        return False
-    try:
-        with open(_swept_file(db_path)) as fh:
-            return fh.read().strip() != str(stop_id)
-    except OSError:
-        return True

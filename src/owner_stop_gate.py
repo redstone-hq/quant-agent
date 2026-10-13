@@ -11,14 +11,12 @@ it (only ``ExecStart=`` gets it), so ``load_config`` raised
 decided anything. Deciding Stop needs two things -- the database path and the
 owner intents in it -- so that is all this reads.
 
-What stays in ``ExecStart``: cancelling resting UNFILLED entries needs the
-broker, so it stays in ``main._exit_if_owner_stopped`` (via
-``owner_intents.honour_stop``), where credentials exist. A gate that simply
-skipped every unit while stopped would mean no process ever runs that sweep,
-so while a sweep is still OWED for the Stop in force (see
-``owner_intents.stop_sweep_owed``) the gate lets the session units -- the ones
-whose ``ExecStart`` reaches that path -- run; they sweep and exit 75 without
-doing any work. Every other unit is skipped.
+Cancelling resting UNFILLED entries needs the broker, so the gate never does
+it: the owner switch cancels them the moment it records the Stop
+(``owner_intents.cancel_resting_at_stop``, any fault alerts the owner), and
+``main._exit_if_owner_stopped`` stays the in-run backstop for a unit that
+starts before the gate has seen the Stop. While stopped, every gated unit is
+skipped.
 
 "Could not decide" is a named, durable fault (``owner_stop_gate.undecided``):
 an ERROR line in ``quant_agent.log`` that the log health report surfaces, plus
@@ -43,23 +41,6 @@ STOP = 75  # main.OWNER_STOP_EXIT (os.EX_TEMPFAIL); the shell script matches it
 UNDECIDED = 3
 UNDECIDED_SITE = "owner_stop_gate.undecided"
 
-#: Units whose ExecStart reaches main.py's one-shot Stop check
-#: (``scripts/run_if_et_window.sh <mode>`` / ``run_daily_export.sh``) and so
-#: can run the credentialed sweep. tests/test_owner_stop_gate.py checks this
-#: against scripts/systemd so a new session unit cannot be missed silently.
-SWEEP_UNITS = frozenset(
-    {
-        "quant-agent-morning.service",
-        "quant-agent-midday.service",
-        "quant-agent-close.service",
-        "quant-agent-evening.service",
-        "quant-agent-intra_check.service",
-        "quant-agent-intra_safety.service",
-        "quant-agent-earnings_preprocess.service",
-        "quant-agent-daily.service",
-    }
-)
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -83,7 +64,7 @@ def gate_db_path(config_arg) -> str:
 def decide(config_arg, unit: str = "unit") -> int:
     """RUN, STOP or UNDECIDED for one unit start. Never raises; never touches the broker."""
     from src.owner_flags import read_flags
-    from src.owner_intents import intake, stop_sweep_owed
+    from src.owner_intents import intake
 
     try:
         db = gate_db_path(config_arg)
@@ -93,12 +74,7 @@ def decide(config_arg, unit: str = "unit") -> int:
             raise GateUndecided("owner intents unreadable (UNKNOWN) and no saved Stop")
         if flags.unknown:
             _record_undecided(unit, GateUndecided("owner intents unreadable; last saved copy says Stop"))
-        if not flags.stopped:
-            return RUN
-        if unit in SWEEP_UNITS and stop_sweep_owed(db):
-            logger.warning("%s: owner Stop in force, resting-entry sweep still owed: running it to sweep", unit)
-            return RUN
-        return STOP
+        return STOP if flags.stopped else RUN
     except Exception as exc:  # noqa: BLE001 - recorded below as a named durable fault
         _record_undecided(unit, exc)
         return UNDECIDED

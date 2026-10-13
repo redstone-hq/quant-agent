@@ -14,16 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from src import owner_stop_gate as gate
-from src.owner_intents import RESUME, STOP, honour_stop, process_pending, raise_intent
+from src.owner_intents import RESUME, STOP, process_pending, raise_intent
 from src.storage.schema.owner_intent_tables import apply
 
 ROOT = Path(__file__).resolve().parent.parent
 GATE = ROOT / "scripts" / "owner_stop_gate.sh"
-SYSTEMD = ROOT / "scripts" / "systemd"
-GATE_LINE = "ExecCondition=/home/qamc/quant-agent/scripts/owner_stop_gate.sh %n"
 BROKER_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY", "APCA_API_KEY_ID", "APCA_API_SECRET_KEY")
 
 
@@ -85,18 +81,10 @@ def test_the_decision_loads_no_credentials_and_no_broker(tmp_path):
     assert out.stdout.strip() == "75 []", out.stderr
 
 
-def test_a_session_unit_runs_while_the_stop_sweep_is_owed_then_is_skipped(tmp_path):
-    db = _db(tmp_path, STOP)
-    cfg = _config_for(tmp_path, db)
-    assert gate.decide(cfg, "quant-agent-intra_safety.service") == gate.RUN
-    assert gate.decide(cfg, "quant-agent-status-board.service") == gate.STOP
-
-    class Broker:
-        def sweep_frozen_resting_orders(self, _db):
-            return {"cancelled": 0}
-
-    assert honour_stop(str(db), Broker) is True
+def test_every_gated_unit_is_skipped_while_stopped(tmp_path):
+    cfg = _config_for(tmp_path, _db(tmp_path, STOP))
     assert gate.decide(cfg, "quant-agent-intra_safety.service") == gate.STOP
+    assert gate.decide(cfg, "quant-agent-status-board.service") == gate.STOP
 
 
 def test_could_not_decide_is_a_named_durable_fault_and_the_unit_runs(tmp_path, monkeypatch, caplog):
@@ -118,17 +106,3 @@ def test_a_gate_whose_python_never_starts_logs_the_fault_where_the_health_report
     assert re.match(
         r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \[ERROR\] src\.owner_stop_gate: owner Stop gate could not decide", line
     )
-
-
-def _session_units():
-    units = set()
-    for svc in SYSTEMD.glob("*.service"):
-        text = svc.read_text()
-        if GATE_LINE in text and re.search(r"(?m)^ExecStart=.*(run_if_et_window|run_daily_export)\.sh", text):
-            units.add(svc.name)
-    return units
-
-
-@pytest.mark.parametrize("unit", sorted(_session_units() | gate.SWEEP_UNITS))
-def test_sweep_units_are_exactly_the_gated_units_that_reach_main(unit):
-    assert (unit in gate.SWEEP_UNITS) == (unit in _session_units())

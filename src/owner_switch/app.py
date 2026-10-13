@@ -140,6 +140,25 @@ def _parse_action(body: bytes) -> str | None:
     return word if isinstance(word, str) and word in ACTIONS else None
 
 
+def stop_broker():
+    """The broker the switch cancels through on Stop: keys from its environment (.env).
+
+    Paper/live comes from settings.yaml `alpaca.paper`, read without credential
+    resolution. Missing keys raise, which `cancel_resting_at_stop` reports to
+    the owner as a cancel failure rather than passing silently.
+    """
+    import yaml
+
+    from src.execution.broker import AlpacaBroker
+
+    key, secret = os.environ.get("ALPACA_API_KEY", ""), os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        raise ConfigError("ALPACA_API_KEY / ALPACA_SECRET_KEY not in the owner switch environment")
+    cfg = yaml.safe_load((Path.cwd() / "config" / "settings.yaml").read_text()) or {}
+    paper = (cfg.get("alpaca") or {}).get("paper", True) is not False
+    return AlpacaBroker(api_key=key, secret_key=secret, paper=paper)
+
+
 def _record(db_path: str, stored_action: str) -> int:
     conn = sqlite3.connect(db_path, timeout=30)
     try:
@@ -182,4 +201,19 @@ def handle_post(settings: Settings, path: str, headers, body: bytes) -> Response
         logger.error("owner switch FAILED action=%s reason=database error: %s", word, exc)
         return _json(503, ok=False, error="could not record; nothing changed, try again")
     logger.warning("owner switch ACCEPTED action=%s intent=%s", word, intent_id)
+    if ACTIONS[word] == STOP:
+        # Cancel resting UNFILLED entries now, by the process that recorded the
+        # Stop: the Stop gate holds no broker credentials and skips every unit
+        # while stopped. Any fault alerts the owner (src/owner_intents.py).
+        from src.owner_intents import cancel_resting_at_stop
+
+        result = cancel_resting_at_stop(stop_broker)
+        if result is None or result.faults:
+            return _json(
+                200,
+                ok=True,
+                action=word,
+                intent=intent_id,
+                note="Stop recorded, but some unfilled orders could not be cancelled: cancel them at the broker",
+            )
     return _json(200, ok=True, action=word, intent=intent_id, note="recorded; the desk acts on it at its next pickup")

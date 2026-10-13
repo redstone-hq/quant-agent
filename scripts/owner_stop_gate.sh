@@ -13,9 +13,8 @@
 # materialise CREDENTIALS_DIRECTORY for ExecCondition=, and the old call into
 # main._owner_stop_in_force (load_config + credentials) therefore raised on
 # every start and the gate never decided anything (10-13 Oct 2026). The
-# credentialed sweep of resting UNFILLED entries stays in ExecStart
-# (main._exit_if_owner_stopped); while that sweep is still owed for the Stop in
-# force, the session units are let through so it runs, then exit 75 unworked.
+# credentialed cancel of resting UNFILLED entries is done by the owner switch
+# when it records the Stop, with main._exit_if_owner_stopped as the backstop.
 #
 # Anything the gate cannot settle runs the unit, matching
 # src.owner_flags.stop_in_force: an UNKNOWN read is not a Stop, so a broken gate
