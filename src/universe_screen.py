@@ -131,6 +131,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from src.quantities import sp_traded_value
+
 logger = logging.getLogger(__name__)
 
 #: Calendar days of daily bars requested per symbol. A fetch size, not a
@@ -608,14 +610,12 @@ def check_liquidity_ratio(bars: list, profile, today: date | None = None) -> tup
         if getattr(bars[0], "date") > start:
             return ["liquidity_history_short"], measured
         window = [b for b in bars if start < getattr(b, "date") <= anchor]
-        closes = [float(b.close) for b in window]
-        volume = sum(float(getattr(b, "volume", 0) or 0) for b in window)
     except (AttributeError, TypeError, ValueError):
         return ["liquidity_history_short"], measured
-    if not closes:
-        # Not one bar in the evaluation year: no trading to measure.
+    traded = sp_traded_value(window)
+    if traded is None:
+        # Not one usable bar in the evaluation year: no trading to measure.
         return ["no_price_history"], measured
-    traded = (sum(closes) / len(closes)) * volume
     ratio = traded / float(cap)
     measured["traded_value_365d_usd"] = round(traded, 0)
     measured["liquidity_ratio"] = round(ratio, 4)
