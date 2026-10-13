@@ -19,8 +19,11 @@ LoadCredential=alpaca_secret_key:/home/qamc/credentials/alpaca_secret_key
 # Owner Stop (ruling 2026-10-09): skipped cleanly, not failed, while the desk is Stopped.
 ExecCondition=/home/qamc/quant-agent/scripts/owner_stop_gate.sh %n
 ExecStart=/bin/bash -c 'ALPACA_API_KEY="$(<"$CREDENTIALS_DIRECTORY/alpaca_api_key")" ALPACA_SECRET_KEY="$(<"$CREDENTIALS_DIRECTORY/alpaca_secret_key")" exec /home/qamc/quant-agent/.venv/bin/python -m src.universe_daily'
-# The screen carries its own deadline (universe_screen.screen_deadline_s);
-# this is the systemd safety net above it.
-TimeoutStartSec=1800
+# The program stops itself: the screen has its own deadline
+# (screen_deadline_s, 900 s), then the Yahoo fund-category pass runs last and
+# ends at the start of the desk's day (earnings_preprocess, 08:00 ET). Started
+# at 03:00 ET that is 5 h = 18000 s; this systemd net adds one screen deadline
+# (900 s) of margin above it.
+TimeoutStartSec=18900
 StandardOutput=journal
 StandardError=journal
