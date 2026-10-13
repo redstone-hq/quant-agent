@@ -18,6 +18,6 @@ def ensure_trend_tick_table(*, conn: sqlite3.Connection) -> None:
             bar_date TEXT NOT NULL,
             outcome TEXT NOT NULL,
             run_id TEXT,
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            updated_at TEXT NOT NULL
         );
     """)

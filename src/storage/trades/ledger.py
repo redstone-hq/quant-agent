@@ -28,7 +28,7 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from src.storage.analytics.calibration import _POSITION_OPEN_ACTIONS
 from src.stop_price_classification import entry_stop_for_insert
@@ -36,7 +36,7 @@ from src.storage.trades import trade_refusals_store as _refusals_store
 from src.storage.trades import backfills as _backfills
 from src.storage.trades import recovery_queues as _recovery_queues
 from src.storage.trades import excursions as _excursions
-from src.trading_calendar import sql_utc_stamp, utc_now
+from src.trading_calendar import sql_utc_stamp, sql_utc_stamp_ago, utc_now
 from src.util.time import UTC
 from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position  # noqa: F401  re-export
 from src.trade_actions import broker_fill_time
@@ -966,16 +966,16 @@ class TradeLedger:
         submit — converted to submitted/submit_failed within microseconds
         — is never misread as an orphan; real orphans are from a prior
         crashed session and are minutes-to-days old. The cutoff uses
-        SQLite's own clock on both sides (datetime('now', ?)) so there's
+        the desk clock rendered in SQLite's stored text format, so there's
         no host-TZ / format skew.
         """
         with self._lock:
             rows = self.conn.execute(
                 "SELECT * FROM trades WHERE fill_status = 'pending_submit' "
                 "AND broker_order_id IS NULL "
-                "AND timestamp < datetime('now', ?) "
+                "AND timestamp < ? "
                 "ORDER BY timestamp ASC",
-                (f"-{int(min_age_seconds)} seconds",),
+                (sql_utc_stamp(utc_now() - timedelta(seconds=int(min_age_seconds))),),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -1214,14 +1214,14 @@ class TradeLedger:
         decade-plus horizon. Returns count deleted.
         """
         if keep_days <= 0:
-            # `datetime('now', '-0 days')` == 'now' → deletes the entire
+            # a zero-day cutoff == 'now' → deletes the entire
             # trades audit log. Refuse rather than silently destroy
             # potentially years of broker history.
             raise ValueError(f"prune_trades: keep_days must be > 0, got {keep_days}")
         with self._lock:
             cursor = self.conn.execute(
-                "DELETE FROM trades WHERE timestamp < datetime('now', ?)",
-                (f"-{keep_days} days",),
+                "DELETE FROM trades WHERE timestamp < ?",
+                (sql_utc_stamp_ago(days=keep_days),),
             )
             self.conn.commit()
             return cursor.rowcount or 0
