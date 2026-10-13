@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.number_sources import NEUTRAL_VALUES, collect_sites
+from src.number_sources import NEUTRAL_VALUES, _scan_module, collect_sites
 
 
 def test_a_default_bound_to_a_name_is_still_a_site() -> None:
@@ -60,18 +60,18 @@ def test_named_dictionary_keys_keep_distinct_number_identities() -> None:
     assert "src.data.insider_signal._WEIGHTS[?]" not in ids
 
 
-def test_destructured_module_constants_keep_distinct_number_identities() -> None:
+def test_destructured_module_constants_keep_distinct_number_identities(tmp_path) -> None:
     """Each name in a tuple assignment owns its paired literal.
 
-    Context horizons were previously absent because the scanner only accepted
+    Tuple assignments were previously absent because the scanner only accepted
     a single Name on the left-hand side of a module assignment.
     """
-    sites = {site.site_id: site.value for site in collect_sites()}
-    assert sites["src.data.context._W_1W"] == 5
-    assert sites["src.data.context._W_1M"] == 21
-    assert sites["src.data.context._W_3M"] == 63
-    assert sites["src.data.context._W_6M"] == 126
-    assert sites["src.data.context._W_12M"] == 252
+    mod = tmp_path / "pair_mod.py"
+    mod.write_text("_A, _B, _C = 5, 21, 63\n")
+    sites = {s.site_id: s.value for s in _scan_module(mod, "pair_mod.py", None, tmp_path)}
+    assert sites["pair_mod._A"] == 5
+    assert sites["pair_mod._B"] == 21
+    assert sites["pair_mod._C"] == 63
 
 
 def test_result_dataclasses_are_not_sites() -> None:
