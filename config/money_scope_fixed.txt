@@ -159,7 +159,6 @@ src/execution/scale_in_loud.py
 src/execution/scale_in_readers.py
 src/execution/sell_quantity.py
 src/execution/stop_level_report.py
-src/execution/stop_limit_buffer_records.py
 src/execution/stop_read.py
 src/execution/stop_records.py
 src/execution/stop_repair.py

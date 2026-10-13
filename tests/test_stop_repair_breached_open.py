@@ -33,7 +33,6 @@ def _pos(qty, symbol="AMD"):
 def _broker(reading, *, held, open_orders=None, readable=True, resting=()):
     """A mock broker returning realistic position / order objects."""
     b = MagicMock()
-    b.STOP_LIMIT_BUFFER_PCT = 0.01
     b.get_latest_price_stamped.return_value = reading
     b.list_open_orders_checked.return_value = (readable, list(open_orders or []))
     b.get_positions.return_value = [_pos(held), _pos(7, "MSFT")]

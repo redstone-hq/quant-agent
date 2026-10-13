@@ -6582,75 +6582,6 @@ numbers:
       shared constants RiskConfig itself defaults to'). candidate_eligibility
       accepts and ignores it since 2026-09-17
       (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.rank_candidates).
-  - id: src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT
-    value: 0.03
-    status: arbitrary
-    site: src/execution/broker.py
-    note: >-
-      Board item 138. How far past the trigger a protective stop-limit's limit
-      sits (3%). As of the 2026-09-25 owner ruling, PRIMARY protective stops
-      are stop-MARKET (guaranteed exit), so this NO LONGER governs the stop
-      the desk normally places. It now governs only (a) the stop-limit
-      FALLBACK taken when the broker refuses a stop-market for an unsupported
-      order-type/tif combo (src/execution/broker.py `_submit_stop_limit_order`)
-      and (b) the force-de-lever must-fill SELL / its proceeds haircut
-      (the derived 0.97 below). Still re-used, on the fallback path, by stop
-      repair (src/execution/stop_repair.py) and the scale-in rearm. A class
-      attribute, so rules (a)/(b) never saw it; PR #544's description said it
-      was ledgered and it was not. src/execution/scale_in.py (outside scope)
-      re-uses this same buffer via
-      `getattr(broker, "STOP_LIMIT_BUFFER_PCT", AlpacaBroker.STOP_LIMIT_BUFFER_PCT)`;
-      it holds no independent 0.03 literal, so this class attribute is the
-      single source of the value [verified 2026-09-25]. A per-placement
-      recorder now exists (see settles_by.records); it makes the leg count
-      observable and changes no behaviour, and the value itself is STILL
-      ARBITRARY -- a counter is not a measurement.
-    open_question: >-
-      On this desk's names, how far past a stop trigger does a stop-LIMIT
-      fill actually land on the gap/fast-market days the stop exists for --
-      measured from the broker's own stop fills -- and what limit distance
-      keeps the fill probability acceptable on the fallback / de-lever legs?
-      (The primary protective stop no longer depends on this: a stop-market
-      fills when elected.)
-    cost_while_unanswered: >-
-      On the fallback / de-lever legs only: too tight and a gapping stop-limit
-      does not fill, so the position stays open unprotected until a session
-      acts; too wide and every such exit can give back up to 3% beyond the
-      stop. The primary stop-market path is not exposed to this trade-off.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/, item 90, the 2026-10-01 sixth routing tranche (execution plumbing and the level scan)
-      records: >-
-        over the universe the desk could trade, the distance between a prior-
-        session close and the next session's opening print on gap days, and the
-        intraday range travelled on the fastest sessions, read off daily bars,
-        so the limit distance a stop-LIMIT needs in order to stay marketable on
-        exactly the days it exists for is read off the instrument rather than
-        fitted to this desk's own fills; alongside it, a count of how often the
-        fallback and de-lever legs are actually taken now that primary
-        protective stops are stop-MARKET. THAT COUNT NOW HAS A SOURCE: every
-        protective-stop placement writes one durable row to the
-        `reconciliation_runs` table under kind `stop_limit_buffer:primary` or
-        `stop_limit_buffer:fallback` (src/execution/stop_limit_buffer_records.py,
-        written from src/execution/broker_parts/stop_place.py). Each row carries
-        the trigger, the limit, the absolute trigger-to-limit distance, the
-        buffer in force and whether the limit came from this constant or from
-        an explicit caller limit, so a reader can join a placement to its fill
-        rather than only counting that the leg fired. NO TOTAL IS STORED: the
-        count is a count over the rows at read time, and the ABSENCE of rows
-        means never exercised, never zero. Building the recorder settles
-        nothing on its own -- THIS NUMBER REMAINS ARBITRARY until real
-        placements accumulate and the gap measurement above is taken.
-      closes_when: >-
-        the measured gap distribution identifies a distance at which an
-        acceptable share of stop-limit exits would still have been marketable,
-        and the fallback buffer becomes that reading. DELETE outcome: if the
-        recorded `stop_limit_buffer:fallback` rows show the stop-limit fallback
-        is never taken because
-        the primary stop-market path absorbs every protective exit, the constant
-        and the leg it serves go together rather than the percentage being re-
-        picked.
   - id: src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS
     value: 8
     status: not-trade-governing
@@ -7292,10 +7223,8 @@ numbers:
       names for a human to add; it never adds one.
   - id: src.delever.forced.DeleverForced._force_delever:factor[0]
     value: 0.97
-    status: derived
+    status: arbitrary
     site: src/delever/forced.py
-    derived_from: src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT
-    base_value: 0.03
     note: >-
       The CONSERVATIVE proceeds estimate for the sweep's break-early guard:
       projected_proceeds += mark x 0.97. The de-lever no longer prices its SELL
@@ -7303,10 +7232,11 @@ numbers:
       MARKET order (see _live_delever_price, delever-live-fill, supersedes the
       former fixed-3%-limit sites) -- so this is now solely an accounting
       haircut: it assumes the marketable fill lands up to 3% below the mark
-      (the same must-fill slippage STOP_LIMIT_BUFFER_PCT budgets for a gapping
-      exit) so the loop never stops one position too early and leaves a
-      residual deficit. Under-counting proceeds is the safe error. 0.97 =
-      1 - STOP_LIMIT_BUFFER_PCT, not a fresh number. Was factor[1] until
+      so the loop never stops one position too early and leaves a residual
+      deficit. Under-counting proceeds is the safe error. It was derived as
+      1 - STOP_LIMIT_BUFFER_PCT until 2026-10-13, when that stop-limit buffer
+      was deleted with the protective-stop fallback; the value is unchanged
+      and now stands on its own as an ARBITRARY number. Was factor[1] until
       2026-09-30 (board item 182): the 1.02 sweep-sizing cushion that used to
       precede it in this function was reformulated away, so this literal is
       now the first factor-band literal in source order. Positional id only --
@@ -7328,6 +7258,26 @@ numbers:
       bid, whose displayed size is finite, so this is a reachable state, not
       a theoretical one. Booking from the filled quantity and continuing to
       sell while the deficit stands would delete this haircut entirely.
+    open_question: >-
+      How far below the last mark does a de-lever whole-position sell with no
+      live quote actually fill on this account, read off recorded de-lever
+      fills against the mark the sweep credited them at?
+    cost_while_unanswered: >-
+      Too small a haircut and the sweep stops one position early, leaving a
+      residual deficit; too large and it sells more than the deficit needs.
+    settles_by:
+      kind: measurement
+      state: specified
+      where: config/number_ledger.yaml (this row; re-labelled arbitrary 2026-10-13)
+      records: >-
+        for each forced de-lever whole-position sell, the mark credited at
+        decision time and the actual average fill price, as a shortfall
+        distribution in percent of mark.
+      closes_when: >-
+        the shortfall distribution is in hand and the haircut is set at a
+        stated high percentile of it; DELETE outcome: if proceeds become
+        booked from the filled quantity, the estimate is no longer needed and
+        the haircut is removed.
   - id: src.pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]
     value: 0.5
     status: owner-ruled

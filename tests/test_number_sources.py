@@ -154,14 +154,17 @@ def test_item_138_order_price_buffers_have_one_source_each() -> None:
     """
     ledger = load_ledger()
 
-    stop_buffer = "src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT"
+    # The 3% stop-limit buffer was DELETED 2026-10-13 with the protective
+    # stop-limit fallback (taken 0 of 60 placements). The de-lever's 0.97
+    # proceeds haircut, its only derived site, now stands on its own as an
+    # arbitrary row rather than pointing at a base that no longer exists.
     # The exit pads were DELETED 2026-10-09 (every ordinary exit is a plain
     # market order, src/exit_quote.py), and the rotation projection's own
     # copy went the same day: it now credits the LIVE bid / ask.
-
-    # The two canonical bases: arbitrary, with their unchanged values.
-    assert ledger[stop_buffer]["status"] == "arbitrary", stop_buffer
-    assert ledger[stop_buffer]["value"] == 0.03, stop_buffer
+    assert "src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT" not in ledger
+    haircut = ledger["src.delever.forced.DeleverForced._force_delever:factor[0]"]
+    assert haircut["status"] == "arbitrary" and haircut["value"] == 0.97
+    assert "derived_from" not in haircut
     for gone in (
         "src.rotation_projection._projected_post_sale_cash:factor[0]",
         "src.rotation_projection._projected_post_sale_cash:factor[1]",
@@ -169,14 +172,6 @@ def test_item_138_order_price_buffers_have_one_source_each() -> None:
         "src.rotation_projection._projected_post_sale_book:factor[1]",
     ):
         assert gone not in ledger, gone
-
-    # Every other order-price site at these values derives from the base above.
-    derived_from_base = {
-        "src.delever.forced.DeleverForced._force_delever:factor[0]": stop_buffer,
-    }
-    for site_id, base in derived_from_base.items():
-        assert ledger[site_id]["status"] == "derived", site_id
-        assert ledger[site_id]["derived_from"] == base, site_id
 
     # No SECOND arbitrary source for any of these buffer values.
     for value in (0.03, 0.995, 1.005):
@@ -553,9 +548,9 @@ def test_the_named_hidden_trade_numbers_are_now_sites() -> None:
     assert not any(i.startswith("src.pipeline_risk_gate.RiskGate._refuse_queued_earnings_buys") for i in ids)
     assert "src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)" in ids
     # (d) class attributes.
-    assert "src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT" in ids
-    # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09; the
-    # attribute above still proves rule (d).
+    assert "src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS" in ids
+    # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09 and
+    # `STOP_LIMIT_BUFFER_PCT` 2026-10-13; the attribute above proves rule (d).
     assert "src.pipeline.TradingPipeline._EMERGENCY_LIMIT_CUSHION_PCT" not in ids
     # (e) item 138: inline order-price factors. The de-lever ladder's own
     # SELL/COVER fill limits are no longer inline % literals — the emergency

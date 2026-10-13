@@ -38,8 +38,8 @@ SHORT ADDS
 Built (owner-approved), as the mirror of the long path: `prepare_short_add`
 cancels a resting *buy*-stop, submits the SELL add, and rearms a buy-stop
 covering the FULL enlarged short. Most-protective for a short is the LOWEST
-trigger (covers soonest); the marketable limit sits ABOVE the trigger
-(`stop * (1 + buffer)`) because a buy needs up-headroom. It adds two guards
+trigger (covers soonest); the protective order is a stop-MARKET, so it
+carries no limit. It adds two guards
 the long path does not need: a wash-trade guard (the SELL add cannot rest
 against a foreign working BUY) and an abort when a cancelled buy-stop FILLED
 (the short was covered — do not restore a stop onto a flat name, do not open
@@ -49,9 +49,7 @@ stops are repaired separately (item 73, closed).
 No new magic percentages. The stop trigger is the live protective level
 already at the broker (or the add's reviewed stop if that is tighter).
 The re-armed protective stop is a stop-MARKET (guaranteed exit, owner
-ratified 2026-09-25); the 3% `AlpacaBroker.STOP_LIMIT_BUFFER_PCT` limit is
-passed through only so the broker's unsupported-combo stop-limit FALLBACK
-has a valid limit — the same buffer every other protective-stop path uses.
+ratified 2026-09-25) with no limit and no stop-limit fallback.
 `execution.repeg_enabled` is not consulted and is not changed.
 """
 
@@ -195,18 +193,10 @@ def rearm_full_position_stop(
             stop_price,
         )
         return None
-    from src.execution.broker import AlpacaBroker
-
-    buffer = getattr(broker, "STOP_LIMIT_BUFFER_PCT", AlpacaBroker.STOP_LIMIT_BUFFER_PCT)
-    try:
-        buffer = float(buffer)
-    except (TypeError, ValueError):
-        buffer = AlpacaBroker.STOP_LIMIT_BUFFER_PCT
     result = broker._submit_protective_stop_retrying(
         symbol=symbol,
         qty=qty,
         stop_price=stop_price,
-        limit_price=stop_price * (1 - buffer),
         side="sell",
     )
     from src.execution.stop_records import accepted_stop_order, write_back_stop_loss
@@ -227,9 +217,8 @@ def rearm_full_position_short_stop(
     """Place ONE protective BUY-stop covering `qty` at `stop_price` for a short.
 
     Mirror of `rearm_full_position_stop` for the short side. A short is
-    protected by a BUY stop ABOVE the entry, and a buy needs UP-headroom, so
-    the marketable limit sits ABOVE the trigger: ``stop * (1 + buffer)``
-    (the long path subtracts). Same `classify_stop_price` / `qty <= 0`
+    protected by a BUY stop ABOVE the entry; the order is a stop-MARKET and
+    carries no limit. Same `classify_stop_price` / `qty <= 0`
     refusal (docs/WORK.md item 88 — a non-finite trigger must not reach the
     broker). Write-back records the short row (`is_short=True`) so R-multiple
     measures the short that was actually made (board item 73, closed).
@@ -245,18 +234,10 @@ def rearm_full_position_short_stop(
             stop_price,
         )
         return None
-    from src.execution.broker import AlpacaBroker
-
-    buffer = getattr(broker, "STOP_LIMIT_BUFFER_PCT", AlpacaBroker.STOP_LIMIT_BUFFER_PCT)
-    try:
-        buffer = float(buffer)
-    except (TypeError, ValueError):
-        buffer = AlpacaBroker.STOP_LIMIT_BUFFER_PCT
     result = broker._submit_protective_stop_retrying(
         symbol=symbol,
         qty=qty,
         stop_price=stop_price,
-        limit_price=stop_price * (1 + buffer),
         side="buy",
     )
     from src.execution.stop_records import accepted_stop_order, write_back_stop_loss

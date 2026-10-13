@@ -713,7 +713,6 @@ def test_prepare_short_add_fill_but_not_flat_does_not_leave_a_sibling_naked(tmp_
         "id": "bstop-rearm",
         "uncovered_qty": 0.0,
     }
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     prep = prepare_short_add(
         broker=broker,
@@ -747,7 +746,6 @@ def test_prepare_short_add_fill_not_flat_and_no_rearm_keeps_the_wal(tmp_path):
     # Broker position UNREADABLE (cannot confirm flat) and rearm fails.
     broker.get_positions.side_effect = RuntimeError("broker down")
     broker._submit_protective_stop_retrying.return_value = None
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     prep = prepare_short_add(
         broker=broker,
@@ -880,7 +878,6 @@ def test_drain_scale_in_rearms_broker_full_short_qty_on_the_buy_side(tmp_path):
         "id": "bstop-rearm",
         "uncovered_qty": 0.0,
     }
-    pipeline.broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     drained = pipeline._drain_pending_protection_restores()
     assert drained == 1
@@ -889,7 +886,7 @@ def test_drain_scale_in_rearms_broker_full_short_qty_on_the_buy_side(tmp_path):
     assert kwargs["stop_price"] == 110.0  # LOWEST stored = most protective
     assert kwargs["side"] == "buy"  # buy-stop protects a short
     # Buy needs UP-headroom: limit ABOVE the trigger.
-    assert kwargs["limit_price"] == 110.0 * 1.03
+    assert kwargs.get("limit_price") is None  # stop-MARKET: no limit
     assert db.get_pending_protection_restores() == []
     db.close()
     assert row_id
@@ -915,7 +912,6 @@ def test_drain_classifies_short_from_qty_sign_not_the_side_column(tmp_path):
         "id": "b-rearm",
         "uncovered_qty": 0.0,
     }
-    pipeline.broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     drained = pipeline._drain_pending_protection_restores()
     assert drained == 1
@@ -1088,7 +1084,6 @@ def test_drain_scale_in_rearms_broker_full_qty(tmp_path):
         "id": "stop-rearm",
         "uncovered_qty": 0.0,
     }
-    pipeline.broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     drained = pipeline._drain_pending_protection_restores()
     assert drained == 1

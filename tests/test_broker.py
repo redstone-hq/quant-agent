@@ -2350,35 +2350,24 @@ class _FakeAPIError(Exception):
 
 
 @patch("src.execution.broker.TradingClient")
-def test_protective_stop_is_market_and_falls_back_to_stop_limit_on_unsupported_combo(
-    mock_tc_cls,
-):
-    """PRIMARY protective stop is a stop-MARKET (owner ratified 2026-09-25).
-    If the broker refuses that market stop for an unsupported order-type/tif
-    combo, the leg DEGRADES to the original stop-LIMIT so the position is
-    never left unprotected — a market-stop refusal becomes a stop-limit,
-    never no stop."""
-    from types import SimpleNamespace
-    from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
+def test_protective_stop_refused_as_unsupported_combo_raises_with_no_stop_limit(mock_tc_cls):
+    """PRIMARY protective stop is a stop-MARKET (owner ratified 2026-09-25)
+    and there is NO stop-LIMIT fallback (deleted 2026-10-13). A type/tif
+    refusal raises like any other, so the retry burst and the CRITICAL
+    UNPROTECTED escalation see it; nothing else is submitted."""
+    from alpaca.trading.requests import StopOrderRequest
 
     mock_client = MagicMock()
-    mock_client.submit_order.side_effect = [
-        _FakeAPIError("order type stop is not supported for this account", 422),
-        SimpleNamespace(id="sl-1", status="new", symbol="AAPL"),
-    ]
+    mock_client.submit_order.side_effect = _FakeAPIError("order type stop is not supported for this account", 422)
     mock_tc_cls.return_value = mock_client
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
 
-    out = broker._submit_stop_limit_order(symbol="AAPL", qty=5, stop_price=150.0)
-
+    with pytest.raises(Exception):
+        broker._submit_stop_limit_order(symbol="AAPL", qty=5, stop_price=150.0)
     reqs = [c.args[0] for c in mock_client.submit_order.call_args_list]
-    assert len(reqs) == 2
-    assert isinstance(reqs[0], StopOrderRequest)  # primary: stop-MARKET
+    assert len(reqs) == 1
+    assert isinstance(reqs[0], StopOrderRequest)
     assert getattr(reqs[0], "limit_price", None) is None
-    assert isinstance(reqs[1], StopLimitOrderRequest)  # fallback: stop-LIMIT
-    assert float(reqs[1].stop_price) == 150.0
-    assert float(reqs[1].limit_price) == 145.5  # 3% below the trigger
-    assert out["id"] == "sl-1"  # the fallback's order
 
 
 @patch("src.execution.broker.TradingClient")

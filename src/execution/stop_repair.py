@@ -91,11 +91,8 @@ def repair_stop_coverage(
     not widen. A stop cancelled after a trail, with the tape already through
     the trailed level, stays flagged for the reviewer.
     The repair places the same protective stop the entry path does: a
-    stop-MARKET (guaranteed exit, owner ratified 2026-09-25). The
-    `STOP_LIMIT_BUFFER_PCT` limit is computed and passed through only so the
-    broker's unsupported-combo FALLBACK has a valid stop-limit to use;
-    mirrored the way `place_entry_protection` already does — below a
-    sell-stop, above a buy-stop. No new constant.
+    stop-MARKET (guaranteed exit, owner ratified 2026-09-25), with no
+    limit and no stop-limit fallback. No new constant.
 
     It ADDS an order and nothing else, with ONE exception (k40, 2026-10-13):
     when a RECORDED, current stop is already crossed by today's
@@ -366,12 +363,10 @@ def repair_stop_coverage(
     # to close on the entry side, left open on the belt that is supposed to
     # be its backstop. Route through the same retrying+fallback machinery
     # instead of a second, weaker copy of it.
-    buffer_mult = (1 + broker.STOP_LIMIT_BUFFER_PCT) if protective_side == "buy" else (1 - broker.STOP_LIMIT_BUFFER_PCT)
     result = broker._submit_protective_stop_retrying(
         symbol=symbol,
         qty=uncovered_qty,
         stop_price=stop_price,
-        limit_price=stop_price * buffer_mult,
         side=protective_side,
     )
     from src.execution.stop_records import accepted_stop_order, write_back_stop_loss

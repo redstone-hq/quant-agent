@@ -429,7 +429,6 @@ def _repairable_broker(**kw):
     so no guard blocks the repair for the wrong reason."""
     broker = _orcl_broker(**kw)
     broker.get_latest_price.return_value = 150.28
-    broker.STOP_LIMIT_BUFFER_PCT = 0.01
     broker._submit_protective_stop_retrying.return_value = {
         "id": "new-day-stop",
         "uncovered_qty": 0.0,
@@ -804,7 +803,7 @@ def test_a_naked_short_is_repaired_with_a_buy_stop(db, state_path):
     assert kwargs["qty"] == pytest.approx(3.0)
     assert kwargs["stop_price"] == pytest.approx(220.0)
     assert kwargs["side"] == "buy"
-    assert abs(kwargs["limit_price"] - 220.0 * (1 + broker.STOP_LIMIT_BUFFER_PCT)) < 0.01
+    assert kwargs.get("limit_price") is None  # stop-MARKET: no limit
 
 
 def test_heartbeat_last_buy_reader_forwards_short_action(tmp_path, monkeypatch):

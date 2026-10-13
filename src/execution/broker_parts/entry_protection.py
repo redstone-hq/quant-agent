@@ -94,8 +94,8 @@ def place_entry_protection(
     `side` is the ENTRY order's own side — "buy" opens or adds to a long
     (the only side any order path in this repo has ever submitted, hence
     the default), "sell"/"sell_short" opens a short. The protective stop
-    is always the OPPOSITE side, at the opposite buffer: a SELL stop
-    below a long, a BUY stop above a short. See `STOP_LIMIT_BUFFER_PCT`.
+    is always the OPPOSITE side: a SELL stop below a long, a BUY stop
+    above a short, both stop-MARKET.
 
     `superseded_filled_qty` is shares this entry already acquired under a
     DIFFERENT order id — the ancestors of a re-peg chain. `order_id` is
@@ -347,21 +347,16 @@ def place_entry_protection(
         )
     # The protective order's side is the OPPOSITE of the entry's: a BUY
     # entry (long) is protected by a SELL stop below it; a SELL/SELL_SHORT
-    # entry (short) is protected by a BUY stop above it. The buffer
-    # mirrors the same way — see STOP_LIMIT_BUFFER_PCT above. Getting
+    # entry (short) is protected by a BUY stop above it. Getting
     # this backwards is THE most dangerous bug in shorts-safe: the order
     # still submits without error, it just sits on the wrong side of the
     # trigger and can never fill, so the position runs unprotected in
     # exactly the direction it needed protecting.
     protective_side = "sell" if normalized == "buy" else "buy"
-    buffer_mult = (
-        (1 - broker.STOP_LIMIT_BUFFER_PCT) if protective_side == "sell" else (1 + broker.STOP_LIMIT_BUFFER_PCT)
-    )
     stop_order = broker._submit_protective_stop_retrying(
         symbol=symbol,
         qty=filled_qty,
         stop_price=stop_price,
-        limit_price=stop_price * buffer_mult,
         side=protective_side,
     )
     if stop_order is None:

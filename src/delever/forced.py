@@ -198,7 +198,7 @@ class DeleverForced:
             # size to justify and the loop sells the whole position, exactly
             # as every non-sweep de-lever target already does. An earlier
             # draft of this change sized that branch off the mark less
-            # `AlpacaBroker.STOP_LIMIT_BUFFER_PCT` and called it "an existing
+            # the (since deleted) 3% stop-limit buffer and called it "an existing
             # number, not a new one". It was neither safe nor a no-op:
             # dividing by 0.97 is a 3.09% pad on the same possibly-stale
             # mark, i.e. LARGER than the flat 2% pad the change claimed to be
@@ -282,8 +282,8 @@ class DeleverForced:
                 # failure (2026-07-16 audit).
                 # Conservative proceeds estimate for the break-early guard:
                 # mark × 0.97, i.e. assume the marketable fill lands up to 3%
-                # below the mark (the same must-fill slippage the desk's
-                # STOP_LIMIT_BUFFER_PCT budgets for a gapping exit). Under-
+                # below the mark (its own arbitrary number since the 3%
+                # stop-limit buffer it was copied from was deleted). Under-
                 # counting proceeds is the safe error here — it never stops the
                 # sweep one position too early and leaves a residual deficit.
                 #

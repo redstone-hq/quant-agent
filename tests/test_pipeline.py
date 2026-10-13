@@ -4162,7 +4162,6 @@ def test_reconcile_stop_coverage_repairs_undercovered_short():
     )
     pipe.broker.get_latest_price.return_value = 200.0
     pipe.broker.get_latest_quote.return_value = {"bid_price": 200.0, "ask_price": 200.0}
-    pipe.broker.STOP_LIMIT_BUFFER_PCT = 0.03
     pipe.broker._submit_protective_stop_retrying.return_value = {"id": "buy-stop-1"}
 
     gaps = pipe._reconcile_stop_coverage()

@@ -361,107 +361,64 @@ class _FakeComboReject(Exception):
 
 @patch("src.execution.broker.TradingClient")
 def test_place_entry_protection_long_side_unchanged(mock_tc_cls):
-    """A BUY entry is protected by a SELL stop-MARKET (no limit). On the
-    unsupported-combo fallback the stop-LIMIT sits 3% BELOW the trigger."""
-    from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
+    """A BUY entry is protected by a SELL stop-MARKET at the trigger, no limit."""
+    from alpaca.trading.requests import StopOrderRequest
 
     broker, client = _broker(mock_tc_cls)
     broker.wait_for_order_terminal = MagicMock(return_value="filled")
     broker.get_order_fill_info = MagicMock(return_value={"filled_qty": 10.0})
-    client.submit_order.side_effect = [
-        _FakeComboReject(),  # primary stop-MARKET refused
-        MagicMock(id="s1", status="new"),  # fallback stop-LIMIT accepted
-    ]
+    client.submit_order.side_effect = [MagicMock(id="s1", status="new")]
 
     out = broker.place_entry_protection("AAA", "e1", stop_price=100.0, requested_qty=10)
 
     assert out is not None
     reqs = [c.args[0] for c in client.submit_order.call_args_list]
-    assert isinstance(reqs[0], StopOrderRequest)  # primary: stop-MARKET
+    assert len(reqs) == 1
+    assert isinstance(reqs[0], StopOrderRequest)
     assert reqs[0].side == OrderSide.SELL
     assert float(reqs[0].stop_price) == 100.0
     assert getattr(reqs[0], "limit_price", None) is None
-    assert isinstance(reqs[1], StopLimitOrderRequest)  # fallback: stop-LIMIT
-    assert reqs[1].side == OrderSide.SELL
-    assert float(reqs[1].limit_price) == 97.0  # 3% BELOW the trigger
 
 
 @patch("src.execution.broker.TradingClient")
-def test_place_entry_protection_short_side_submits_buy_stop_limit_above_trigger(mock_tc_cls):
-    """THE pin. A short entry (side='sell') is protected by a BUY stop. The
-    primary is a stop-MARKET; on the fallback the stop-LIMIT must sit 3%
-    ABOVE the trigger — backwards, and the fallback fires into an
-    unmarketable limit that can never fill and the short runs unprotected."""
-    from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
+def test_place_entry_protection_short_side_submits_buy_stop_market(mock_tc_cls):
+    """THE pin. A short entry (side='sell') is protected by a BUY stop-MARKET
+    at the trigger — a SELL here would add to the short instead of covering."""
+    from alpaca.trading.requests import StopOrderRequest
 
     broker, client = _broker(mock_tc_cls)
     broker.wait_for_order_terminal = MagicMock(return_value="filled")
     broker.get_order_fill_info = MagicMock(return_value={"filled_qty": 10.0})
-    client.submit_order.side_effect = [
-        _FakeComboReject(),  # primary stop-MARKET refused
-        MagicMock(id="s1", status="new"),  # fallback stop-LIMIT accepted
-    ]
+    client.submit_order.side_effect = [MagicMock(id="s1", status="new")]
 
-    out = broker.place_entry_protection(
-        "SSS",
-        "e1",
-        stop_price=100.0,
-        requested_qty=10,
-        side="sell",
-    )
+    out = broker.place_entry_protection("SSS", "e1", stop_price=100.0, requested_qty=10, side="sell")
 
     assert out is not None
     reqs = [c.args[0] for c in client.submit_order.call_args_list]
-    assert isinstance(reqs[0], StopOrderRequest)  # primary: stop-MARKET
+    assert len(reqs) == 1
+    assert isinstance(reqs[0], StopOrderRequest)
     assert reqs[0].side == OrderSide.BUY
     assert float(reqs[0].stop_price) == 100.0
     assert getattr(reqs[0], "limit_price", None) is None
-    assert isinstance(reqs[1], StopLimitOrderRequest)  # fallback: stop-LIMIT
-    assert reqs[1].side == OrderSide.BUY
-    assert float(reqs[1].limit_price) == 103.0  # 3% ABOVE the trigger
 
 
+@pytest.mark.parametrize("side,expected", [("sell", OrderSide.SELL), ("buy", OrderSide.BUY)])
 @patch("src.execution.broker.TradingClient")
-def test_submit_stop_limit_order_sell_default_fallback_unchanged(mock_tc_cls):
-    """The raw primitive: primary is a SELL stop-MARKET; the stop-limit
-    fallback (no explicit limit_price, default side) sits 3% below."""
-    from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
+def test_submit_stop_limit_order_combo_refusal_raises_no_fallback(mock_tc_cls, side, expected):
+    """The raw primitive: one stop-MARKET on the right side; a type/tif
+    refusal raises and nothing else is submitted (no stop-LIMIT fallback)."""
+    from alpaca.trading.requests import StopOrderRequest
 
     broker, client = _broker(mock_tc_cls)
-    client.submit_order.side_effect = [
-        _FakeComboReject(),
-        MagicMock(id="o1", status="new"),
-    ]
+    client.submit_order.side_effect = _FakeComboReject()
 
-    broker._submit_stop_limit_order(symbol="AAA", qty=10, stop_price=200.0)
+    with pytest.raises(Exception):
+        broker._submit_stop_limit_order(symbol="AAA", qty=10, stop_price=200.0, side=side)
 
     reqs = [c.args[0] for c in client.submit_order.call_args_list]
+    assert len(reqs) == 1
     assert isinstance(reqs[0], StopOrderRequest)
-    assert reqs[0].side == OrderSide.SELL
-    assert getattr(reqs[0], "limit_price", None) is None
-    assert isinstance(reqs[1], StopLimitOrderRequest)
-    assert reqs[1].side == OrderSide.SELL
-    assert float(reqs[1].limit_price) == 194.0
-
-
-@patch("src.execution.broker.TradingClient")
-def test_submit_stop_limit_order_buy_side_fallback_is_the_mirror(mock_tc_cls):
-    from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
-
-    broker, client = _broker(mock_tc_cls)
-    client.submit_order.side_effect = [
-        _FakeComboReject(),
-        MagicMock(id="o1", status="new"),
-    ]
-
-    broker._submit_stop_limit_order(symbol="SSS", qty=10, stop_price=200.0, side="buy")
-
-    reqs = [c.args[0] for c in client.submit_order.call_args_list]
-    assert isinstance(reqs[0], StopOrderRequest)
-    assert reqs[0].side == OrderSide.BUY
-    assert isinstance(reqs[1], StopLimitOrderRequest)
-    assert reqs[1].side == OrderSide.BUY
-    assert float(reqs[1].limit_price) == 206.0
+    assert reqs[0].side == expected
 
 
 # ==========================================================================
@@ -712,7 +669,6 @@ def test_reconcile_stop_coverage_naked_short_is_repaired_from_short_row():
     pipe = _pipeline_for_reconcile([_mock_position("TSLA", -40.0)], _snap)
     pipe.db.get_symbol_last_buy.return_value = {"stop_loss": 220.0, "action": "SHORT"}
     pipe.broker.get_latest_price.return_value = 200.0
-    pipe.broker.STOP_LIMIT_BUFFER_PCT = 0.03
     pipe.broker._submit_protective_stop_retrying.return_value = {"id": "buy-stop-1"}
     gaps = pipe._reconcile_stop_coverage()
     assert len(gaps) == 1

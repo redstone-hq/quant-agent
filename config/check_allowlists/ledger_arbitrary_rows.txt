@@ -65,7 +65,7 @@ src.data.levels.CLUSTER_TOLERANCE_PCT_FALLBACK
 src.data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT
 src.data.levels.PIVOT_WINDOW
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
-src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT
+src.delever.forced.DeleverForced._force_delever:factor[0]
 src.execution.broker_parts.stop_place._STOP_PLACEMENT_BACKOFF_S[0]
 src.execution.broker_parts.stop_place._STOP_PLACEMENT_BACKOFF_S[1]
 src.execution.broker_parts.stop_place._STOP_PLACEMENT_MAX_ATTEMPTS

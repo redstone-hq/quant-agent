@@ -160,7 +160,6 @@ def test_repair_write_back_long_matches_the_placed_level(db):
     _open_long(db, symbol="VST", stop=158.75)
     broker = MagicMock()
     broker.get_latest_price.return_value = 165.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {"id": "stop-1"}
     placed = repair_stop_coverage(
         broker=broker,
@@ -186,7 +185,6 @@ def test_repair_write_back_short_matches_the_placed_level(db):
     _open_short(db, symbol="TSLA", stop=220.0)
     broker = MagicMock()
     broker.get_latest_price.return_value = 200.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {"id": "buy-stop"}
     placed = repair_stop_coverage(
         broker=broker,
@@ -213,7 +211,6 @@ def test_repair_after_a_trail_restores_the_trailed_level_not_the_entry(db):
     write_back_stop_loss(db, "VST", 162.40)
     broker = MagicMock()
     broker.get_latest_price.return_value = 170.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {"id": "stop-2"}
     placed = repair_stop_coverage(
         broker=broker,
@@ -320,7 +317,6 @@ def test_scale_in_rearm_writes_back_the_rearmed_level(db):
 
     _open_long(db, symbol="ORCL", stop=137.53)
     broker = MagicMock()
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {"id": "rearm", "uncovered_qty": 0}
     placed = rearm_full_position_stop(
         broker,
@@ -436,7 +432,6 @@ def test_kill_switch_repair_does_not_write_back(db):
     _open_long(db, symbol="VST", stop=158.75)
     broker = MagicMock()
     broker.get_latest_price.return_value = 165.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {
         "id": None,
         "status": "kill_switch_halted",
@@ -462,7 +457,6 @@ def test_kill_switch_rearm_does_not_write_back(db):
 
     _open_long(db, symbol="ORCL", stop=137.53)
     broker = MagicMock()
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {
         "id": None,
         "status": "kill_switch_halted",
@@ -597,7 +591,6 @@ def test_repair_partial_with_an_accepted_id_still_writes_back(db):
     write_back_stop_loss(db, "VST", 162.40)
     broker = MagicMock()
     broker.get_latest_price.return_value = 170.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {
         "id": "stop-partial",
         "uncovered_qty": 0.3456,

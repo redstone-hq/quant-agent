@@ -887,7 +887,6 @@ def _repair_pipeline(*, stop_loss=140.0, live_price=150.0) -> MagicMock:
     pipeline.db.get_symbol_last_buy.return_value = {"stop_loss": stop_loss}
     pipeline.broker.get_latest_price.return_value = live_price
     pipeline.broker.get_latest_quote.return_value = {"bid_price": live_price, "ask_price": live_price}
-    pipeline.broker.STOP_LIMIT_BUFFER_PCT = 0.03
     return pipeline
 
 
@@ -909,7 +908,6 @@ def test_repair_retries_a_transient_failure_in_band():
         symbol="NVDA",
         qty=10.0,
         stop_price=140.0,
-        limit_price=pytest.approx(140.0 * (1 - 0.03)),
         side="sell",
     )
 
@@ -952,15 +950,13 @@ def test_repair_of_a_fractional_gap_that_only_partially_covers_keeps_escalating(
         symbol="NVDA",
         qty=12.3456,
         stop_price=140.0,
-        limit_price=pytest.approx(140.0 * (1 - 0.03)),
         side="sell",
     )
 
 
 def test_short_repair_places_a_buy_stop_above_the_tape():
     """The wrapper must pass is_short through: a SHORT's recorded stop sits
-    above the live price, the protective order is BUY, and the limit buffer
-    is the existing STOP_LIMIT_BUFFER_PCT on the ask side of the trigger."""
+    above the live price, and the protective order is a BUY stop-MARKET."""
     pipeline = _repair_pipeline(stop_loss=160.0, live_price=150.0)
     pipeline.broker._submit_protective_stop_retrying.return_value = {"id": "r1"}
 
@@ -976,7 +972,6 @@ def test_short_repair_places_a_buy_stop_above_the_tape():
         symbol="TSLA",
         qty=10.0,
         stop_price=160.0,
-        limit_price=pytest.approx(160.0 * (1 + 0.03)),
         side="buy",
     )
     assert pipeline.db.get_symbol_last_buy.call_args.kwargs.get("action") == "SHORT"

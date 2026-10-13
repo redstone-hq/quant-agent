@@ -20,7 +20,6 @@ from alpaca.common.exceptions import APIError
 from alpaca.trading.requests import (
     LimitOrderRequest,
     MarketOrderRequest,
-    StopLimitOrderRequest,
     StopOrderRequest,
 )
 
@@ -193,28 +192,6 @@ def test_every_other_request_field_is_unchanged(_d):
         assert 0 < len(cid) <= _CLIENT_ORDER_ID_MAX_LEN
     assert reqs[0].client_order_id == f"ENT-BRK.B-buy-{DAY}-2.0-500.0"
     assert reqs[2].client_order_id == f"STP-AAPL-sell-{DAY}-3.0-95.0"
-
-
-@patch("src.execution.order_idempotency._session_date_key", return_value=DAY)
-def test_stop_limit_fallback_also_carries_key(_d):
-    client = MagicMock()
-    unsupported = APIError(
-        json.dumps({"code": 1, "message": "order type stop is not supported for gtc"}),
-        SimpleNamespace(response=SimpleNamespace(status_code=422), request=None),
-    )
-    client.submit_order.side_effect = [
-        unsupported,
-        SimpleNamespace(id="o2", status="accepted", symbol="AAPL"),
-    ]
-    with (
-        patch("src.execution.broker.TradingClient", return_value=client),
-        patch.object(broker_mod, "_is_unsupported_stop_market_rejection", return_value=True),
-    ):
-        b = AlpacaBroker(api_key="test", secret_key="test", paper=True)
-        b._submit_stop_limit_order("AAPL", 3, 95.0)
-    limit_req = client.submit_order.call_args_list[1].args[0]
-    assert isinstance(limit_req, StopLimitOrderRequest)
-    assert limit_req.client_order_id == f"STL-AAPL-sell-{DAY}-3.0-95.0"
 
 
 # ---------------------------------------------------------------------------

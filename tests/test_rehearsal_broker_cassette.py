@@ -32,7 +32,6 @@ from src.execution.broker_parts.stop_amend_pure import (
 )
 from src.execution.broker_parts.stop_rejections import (
     _is_held_for_orders_error,
-    _is_unsupported_stop_market_rejection,
 )
 from src.execution.broker_parts.submission_rejection import (
     _is_terminal_submission_rejection,
@@ -359,10 +358,6 @@ def test_replayed_errors_preserve_every_current_rest_classifier_surface():
 
     held = _round_tripped_error("insufficient qty held_for_orders", 403, 40310000)
     assert _is_held_for_orders_error(held)
-    assert not _is_unsupported_stop_market_rejection(held)
-
-    unsupported = _round_tripped_error("order type is not supported for this time_in_force", 422, 42210001)
-    assert _is_unsupported_stop_market_rejection(unsupported)
 
     missing = _round_tripped_error("invalid symbol", 404, 40410000)
     assert _is_terminal_broker_rejection(missing)

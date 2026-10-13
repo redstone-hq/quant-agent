@@ -19,7 +19,7 @@ import re
 import time
 
 from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import StopLimitOrderRequest, StopOrderRequest
+from alpaca.trading.requests import StopOrderRequest
 
 from src.execution.broker_parts.stop_shift import shift_stops_down as _shift_stops_down_via_part
 from src.execution.broker_parts.stop_window import UnprotectedWindow, fallback_reason
@@ -58,16 +58,6 @@ from src.execution.order_idempotency import (
 # one is lent (flagged, no new channel).
 from src.sentinel.guarded import record_guarded_pass
 
-# One durable row per placement, so the stop-LIMIT buffer's own ledger row can
-# ever close; observation only, and it cannot raise into the placement.
-from src.execution.stop_limit_buffer_records import (
-    LEG_FALLBACK,
-    LEG_PRIMARY,
-    LIMIT_FROM_BUFFER,
-    LIMIT_FROM_CALLER,
-    record_leg_for as _record_leg,
-)
-
 # Same log channel as before the move: operators and tests filter on the
 # broker's logger name, and the move must not change what they see.
 logger = logging.getLogger("src.execution.broker")
@@ -81,7 +71,6 @@ _STOP_PLACEMENT_BACKOFF_S = (0.5, 1.5)
 
 from src.execution.broker_parts.stop_rejections import (  # noqa: F401
     _is_held_for_orders_error,
-    _is_unsupported_stop_market_rejection,
     log_terminal_stop_rejection,
     real_broker_order_id,
 )
@@ -118,7 +107,6 @@ class StopPlacer:
         kill_switch_active,
         kill_switch_path,
         protective_stop_block_recorder,
-        stop_limit_buffer_pct,
         submit_protective_stop_retrying=None,
         submit_stop_leg_retrying=None,
         existing_stop_covering_qty=None,
@@ -142,7 +130,6 @@ class StopPlacer:
         self._kill_switch_active = kill_switch_active
         self._kill_switch_path = kill_switch_path
         self.protective_stop_block_recorder = protective_stop_block_recorder
-        self.STOP_LIMIT_BUFFER_PCT = stop_limit_buffer_pct
         if submit_protective_stop_retrying is not None:
             self._submit_protective_stop_retrying = submit_protective_stop_retrying
         if submit_stop_leg_retrying is not None:
@@ -210,7 +197,7 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None,
+        limit_price: float | None = None,
         side: str,
         leg: str,
     ) -> dict | None:
@@ -349,7 +336,7 @@ class StopPlacer:
         symbol: str,
         qty: float,
         stop_price: float,
-        limit_price: float | None,
+        limit_price: float | None = None,
         side: str,
     ) -> dict | None:
         """Spec §11.1 guard 1 — submit protective stop coverage for `qty`,
@@ -520,21 +507,13 @@ class StopPlacer:
         is the exposure the stop exists to close. `limit_price` is therefore
         IGNORED on the primary order (a market stop has no limit).
 
-        SAFETY FALLBACK: if the broker refuses the stop-MARKET for an
-        unsupported order-type/tif combination
-        (`_is_unsupported_stop_market_rejection`), this degrades to the
-        original stop-LIMIT for the SAME leg so the position is never left
-        unprotected — a market-stop refusal becomes a stop-limit, never no
-        stop. Any OTHER rejection propagates unchanged. `STOP_LIMIT_BUFFER_PCT`
-        and `limit_price` govern ONLY this fallback now (and the separate
-        force-de-lever must-fill SELL), not the primary protective stop.
-
-        When `limit_price` is not supplied, the fallback buffer must sit on
-        the correct side of the trigger too: a SELL's limit belongs BELOW
-        the stop (same STOP_LIMIT_BUFFER_PCT the entry-protection path
-        uses), a BUY's belongs ABOVE it. A SELL limit placed above its stop,
-        or a BUY limit placed below its, can never fill — the order looks
-        accepted but is dead on arrival.
+        NO FALLBACK. The stop-LIMIT fallback (and its 3% buffer) was deleted
+        2026-10-13: it was taken 0 times in 60 recorded placements. A broker
+        refusal of the stop-MARKET now RAISES like any other refusal, so
+        `_submit_protective_stop_retrying` retries it and, if every attempt
+        fails, logs CRITICAL "UNPROTECTED" and returns None — the caller's
+        owner alert and the coverage repair then take over. `limit_price` is
+        accepted for caller compatibility and ignored.
 
         TIME IN FORCE IS DERIVED FROM `qty`, NOT PASSED IN (spec §11.1
         hybrid fractional stops). Whole share counts get GTC exactly as
@@ -622,19 +601,6 @@ class StopPlacer:
         if qty_refusal is not None:  # same contract: refused = raised
             raise BadOrderQuantity(f"{symbol}: {qty_refusal}")
         stop_price_q = _quantize_price(stop_price)
-        # The limit is computed EAGERLY but used ONLY by the stop-limit
-        # fallback below — the primary protective order is a stop-MARKET and
-        # carries no limit. Same buffer/side rule the fallback and the
-        # force-de-lever must-fill SELL use.
-        if limit_price and limit_price > 0:
-            limit_price_q = _quantize_price(limit_price)
-            limit_source = LIMIT_FROM_CALLER
-        else:
-            limit_source = LIMIT_FROM_BUFFER
-            buffer_mult = (
-                (1 + self.STOP_LIMIT_BUFFER_PCT) if order_side == OrderSide.BUY else (1 - self.STOP_LIMIT_BUFFER_PCT)
-            )
-            limit_price_q = _quantize_price(stop_price * buffer_mult)
         # PRIMARY: stop-MARKET (guaranteed exit) — owner ratified 2026-09-25.
         # Idempotency keys + duplicate read-back: src/execution/order_idempotency.py
         # (trigger price is in the key, so a ratcheted trail is a NEW intent).
@@ -650,66 +616,17 @@ class StopPlacer:
                 client_order_id=client_order_id,
             )
 
-        try:
-            order = _submit_stop_request_idempotent(
-                self.client,
-                _market_request,
-                purpose="STP",
-                alpaca_symbol=_alpaca_symbol(symbol),
-                side=side,
-                session_date=session_date,
-                qty=qty,
-                price=stop_price_q,
-                holds_shares_statuses=PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES,
-            )
-            _record_leg(self, LEG_PRIMARY, symbol, qty, side, stop_price_q, limit_price_q, limit_source)
-        except Exception as exc:  # noqa: BLE001
-            if not _is_unsupported_stop_market_rejection(exc):
-                # NOT a type/tif refusal — held_for_orders, buying-power,
-                # symbol, rate-limit, 5xx, etc. must propagate unchanged so
-                # the retry / existing-stop / escalation paths above see the
-                # real cause. The fallback must never swallow these.
-                raise
-            # SAFETY FALLBACK: the broker refused the stop-MARKET for an
-            # unsupported order-type/tif combo. Degrade to the ORIGINAL
-            # stop-LIMIT for this same leg so the position is NEVER left
-            # unprotected. This second submit is UNGUARDED: if it too is
-            # rejected, that exception surfaces to the caller — a naked
-            # position is never reported as covered.
-            logger.warning(
-                "protective stop-MARKET refused for %s (qty=%s, stop $%.4f) as "
-                "an unsupported order-type/tif combo (%s) — falling back to a "
-                "stop-LIMIT (limit $%s) so the position stays protected.",
-                symbol,
-                qty,
-                stop_price_q,
-                exc,
-                limit_price_q,
-            )
-
-            def _limit_request(client_order_id: str) -> StopLimitOrderRequest:
-                return StopLimitOrderRequest(
-                    symbol=_alpaca_symbol(symbol),
-                    qty=qty,
-                    side=order_side,
-                    time_in_force=time_in_force,
-                    stop_price=stop_price_q,
-                    limit_price=limit_price_q,
-                    client_order_id=client_order_id,
-                )
-
-            order = _submit_stop_request_idempotent(
-                self.client,
-                _limit_request,
-                purpose="STL",
-                alpaca_symbol=_alpaca_symbol(symbol),
-                side=side,
-                session_date=session_date,
-                qty=qty,
-                price=stop_price_q,
-                holds_shares_statuses=PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES,
-            )
-            _record_leg(self, LEG_FALLBACK, symbol, qty, side, stop_price_q, limit_price_q, limit_source)
+        order = _submit_stop_request_idempotent(
+            self.client,
+            _market_request,
+            purpose="STP",
+            alpaca_symbol=_alpaca_symbol(symbol),
+            side=side,
+            session_date=session_date,
+            qty=qty,
+            price=stop_price_q,
+            holds_shares_statuses=PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES,
+        )
         # Unwrap OrderStatus enum value (see submit_order — same reason).
         return {
             "id": str(order.id),
