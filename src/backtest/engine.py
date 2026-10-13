@@ -90,9 +90,9 @@ OTHER DECLARED SIMPLIFICATIONS
   (matches the trade-level max-drawdown methodology in `metrics.py`).
 * macro regime is not modelled — `_widen_stop_past_noise` is called with
   `regime=None`, i.e. no regime scale is applied.
-* When a day's bar could have hit BOTH the stop and the target, the engine
-  assumes the STOP was hit first. Daily OHLC cannot resolve true intrabar
-  sequence, and assuming the worse outcome is the conservative choice.
+* There is NO take-profit exit: live never sells at a target, so a position
+  leaves only by stop (trailed), the hold horizon, or end of data. A bar
+  that opens through the stop fills at the open, not the stop.
 * A position still open when the data window ends is force-closed at the
   last available close (`exit_reason="end_of_data"`), not silently dropped.
 * Every new candidate requests the same `max_position_risk_pct` and this

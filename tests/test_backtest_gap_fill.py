@@ -1,6 +1,6 @@
 """Backtest exit fills on gaps: a day that opens through the stop fills at the
-OPEN (not the stop); an intraday touch still fills at the stop. Targets that
-gap favourably fill at the open. Hermetic: no network, no files."""
+OPEN (not the stop); an intraday touch still fills at the stop. There is no
+target exit (live has none). Hermetic: no network, no files."""
 
 from __future__ import annotations
 
@@ -52,21 +52,24 @@ def test_short_intraday_touch_fills_at_stop():
     assert (reason, px) == ("stop", 105.0)
 
 
-def test_long_target_gap_up_fills_at_open():
-    reason, px = _check_exit(_pos("long", 95.0, 110.0), _bar(115.0, 116.0, 114.0, 115.0), 11, 20)
-    assert (reason, px) == ("target", 115.0)
+def test_long_gap_up_through_target_stays_open():
+    # Live never sells at a target: opening above it is not an exit.
+    assert _check_exit(_pos("long", 95.0, 110.0), _bar(115.0, 116.0, 114.0, 115.0), 11, 20) == (None, None)
 
 
-def test_long_target_intraday_touch_fills_at_target():
-    reason, px = _check_exit(_pos("long", 95.0, 110.0), _bar(105.0, 111.0, 104.0, 109.0), 11, 20)
-    assert (reason, px) == ("target", 110.0)
+def test_long_through_target_intraday_stays_open():
+    assert _check_exit(_pos("long", 95.0, 110.0), _bar(105.0, 111.0, 104.0, 109.0), 11, 20) == (None, None)
 
 
-def test_short_target_gap_down_fills_at_open():
-    reason, px = _check_exit(_pos("short", 105.0, 90.0), _bar(85.0, 86.0, 84.0, 85.0), 11, 20)
-    assert (reason, px) == ("target", 85.0)
+def test_long_opens_above_target_and_dips_to_stop_is_a_stop_fill():
+    reason, px = _check_exit(_pos("long", 95.0, 110.0), _bar(115.0, 116.0, 94.0, 100.0), 11, 20)
+    assert (reason, px) == ("stop", 95.0)  # never a target exit
 
 
-def test_short_target_intraday_touch_fills_at_target():
-    reason, px = _check_exit(_pos("short", 105.0, 90.0), _bar(95.0, 96.0, 89.0, 91.0), 11, 20)
-    assert (reason, px) == ("target", 90.0)
+def test_short_gap_down_through_target_stays_open():
+    assert _check_exit(_pos("short", 105.0, 90.0), _bar(85.0, 86.0, 84.0, 85.0), 11, 20) == (None, None)
+
+
+def test_short_opens_below_target_and_rises_to_stop_is_a_stop_fill():
+    reason, px = _check_exit(_pos("short", 105.0, 90.0), _bar(85.0, 106.0, 84.0, 100.0), 11, 20)
+    assert (reason, px) == ("stop", 105.0)
