@@ -38,7 +38,7 @@ def fetch_openrouter_balance(path: Path = OPENROUTER_BALANCE_PATH) -> dict:
     snapshot day is the EXCHANGE day (src.trading_calendar.et_today), the same
     clock `llm_budget_days` is keyed on, so later spend subtracts correctly.
     """
-    from src.trading_calendar import et_today
+    from src.trading_calendar import et_today, utc_now
 
     key = os.environ.get("OPENROUTER_API_KEY", "")
     if not key:
@@ -55,7 +55,7 @@ def fetch_openrouter_balance(path: Path = OPENROUTER_BALANCE_PATH) -> dict:
     snapshot = {
         "remaining_usd": remaining,
         "as_of_day": et_today().isoformat(),
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": utc_now().isoformat(),
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

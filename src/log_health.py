@@ -94,6 +94,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+
+from src.trading_calendar import utc_now
 from pathlib import Path
 
 from src.notifier import TelegramNotifier
@@ -1104,7 +1106,7 @@ def build_report(
     log_dir: Path | None = None,
     state_path: Path | None = None,
 ) -> Report:
-    now = (now or datetime.now(tz=LOG_TZ)).astimezone(LOG_TZ).replace(microsecond=0)
+    now = (now or utc_now()).astimezone(LOG_TZ).replace(microsecond=0)
     state = load_state(state_path)
     start, end = window_from_state(now, state)
     records = read_window(start, end, log_dir)

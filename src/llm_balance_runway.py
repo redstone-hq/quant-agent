@@ -34,6 +34,8 @@ import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+
+from src.trading_calendar import utc_now
 from pathlib import Path
 
 import yaml
@@ -66,7 +68,7 @@ def _snapshot_age_hours(snapshot: dict | None, now: datetime | None) -> float | 
         fetched = datetime.fromisoformat(str(snapshot["fetched_at"]))
         if fetched.tzinfo is None:
             fetched = fetched.replace(tzinfo=timezone.utc)
-        return max((now or datetime.now(timezone.utc)) - fetched, timedelta(0)).total_seconds() / 3600
+        return max((now or utc_now()) - fetched, timedelta(0)).total_seconds() / 3600
     except (KeyError, TypeError, ValueError):
         return None
 

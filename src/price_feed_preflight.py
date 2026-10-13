@@ -44,7 +44,7 @@ from src.sizing_refusal import (
     reference_read_ok,
     reset_price_feed,
 )
-from src.trading_calendar import SESSION_WINDOWS, et_now
+from src.trading_calendar import SESSION_WINDOWS, et_now, utc_now
 
 logger = logging.getLogger(__name__)
 _sleep = time.sleep  # module attribute so a test can stub the backoff
@@ -116,7 +116,7 @@ def session_seconds_left(now_epoch: float | None = None) -> float:
         return 0.0
     if not math.isfinite(deadline):
         return 0.0
-    now_epoch = time.time() if now_epoch is None else now_epoch
+    now_epoch = utc_now().timestamp() if now_epoch is None else now_epoch
     return max(0.0, deadline - POST_WAIT_RESERVE_S - now_epoch)
 
 
