@@ -12,6 +12,8 @@ What origin/main did: the AI prompt path used the LATEST buy's stop ($52),
 position's open row), 1R = $10, so the breakeven ratchet fired LATE (>= $65).
 """
 
+import itertools
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +32,14 @@ def db(tmp_path):
     database.close()
 
 
+_FILL_SECONDS = itertools.count(1)
+
+
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): each fixture fill a second after the last."""
+    return (datetime(2026, 10, 12, 14, 0) + timedelta(seconds=next(_FILL_SECONDS))).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _open(db, symbol, action, qty, price, stop, setup_type="range", take_profit=None):
     db.insert_trade(
         symbol=symbol,
@@ -42,6 +52,7 @@ def _open(db, symbol, action, qty, price, stop, setup_type="range", take_profit=
         take_profit=take_profit,
         setup_type=setup_type,
         fill_status="filled",
+        filled_at=_fill_time(),
     )
 
 
@@ -260,7 +271,16 @@ def test_real_partial_sell_reconciles(db):
 
     _open(db, "PS", "BUY", 100, 50.0, 45.0)
     _open(db, "PS", "BUY", 100, 60.0, 52.0)
-    db.insert_trade(symbol="PS", action="SELL", qty=50, price=61.0, reasoning="trim", run_id="r", fill_status="filled")
+    db.insert_trade(
+        symbol="PS",
+        action="SELL",
+        qty=50,
+        price=61.0,
+        reasoning="trim",
+        run_id="r",
+        fill_status="filled",
+        filled_at=_fill_time(),
+    )
     _trail_stop_row(db, "PS", 150, 53.0)
     fact, _ = _facts_and_heat(db, _pos("PS", 150, 55.0, 62.0), live_stop=53.0)
     assert fact["r_multiple"] == pytest.approx(1.08)  # 1050 / (1300 x 150/200)
@@ -283,7 +303,9 @@ def test_partially_filled_then_canceled_stop_counts_its_filled_shares(db):
     _open(db, "PC", "BUY", 100, 50.0, 45.0)
     _open(db, "PC", "BUY", 100, 60.0, 52.0)
     _trail_stop_row(db, "PC", 200, 53.0, fill_status="canceled")
-    db.conn.execute("UPDATE trades SET fill_qty = 50 WHERE symbol = 'PC' AND action = 'TRAIL_STOP'")
+    db.conn.execute(
+        "UPDATE trades SET fill_qty = 50, filled_at = ? WHERE symbol = 'PC' AND action = 'TRAIL_STOP'", (_fill_time(),)
+    )
     db.conn.commit()
     fact, row = _facts_and_heat(db, _pos("PC", 150, 55.0, 62.0), live_stop=53.0)
     # 1050 / (1300 x 150/200)
@@ -358,7 +380,7 @@ def test_delayed_reconcile_fresh_lot_r_is_its_own_not_the_old_position_s(
 
     sym = f"DR{opening[0]}"
 
-    def write(action, qty, price, stop_loss=None, fill_status="filled", oid=None):
+    def write(action, qty, price, stop_loss=None, fill_status="filled", oid=None, filled_at=None):
         db.insert_trade(
             symbol=sym,
             action=action,
@@ -370,20 +392,25 @@ def test_delayed_reconcile_fresh_lot_r_is_its_own_not_the_old_position_s(
             setup_type="range",
             fill_status=fill_status,
             broker_order_id=oid,
+            filled_at=filled_at,
         )
 
-    write(opening, 100, entry, stop_loss=stop)
+    # Broker fill times: open 14:00, stop 40 at 14:10, exit 60 at 14:20 (flat), fresh 50 at 14:30.
+    write(opening, 100, entry, stop_loss=stop, filled_at="2026-10-12 14:00:00")
     write("TRAIL_STOP", 100, stop - 5.0 if opening == "BUY" else stop + 5.0, fill_status="submitted", oid=f"{sym}-stop")
     write(exiting, 60, entry, fill_status="submitted", oid=f"{sym}-exit")
-    write(opening, 50, fresh_entry, stop_loss=fresh_stop)
-    db.update_trade_fill(f"{sym}-stop", "canceled", 40, entry)
-    db.update_trade_fill(f"{sym}-exit", "filled", 60, entry)
+    write(opening, 50, fresh_entry, stop_loss=fresh_stop, filled_at="2026-10-12 14:30:00")
+    db.update_trade_fill(f"{sym}-stop", "canceled", 40, entry, filled_at="2026-10-12 14:10:00")
+    db.update_trade_fill(f"{sym}-exit", "filled", 60, entry, filled_at="2026-10-12 14:20:00")
 
     pids = {
         r["position_id"]
         for r in db.conn.execute("SELECT position_id FROM trades WHERE symbol = ? AND action = ?", (sym, opening))
     }
-    assert len(pids) == 1  # the fresh lot really did join the old stored id
+    # Was `== 1` ("the fresh lot really did join the old stored id"): that pinned the defect.
+    # Stored ids are now re-derived from the fill walk on every fill confirmation, so the
+    # fresh lot, which filled after the book went flat, has its own position.
+    assert len(pids) == 2
 
     owner = SimpleNamespace(db=db)
     opening_row = db.get_symbol_last_buy(sym, action=opening)

@@ -51,6 +51,8 @@ from src.storage.trades.position_chain import (  # noqa: F401  re-export; vocabu
     _exit_action_side,
     _row_counts_as_executed,
     _assign_position_ids,
+    _event_order,
+    _share_change,
 )
 from src.storage.trades.exit_reasons import (  # noqa: F401  re-export: defined there
     _EXIT_TRIGGER_CATEGORIES,
@@ -110,8 +112,14 @@ class TradeLedger:
         entry_atr: float | None = None,
         stop_basis: str | None = None,
         stop_level_basis: str | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Insert a trade record. Returns the new row's id.
+
+        `filled_at` is the BROKER's own fill time (naive UTC) for a row written
+        already executed; an executed share-moving insert is a fill
+        confirmation, so the symbol's position ids are re-derived from the
+        fill walk (`_regroup_position_ids_locked`).
 
         `entry_atr` / `stop_basis` are STOP-FLOOR EVIDENCE, pinned at entry
         only, and are recorded for one purpose: so a future pass can ask
@@ -164,6 +172,7 @@ class TradeLedger:
                 qty=qty,
                 fill_status=fill_status,
                 fill_qty=None,
+                filled_at=filled_at,
             )
             exit_category = _categorize_exit_reason(action, reasoning, fill_status, None)
             decision_link_status = _resolve_decision_id_status(action, decision_id)
@@ -185,8 +194,8 @@ class TradeLedger:
                 "conviction, requested_risk_pct, allocated_risk_pct, decision_model, "
                 "decision_id_status, thesis_invalid_if, initial_stop_loss, "
                 "initial_take_profit, structural_ceiling, entry_atr, stop_basis, "
-                "stop_level_basis) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "stop_level_basis, filled_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     symbol,
                     action,
@@ -215,10 +224,15 @@ class TradeLedger:
                     entry_atr,
                     stop_basis,
                     stop_level_basis,
+                    filled_at,
                 ),
             )
+            row_id = cur.lastrowid
+            moved = {"action": action, "qty": qty, "fill_status": fill_status}
+            if _row_counts_as_executed(action, fill_status, None) and _share_change(moved) is not None:
+                self._regroup_position_ids_locked(symbol)
             self.conn.commit()
-            return cur.lastrowid
+            return row_id
 
         return self._locked_write(_do, label="insert_trade")
 
@@ -343,56 +357,94 @@ class TradeLedger:
         fill_status: str | None,
         fill_qty: float | None,
         timestamp: str | None = None,
+        filled_at: str | None = None,
     ) -> str | None:
         """Position-id for a row not yet inserted. Caller must already hold
         `self._lock` (called from inside a `_locked_write` closure).
 
-        Replays `_assign_position_ids` over this symbol's full trade history
-        plus a synthetic placeholder for the row about to be inserted, and
-        returns whatever that placeholder was assigned. Every prior row
-        already carries its own persisted position_id, which
-        `_assign_position_ids` treats as ground truth rather than
-        re-deriving — so in practice this only ever has to reason about ONE
-        new row, even though it re-reads the symbol's history to do it.
-        Trade volume here (~15-25/day across the whole book) makes that scan
-        cheap; correctness and a single source of truth shared with the
-        historical backfill (`backfill_position_ids`) matter more than
-        shaving it to an O(1) running counter.
+        Replays `_assign_position_ids` - the fill walk - over this symbol's rows
+        plus a placeholder for the new one, in event order (`_event_order`: a
+        fill by its broker `filled_at`, anything else by when it was written),
+        and returns what the placeholder was assigned. PROVISIONAL: a row's
+        place in the fill sequence is known only once the broker says when it
+        filled, so every fill confirmation re-derives the whole symbol
+        (`_regroup_position_ids_locked`). Stored ids are never ground truth.
+        When the fill order is unknown (an exit without a broker fill time) the
+        rows are taken in `(timestamp, id)` order, as before, and the regroup
+        leaves them alone - open R is unknown for the same reason.
 
-        `timestamp` is only supplied by callers that already know the row's
-        real (possibly historical) timestamp before insert
-        (`insert_stop_out_trade`, which writes back a broker fill discovered
-        after the fact) — the placeholder is then spliced into its correct
-        chronological position. `insert_trade` never knows its timestamp
-        ahead of the INSERT (it always writes SQLite's `datetime('now')`),
-        so the default assumes "happening now" and appends last, which is
-        correct in practice — a new trade is always the most recent event.
+        `timestamp` / `filled_at` come from callers that already know them
+        (`insert_stop_out_trade`: the broker's fill time); otherwise the
+        placeholder is stamped now and sorts after every row already written.
         """
         rows = self.conn.execute(
-            "SELECT id, action, qty, fill_qty, fill_status, position_id, timestamp "
+            "SELECT id, action, qty, fill_qty, fill_status, filled_at, position_id, timestamp "
             "FROM trades WHERE symbol = ? ORDER BY timestamp, id",
             (symbol,),
         ).fetchall()
         history = [dict(r) for r in rows]
+        new_row = float("inf")  # the placeholder's id: last among rows written in the same second
         placeholder = {
-            "id": -1,
+            "id": new_row,
             "action": action,
             "qty": qty,
             "fill_qty": fill_qty,
             "fill_status": fill_status,
+            "filled_at": filled_at,
             "position_id": None,
-            "timestamp": timestamp,
+            "timestamp": timestamp or self._sqlite_utc_timestamp(datetime.now(UTC)),
         }
-        if timestamp is None:
-            history.append(placeholder)
-        else:
-            idx = len(history)
-            for i, row in enumerate(history):
-                if (row.get("timestamp") or "") > timestamp:
-                    idx = i
-                    break
-            history.insert(idx, placeholder)
-        return _assign_position_ids(history).get(-1)
+        ordered = _event_order([*history, placeholder])
+        if ordered is None:
+            ordered = sorted([*history, placeholder], key=lambda r: (str(r.get("timestamp") or ""), r["id"]))
+        return _assign_position_ids(ordered).get(new_row)
+
+    def _regroup_position_ids_locked(self, symbol: str) -> set[str] | None:
+        """Re-derive `symbol`'s stored position ids from the fill walk. Caller holds `self._lock`; no commit.
+
+        Runs on every fill confirmation (`insert_trade` of an executed fill,
+        `update_trade_fill`, `insert_stop_out_trade`) and after the fill-time
+        backfill, so every reader of `trades.position_id` (closed R, calibration,
+        the scorecards, conviction credit, position history, excursions) reads
+        the grouping the open-R walk uses: a fresh buy written before the old
+        position's stop-out fill was known carried the old id, and moves to its
+        own position here. Positions whose membership changed have their
+        conviction credit voided, so the evening scorer re-scores them from the
+        derived grouping. Returns those position ids, or None when the fill
+        order is unknown (ids left as they are).
+        """
+        rows = [
+            dict(r)
+            for r in self.conn.execute(
+                "SELECT id, action, qty, fill_qty, fill_status, filled_at, position_id, timestamp "
+                "FROM trades WHERE symbol = ? ORDER BY id",
+                (symbol,),
+            ).fetchall()
+        ]
+        ordered = _event_order(rows)
+        if ordered is None:
+            return None
+        derived = _assign_position_ids(ordered)
+        changed = [(derived.get(r["id"]), r["id"], r.get("position_id")) for r in rows]
+        changed = [c for c in changed if c[0] != c[2]]
+        if not changed:
+            return set()
+        self.conn.executemany("UPDATE trades SET position_id = ? WHERE id = ?", [(new, rid) for new, rid, _ in changed])
+        affected = {pid for new, _, old in changed for pid in (new, old) if pid}
+        from src.storage.conviction_ledger_store import void_conviction_credit
+
+        void_conviction_credit(self.conn, affected)
+        return affected
+
+    def regroup_position_ids(self, symbol: str) -> set[str] | None:
+        """Locked, committing `_regroup_position_ids_locked` (the fill-time backfill calls it)."""
+
+        def _do():
+            affected = self._regroup_position_ids_locked(symbol)
+            self.conn.commit()
+            return affected
+
+        return self._locked_write(_do, label="regroup_position_ids")
 
     def confirm_trade_submitted(
         self,
@@ -476,17 +528,21 @@ class TradeLedger:
         fill_status: str,
         fill_qty: float | None = None,
         fill_price: float | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Update a trade row's fill reconciliation after broker terminal status.
 
-        Matches on broker_order_id. Returns row count updated.
+        Matches on broker_order_id. Returns row count updated. `filled_at` is
+        the BROKER's own fill time (naive UTC) - never when we noticed; None
+        (the broker reported none) keeps any time already recorded. Every
+        confirmation re-derives the symbol's position ids from the fill walk.
         """
         with self._lock:
             cur = self.conn.execute(
                 "UPDATE trades SET fill_status = ?, fill_qty = ?, fill_price = ?, "
-                "fill_reconciled_at = datetime('now') "
+                "fill_reconciled_at = datetime('now'), filled_at = COALESCE(?, filled_at) "
                 "WHERE broker_order_id = ?",
-                (fill_status, fill_qty, fill_price, broker_order_id),
+                (fill_status, fill_qty, fill_price, filled_at, broker_order_id),
             )
             try:
                 has_fill = float(fill_qty or 0) > 0
@@ -516,6 +572,11 @@ class TradeLedger:
                         "UPDATE trades SET realized_pnl = ?, exit_reason_category = ? WHERE id = ?",
                         (realized, exit_category, row["id"]),
                     )
+            symbols = self.conn.execute(
+                "SELECT DISTINCT symbol FROM trades WHERE broker_order_id = ?", (broker_order_id,)
+            ).fetchall()
+            for found in symbols:
+                self._regroup_position_ids_locked(found["symbol"])
             self.conn.commit()
             return cur.rowcount or 0
 
@@ -794,6 +855,7 @@ class TradeLedger:
                 fill_status="filled",
                 fill_qty=qty,
                 timestamp=ts,
+                filled_at=filled_at,
             )
             exit_category = _categorize_exit_reason(action, reasoning_final, "filled", qty)
             # Conviction ledger (§7.2): this function's entire reason for
@@ -806,8 +868,8 @@ class TradeLedger:
                 "INSERT INTO trades (symbol, action, qty, price, reasoning, "
                 "run_id, broker_order_id, fill_status, fill_qty, fill_price, "
                 "fill_reconciled_at, timestamp, position_id, exit_reason_category, "
-                "decision_id_status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'filled', ?, ?, datetime('now'), ?, ?, ?, ?)",
+                "decision_id_status, filled_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'filled', ?, ?, datetime('now'), ?, ?, ?, ?, ?)",
                 (
                     symbol,
                     action,
@@ -822,6 +884,7 @@ class TradeLedger:
                     position_id,
                     exit_category,
                     decision_link_status,
+                    filled_at,
                 ),
             )
             row_id = cur.lastrowid
@@ -830,6 +893,7 @@ class TradeLedger:
                 "UPDATE trades SET realized_pnl = ? WHERE id = ?",
                 (realized, row_id),
             )
+            self._regroup_position_ids_locked(symbol)
             self.conn.commit()
             return row_id, True
 

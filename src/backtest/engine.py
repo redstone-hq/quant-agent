@@ -620,6 +620,8 @@ def _risk_per_share(pos, held_qty: float) -> float | None:
         "qty": pos.shares,
         "price": pos.entry_price,
         "stop_loss": pos.stop_initial,
+        # The simulated fill time, in the field live fills carry the broker's.
+        "filled_at": str(entry) if (entry := getattr(pos, "entry_date", None)) is not None else None,
     }
     risk, _ = held_position_risk([lot], held_qty)
     return risk / abs(held_qty) if risk and held_qty else None

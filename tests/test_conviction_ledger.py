@@ -33,6 +33,13 @@ from tests.session_clock import todays_session_stamp
 from tests.pipeline_factory import build_pipeline
 
 
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): the fill is reported as it is written."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @pytest.fixture
 def db(tmp_path):
     database = Database(str(tmp_path / "ledger.db"))
@@ -728,6 +735,7 @@ def _closed_losing_long(db, *, symbol="AAPL", decision_id="dec-1"):
         run_id="run-1",
         stop_loss=90.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id=decision_id,
         conviction="high",
     )
@@ -739,6 +747,7 @@ def _closed_losing_long(db, *, symbol="AAPL", decision_id="dec-1"):
         reasoning="thesis_invalid",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
 
 
@@ -997,6 +1006,7 @@ def _closed_winning_short(db, *, symbol="TSLA", decision_id="dec-s"):
         run_id="run-1",
         stop_loss=110.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id=decision_id,
         conviction="high",
     )
@@ -1008,6 +1018,7 @@ def _closed_winning_short(db, *, symbol="TSLA", decision_id="dec-s"):
         reasoning="target",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
 
 
@@ -1057,6 +1068,7 @@ def test_a_losing_short_scores_exactly_like_a_losing_long(db):
         run_id="run-1",
         stop_loss=110.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id="dec-s",
     )
     db.insert_trade(
@@ -1067,6 +1079,7 @@ def test_a_losing_short_scores_exactly_like_a_losing_long(db):
         reasoning="thesis_invalid",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
     db.record_seat_stances(
         run_id="run-1",
@@ -1372,6 +1385,7 @@ def test_short_chaining_touches_no_trading_decision(tmp_path, monkeypatch):
             run_id="seed",
             stop_loss=110.0,
             fill_status="filled",
+            filled_at=_fill_time(),
             decision_id="seed-dec",
             conviction="high",
         )
@@ -1383,6 +1397,7 @@ def test_short_chaining_touches_no_trading_decision(tmp_path, monkeypatch):
             reasoning="target",
             run_id="seed",
             fill_status="filled",
+            filled_at=_fill_time(),
         )
         database.record_seat_stances(
             run_id="seed",

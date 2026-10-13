@@ -97,10 +97,15 @@ def test_open_lot_without_stop_is_none():
 
 def test_open_two_lot_r_unchanged_by_partial_sell():
     rows = [
-        _row("BUY", 10, 100.0, stop_loss=90.0),
-        _row("BUY", 10, 110.0, stop_loss=105.0, timestamp="2026-01-02 10:00:00"),
+        _row("BUY", 10, 100.0, stop_loss=90.0, filled_at="2026-01-01 10:00:00"),
+        _row("BUY", 10, 110.0, stop_loss=105.0, timestamp="2026-01-02 10:00:00", filled_at="2026-01-02 10:00:00"),
     ]
     before = _open_r(rows, 20, 105.0, 120.0)
     # The partial sell is in the chain, so the lots reconcile to the 5 still held.
-    after = _open_r(rows + [_row("SELL", 15, 118.0, timestamp="2026-01-03 10:00:00")], 5, 105.0, 120.0)
+    after = _open_r(
+        rows + [_row("SELL", 15, 118.0, timestamp="2026-01-03 10:00:00", filled_at="2026-01-03 10:00:00")],
+        5,
+        105.0,
+        120.0,
+    )
     assert before is not None and after == before

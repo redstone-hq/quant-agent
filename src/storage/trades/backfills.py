@@ -8,6 +8,7 @@ from __future__ import annotations
 from src.storage.analytics.calibration import _POSITION_OPEN_ACTIONS
 from src.storage.trades.position_chain import (
     _assign_position_ids,
+    _event_order,
     _is_position_exit_action,
 )
 from src.storage.trades.exit_reasons import (
@@ -58,7 +59,7 @@ def backfill_position_ids(ledger, *, dry_run: bool = False) -> dict:
     def _do():
         rows = ledger.conn.execute(
             "SELECT id, symbol, action, qty, fill_qty, fill_status, "
-            "position_id FROM trades ORDER BY symbol, timestamp, id"
+            "position_id, filled_at, timestamp FROM trades ORDER BY symbol, timestamp, id"
         ).fetchall()
         rows = [dict(r) for r in rows]
         by_symbol: dict[str, list[dict]] = {}
@@ -73,10 +74,11 @@ def backfill_position_ids(ledger, *, dry_run: bool = False) -> dict:
         updates: list[tuple[str, int]] = []
 
         for symbol_rows in by_symbol.values():
-            new_assignments = _assign_position_ids(symbol_rows)
+            # The fill walk's event order; legacy (timestamp, id) when it is unknown.
+            new_assignments = _assign_position_ids(_event_order(symbol_rows) or symbol_rows)
             for r in symbol_rows:
                 if r.get("position_id"):
-                    continue  # ground truth — never reassigned
+                    continue  # a NULL backfill; set ids are re-derived on fill confirmation
                 action = (r.get("action") or "").upper()
                 is_positionable = action in _POSITION_OPEN_ACTIONS or _is_position_exit_action(action)
                 new_id = new_assignments.get(r["id"])

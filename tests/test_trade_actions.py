@@ -49,8 +49,8 @@ def test_reconciled_exit_retires_shares_on_either_side():
 def _r(i, action, qty, ts=None, fill_qty=None, status="filled"):
     row = {"id": i, "action": action, "qty": qty, "fill_qty": qty if fill_qty is None else fill_qty}
     row["fill_status"] = status
-    if ts is not None:
-        row["timestamp"] = ts
+    if ts is not None:  # a broker fill time, as real fills carry
+        row["timestamp"] = row["filled_at"] = ts
     return row
 
 
@@ -72,5 +72,10 @@ def test_live_lots_fail_closed_when_only_some_fills_carry_a_time():
 
 
 def test_live_lots_ignore_an_exit_with_nothing_open_and_a_wrong_side_exit():
-    rows = [_r(1, "SELL", 10), _r(2, "SHORT", 100), _r(3, "SELL", 30), _r(4, "COVER", 40)]
+    rows = [
+        _r(1, "SELL", 10, "2026-10-01 10:00:00"),
+        _r(2, "SHORT", 100, "2026-10-01 10:01:00"),
+        _r(3, "SELL", 30, "2026-10-01 10:02:00"),
+        _r(4, "COVER", 40, "2026-10-01 10:03:00"),
+    ]
     assert [r["id"] for r in trade_actions.live_lot_rows(rows, decimals=9)] == [2, 4]

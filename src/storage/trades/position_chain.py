@@ -1,4 +1,4 @@
-"""Position-id chaining, lifted VERBATIM from ledger.py (exit vocabulary now in src/trade_actions.py)."""
+"""Position-id chaining: stored `trades.position_id`, re-derived from the one fill walk in src/trade_actions.py."""
 
 from __future__ import annotations
 
@@ -18,7 +18,10 @@ from src.trade_actions import SHORT_EXIT_PREFIXES as _SHORT_EXIT_PREFIXES
 from src.trade_actions import exit_action_side as _exit_action_side
 from src.trade_actions import executed_qty as _executed_qty
 from src.trade_actions import is_position_exit_action as _is_position_exit_action
+from src.trade_actions import fill_order as _fill_order
+from src.trade_actions import fill_sort_key as _fill_sort_key
 from src.trade_actions import share_change as _share_change
+from src.trade_actions import walk_positions as _walk_positions
 
 
 def _new_position_id() -> str:
@@ -45,143 +48,59 @@ def _row_counts_as_executed(action: str | None, fill_status, fill_qty) -> bool:
         return False
 
 
-def _assign_position_ids(rows: list[dict]) -> dict[int, str | None]:
-    """Walk one symbol's trades chronologically and derive position_id for
-    every row. `rows` must already be ordered oldest-first (timestamp, id)
-    and each dict needs at least id/action/qty/fill_qty/fill_status/
-    position_id.
+def _executed_row(row: dict) -> bool:
+    return _row_counts_as_executed(row.get("action"), row.get("fill_status"), row.get("fill_qty"))
 
-    Rule: a BUY (long) or a SHORT (short) from flat mints a fresh id; every
-    subsequent entry on the same side (scale-in) and every recognized
-    exit-family action for that side (see `_is_position_exit_action` and
-    `_exit_action_side`) inherits it until the running executed-qty net
-    returns to ~0, at which point the chain is closed and the next entry
-    mints a new one. A row with no open chain to attach to (an exit that
-    arrives while nothing is open — typically the ledger's oldest record for
-    a symbol whose real position predates this system, or a stray SELL after
-    the book already went flat) is left unassigned rather than guessed, per
-    spec.
 
-    **Shorts chain identically to longs** (owner decision, 2026-08-31). A
-    SHORT opens, a COVER/PARTIAL_COVER/EMERGENCY_COVER retires, and a stop or
-    trail retires either side. `qty` is the magnitude of shares moved on both
-    sides — a short's net counts UP as it is opened and DOWN as it is
-    covered, the same arithmetic as a long — so nothing here is negated or
-    special-cased for direction. Before this, `is_open` was `action == "BUY"`
-    alone: no SHORT ever received a position_id, so no short round trip
-    existed for §9.5's ledger to score. That was the whole of the gap.
+def _event_order(rows: list[dict]) -> list[dict] | None:
+    """One symbol's rows in the order the position walk takes them, or None when unknown.
 
-    Two guards keep the long side's existing chains untouched, both for
-    histories the desk does not currently produce:
-      - an entry on the OPPOSITE side while a chain is still open is passed
-        through untouched rather than flipping or closing that chain (you
-        cannot be long and short the same symbol at one broker, so this is a
-        malformed history, not a position);
-      - an exit whose side does not match the open chain (a SELL against a
-        short, a COVER against a long) is left unattached rather than
-        allowed to retire the wrong position.
-
-    Rows that ALREADY carry a position_id are treated as ground truth. That
-    is what makes this function safe to call from both the live per-insert
-    resolver (which only ever has one new, unassigned row) and the one-time
-    historical backfill (which may run against a database where live
-    trading has already assigned some rows and older history is still
-    NULL) without the two ever disagreeing or re-minting an id that already
-    exists — including when the ALREADY-assigned row is not the first row
-    in its chain (e.g. a legacy BUY with no id, followed by a live-inserted
-    TRAIL_STOP that already minted one): grouping happens in a first,
-    id-blind structural pass, and only THEN does a second pass pick, per
-    group, whichever id (if any) already exists in it — never one id for
-    the earlier rows and a different one for the later rows of what is
-    structurally the same chain.
+    A fill goes by its broker fill time, anything else by when it was written
+    (`trade_actions.fill_sort_key`). None when the executed share-changing rows
+    cannot be put in fill order (`trade_actions.fill_order`: an exit is on record
+    and some fill has no broker fill time) - the same rows make open R unknown.
     """
-    # Pass 1 — partition into chain groups using ONLY the net-qty rule,
-    # ignoring any already-persisted id. Which rows belong to the same
-    # chain is a purely structural fact (ends the moment net qty returns to
-    # ~0); it does not depend on which of those rows happens to carry an id
-    # already.
-    groups: list[list[dict]] = []
-    passthrough: dict[int, str | None] = {}
-    current_group: list[dict] | None = None
-    current_net = 0.0
-    current_direction: str | None = None
-    for row in rows:
-        action = (row.get("action") or "").upper()
-        open_direction = _POSITION_OPEN_ACTIONS.get(action)
-        is_open = open_direction is not None
-        is_exit = _is_position_exit_action(action)
-        if not is_open and not is_exit:
-            # HOLD / SWEEP_BUY / SWEEP_SELL / anything unrecognized: never
-            # part of a position chain, and never disturbs one in progress.
-            passthrough[row["id"]] = row.get("position_id")
-            continue
+    moving = [r for r in rows if _share_change(r) is not None and _executed_row(r)]
+    if _fill_order(moving) is None:
+        return None
+    return sorted(rows, key=_fill_sort_key)
 
-        executed = _row_counts_as_executed(action, row.get("fill_status"), row.get("fill_qty"))
-        # Shares moved, by the ONE share-counting rule the open-R lot check also
-        # uses (src/trade_actions.py): a TRAIL_STOP that filled partially and was
-        # then canceled took its fill_qty out of the book, so it must close the
-        # chain here too — else a fresh BUY after the book went flat joins the
-        # old position and that position's 1R comes out too small.
-        qty = _executed_qty(row)
-        shares_left = executed and _share_change(row) == "out"
-        chain_open = current_group is not None and current_net > 1e-6
 
-        if is_open:
-            if chain_open and open_direction != current_direction:
-                # A SHORT while a long chain is still open (or the reverse).
-                # Not producible by this desk and not a position either way:
-                # passed through so the open chain is left exactly as it was.
-                passthrough[row["id"]] = row.get("position_id")
-                continue
-            if not chain_open:
-                current_group = []
-                groups.append(current_group)
-                current_net = 0.0
-                current_direction = open_direction
-            current_group.append(row)
-            if executed:
-                current_net += qty
-        else:
-            if not chain_open:
-                # An exit with nothing open — its own singleton group,
-                # which pass 2 resolves to None unless it happens to
-                # already carry an id (a hand-corrected row: trust it,
-                # still never mint a NEW one for an unattached exit).
-                groups.append([row])
-                current_group = None
-                current_direction = None
-                continue
-            exit_side = _exit_action_side(action)
-            if exit_side is not None and exit_side != current_direction:
-                # A SELL against an open short, or a COVER against an open
-                # long. It cannot be this chain's exit; unattached, and the
-                # chain it does not belong to is left running.
-                groups.append([row])
-                continue
-            current_group.append(row)
-            if shares_left:
-                current_net -= qty
-            if current_net <= 1e-6:
-                current_group = None
-                current_net = 0.0
-                current_direction = None
+def _assign_position_ids(rows: list[dict]) -> dict:
+    """Derive position_id for every row of ONE symbol, walked in the order given.
 
-    # Pass 2 — resolve one id per group. An id already present ANYWHERE in
-    # the group wins (ground truth, whichever row in the chain happened to
-    # carry it first); otherwise mint one fresh id for the whole group, but
-    # only for a group that actually opened with a BUY or a SHORT — a lone
-    # unattached exit (no entry, no existing id) stays unassigned rather
-    # than guessed.
-    assignments: dict[int, str | None] = dict(passthrough)
+    `rows` must already be in event order (`_event_order`); each needs at least
+    id/action/qty/fill_qty/fill_status/position_id. The grouping IS
+    `trade_actions.walk_positions` - the walk the open-R lot reader uses - with
+    `_row_counts_as_executed` deciding whose shares moved: a BUY (long) or SHORT
+    (short) from flat opens a position, later entries on that side and exits that
+    can retire it join it, and it closes when the running executed share count
+    returns to zero. Shorts chain exactly as longs (owner decision, 2026-08-31).
+
+    Ids: a position keeps an id one of its rows already carries unless an EARLIER
+    position kept that id - then it mints a fresh one. Stored ids are NOT ground
+    truth: an id is stamped when a row is written, before the broker says when it
+    filled, so a fresh buy written before the old position's stop-out fill was known
+    carries the old id and moves to its own position here. A row the walk attaches
+    to no position (an exit with nothing open, a wrong-side exit, an other-side entry
+    while a position is open) keeps its id only if no position kept it, so it never
+    joins a position the walk says it is not part of; rows that are neither entries
+    nor exits (HOLD, SWEEP_*) keep theirs.
+    """
+    from src.execution.order_gates import ORDER_QTY_DECIMALS
+
+    groups, unattached, _ = _walk_positions(rows, decimals=ORDER_QTY_DECIMALS, executed=_executed_row)
+    assignments: dict = {}
+    claimed: set[str] = set()
     for group in groups:
-        existing_ids = [r.get("position_id") for r in group if r.get("position_id")]
-        opened = any((r.get("action") or "").upper() in _POSITION_OPEN_ACTIONS for r in group)
-        if existing_ids:
-            resolved = existing_ids[0]
-        elif opened:
-            resolved = _new_position_id()
-        else:
-            resolved = None
+        kept = next((pid for r in group if (pid := r.get("position_id")) and pid not in claimed), None)
+        resolved = kept or _new_position_id()
+        claimed.add(resolved)
         for r in group:
-            assignments[r["id"]] = r.get("position_id") or resolved
+            assignments[r["id"]] = resolved
+    for r in unattached:
+        pid = r.get("position_id")
+        action = str(r.get("action") or "").upper()
+        positional = action in _POSITION_OPEN_ACTIONS or _is_position_exit_action(action)
+        assignments[r["id"]] = pid if not positional or (pid and pid not in claimed) else None
     return assignments

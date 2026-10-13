@@ -476,15 +476,16 @@ def held_position_risk(
     Every reader of open-position R (prompt facts, heat block, trail ratchets,
     dashboard, backtest) calls this. `chain_rows` are the symbol's EXECUTED
     rows from `select_position_chain_rows`. Which lots are live is derived from
-    the fill sequence itself (`trade_actions.live_lot_rows`: the share-changing
-    rows after the last point the running share count was zero) — NEVER from
-    the stored `position_id`, which is fixed at write time and is wrong when a
-    stop's fill is reconciled after a fresh buy. Risk is
+    the fill sequence itself (`trade_actions.live_lot_rows`: in broker fill-time
+    order, the share-changing rows after the last point the running share count
+    was zero) — NEVER from the stored `position_id`, which keeps its write-time
+    value whenever the fill order is unknown. Risk is
     `open_position_risk_dollars` over the live opening lots, each against its
     OWN initial stop. R is unknown (None) — never a smaller number — when:
       - `position_chain_unresolved`: no rows and no opening row to stand in;
-      - `fill_order_unknown`: only some share-changing rows carry a fill time,
-        so the fills cannot be put in order;
+      - `fill_time_missing`: a share-reducing fill is on record and some
+        share-changing row has no broker fill time (`trades.filled_at`), so
+        the fills cannot be put in order (with no exit, order cannot matter);
       - `lots_do_not_reconcile`: live executed entries minus live executed
         share-reducing fills (`share_change`; an unfilled TRAIL_STOP stop-move
         row is NOT an exit) do not equal the held quantity at the broker's
@@ -529,13 +530,22 @@ def held_position_risk(
     return risk, "ok"
 
 
-def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -> list[dict] | None:
-    """Every EXECUTED row of `opening_row`'s SYMBOL, in fill order — the ONE lot reader.
+def live_position_lots(chain_rows: list) -> list | None:
+    """The live position's share-changing rows (`trade_actions.live_lot_rows` on the broker's
+    share grid): [] when flat, None when the fill order is unknown."""
+    from src.execution.order_gates import ORDER_QTY_DECIMALS
 
-    Deliberately NOT filtered by `position_id`: that id is fixed when a row is
-    written and never regrouped, so a fresh buy written before an earlier
-    stop's fill was reconciled carries the OLD id. `held_position_risk` finds
-    the live lots from this full fill sequence instead. `predicate` is the
+    return live_lot_rows(chain_rows, decimals=ORDER_QTY_DECIMALS)
+
+
+def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -> list[dict] | None:
+    """Every EXECUTED row of `opening_row`'s SYMBOL — the ONE lot reader.
+
+    Deliberately NOT filtered by `position_id`: `held_position_risk` walks this
+    full sequence in broker fill-time order and finds the live lots itself.
+    Stored ids are re-derived from that same walk on every fill confirmation,
+    but a symbol whose fill order is unknown keeps the ids stamped when its rows
+    were written, which can be wrong. `predicate` is the
     caller's executed-trade SQL predicate (the storage and API copies are kept
     identical). None when the row carries no symbol or is not an opening row.
     """

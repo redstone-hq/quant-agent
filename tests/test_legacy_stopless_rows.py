@@ -15,6 +15,13 @@ from src.conviction_ledger import SeatStance
 from src.storage.db import Database
 
 
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): the fill is reported as it is written."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @pytest.fixture
 def db(tmp_path):
     database = Database(str(tmp_path / "legacy.db"))
@@ -38,6 +45,7 @@ def test_resolve_never_scores_a_position_with_no_entry_stop(db):
             run_id="run-1",
             stop_loss=0,
             fill_status="filled",
+            filled_at=_fill_time(),
             decision_id="dec-1",
         )
     db.insert_trade(
@@ -49,6 +57,7 @@ def test_resolve_never_scores_a_position_with_no_entry_stop(db):
         run_id="run-1",
         stop_loss=90.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id="dec-1",
     )
     db.conn.execute(
@@ -63,6 +72,7 @@ def test_resolve_never_scores_a_position_with_no_entry_stop(db):
         reasoning="target",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
     db.record_seat_stances(
         run_id="run-1",
@@ -89,6 +99,7 @@ def test_zero_entry_stop_write_back_does_not_mint_an_entry_bet(db):
             run_id="r1",
             stop_loss=0,
             fill_status="filled",
+            filled_at=_fill_time(),
         )
     db.insert_trade(
         symbol="NAKED",
@@ -99,6 +110,7 @@ def test_zero_entry_stop_write_back_does_not_mint_an_entry_bet(db):
         run_id="r1",
         stop_loss=90.0,
         fill_status="filled",
+        filled_at=_fill_time(),
     )
     db.conn.execute(
         "UPDATE trades SET stop_loss = 0, initial_stop_loss = NULL WHERE symbol = 'NAKED'",

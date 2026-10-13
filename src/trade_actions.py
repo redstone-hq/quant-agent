@@ -197,77 +197,109 @@ def share_change(row) -> str | None:
 
 
 #: Why `live_lot_rows` could not order the fills; the open-R reader reports it.
-FILL_ORDER_UNKNOWN = "fill_order_unknown"
+FILL_ORDER_UNKNOWN = "fill_time_missing"
 
 
-def _fill_order_key(row) -> str | None:
-    """The time a row's shares moved, as the ledger records it, or None.
+def fill_time(row) -> str | None:
+    """When this row's shares moved - the broker's own fill time, `trades.filled_at` - or None.
 
-    `trades` has no separate broker fill-time column. `timestamp` is the best
-    record of WHEN shares moved: the broker's own `filled_at` for a broker exit
-    the reconciler wrote back, the submission time for a decided order, and the
-    placement time for a resting stop (a lower bound on its fill). It is NOT
-    replaced by `fill_reconciled_at`, which is when the desk later CONFIRMED the
-    terminal status: a stop that filled before a fresh buy but was reconciled
-    after it would then sort after the buy and hide the flat point.
+    The ONE clock the lot walk orders fills by. `timestamp` is three clocks (the
+    broker's fill time on a reconciled exit, submission time on our own orders,
+    placement time on a stop move) and `fill_reconciled_at` is when the desk later
+    CONFIRMED a fill: ordering by either put a resting add that filled after a
+    stop-out in front of it, merged two positions and made 1R $35 instead of $5.
     """
     try:
-        value = row.get("timestamp")
+        value = row.get("filled_at")
     except AttributeError:
         return None
     text = str(value).strip() if value is not None else ""
     return text or None
 
 
-def live_lot_rows(rows: list, *, decimals: int) -> list | None:
-    """The rows of the position LIVE NOW, derived from the fill sequence alone.
+def fill_order(moving: list) -> list | None:
+    """Share-changing rows in fill order, or None when that order is unknown.
 
-    `rows` are one symbol's EXECUTED rows. Walks the share-changing ones
-    (`share_change`) in fill order, keeping a running share count; whenever the
-    count returns to zero (at the broker's `decimals` share grid) everything
-    before is a closed position and the next opening fill starts a fresh set
-    of lots. Returns the share-changing rows after the LAST flat point — never
-    trusting a stored `position_id`, which is fixed when a row is written and
-    is wrong when a fill is reconciled late.
-
-    Mirrors the position grouper's walk: an exit with nothing open, and an exit
-    that cannot retire the open side (a SELL against a short), move no shares
-    of the live position; an over-sell closes it. An opening fill on the other
-    side while a position is open is kept, so the caller's direction check
-    refuses it.
-
-    Fill order is `(timestamp, id)` (see `_fill_order_key`). None — R unknown,
-    never a guess — when only SOME share-changing rows carry a time: they
-    cannot be ordered. Rows with no time at all (in-memory callers: the
-    backtest's one lot) are taken in the order given.
+    A fill time is needed only where the order can change which lots are live:
+    once shares have left. With no share-reducing row the running count never
+    returns to zero, so every order gives the same lots and the rows are taken as
+    given. With one, every share-changing row must carry its broker fill time,
+    else None - R unknown (`FILL_ORDER_UNKNOWN`), never a guess.
     """
-    moving = [r for r in rows if share_change(r) is not None]
-    keys = [_fill_order_key(r) for r in moving]
-    if any(k is None for k in keys):
-        if any(k is not None for k in keys):
-            return None
-    else:
-        moving = [r for _, r in sorted(zip(keys, moving), key=lambda kr: (kr[0], _row_id(kr[1])))]
-    live: list = []
+    if any(fill_time(r) is None for r in moving):
+        return None if any(share_change(r) == "out" for r in moving) else list(moving)
+    return sorted(moving, key=lambda r: (fill_time(r), _row_id(r)))
+
+
+def fill_sort_key(row) -> tuple[str, float]:
+    """Event order for one symbol's rows: a fill by its broker fill time; anything else
+    (a pending order, a stop placement, HOLD - or a legacy fill with no fill time) by
+    `timestamp`, when it was written, which for those rows IS the event."""
+    return (fill_time(row) or str(row.get("timestamp") or ""), _row_id(row))
+
+
+def walk_positions(rows: list, *, decimals: int, executed=None) -> tuple[list[list], list, bool]:
+    """THE position walk: one symbol's rows, in the order given, split into positions.
+
+    Returns `(groups, unattached, last_open)`. An entry (BUY/SHORT) from flat opens a
+    group; later entries on that side and exits that can retire it join it; the
+    running count of shares moved (`share_change`, `executed_qty`) closes it when it
+    reaches zero on the broker's `decimals` grid (an over-sell closes it too) and the
+    next entry opens a new one. `executed(row)` says whether a row's shares really
+    moved (default: all did - the open-R reader passes executed rows only); one that
+    did not (a pending add, a resting stop) joins the open group but moves nothing.
+    `unattached`: an exit with nothing open, an exit that cannot retire the open side
+    (a SELL against a short), an entry on the other side while a position is open
+    (not producible at one broker), and rows that are neither entries nor exits.
+
+    The open-R lot reader (`live_lot_rows`) and the stored position-id grouper
+    (`storage.trades.position_chain._assign_position_ids`) both call this, so open R,
+    the dashboard, closed R, calibration and conviction credit read ONE grouping.
+    """
+    groups: list[list] = []
+    unattached: list = []
+    current: list | None = None
     net = 0.0
     direction: str | None = None
-    for row in moving:
-        qty = executed_qty(row)
-        if share_change(row) == "in":
-            if direction is None:
-                live, net = [], 0.0
-                direction = POSITION_OPEN_ACTIONS[str(row.get("action")).upper()]
-            live.append(row)
-            net += qty
+    for row in rows:
+        action = str(row.get("action") or "").upper()
+        moves = share_change(row) is not None and (executed is None or bool(executed(row)))
+        is_open = current is not None and round(net, decimals) > 0
+        if action in POSITION_OPEN_ACTIONS:
+            side = POSITION_OPEN_ACTIONS[action]
+            if is_open and side != direction:
+                unattached.append(row)
+                continue
+            if not is_open:
+                current, net, direction = [], 0.0, side
+                groups.append(current)
+            current.append(row)
+            net += executed_qty(row) if moves else 0.0
             continue
-        side = exit_action_side(row.get("action"))
-        if direction is None or (side is not None and side != direction):
+        exit_side = exit_action_side(action)
+        if not is_open or not is_position_exit_action(action) or (exit_side is not None and exit_side != direction):
+            unattached.append(row)
             continue
-        live.append(row)
-        net -= qty
+        current.append(row)
+        net -= executed_qty(row) if moves else 0.0
         if round(net, decimals) <= 0:
-            live, net, direction = [], 0.0, None
-    return live
+            current, net, direction = None, 0.0, None
+    return groups, unattached, current is not None and round(net, decimals) > 0
+
+
+def live_lot_rows(rows: list, *, decimals: int) -> list | None:
+    """The share-changing rows of the position LIVE NOW, from the fill sequence alone.
+
+    `rows` are one symbol's EXECUTED rows. Their share-changing ones go in fill
+    order (`fill_order`) through `walk_positions`; returns the open group, [] when
+    the book is flat, None when the fill order is unknown (R unknown). Never reads
+    a stored `position_id`.
+    """
+    moving = fill_order([r for r in rows if share_change(r) is not None])
+    if moving is None:
+        return None
+    groups, _, last_open = walk_positions(moving, decimals=decimals)
+    return list(groups[-1]) if last_open else []
 
 
 def _row_id(row) -> float:
