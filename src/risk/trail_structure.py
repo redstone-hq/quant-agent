@@ -33,9 +33,10 @@ def _swing_lows(bars, window: int = PIVOT_WINDOW) -> list[float]:
     `window * 2 + 1` = 7 bars are needed before a single low can be confirmed,
     and this desk's positions were 4-9 sessions old when evaluated, with a
     scale-in additionally resetting the caller's bar window to zero until
-    `src/pipeline.py::_apply_deterministic_trails` was changed to slice from
-    the POSITION OPEN (`Database.get_position_open_timestamp`) instead of the
-    latest add.
+    the caller was changed to slice from the position open instead of the
+    latest add. Since 13 Oct the caller (`src/exits_parts/trails.py`) takes
+    the entry day from the broker fill time of the current holding's first
+    opening fill, and both legs read from that one day (unknown: no reading).
 
     **That change is not risk-free, and it was described as such in error.**
     A longer window can only raise `highest`, so it can only raise
