@@ -658,6 +658,9 @@ def _held_now(broker: Any, symbol: str, is_short: bool) -> float | None:
             float(p.qty) for p in list(broker.get_positions()) if _same_symbol(getattr(p, "symbol", None), symbol)
         )
     except Exception as exc:  # noqa: BLE001
+        from src.sentinel.guarded import record_guarded_pass
+
+        record_guarded_pass((broker, None), "stop_repair.breach_held_reread", exc, context={"symbol": symbol})
         logger.warning("breached-stop exit: position re-read failed for %s: %s", symbol, exc)
         return None
     closable = -signed if is_short else signed
