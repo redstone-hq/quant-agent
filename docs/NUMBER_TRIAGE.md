@@ -189,7 +189,7 @@ Portfolio loss tolerance, concentration ceilings, per-trade risk budget and the 
 
 Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidate scoring weights and prompt-block row limits: none sizes, prices or places an order.
 
-- `config.RiskConfig.target_divergence_warn_pct` = 25
+- ~~`config.RiskConfig.target_divergence_warn_pct` = 25~~ -- DELETED 2026-10-13: the threshold and the WARNING it triggered are gone; every computed-vs-analyst target gap is still recorded, one row per comparison.
 - `config.SmartMoneyConfig.max_filings_per_refresh` = 1000
 - `config.SmartMoneyConfig.refresh_deadline_s` = 180
 - `agents.smart_money_analyst._MAX_REPRESENTATIVE_TRANSACTIONS` = 3

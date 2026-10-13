@@ -254,10 +254,6 @@ def build_constructor_config(config, risk_engine_config):
         max_target_horizon_sessions=int(
             _risk_setting("max_target_horizon_sessions", 60),
         ),
-        target_divergence_warn_pct=_risk_setting(
-            "target_divergence_warn_pct",
-            25.0,
-        ),
     )
 
 

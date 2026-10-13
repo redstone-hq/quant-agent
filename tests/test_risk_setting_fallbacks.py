@@ -93,7 +93,6 @@ EXPECTED_FIELDS = {
     "breakout_projection_atr_multiple",
     "max_target_reach_atr_multiple",
     "max_target_horizon_sessions",
-    "target_divergence_warn_pct",
 }
 
 

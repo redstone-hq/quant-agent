@@ -1417,32 +1417,6 @@ numbers:
       Flags a target inside this many ATRs of entry as thin reward - price is
       barely off it and the whole payoff is one ordinary session's noise.
       Labels the derived target; does not select it (changed 2026-09-30).
-  - id: src.config.RiskConfig.target_divergence_warn_pct
-    settles_by:
-      kind: recording
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: every time the constructor compares its own target against the analyst target, the
-        signed gap, whether the warning fired, and whether any stop, target or size was subsequently
-        changed on that name, so the warning threshold is judged on whether the warning ever changes
-        a decision
-      closes_when: a run of sessions shows the gap distribution and the action rate behind it, and
-        the threshold is set where a warning is followed by a change; the warning is DELETED, and
-        the gap is simply reported with every target, if no firing has ever been followed by a change
-    value: 25
-    engine_ab_2026_10_05: >-
-      RECORDED 2026-10-05, NOT SETTLED, and this row stays arbitrary. The routed recording was specified and never built, so twenty-five could only be argued about rather than read off anything. Every computed-target vs analyst-target comparison made at the site that consumes this number (PortfolioConstructor._log_target_divergence, body in src/portfolio_constructor/divergence_counter.py) now writes ONE durable row to the trade_refusals table through the constructor's refusal recorder (TradeRefusalRecorder.record_target_divergence): refusal code target_divergence_observed, stage observed_not_refused, the symbol, the signed observed gap in percent in the observed_gap_pct column, and the threshold it was compared against in the threshold column. Nothing is accumulated in memory: the distribution of gaps, the share past the threshold and the sign bias are queries over those rows at read time, so the threshold can be set at a stated percentile of observed gaps. With no recorder wired the comparison is logged only and nothing is counted. The backtest engine cannot supply this: measured 2026-10-05, an A/B of this field at 5.0 against 50.0 over AAPL/MSFT/KO for calendar 2025 returned identical trade counts and win rates, which is the signature of the unreached _derive_target path the engine's own wiring comment describes, not of an inert number. A recording is not a settlement.
-    status: arbitrary
-    site: src/config/__init__.py
-    note: >-
-      How far a proposed target may diverge from the desk's own computation
-      before it is flagged. A round 25% with nothing behind it.
-    open_question: >-
-      How large a gap between a stated target and the derived structural one
-      indicates a real disagreement rather than rounding?
-    cost_while_unanswered: >-
-      The advisory either cries wolf or stays quiet while a seat's target and
-      the structure disagree materially.
   - id: src.config.SmartMoneyConfig.cluster_window_days
     value: 2
     status: arbitrary
@@ -3327,20 +3301,6 @@ numbers:
     site: src/portfolio_constructor/config.py
     status: derived
     value: 5
-  - id: src.portfolio_constructor.config.ConstructorConfig.target_divergence_warn_pct
-    value: 25
-    status: derived
-    site: src/portfolio_constructor/config.py
-    derived_from: src.config.RiskConfig.target_divergence_warn_pct
-    base_value: 25
-    note: >-
-      Mirror of src.config.RiskConfig.target_divergence_warn_pct, the deployed
-      value. Recorded as `derived` rather than as a second arbitrary number:
-      it is ONE number with two definition sites, so counting it twice would
-      inflate the arbitrary total the same way this ledger's first version
-      claimed the 0.50% floor existed in one place while listing it in two.
-      Base-drift now fails the build if the pair stops agreeing, which nothing
-      previously checked.
   - id: src.risk.constants.MARGIN_DEFICIT_FLOOR_USD
     value: 1
     status: not-trade-governing

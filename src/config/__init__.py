@@ -318,10 +318,6 @@ class RiskConfig(BaseModel):
     # travel estimate, so an implausible horizon cannot licence a target far
     # outside anything the symbol does.
     max_target_horizon_sessions: int = Field(default=60, ge=1, le=500)
-    # Absolute gap between the computed target and the analyst's guess above
-    # which the disagreement is logged at WARNING. The guess is kept as
-    # evidence, never as arithmetic.
-    target_divergence_warn_pct: float = Field(default=25.0, gt=0, le=200)
     # Cash-only default. When False: no BUY may drive `cash` below zero, and
     # any session that starts with `cash < 0` must de-lever (SELL) before any
     # new BUY. When True: normal margin account behavior, risk engine only

@@ -3,8 +3,9 @@
 The divergence counter used to keep tallies in a module-level dictionary: state
 that outlived the run, was shared by parallel runs and was backed by no record.
 These pin that the dictionary is gone, that each comparison is a row with the
-symbol, the signed gap and the threshold, and that with no recorder the
-comparison is logged and nothing is accumulated.
+symbol and the signed gap (no chosen threshold: the 25% warn level was deleted
+2026-10-13), and that with no recorder the comparison is logged and nothing is
+accumulated.
 """
 
 import logging
@@ -50,9 +51,8 @@ def test_no_module_level_tally_survives():
         assert not hasattr(divergence_counter, name), name
 
 
-def test_each_comparison_is_one_row_with_gap_and_threshold(db):
+def test_each_comparison_is_one_row_with_the_gap_and_no_threshold(db):
     pc = PortfolioConstructor(ConstructorConfig(), recorder=TradeRefusalRecorder(db))
-    threshold = pc.cfg.target_divergence_warn_pct
     pc._log_target_divergence("aaa", _derivation(-12.5))
     pc._log_target_divergence("bbb", _derivation(40.0))
     rows = db.get_trade_refusals(refusal=TARGET_DIVERGENCE_OBSERVED)
@@ -60,7 +60,7 @@ def test_each_comparison_is_one_row_with_gap_and_threshold(db):
     by_symbol = {r["symbol"]: r for r in rows}
     assert by_symbol["AAA"]["observed_gap_pct"] == -12.5
     assert by_symbol["BBB"]["observed_gap_pct"] == 40.0
-    assert all(r["threshold"] == threshold for r in rows)
+    assert all(r["threshold"] is None for r in rows)
     assert all(r["stage"] == "observed_not_refused" for r in rows)
 
 
@@ -68,8 +68,18 @@ def test_no_recorder_logs_only_and_counts_nothing(caplog):
     pc = PortfolioConstructor(ConstructorConfig())
     with caplog.at_level(logging.INFO):
         pc._log_target_divergence("aaa", _derivation(40.0))
-    assert "disagree sharply" in caplog.text
+    assert "+40.0%" in caplog.text
     assert not [n for n in vars(divergence_counter) if "count" in n.lower() and n != "divergence_counter"]
+
+
+def test_no_chosen_threshold_and_no_warning_level(caplog):
+    """The deleted 25% warn level must not come back: no config field, and a
+    large gap logs at INFO like any other."""
+    assert not hasattr(ConstructorConfig(), "target_divergence_warn_pct")
+    pc = PortfolioConstructor(ConstructorConfig())
+    with caplog.at_level(logging.INFO):
+        pc._log_target_divergence("aaa", _derivation(400.0))
+    assert [r.levelno for r in caplog.records if "AAA" in r.getMessage().upper()] == [logging.INFO]
 
 
 def test_an_unmeasurable_comparison_writes_nothing(db):
