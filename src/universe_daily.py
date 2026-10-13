@@ -352,7 +352,9 @@ class _DailyScreen:
                 get_role=self.get_role,
             )
             try:
-                result = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                result = screen_symbol(
+                    symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol], today=self.run.today
+                )
                 failures, measured = result.failures, result.measured
                 kind = None
                 if self.get_yahoo is not None and failures == ["fund_category_not_listed"]:
@@ -362,7 +364,9 @@ class _DailyScreen:
                     # sector, so Yahoo is read only for a name that passed it.
                     held = {**seen["profile"], "sector": _SECTOR_PENDING}
                     sources.get_profile = lambda s, _p=held: _p
-                    rerun = screen_symbol(symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol])
+                    rerun = screen_symbol(
+                        symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol], today=self.run.today
+                    )
                     measured = {**rerun.measured, "sector": "Unknown"}
                     if rerun.failures:
                         failures = ["unresolved_sector", *rerun.failures]

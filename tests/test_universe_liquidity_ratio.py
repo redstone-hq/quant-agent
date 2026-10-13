@@ -140,3 +140,34 @@ def test_no_dollar_volume_floor_remains_in_the_screen():
     assert not any("dollar" in f or "volume" in f for f in fields)
     # The only liquidity verdict is the S&P ratio.
     assert "liquidity_below_sp_ratio" in inspect.getsource(us.check_liquidity_ratio)
+
+
+def _dead_bars():
+    """Three years of trading that stopped 400 days before TODAY."""
+    return [b for b in _bars(calendar_days=1500) if b.date <= TODAY - timedelta(days=400)]
+
+
+def test_window_ends_on_the_evaluation_date_so_a_dead_stock_records_its_true_reason():
+    # S&P: "the 365 calendar days prior to the evaluation date". Measured from
+    # the last bar, this name would read as "trades too little" on a stale year.
+    bars = _dead_bars()
+    cap = _traded_365(_bars()) * 10
+    result = us.screen_symbol("ACME", _sources(bars, _profile(cap)), TH, today=TODAY)
+    assert result.failures == ["no_price_history"]
+    assert "liquidity_ratio" not in result.measured
+
+
+def test_daily_record_measures_the_window_back_from_today(tmp_path):
+    bars = _dead_bars()
+    run = ud.run_daily_record(
+        [ASSET],
+        get_bars_batch=lambda chunk: {s: bars for s in chunk},
+        get_profile=lambda s: _profile(_traded_365(_bars()) * 10),
+        get_filings=lambda s: [],
+        th=TH,
+        today=TODAY,
+        deadline=float("inf"),
+        batch_size=50,
+        cache=ud.ReadCache(tmp_path),
+    )
+    assert run.records["ACME"]["failures"] == ["no_price_history"]

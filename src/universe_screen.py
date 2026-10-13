@@ -581,8 +581,14 @@ def check_bars(
     return failures, measured
 
 
-def check_liquidity_ratio(bars: list, profile) -> tuple[list[str], dict]:
+def check_liquidity_ratio(bars: list, profile, today: date | None = None) -> tuple[list[str], dict]:
     """S&P float-adjusted liquidity ratio (module docstring, "liquidity").
+
+    The window is the 365 calendar days before the EVALUATION date,
+    S&P's wording ("prior to the evaluation date"): `today` when the
+    caller gives it, else the last bar's date. Anchored on today, a dead
+    name with no bar inside the window records `no_price_history` (its
+    true reason), not "trades too little" measured on a stale year.
 
     `profile` None (could not read) returns no verdict here: the profile
     check records it inconclusive. A fund is not applicable."""
@@ -597,16 +603,18 @@ def check_liquidity_ratio(bars: list, profile) -> tuple[list[str], dict]:
     if not bars:
         return ["liquidity_history_short"], measured
     try:
-        start = getattr(bars[-1], "date") - timedelta(days=SP_LIQUIDITY_LOOKBACK_DAYS)
+        anchor = today if today is not None else getattr(bars[-1], "date")
+        start = anchor - timedelta(days=SP_LIQUIDITY_LOOKBACK_DAYS)
         if getattr(bars[0], "date") > start:
             return ["liquidity_history_short"], measured
-        window = [b for b in bars if getattr(b, "date") > start]
+        window = [b for b in bars if start < getattr(b, "date") <= anchor]
         closes = [float(b.close) for b in window]
         volume = sum(float(getattr(b, "volume", 0) or 0) for b in window)
     except (AttributeError, TypeError, ValueError):
         return ["liquidity_history_short"], measured
     if not closes:
-        return ["liquidity_history_short"], measured
+        # Not one bar in the evaluation year: no trading to measure.
+        return ["no_price_history"], measured
     traded = (sum(closes) / len(closes)) * volume
     ratio = traded / float(cap)
     measured["traded_value_365d_usd"] = round(traded, 0)
@@ -786,9 +794,11 @@ def screen_symbol(
     asset: Any = ...,
     bars: list | None = None,
     reference_dates: Iterable[date] | None = None,
+    today: date | None = None,
 ) -> ScreenResult:
     """Run every criterion on one symbol, cheapest first; stop at the first
-    failing stage so a name that fails for free costs no network reads."""
+    failing stage so a name that fails for free costs no network reads.
+    `today` is the evaluation date the S&P liquidity window ends on."""
     result = ScreenResult(symbol=symbol)
     if asset is ...:
         try:
@@ -814,7 +824,7 @@ def screen_symbol(
     except Exception as exc:  # noqa: BLE001
         logger.warning("universe screen: profile failed for %s: %s", symbol, exc)
         profile = None
-    failures, measured = check_liquidity_ratio(bars, profile) if bars else ([], {})
+    failures, measured = check_liquidity_ratio(bars, profile, today) if bars else ([], {})
     result.measured.update(measured)
     if failures:
         result.failures = failures
@@ -1159,6 +1169,7 @@ def run_screen(
                 asset=by_symbol[symbol],
                 bars=bars_by_symbol.get(symbol) or [],
                 reference_dates=batch_dates,
+                today=today,
             )
             _record(result)
         if run.deadline_hit:
