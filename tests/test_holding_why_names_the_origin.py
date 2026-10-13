@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from src.storage.db import Database
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,26 +32,6 @@ from src.api.server import create_app
 
 OPENING_RUN = "intra_check-opening"
 ADD_RUN = "intra_check-add"
-
-_TRADES_DDL = """
-CREATE TABLE trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT, action TEXT, qty REAL, price REAL, reasoning TEXT,
-    run_id TEXT, timestamp TEXT, stop_loss REAL, take_profit REAL,
-    decision_id TEXT, position_id TEXT, broker_order_id TEXT,
-    expected_horizon_sessions INTEGER, setup_type TEXT, conviction TEXT,
-    decision_model TEXT, thesis_invalid_if TEXT, fill_price REAL,
-    initial_take_profit REAL, requested_risk_pct REAL, allocated_risk_pct REAL
-)
-"""
-
-_EVIDENCE_DDL = """
-CREATE TABLE specialist_evidence (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT, decision_id TEXT, agent_name TEXT, kind TEXT, scope TEXT,
-    symbol TEXT, evidence_json TEXT, timestamp TEXT
-)
-"""
 
 
 def _insert_trade(conn, **row) -> None:
@@ -69,9 +50,10 @@ def _insert_evidence(conn, run_id, agent, kind, payload, when) -> None:
 
 def _seed(path) -> None:
     """One position: opened by the intraday scan, added to a week later."""
+    _d = Database(str(path))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     conn = sqlite3.connect(path)
-    conn.execute(_TRADES_DDL)
-    conn.execute(_EVIDENCE_DDL)
     _insert_trade(
         conn,
         symbol="ZZT",
@@ -197,9 +179,10 @@ def test_the_live_thesis_still_comes_from_the_most_recent_entry(client):
 def test_a_position_with_no_add_is_unchanged(client, tmp_path, monkeypatch):
     """The opening run IS the entry run; nothing is loaded twice."""
     db = tmp_path / "single.db"
+    _d = Database(str(db))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     conn = sqlite3.connect(db)
-    conn.execute(_TRADES_DDL)
-    conn.execute(_EVIDENCE_DDL)
     _insert_trade(
         conn,
         symbol="ZZT",
@@ -236,9 +219,10 @@ def test_a_position_with_no_add_is_unchanged(client, tmp_path, monkeypatch):
 def test_an_unrecorded_origin_still_says_so(client, tmp_path, monkeypatch):
     """The fix must not invent a driver where the desk wrote none down."""
     db = tmp_path / "silent.db"
+    _d = Database(str(db))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     conn = sqlite3.connect(db)
-    conn.execute(_TRADES_DDL)
-    conn.execute(_EVIDENCE_DDL)
     _insert_trade(
         conn,
         symbol="ZZT",
