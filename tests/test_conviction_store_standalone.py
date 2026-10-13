@@ -69,9 +69,9 @@ def _seed_round_trip(conn, *, position_id="p1", exit_price=110.0):
     ]
     conn.executemany(
         "INSERT INTO trades (position_id, symbol, action, qty, price, fill_qty,"
-        " fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, timestamp)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        rows,
+        " fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, timestamp, filled_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [row + (row[-1],) for row in rows],  # each fill's broker fill time, as real fills carry
     )
     conn.execute(
         "INSERT INTO specialist_evidence (run_id, decision_id, agent_name, kind,"

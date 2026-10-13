@@ -3,7 +3,7 @@
 
 import pytest
 
-from src.quantities import r_multiple, summarize_closed_position
+from src.quantities import summarize_closed_position
 
 
 def _row(action, qty, price, **kw):
@@ -24,15 +24,15 @@ def _row(action, qty, price, **kw):
     return row
 
 
-def test_single_lot_long_matches_r_multiple():
+def test_single_lot_long_r_is_pnl_over_its_own_risk():
     c = summarize_closed_position([_row("BUY", 10, 100.0, stop_loss=95.0), _row("SELL", 10, 112.0)])
-    assert c.r_multiple == r_multiple(112.0, 100.0, 95.0, 10)
+    assert c.r_multiple == pytest.approx(2.4)  # (112 - 100) / (100 - 95)
     assert c.entry_risk_dollars == pytest.approx(50.0)
 
 
-def test_single_lot_short_matches_r_multiple():
+def test_single_lot_short_r_is_pnl_over_its_own_risk():
     c = summarize_closed_position([_row("SHORT", 10, 100.0, stop_loss=105.0), _row("COVER", 10, 90.0)])
-    assert c.r_multiple == r_multiple(90.0, 100.0, 105.0, -10)
+    assert c.r_multiple == pytest.approx(2.0)  # (100 - 90) / (105 - 100)
 
 
 def test_two_long_lots_use_each_lots_own_stop():
@@ -76,7 +76,7 @@ def _open_r(rows, qty, avg_entry, price):
 
 def test_open_single_lot_unchanged():
     rows = [_row("BUY", 10, 100.0, stop_loss=95.0)]
-    assert _open_r(rows, 10, 100.0, 107.0) == r_multiple(107.0, 100.0, 95.0, 10)
+    assert _open_r(rows, 10, 100.0, 107.0) == pytest.approx(1.4)  # (107 - 100) / (100 - 95)
 
 
 def test_open_two_lot_long_uses_each_lots_stop():
@@ -97,9 +97,15 @@ def test_open_lot_without_stop_is_none():
 
 def test_open_two_lot_r_unchanged_by_partial_sell():
     rows = [
-        _row("BUY", 10, 100.0, stop_loss=90.0),
-        _row("BUY", 10, 110.0, stop_loss=105.0, timestamp="2026-01-02 10:00:00"),
+        _row("BUY", 10, 100.0, stop_loss=90.0, filled_at="2026-01-01 10:00:00"),
+        _row("BUY", 10, 110.0, stop_loss=105.0, timestamp="2026-01-02 10:00:00", filled_at="2026-01-02 10:00:00"),
     ]
     before = _open_r(rows, 20, 105.0, 120.0)
-    after = _open_r(rows, 5, 105.0, 120.0)
+    # The partial sell is in the chain, so the lots reconcile to the 5 still held.
+    after = _open_r(
+        rows + [_row("SELL", 15, 118.0, timestamp="2026-01-03 10:00:00", filled_at="2026-01-03 10:00:00")],
+        5,
+        105.0,
+        120.0,
+    )
     assert before is not None and after == before

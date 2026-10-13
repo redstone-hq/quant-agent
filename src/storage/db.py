@@ -1711,6 +1711,7 @@ class Database:
         entry_atr: float | None = None,
         stop_basis: str | None = None,
         stop_level_basis: str | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
         return self._trades().insert_trade(
@@ -1736,6 +1737,7 @@ class Database:
             entry_atr,
             stop_basis,
             stop_level_basis,
+            filled_at=filled_at,
         )
 
     def insert_trade_refusal(self, **kwargs) -> int | None:
@@ -1806,9 +1808,18 @@ class Database:
         fill_status: str,
         fill_qty: float | None = None,
         fill_price: float | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
-        return self._trades().update_trade_fill(broker_order_id, fill_status, fill_qty, fill_price)
+        return self._trades().update_trade_fill(broker_order_id, fill_status, fill_qty, fill_price, filled_at)
+
+    def regroup_position_ids(self, symbol: str) -> set[str] | None:
+        """Re-derive one symbol's stored position ids from the fill walk (TradeLedger.regroup_position_ids)."""
+        return self._trades().regroup_position_ids(symbol)
+
+    def backfill_fill_times(self, updates: list[tuple[int, str, str]]) -> set[str]:
+        """Broker fill times plus the regroup, one locked write (TradeLedger.backfill_fill_times)."""
+        return self._trades().backfill_fill_times(updates)
 
     def _realized_pnl_through_trade(self, symbol: str, through_id: int) -> float | None:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
@@ -2161,6 +2172,10 @@ class Database:
     def get_position_open_row(self, buy_row: dict | None) -> dict | None:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_position_open_row(buy_row)
+
+    def get_position_chain_rows(self, buy_row: dict | None) -> list[dict] | None:
+        """Thin shim: every executed row of `buy_row`'s position chain (TradeAnalytics)."""
+        return self._analytics().get_position_chain_rows(buy_row)
 
     def get_recent_insights(self, limit: int = 7) -> list[dict]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""

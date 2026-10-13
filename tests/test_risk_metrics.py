@@ -14,7 +14,6 @@ from src.risk.metrics import (
     portfolio_heat,
     position_risk,
 )
-from src.quantities import r_multiple
 
 
 def _pos(symbol: str, qty: float, entry: float, price: float) -> Position:
@@ -34,28 +33,6 @@ def _pos(symbol: str, qty: float, entry: float, price: float) -> Position:
 # --------------------------------------------------------------------------
 
 
-def test_r_multiple_is_profit_in_units_of_risk_taken():
-    # Risked $10/share (100 → 90), now +$20 → 2R.
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=90.0) == 2.0
-
-
-def test_r_multiple_is_negative_while_underwater():
-    assert r_multiple(current_price=95.0, entry=100.0, initial_stop=90.0) == -0.5
-
-
-def test_r_multiple_is_none_when_initial_stop_was_not_below_entry():
-    """No risk defined at entry means no denominator — never fabricate one."""
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=100.0) is None
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=110.0) is None
-
-
-@pytest.mark.parametrize("bad", [float("nan"), float("inf"), None, "n/a"])
-def test_r_multiple_rejects_non_finite_inputs(bad):
-    assert r_multiple(current_price=bad, entry=100.0, initial_stop=90.0) is None
-    assert r_multiple(current_price=120.0, entry=bad, initial_stop=90.0) is None
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=bad) is None
-
-
 def test_r_multiple_uses_the_entry_stop_not_the_trailed_one():
     """The denominator is the bet that was actually made."""
     risk = position_risk(
@@ -65,6 +42,7 @@ def test_r_multiple_uses_the_entry_stop_not_the_trailed_one():
         current_price=130.0,
         stop=125.0,  # trailed up
         initial_stop=90.0,  # the bet was $10/share
+        entry_risk_dollars=100.0,  # per-lot: 10 shares x $10
     )
     assert risk.r_multiple == 3.0
 
@@ -116,10 +94,10 @@ def test_open_risk_floors_at_zero_when_price_is_below_the_stop():
     assert risk.budget_risk_dollars == pytest.approx(500.0)
 
 
-def test_initial_stop_defaults_to_the_live_stop():
+def test_no_entry_risk_means_r_unknown_never_the_live_stop():
     risk = position_risk("AAA", qty=10, entry=100.0, current_price=110.0, stop=90.0)
-    assert risk.initial_stop == 90.0
-    assert risk.r_multiple == 1.0
+    assert risk.initial_stop is None
+    assert risk.r_multiple is None
 
 
 def test_non_finite_broker_price_does_not_poison_the_arithmetic():

@@ -342,8 +342,8 @@ def veto_contradicted_exit(
       - `pace` — inherits `thesis_progress_pct`'s correctness; the
         denominator (`time_fraction`) is never signed.
       - `r_multiple` — side-correct by construction (`src/risk/metrics.py
-        ::r_multiple` takes `qty`'s sign as the side and mirrors both the
-        numerator and the risk-per-share denominator for a short).
+        ::position_risk` takes `qty`'s sign as the side; its P&L numerator
+        mirrors for a short and its per-lot risk denominator is positive).
       - `distance_to_stop_pct` — was NOT side-correct until 2026-09-18: it
         was computed as `(cur - stop_loss) / cur * 100` regardless of side,
         which is correct for a long (stop below price) but for a short

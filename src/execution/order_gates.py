@@ -24,6 +24,7 @@ No bound here is invented. Each cites its source:
 import logging
 import math
 from src.sentinel.guarded import record_guarded_pass
+from src.quantities import ORDER_QTY_DECIMALS
 from decimal import Decimal
 
 from alpaca.trading.enums import TimeInForce
@@ -56,11 +57,12 @@ from alpaca.trading.enums import TimeInForce
 # that forgets the rule cannot exist, because no path gets to state it.
 _FRACTIONAL_QTY_EPSILON = 1e-9
 
-# The most decimal places an order quantity may carry: the same grid as
-# `_FRACTIONAL_QTY_EPSILON` and the `<= 9` clamp in `src/pipeline_sizing.py`.
-# Shared by the gate below and by `src/execution/sell_quantity.py`, which
-# floors every sell onto this grid before the gate sees it.
-ORDER_QTY_DECIMALS = 9
+# `ORDER_QTY_DECIMALS` (imported above) is the most decimal places an order
+# quantity may carry: the same grid as `_FRACTIONAL_QTY_EPSILON` and the `<= 9`
+# clamp in `src/pipeline_sizing.py`. It is defined in `src/quantities.py`, below
+# the broker seam, so the lot walk's readers share it without importing
+# src.execution. Shared by the gate below and by `src/execution/sell_quantity.py`,
+# which floors every sell onto this grid before the gate sees it.
 
 
 def _split_protective_qty(qty) -> tuple[float, float]:

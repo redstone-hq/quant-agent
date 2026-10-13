@@ -21,42 +21,11 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from src.storage.analytics.agent_log_reads import recent_agent_outputs
+from src.trade_actions import POSITION_OPEN_ACTIONS as _POSITION_OPEN_ACTIONS
+from src.trade_actions import is_filled_trail_stop as _is_filled_trail_stop  # realized-exit rule, not share counting
 from src.util.time import ET
 
 logger = logging.getLogger(__name__)
-
-
-def _is_filled_trail_stop(row, action: str) -> bool:
-    """True for a TRAIL_STOP row the broker actually EXECUTED.
-
-    A TRAIL_STOP row is written fill_status='submitted' at placement and only
-    flipped to 'filled' by _reconcile_fills when the broker reports a fill, so
-    the status is what distinguishes "protection sitting there" from "the stop
-    sold our shares". Mirrors the same distinction in
-    pipeline._build_post_exit_reality. Legacy rows can carry a NULL
-    fill_status; those only count when a real fill_qty was recorded, so a
-    never-filled stop can't book a phantom exit at its stop price.
-    """
-    if action != "TRAIL_STOP":
-        return False
-    try:
-        status = (row["fill_status"] or "").lower()
-    except (KeyError, IndexError, TypeError):
-        status = ""
-    if status == "filled":
-        return True
-    try:
-        return status == "" and float(row["fill_qty"] or 0) > 0
-    except (KeyError, IndexError, TypeError, ValueError):
-        return False
-
-
-#: Actions that OPEN a position chain, mapped to the direction it carries.
-#: SHORT mints a chain exactly as BUY does — owner decision, 2026-08-31:
-#: "money made lost, decisions made lost, it's the same thing as everything
-#: else." Mirrors `src/conviction_ledger.py::_OPEN_ACTIONS`, which reduces
-#: the resulting chain to a round trip.
-_POSITION_OPEN_ACTIONS: dict[str, str] = {"BUY": "long", "SHORT": "short"}
 
 
 #: Conviction ledger (spec §7.2) — the sample floor below which
@@ -562,6 +531,13 @@ class TradeAnalytics:
                 (symbol, pid, opening),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_position_chain_rows(self, buy_row: dict | None) -> list[dict] | None:
+        """Every executed row of `buy_row`'s position chain (`quantities.select_position_chain_rows`)."""
+        from src.quantities import select_position_chain_rows
+
+        with self._lock:
+            return select_position_chain_rows(self.conn, buy_row, self._executed_trade_predicate())
 
     def get_recent_insights(self, limit: int = 7) -> list[dict]:
         """Last N evening insights, newest first. PM reads to build 7-day narrative."""

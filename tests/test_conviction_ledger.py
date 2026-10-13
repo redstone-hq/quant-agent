@@ -33,6 +33,13 @@ from tests.session_clock import todays_session_stamp
 from tests.pipeline_factory import build_pipeline
 
 
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): the fill is reported as it is written."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @pytest.fixture
 def db(tmp_path):
     database = Database(str(tmp_path / "ledger.db"))
@@ -291,23 +298,29 @@ def test_short_and_long_credits_aggregate_into_one_undifferentiated_record():
     assert record.current_drawdown == pytest.approx(0.0)
 
 
-def test_r_multiple_itself_makes_a_winning_short_positive():
-    """Read, not assumed: `src/quantities.py::r_multiple` takes the SIDE
-    from a signed qty, so the ledger never has to negate anything."""
-    from src.quantities import r_multiple as _r
+def test_per_lot_r_makes_a_winning_short_positive():
+    """Read, not assumed: the per-lot R (`summarize_closed_position`) takes the
+    SIDE from the entry action, so the ledger never has to negate anything."""
 
-    # Short at 100, stop at 110 (above entry), covered at 90 → made money.
-    assert _r(90.0, 100.0, 110.0, -10.0) == pytest.approx(+1.0)
-    # ...and covered at 105 → lost money.
-    assert _r(105.0, 100.0, 110.0, -10.0) == pytest.approx(-0.5)
+    def _r(exit_price, stop, entry_action, exit_action):
+        rows = [
+            _row(entry_action, 10, 100.0, stop_loss=stop),
+            _row(exit_action, 10, exit_price, timestamp="2026-01-09 10:00:00"),
+        ]
+        return summarize_closed_position(rows).r_multiple
+
+    # Short at 100, stop at 110 (above entry), covered at 90 -> made money.
+    assert _r(90.0, 110.0, "SHORT", "COVER") == pytest.approx(+1.0)
+    # ...and covered at 105 -> lost money.
+    assert _r(105.0, 110.0, "SHORT", "COVER") == pytest.approx(-0.5)
     # The long mirror, for the same numbers reflected about entry.
-    assert _r(110.0, 100.0, 90.0, +10.0) == pytest.approx(+1.0)
-    assert _r(95.0, 100.0, 90.0, +10.0) == pytest.approx(-0.5)
+    assert _r(110.0, 90.0, "BUY", "SELL") == pytest.approx(+1.0)
+    assert _r(95.0, 90.0, "BUY", "SELL") == pytest.approx(-0.5)
 
 
 def test_summarize_reduces_a_short_round_trip_with_a_negative_qty():
     """The one place direction is expressed: `qty` comes back NEGATIVE for a
-    short, which is what tells `r_multiple` which side it was."""
+    short, which is what tells the per-lot R which side it was."""
     closed = summarize_closed_position(
         [
             _row("SHORT", 10, 100.0, stop_loss=110.0, decision_id="dec-s"),
@@ -728,6 +741,7 @@ def _closed_losing_long(db, *, symbol="AAPL", decision_id="dec-1"):
         run_id="run-1",
         stop_loss=90.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id=decision_id,
         conviction="high",
     )
@@ -739,6 +753,7 @@ def _closed_losing_long(db, *, symbol="AAPL", decision_id="dec-1"):
         reasoning="thesis_invalid",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
 
 
@@ -997,6 +1012,7 @@ def _closed_winning_short(db, *, symbol="TSLA", decision_id="dec-s"):
         run_id="run-1",
         stop_loss=110.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id=decision_id,
         conviction="high",
     )
@@ -1008,6 +1024,7 @@ def _closed_winning_short(db, *, symbol="TSLA", decision_id="dec-s"):
         reasoning="target",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
 
 
@@ -1057,6 +1074,7 @@ def test_a_losing_short_scores_exactly_like_a_losing_long(db):
         run_id="run-1",
         stop_loss=110.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id="dec-s",
     )
     db.insert_trade(
@@ -1067,6 +1085,7 @@ def test_a_losing_short_scores_exactly_like_a_losing_long(db):
         reasoning="thesis_invalid",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
     db.record_seat_stances(
         run_id="run-1",
@@ -1372,6 +1391,7 @@ def test_short_chaining_touches_no_trading_decision(tmp_path, monkeypatch):
             run_id="seed",
             stop_loss=110.0,
             fill_status="filled",
+            filled_at=_fill_time(),
             decision_id="seed-dec",
             conviction="high",
         )
@@ -1383,6 +1403,7 @@ def test_short_chaining_touches_no_trading_decision(tmp_path, monkeypatch):
             reasoning="target",
             run_id="seed",
             fill_status="filled",
+            filled_at=_fill_time(),
         )
         database.record_seat_stances(
             run_id="seed",

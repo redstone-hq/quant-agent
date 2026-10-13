@@ -11,6 +11,7 @@ import logging
 from src.sentinel.reconciliation import record_reconciliation
 from src.protection.fill_reconciler_records import record_fill_pass
 from src.storage.db import Database
+from src.trade_actions import broker_fill_time
 from src.pipeline_context import RunContext
 import json as _json
 
@@ -168,12 +169,16 @@ class FillReconciler:
             status = info.get("status") or ""
             fill_qty = info.get("filled_qty") or None
             fill_price = info.get("filled_avg_price") or None
+            # The broker's own fill time, never the time we noticed: the clock
+            # the lot walk orders fills by (None when the broker reported none).
+            filled_at = broker_fill_time(info.get("filled_at"))  # full precision
             if status in terminal_ok:
                 self.db.update_trade_fill(
                     broker_order_id=order_id,
                     fill_status="filled",
                     fill_qty=fill_qty,
                     fill_price=fill_price,
+                    filled_at=filled_at,
                 )
                 _record_broker_event(row, status, fill_qty, fill_price)
                 logger.info(
@@ -188,6 +193,7 @@ class FillReconciler:
                     fill_status=status,
                     fill_qty=fill_qty,
                     fill_price=fill_price,
+                    filled_at=filled_at,
                 )
                 _record_broker_event(row, status, fill_qty, fill_price)
                 if fill_qty and float(fill_qty) > 0:
@@ -231,6 +237,7 @@ class FillReconciler:
                         fill_status="submitted",
                         fill_qty=partial,
                         fill_price=price,
+                        filled_at=filled_at,
                     )
                     # Only emit lifecycle evidence / log on a genuine INCREASE
                     # in filled shares, so repeated partial passes over an
@@ -644,7 +651,7 @@ class FillReconciler:
                         qty=fill["qty"],
                         price=fill["price"],
                         broker_order_id=fill["id"],
-                        filled_at=self._parse_broker_fill_timestamp(fill.get("filled_at")),
+                        filled_at=broker_fill_time(fill.get("filled_at")),
                         run_id=run_id,
                         action=action,
                     )

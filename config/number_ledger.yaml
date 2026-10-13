@@ -623,10 +623,10 @@ numbers:
     note: >-
       The measured move claimed when no structural level stands in the way, in
       sqrt(session)-scaled ATRs (src/config/__init__.py::RiskConfig).
-  - id: src.execution.order_gates.ORDER_QTY_DECIMALS
+  - id: src.quantities.ORDER_QTY_DECIMALS
     value: 9
     status: instrument
-    site: src/execution/order_gates.py
+    site: src/quantities.py
     source: >-
       Alpaca fractional trading documentation, "Both notional and qty fields can
       take up to 9 decimal point values."
@@ -10959,11 +10959,3 @@ numbers:
     cost_while_unanswered: >-
       Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
       keeps passing.
-  - id: src.quantities.r_multiple(qty)
-    value: 1.0
-    status: not-trade-governing
-    site: src/quantities.py
-    note: >-
-      Dead default (src/risk/metrics.py::position_risk): a grep on 2026-10-12 of every .py under src, scripts and main.py for calls to
-      `r_multiple(` finds only the two production calls in src/risk/metrics.py, and both pass `qty_f` explicitly, so
-      this default is never used. Dynamic calls through getattr or star-args were not searched.
