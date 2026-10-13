@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from src.stop_price_classification import classify_stop_price
+from src.trade_actions import POSITION_OPEN_ACTIONS, is_position_exit_action, trail_stop_reduced_position
 
 __all__ = [
     "ETF_LEVERAGE",
@@ -467,36 +468,23 @@ def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: floa
     return full * min(1.0, held / entered)
 
 
-#: Share-changing EXIT actions on the `trades` table (the same vocabulary as
-#: src/storage/trades/position_chain.py, restated because this module imports
-#: no storage code). Prefix matches carry a trim fraction, e.g. PARTIAL_SELL(15%).
-_SHARE_EXIT_PREFIXES: tuple[str, ...] = ("SELL", "PARTIAL_SELL", "COVER", "PARTIAL_COVER")
-_SHARE_EXIT_ACTIONS: frozenset[str] = frozenset(
-    {"EMERGENCY_SELL", "EMERGENCY_COVER", "FORCE_DELEVER", "REDUCE", "TAKE_PROFIT", "STOP_OUT", "RECONCILED_EXIT"}
-)
-
-
 def _share_change(row: dict) -> str | None:
     """ "in" (an executed opening lot), "out" (an executed share-reducing fill) or None.
 
-    Classified by ACTION, never by the mere presence of a quantity. A
-    TRAIL_STOP row is written for the FULL position at every stop move with no
-    fill status; it is protection sitting there, and counts as "out" only when
-    the broker filled it (fill_status 'filled', or a legacy NULL status with a
-    real fill_qty — the rule of calibration `_is_filled_trail_stop`). Every
+    Classified by ACTION via `src/trade_actions.py`, never by the mere presence
+    of a quantity. A TRAIL_STOP row is written for the FULL position at every
+    stop move with no fill; it is protection sitting there, and counts as "out"
+    only under the SHARE-COUNTING rule `trail_stop_reduced_position` — which
+    includes a stop that filled partially and was then canceled (its
+    `fill_qty` shares are gone; `_executed_qty` prefers that fill). Every
     other action (HOLD, SWEEP_*, records) changes no shares of this position.
     """
     action = str(row.get("action") or "").upper()
     if action in _OPEN_ACTIONS:
         return "in"
     if action == "TRAIL_STOP":
-        status = str(row.get("fill_status") or "").lower()
-        try:
-            fill_qty = float(row.get("fill_qty") or 0)
-        except (TypeError, ValueError):
-            fill_qty = 0.0
-        return "out" if status == "filled" or (status == "" and fill_qty > 0) else None
-    if action.startswith(_SHARE_EXIT_PREFIXES) or action in _SHARE_EXIT_ACTIONS:
+        return "out" if trail_stop_reduced_position(row, action) else None
+    if is_position_exit_action(action):
         return "out"
     return None
 
@@ -605,7 +593,7 @@ def _executed_price(row: dict) -> float:
 #: longs). The `qty` this function returns is NEGATIVE for a short, which is
 #: the only place direction is expressed: it is what tells `r_multiple` which
 #: side the position was, so a profitable short comes back as a positive R.
-_OPEN_ACTIONS: dict[str, str] = {"BUY": "long", "SHORT": "short"}
+_OPEN_ACTIONS = POSITION_OPEN_ACTIONS  # defined once in src/trade_actions.py
 
 
 def _split_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:

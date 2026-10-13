@@ -274,3 +274,17 @@ def test_missing_sell_row_makes_r_unknown(db):
     # Broker holds 150 but no sell was recorded: the lots cannot be trusted.
     fact, row = _facts_and_heat(db, _pos("MS", 150, 55.0, 62.0), live_stop=52.0)
     assert fact["r_multiple"] is None and row.r_multiple is None
+
+
+def test_partially_filled_then_canceled_stop_counts_its_filled_shares(db):
+    """A TRAIL_STOP that filled 50 of 200 and was then canceled took 50 shares
+    out of the book: share counting must subtract them (the WIDER stop rule),
+    or the lots never reconcile to the 150 held and R goes unknown."""
+    _open(db, "PC", "BUY", 100, 50.0, 45.0)
+    _open(db, "PC", "BUY", 100, 60.0, 52.0)
+    _trail_stop_row(db, "PC", 200, 53.0, fill_status="canceled")
+    db.conn.execute("UPDATE trades SET fill_qty = 50 WHERE symbol = 'PC' AND action = 'TRAIL_STOP'")
+    db.conn.commit()
+    fact, row = _facts_and_heat(db, _pos("PC", 150, 55.0, 62.0), live_stop=53.0)
+    # 1050 / (1300 x 150/200)
+    assert fact["r_multiple"] == pytest.approx(1.08) and row.r_multiple == pytest.approx(1.08)
