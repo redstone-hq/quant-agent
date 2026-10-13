@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import html
 import os
+import re
+import threading
 import requests
 from typing import Any
 
@@ -20,14 +22,64 @@ from src.notifier.category import (
     filtered_by_category,
     resolve_risk_only,
 )
+from src.notifier.credit_line import split_credit_line
+from src.notifier.owner_alert_delivery import WireFailure
 from src.notifier.send_log import record_send
 from src.notifier.send_funnel import send as _public_send
 from src.notifier.send_funnel import send_once as _send_once
 from src.notifier.markup import (
-    _close_open_markup,
     _escape_with_markup,
     _linkify_symbols,
 )
+
+#: Any HTML tag in text that has already been escaped: a literal '<' from a
+#: caller is '&lt;' by then, so every '<' left is one of the fixed structural
+#: tags (`_escape_with_markup`) or a symbol link (`_linkify_symbols`).
+_TAG_RE = re.compile(r"<(/?)[a-zA-Z][^>]*>")
+_TRUNCATED = "[...truncated]"
+
+
+def _balanced_units(text: str, sep: str) -> list[str]:
+    """Split `text` on `sep` into pieces that each carry balanced markup.
+
+    A piece inside an open tag is joined to the piece before it, so a block
+    such as `<blockquote expandable>` spanning several lines stays whole.
+    """
+    units: list[str] = []
+    depth = 0
+    for piece in text.split(sep):
+        if units and depth > 0:
+            units[-1] += sep + piece
+        else:
+            units.append(piece)
+        for match in _TAG_RE.finditer(piece):
+            depth = max(0, depth + (-1 if match.group(1) else 1))
+    return units
+
+
+def _fit_blocks(body: str, budget: int) -> str:
+    """Fit escaped `body` into `budget` by dropping WHOLE blocks, never by
+    cutting inside an element — so the result cannot carry an open tag.
+
+    Order: the expandable DETAILS block first (the owner can read it in
+    Mission Control), then trailing paragraphs, then trailing lines of what
+    is left. Only a single balanced line that is alone over budget is cut,
+    and only after its tags are removed, so the cut is on tag-free text
+    (`_clip_text` never splits an entity). 13 Oct 2026: the morning report
+    was cut inside `<blockquote expandable>` and Telegram refused it.
+    """
+    if len(body) <= budget:
+        return body
+    tail = "\n" + _TRUNCATED
+    for sep in ("\n\n", "\n"):
+        units = _balanced_units(body, sep)
+        kept = [unit for unit in units if "<blockquote" not in unit] or units[:1]
+        while len(kept) > 1 and len(sep.join(kept)) + len(tail) > budget:
+            kept.pop()
+        body = sep.join(kept)
+        if len(body) + len(tail) <= budget:
+            return body + tail
+    return _clip_text(_TAG_RE.sub("", body), budget, marker=tail)
 
 
 class TelegramNotifier:
@@ -83,6 +135,10 @@ class TelegramNotifier:
         # one. str(...) guards against a non-str default sneaking through
         # (e.g. a test double); production always passes a validated str.
         self.mission_control_url = str(mission_control_url or "").strip()
+        # The last failed wire attempt on this thread, for the retry loop
+        # (`deliver_with_outcome`); per thread because one notifier serves
+        # the scheduler and the watchdog at once.
+        self._wire_failures = threading.local()
         if not self.enabled:
             if kill_switch:
                 logger.info("TelegramNotifier: disabled via TELEGRAM_DISABLED env var")
@@ -152,19 +208,82 @@ class TelegramNotifier:
     send_once = _send_once
     send = _public_send
 
+    def _note_wire_failure(self, failure: WireFailure) -> WireFailure:
+        self._wire_failures.value = failure
+        return failure
+
+    def take_wire_failure(self) -> WireFailure | None:
+        """The failure of this thread's last wire attempt, consumed on read."""
+        failure = getattr(self._wire_failures, "value", None)
+        self._wire_failures.value = None
+        return failure
+
     def _post_payload(self, payload: dict) -> None:
-        """The one sendMessage wire call; raises on any HTTP failure.
+        """The one sendMessage wire call; raises `WireFailure` on any failure.
 
         Lives here, not in `send_funnel`, because this module is the cleared
         outbound-client site: the replay guard names it as the seam for
         `requests`, and the funnel must not become a second one.
+
+        Success is still judged by `raise_for_status()`. A refusal keeps
+        Telegram's own `error_code` and `description` (its JSON body names
+        the repair: "can't parse entities", "chat not found", ...) instead
+        of the bare "400 Client Error" `raise_for_status` gives, and says
+        whether a resend can land. `send_once` records `str(exc)`.
         """
-        response = requests.post(
-            self.API_URL.format(token=self.token),
-            json=payload,
-            timeout=self.HTTP_TIMEOUT_S,
+        self._wire_failures.value = None
+        response = None
+        try:
+            response = requests.post(
+                self.API_URL.format(token=self.token),
+                json=payload,
+                timeout=self.HTTP_TIMEOUT_S,
+            )
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            refused: Exception = exc
+        except requests.RequestException as exc:
+            failure = WireFailure(
+                f"network error: {self._redact(exc)}",
+                retryable=True,
+                summary="could not reach Telegram",
+            )
+            refused = failure
+        else:
+            return
+        # Built and raised OUTSIDE the except block, `from None`: the
+        # `requests` exception carries the token in its URL, and a chained
+        # or in-flight one is printed by any traceback logged later (the
+        # JSON-body guard, `logger.exception` upstream). Only the redacted
+        # reason travels on.
+        if not isinstance(refused, WireFailure):
+            refused = self._refusal(refused, response)
+        raise self._note_wire_failure(refused) from None
+
+    def _refusal(self, exc: Exception, response: Any) -> WireFailure:
+        """Telegram's reason for refusing a send, from its JSON body.
+
+        4xx is final (the same body gets the same answer) except 429, whose
+        `parameters.retry_after` is Telegram's own wait; 5xx is transient.
+        An unreadable status is treated as transient, as every failure was.
+        """
+        body = self._json_body(response) if response is not None else {}
+        code = body.get("error_code")
+        if not isinstance(code, int):
+            code = getattr(response, "status_code", None)
+        if not isinstance(code, int):
+            match = re.match(r"\s*(\d{3})\b", str(exc))
+            code = int(match.group(1)) if match else None
+        description = body.get("description")
+        reason = f"Telegram {code}: {description}" if description else self._redact(exc)
+        parameters = body.get("parameters")
+        retry_after = parameters.get("retry_after") if isinstance(parameters, dict) else None
+        return WireFailure(
+            reason,
+            retryable=code is None or code == 429 or code >= 500,
+            code=code,
+            retry_after=float(retry_after) if isinstance(retry_after, (int, float)) else None,
         )
-        response.raise_for_status()
 
     def _api_url(self, method: str) -> str:
         """Bot API endpoint for `method` (sendMessage, deleteMessage, ...)."""
@@ -186,6 +305,10 @@ class TelegramNotifier:
         leaving the real message shape — HTML parse mode, escaping, the
         length budget — untested, which is how a self-test ends up passing
         while the thing it stands in for is broken.
+
+        The one place a message is fitted to `MAX_MESSAGE_CHARS`: the
+        credit line and the Mission Control link are protected blocks, the
+        body is fitted to what is left by `_fit_blocks` (whole blocks only).
         """
         # HTML over MarkdownV2: PM/tech rationale is full of tickers with
         # underscores, "*" bullets, parentheticals, and "%" — MarkdownV2
@@ -201,7 +324,9 @@ class TelegramNotifier:
         # in its plain text on purpose; no other caller does, and every
         # other caller must keep the historical "always fully escape"
         # contract.
+        text, credit_line = split_credit_line(text)
         escaped = _escape_with_markup(text) if preserve_structural_markup else html.escape(text)
+        credit_html = f"\n\n{html.escape(credit_line)}" if credit_line else ""
 
         resolved_url = link_url if link_url is not None else self.mission_control_url
         link_html = ""
@@ -213,33 +338,15 @@ class TelegramNotifier:
             safe_label = html.escape(label)
             link_html = f'\n\n<a href="{safe_url}">{safe_label}</a>'
 
-        budget = max(0, self.MAX_MESSAGE_CHARS - len(link_html))
+        budget = max(0, self.MAX_MESSAGE_CHARS - len(credit_html) - len(link_html))
 
-        # Symbol links are strictly best-effort. `_clip_text` only
-        # guarantees it never splits an HTML *entity* (`&amp;` has no
-        # whitespace inside it); an anchor tag does (`<a href="...">` has a
-        # space right after "a"), so clipping *linked* text risks shipping
-        # `<a hre` — broken markup Telegram then rejects outright ("can't
-        # parse entities"), losing the whole alert over a ticker link. So:
-        # try the linked text first, but if it doesn't fit budget, fall
-        # back to the plain (safely truncatable) escaped text instead of
-        # truncating the linked one — symbol links disappear, the alert
-        # still ships.
+        # Symbol links are strictly best-effort: try the linked text first;
+        # if it does not fit, fit the plain escaped text instead — symbol
+        # links disappear, the alert still ships, and nothing is ever cut
+        # inside an anchor.
         linked = _linkify_symbols(escaped, symbols) if symbols else escaped
-        if len(linked) <= budget:
-            body = linked
-        elif len(escaped) > budget:
-            # `_clip_text` never splits an HTML entity: it only ever cuts on
-            # whitespace, and an entity like '&amp;' has none inside it — so
-            # the boundary search always lands on a word start/end, keeping
-            # any entity in the kept text whole. This is the last-resort
-            # safety net for the rare aggregate message still oversized
-            # after every field-level clip below already ran — not the
-            # primary fix, which is raising those per-field limits.
-            body = _close_open_markup(_clip_text(escaped, budget, marker="\n[...truncated]"))
-        else:
-            body = escaped
-        final_text = body + link_html
+        body = linked if len(linked) <= budget else _fit_blocks(escaped, budget)
+        final_text = body + credit_html + link_html
 
         return {
             "chat_id": self.chat_id,

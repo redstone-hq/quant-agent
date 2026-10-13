@@ -2446,11 +2446,15 @@ def test_recorded_output_never_contains_token_or_chat_id(tmp_path, monkeypatch):
     with patch("src.notifier.requests.post") as mock_post:
         bad = MagicMock()
         bad.raise_for_status.side_effect = requests.HTTPError(f"401 Client Error: Unauthorized for url: {url}")
+        bad.status_code = 401
+        bad.json.return_value = {"ok": False, "error_code": 401, "description": "Unauthorized"}
         mock_post.return_value = bad
         assert n.send("second message", kind="generic") is False
 
     rows = _notifier_sends_rows(db_path)
-    assert len(rows) == 5
+    # 13 Oct (#1749): a 4xx other than 429 is final -- the same token gets the
+    # same answer -- so the refused message is attempted once, never resent.
+    assert [r["status"] for r in rows if r["kind"] == "generic" and r["text"] == "second message"].count("failed") == 1
     dump = str(rows)
     assert token not in dump
     assert chat_id not in dump
