@@ -205,9 +205,12 @@ def test_exactly_one_caller_probes_after_the_cooldown(monkeypatch):
     branches against one key; without a single-probe gate all five would
     arrive together the instant the cooldown expires and send five probes at
     a provider that is very likely still saturated."""
+    now = [0.0]
+    # One clock for the whole test: patched BEFORE the failure is stamped.
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
     b = RouteBreaker("google")
     b.record_failure()
-    monkeypatch.setattr("time.monotonic", lambda: 10**9)  # far past cooldown
+    now[0] += 10**6  # far past cooldown
     grants = [b.primary_available() for _ in range(5)]
     assert grants.count(True) == 1, f"exactly one probe, got {grants}"
     assert b.is_probing() is True
@@ -246,9 +249,12 @@ def test_a_failed_probe_releases_the_probe_right(monkeypatch):
     """A probe that fails without releasing its right would wedge the breaker
     half-open forever and the primary would never be tried again — the exact
     never-comes-back defect this class was written to remove."""
+    now = [0.0]
+    # One clock for the whole test: patched BEFORE the failure is stamped.
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
     b = RouteBreaker("google")
     b.record_failure()
-    monkeypatch.setattr("time.monotonic", lambda: 10**9)
+    now[0] += 10**6  # far past cooldown
     assert b.primary_available() is True
     b.record_failure()
     assert b.is_probing() is False
