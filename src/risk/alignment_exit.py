@@ -410,7 +410,7 @@ def _as_date(value) -> date | None:
     if callable(to_date):
         try:
             got = to_date()
-        except Exception:  # noqa: BLE001 — unreadable is None, never a guess
+        except (TypeError, ValueError):  # unreadable is None, never a guess
             return None
         return got if isinstance(got, date) else None
     try:
