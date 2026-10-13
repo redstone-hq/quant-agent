@@ -923,27 +923,27 @@ class RiskStage:
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Structural protection read failed for %s (evidence only): %s", symbol_u, e)
-                verdict = judge_holding(views_from_pipeline(pipeline, ctx, symbol_u, is_short=is_short))
+                gate_verdict = judge_holding(views_from_pipeline(pipeline, ctx, symbol_u, is_short=is_short))
                 _record_pipeline_event(
                     pipeline,
                     ctx,
                     decision.symbol,
                     "risk",
-                    f"same_rules_gate_{verdict.basis}",
-                    f"{decision.action} {symbol_u}: {verdict.detail}",
+                    f"same_rules_gate_{gate_verdict.basis}",
+                    f"{decision.action} {symbol_u}: {gate_verdict.detail}",
                 )
-                if verdict.sell_allowed:
+                if gate_verdict.sell_allowed:
                     hd_surviving.append(decision)
                     continue
                 logger.warning(
                     "Same-rules gate REFUSED %s %s — %s (proposal: %s)",
                     decision.action,
                     symbol_u,
-                    verdict.detail,
+                    gate_verdict.detail,
                     (decision.reasoning or "")[:200],
                 )
-                _record_pipeline_event(pipeline, ctx, decision.symbol, "risk", "rejected", verdict.detail)
-                hd_blocked.append((symbol_u, verdict.detail))
+                _record_pipeline_event(pipeline, ctx, decision.symbol, "risk", "rejected", gate_verdict.detail)
+                hd_blocked.append((symbol_u, gate_verdict.detail))
 
             if hd_blocked:
                 portfolio_decision.decisions = hd_surviving
