@@ -140,6 +140,63 @@ class PositionReviewSession:
         self._macro_store = macro_store
         self._position_reviewer = position_reviewer
 
+    def _gate_reviewer_sales(
+        self,
+        review,
+        positions,
+        *,
+        run_id: str,
+        news_intel,
+        news_ok: bool,
+        macro_analysis,
+        earnings_analyses,
+    ):
+        """Route every proposed reviewer sale through the same-rules gate and
+        record each verdict per symbol. Returns the gated review."""
+        from src.exits.same_rules_gate import HoldingViews, bought_today_from_db, gate_review_actions
+
+        if review is None:
+            return review
+        try:
+            from src.agents.portfolio_manager import PortfolioManagerAgent
+
+            verdicts = PortfolioManagerAgent._collect_seat_verdicts(
+                analyses=[],
+                news_intel=news_intel,
+                macro_analysis=macro_analysis,
+                earnings_analyses=list(earnings_analyses or []),
+                smart_money_findings=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("same-rules gate: reviewer seat views unavailable (%s) — no judgement sale", exc)
+            verdicts = []
+        views = {}
+        for p in positions or []:
+            sym = (p.symbol or "").strip().upper()
+            if not sym:
+                continue
+            views[sym] = HoldingViews(
+                symbol=sym,
+                is_short=bool(p.qty < 0),
+                seat_verdicts=tuple(verdicts),
+                eligibility_reasons=None,
+                failed_seats=() if news_ok else ("news",),
+                bought_today=bought_today_from_db(self._db, sym),
+            )
+        gated, outcomes = gate_review_actions(review, views)
+        for v in outcomes:
+            logger.warning("Same-rules gate (reviewer): %s %s — %s", v.symbol, v.basis, v.detail)
+            try:
+                self._db.record_intraday_evaluation(
+                    symbol=v.symbol,
+                    run_id=run_id,
+                    status=f"same_rules_gate_{v.basis}",
+                    detail=v.detail[:500],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("same-rules gate: audit row for %s not written (%s)", v.symbol, exc)
+        return gated
+
     def run(self, session_type: str) -> dict:
         """Unified entry for both midday (13:00 ET) and close (15:30 ET).
 
@@ -739,25 +796,27 @@ class PositionReviewSession:
             # should not depend on one remembering to propose a move.
             orders.extend(self._apply_deterministic_trails(review_positions, run_id=run_id))
 
-            # Phase 3.4 — AGENTS.md puts AI Risk in the chain for exits
-            # as well as entries. Until this landed the entire sell side
-            # skipped the veto layer the buy side has always had.
-            risk_vetoed, _exit_verdict = self._risk_review_exits(
+            # SAME RULES AS BUYING — owner ruling 2026-10-13. The reviewer
+            # only PROPOSES a sale; `src/exits/same_rules_gate.py` decides
+            # it. A proposed SELL/COVER (including a "stalled pace" one)
+            # survives only when the holding FAILS the entry bar a buy would
+            # have to pass, judged on the views this session holds. This
+            # session carries no technical read, so only a failure no
+            # missing view could undo (a name-level seat actively opposed,
+            # e.g. a bearish news seat) can sell here; anything else waits
+            # for a run that can evaluate the full bar, and the stop stays.
+            # The AI Risk seat's exit role is DELETED (advisory since
+            # 2026-10-09: it could neither approve nor block a sale).
+            review = self._gate_reviewer_sales(
                 review,
                 review_positions,
                 run_id=run_id,
-                total_value=total_value,
-                macro_summary=macro_summary,
-                position_facts=position_facts,
-                # This loop fetched all of these before the position
-                # reviewer ran; until 2026-09-13 none of them reached the
-                # AI Risk seat, which was then asked to audit the exits
-                # against news and drawdown state it had never been shown.
                 news_intel=session_news,
+                news_ok=bool(
+                    session_news is not None and (session_news_coverage is None or session_news_coverage.status == "ok")
+                ),
+                macro_analysis=macro_analysis_dict,
                 earnings_analyses=session_earnings,
-                cash=review_cash,
-                reserve_balance=reserve_balance,
-                recent_performance=recent_performance,
             )
             orders.extend(
                 self._midday_execute_llm_actions(
@@ -766,7 +825,7 @@ class PositionReviewSession:
                     run_id,
                     already_trimmed_today=already_trimmed_today,
                     metric_deltas=metric_deltas,
-                    risk_vetoed_symbols=risk_vetoed,
+                    risk_vetoed_symbols=set(),
                     position_facts=position_facts,
                 )
             )

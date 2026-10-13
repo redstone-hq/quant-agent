@@ -246,6 +246,51 @@ def _record_rotation_precheck(pipeline, ctx) -> None:
         logger.warning("Rotation pre-check record failed: %s", exc)
 
 
+def _same_rules_opportunity(pipeline, ctx, surfaced, positions):
+    """The half-hour check's cull set under the 2026-10-13 same-rules ruling.
+
+    The ranked-margin tier is returned unchanged (it is OFF by config, and a
+    still-eligible name it proposed would be refused by the same gate in
+    `RiskStage`). Otherwise every held LONG is judged by
+    `src.exits.same_rules_gate.judge_holding`; those that fail the full entry
+    bar form the categorical cull set, worst-first (most failing rules, then
+    alphabetical). A holding whose bar cannot be evaluated, or bought today,
+    is never in it. Returns `None` when nothing fails.
+
+    ONE SALE PER CHECK STAYS: the walk below closes the first sellable name
+    and `ctx.rotation` is a single slot that `ExecutionStage` and
+    `_rotation_sell_gate` read for exactly one held symbol. Any other failing
+    holding is sold at the next half-hour check, and a PM SELL of it this
+    run passes the same gate with no per-run limit.
+    """
+    from src.exits.same_rules_gate import judge_holding, views_from_pipeline
+    from src.rotation_parts.types import RotationOpportunity
+
+    if surfaced is not None and surfaced.tier == "ranked_margin":
+        return surfaced
+    cull = []
+    for p in positions or []:
+        sym = (p.symbol or "").strip().upper()
+        if not sym or p.qty <= 0:
+            continue
+        verdict = judge_holding(views_from_pipeline(pipeline, ctx, sym, is_short=False))
+        logger.info("Same-rules gate (half-hour check): %s %s — %s", sym, verdict.basis, verdict.detail)
+        if verdict.sell_allowed:
+            cull.append((sym, tuple(verdict.reasons)))
+    if not cull:
+        return None
+    cull.sort(key=lambda c: (-len(c[1]), c[0]))
+    return RotationOpportunity(
+        new_symbol=getattr(surfaced, "new_symbol", None),
+        new_score=getattr(surfaced, "new_score", None),
+        held_symbol=cull[0][0],
+        held_score=None,
+        tier="ineligible_hold",
+        reasons=cull[0][1],
+        ineligible_candidates=tuple(cull),
+    )
+
+
 def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, position_history: dict | None) -> None:
     """Phase 14b — turn the CATEGORICAL rotation comparison into an ordinary
     zero-size PM target, when the desk's own data says it is safe to.
@@ -314,9 +359,15 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
         "last_rotation_precheck",
         None,
     )
-    if not isinstance(precheck, RotationPrecheck) or precheck.opportunity is None:
-        return  # nothing was surfaced this session — nothing to act on
-    opportunity = precheck.opportunity
+    if not isinstance(precheck, RotationPrecheck):
+        return  # no precheck this session — nothing to act on
+    # OWNER RULING 2026-10-13, "same rules as buying". The categorical cull
+    # set is no longer the 25 Sep opposition-only STAY subset the PM's
+    # ranking surfaced: it is every held long that FAILS the full entry bar
+    # under the one same-rules gate, with missing evidence never selling.
+    opportunity = _same_rules_opportunity(pipeline, ctx, precheck.opportunity, positions)
+    if opportunity is None:
+        return  # no holding fails the entry bar this run — nothing to act on
     held_symbol = opportunity.held_symbol.strip().upper()
     # OWNER RULING 2026-10-01. The categorical tier surfaces a below-bar
     # holding with NO replacement candidate, so `new_symbol` is None on

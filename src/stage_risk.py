@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.stage_risk_discipline import reject_false_claim
 from src.stage_risk_helpers import (  # noqa: F401  re-exported: callers import these from here
     ANALYSIS_DROP_KIND,
     UNIDENTIFIED_DROP_KEY,
@@ -877,93 +876,26 @@ class RiskStage:
                 )
                 return {"status": "rejected", "orders": [], "reason": reasons}
 
-        # Holding-discipline compliance — spec item 25 (2026-09-03, data-
-        # driven replacement 2026-09-03/04). RM's own checklist
-        # (config/prompts/risk_manager.md, "Holding-discipline compliance")
-        # asks it to itself verify that a SELL/REDUCE/COVER on a PROTECTED
-        # position names a real trigger; nothing in Python checked that the
-        # trigger claimed is real. `holding_discipline_claim_check` is
-        # deliberately narrow — it can only ever catch a PROVABLY FALSE claim
-        # about (b) a regime flip or (c) a same-day HIGH-conviction bearish
-        # state_change, never (a) thesis_invalid_if, which it does not (and
-        # cannot reliably) check — see that function's module docstring.
-        #
-        # 2026-09-04, owner-approved escalation: a PROVEN-FALSE claim now
-        # DROPS the decision, using the exact same mechanism as a Risk
-        # Manager per-symbol refusal directly above (build `surviving`,
-        # record a "rejected" pipeline event per dropped symbol, and if
-        # nothing survives return the same terminal rejected status) — not a
-        # new veto path. An UNVERIFIABLE claim keeps the old behaviour
-        # exactly: logged and recorded, never dropped, never alerted. That
-        # split is the owner's explicit instruction; `check.blocks` is the
-        # single place it is decided.
-        #
-        # "Protected" no longer means "held under 5 days" (that flat window
-        # had no backtest behind it and the owner rejected it as arbitrary).
-        # It is now `check_structural_protection`'s data-driven answer —
-        # intact unless the trade's `thesis_invalid_if` or the structural
-        # level backing its stop has broken on the CLOSE of two consecutive
-        # trading days (`_structural_protection_for_holding` recomputes
-        # ATR/MAs/levels fresh from bars, does the cross-day confirmation
-        # lookup, and persists today's read for the next trading day to
-        # confirm against — all in one call), with a noise-band fallback —
-        # not an automatic unprotect — when neither a stated condition nor
-        # a qualifying level exists.
+        # SAME RULES AS BUYING — owner ruling 2026-10-13 ("selling is not set
+        # up the same as buying and it should be. Same rules should apply").
+        # Every PM SELL/REDUCE/COVER — morning and intraday, and the half-hour
+        # check's rotation close, which reaches this list as a zero-size
+        # target — is decided by ONE gate (`src/exits/same_rules_gate.py`): a
+        # holding is sold by judgement only when it FAILS the entry bar a buy
+        # of it would have to pass now, judged on this run's seat views. If
+        # that bar cannot be evaluated the sale is dropped and the stop
+        # stays; a name bought today is never sold by judgement. This
+        # REPLACES the "provably false claim" check and the "my numbers
+        # improved" veto as deciders (ETN/FLNC/AMD 12-13 Oct were sold while
+        # protected, on reasons nothing measured against the bar).
+        # Structural protection is still read and logged as evidence.
         if portfolio_decision.decisions:
-            from src.exits.pm_claim_check import holding_discipline_claim_check
-            from src.risk.exit_guard import veto_contradicted_exit
+            from src.exits.same_rules_gate import is_judgement_sale, judge_holding, views_from_pipeline
 
             hd_surviving: list = []
             hd_blocked: list[tuple[str, str]] = []
-            macro_regime_today = _macro_regime(macro_analysis)
-            macro_status = data_status.get("macro") if data_status else None
-            try:
-                hd_active_state_changes = pipeline._build_active_state_changes()
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "RiskStage: holding-discipline state-change lookup failed "
-                    "(%s) — bearish-state-change claims go unverified this run",
-                    e,
-                )
-                hd_active_state_changes = ""
-            # Item 96 — bring the live exit gate `veto_contradicted_exit` onto
-            # the MORNING review path. Until this, that gate ran only on the
-            # midday/close reader (src/pipeline.py::run_position_review), so a
-            # morning SELL/REDUCE/COVER whose stated reason is a provably-false
-            # deterioration claim ("stalling", "not progressing") while the
-            # position's own recorded metrics net-IMPROVED since the previous
-            # review reached the broker unchecked. Same gate, same doctrine
-            # (Phase 3.2): it vetoes ONLY a deterioration claim contradicted
-            # by the numbers; a SELL on news/earnings/regime/invalidation, or
-            # a genuinely-deteriorating position, is never touched, and with no
-            # prior snapshot there is no comparison and no veto. The per-symbol
-            # `MetricDeltas` are built here from the SAME two pipeline methods
-            # the reader uses; morning_trades is [] (a cache only — the empty
-            # list forces the DB fallback that runs anyway, no behaviour
-            # change). Fail OPEN: if the delta build raises we let exits
-            # through (the owner's hard rule is never to block a real
-            # protective exit), matching the reader's fail-open exit posture.
-            metric_deltas: dict = {}
-            try:
-                position_facts = pipeline._build_position_facts(
-                    rm_positions,
-                    [],
-                    total_value,
-                )
-                metric_deltas = pipeline._build_review_metric_deltas(
-                    position_facts,
-                    run_id=run_id,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "RiskStage: metric-delta build for the exit-contradiction "
-                    "gate failed (%s) — morning exits pass this gate unchecked "
-                    "this run (fail open, never block a real exit)",
-                    e,
-                )
-                metric_deltas = {}
             for decision in portfolio_decision.decisions:
-                if decision.action not in ("SELL", "REDUCE", "COVER"):
+                if not is_judgement_sale(decision.action):
                     hd_surviving.append(decision)
                     continue
                 symbol_u = decision.symbol.strip().upper()
@@ -972,120 +904,52 @@ class RiskStage:
                     (p for p in rm_positions if p.symbol.upper() == symbol_u),
                     None,
                 )
-                protection = pipeline._structural_protection_for_holding(
-                    symbol=symbol_u,
-                    thesis_invalid_if=hist.get("thesis_invalid_if"),
-                    entry_price=hist.get("entry_price"),
-                    stop_loss=hist.get("stop_loss"),
-                    is_short=bool(pos and pos.qty < 0),
-                    run_id=run_id,
-                )
-                logger.info(
-                    "Holding-discipline structural protection for %s: protected=%s basis=%s — %s",
-                    symbol_u,
-                    protection.protected,
-                    protection.basis,
-                    protection.detail,
-                )
-                check = holding_discipline_claim_check(
-                    action=decision.action,
-                    reason=decision.reasoning,
-                    symbol=decision.symbol,
-                    protected=protection.protected,
-                    macro_regime_today=macro_regime_today,
-                    macro_status=macro_status,
-                    active_state_changes=hd_active_state_changes,
-                )
-                if check.blocks:
-                    # PROVEN FALSE. Drop the decision exactly the way a
-                    # per-symbol RM refusal above does: same "rejected"
-                    # pipeline event, same surviving-list mechanism.
-                    logger.warning(
-                        "Holding discipline BLOCK (claim proven false): %s",
-                        check.finding,
+                is_short = bool(pos and pos.qty < 0) or decision.action == "COVER"
+                try:
+                    protection = pipeline._structural_protection_for_holding(
+                        symbol=symbol_u,
+                        thesis_invalid_if=hist.get("thesis_invalid_if"),
+                        entry_price=hist.get("entry_price"),
+                        stop_loss=hist.get("stop_loss"),
+                        is_short=is_short,
+                        run_id=run_id,
                     )
-                    reject_false_claim(pipeline, ctx, decision, symbol_u, check)
-                    hd_blocked.append((symbol_u, check.finding or ""))
+                    logger.info(
+                        "Structural protection for %s (evidence only): protected=%s basis=%s — %s",
+                        symbol_u,
+                        protection.protected,
+                        protection.basis,
+                        protection.detail,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Structural protection read failed for %s (evidence only): %s", symbol_u, e)
+                verdict = judge_holding(views_from_pipeline(pipeline, ctx, symbol_u, is_short=is_short))
+                _record_pipeline_event(
+                    pipeline,
+                    ctx,
+                    decision.symbol,
+                    "risk",
+                    f"same_rules_gate_{verdict.basis}",
+                    f"{decision.action} {symbol_u}: {verdict.detail}",
+                )
+                if verdict.sell_allowed:
+                    hd_surviving.append(decision)
                     continue
-                if check.verdict == "unverifiable":
-                    # Unchanged from before the 2026-09-04 escalation:
-                    # recorded for the audit trail, and that is all. No
-                    # drop, no alert — absence of proof is not proof.
-                    logger.warning("Holding discipline: %s", check.finding)
-                    _record_pipeline_event(
-                        pipeline,
-                        ctx,
-                        decision.symbol,
-                        "risk",
-                        "holding_discipline_claim_unverified",
-                        check.finding,
-                    )
-                # Item 96 — deterioration-claim-vs-own-numbers veto, morning
-                # path. `veto_contradicted_exit` returns None unless the reason
-                # IS a deterioration claim AND the position net-improved since
-                # the previous review AND a prior snapshot exists; everything
-                # else (news/earnings/regime/invalidation exits, genuinely
-                # deteriorating positions, no prior snapshot) passes untouched.
-                # On a veto, drop the leg through the EXACT hd_blocked machinery
-                # the holding-discipline block above uses (append to hd_blocked,
-                # record a "rejected" pipeline event, and — via the shared tail
-                # below — swap in hd_surviving and terminally reject if nothing
-                # is left), plus the same durable exit-refusal row the
-                # midday/close reader writes for this code.
-                deltas = metric_deltas.get(symbol_u)
-                if deltas is not None:
-                    veto = veto_contradicted_exit(
-                        decision.action,
-                        decision.reasoning,
-                        deltas,
-                    )
-                    if veto:
-                        logger.warning("Exit guard (morning): %s", veto)
-                        _record_pipeline_event(
-                            pipeline,
-                            ctx,
-                            decision.symbol,
-                            "risk",
-                            "rejected",
-                            veto,
-                        )
-                        _record_pipeline_event(
-                            pipeline,
-                            ctx,
-                            decision.symbol,
-                            "risk",
-                            "exit_vetoed_contradicts_own_metrics",
-                            veto,
-                        )
-                        from src.risk.exit_refusal import (
-                            CODE_CONTRADICTS_METRICS,
-                        )
-
-                        pipeline._record_exit_refusal(
-                            symbol=symbol_u,
-                            run_id=run_id,
-                            action=decision.action,
-                            code=CODE_CONTRADICTS_METRICS,
-                            dropped=True,
-                            detail=veto[:400],
-                            layer="metric_contradiction",
-                        )
-                        hd_blocked.append((symbol_u, veto))
-                        continue
-                hd_surviving.append(decision)
+                logger.warning(
+                    "Same-rules gate REFUSED %s %s — %s (proposal: %s)",
+                    decision.action,
+                    symbol_u,
+                    verdict.detail,
+                    (decision.reasoning or "")[:200],
+                )
+                _record_pipeline_event(pipeline, ctx, decision.symbol, "risk", "rejected", verdict.detail)
+                hd_blocked.append((symbol_u, verdict.detail))
 
             if hd_blocked:
                 portfolio_decision.decisions = hd_surviving
                 if not hd_surviving:
-                    # Every remaining leg was blocked on a provably false
-                    # justification. Same terminal status as the per-symbol
-                    # refusal path above, and for the same reason: no orders,
-                    # with each symbol carrying its OWN reason.
-                    reasons = "; ".join(finding for _sym, finding in hd_blocked)
-                    logger.info(
-                        "Every remaining trade was blocked on a provably false holding-discipline claim: %s",
-                        reasons,
-                    )
+                    reasons = "; ".join(f"{sym}: {why}" for sym, why in hd_blocked)
+                    logger.info("Every remaining trade was refused by the same-rules gate: %s", reasons)
                     return {
                         "status": "rejected",
                         "orders": [],

@@ -142,6 +142,16 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
    a price fact, not a reading of an event, and protection is never
    blocked.
 
+   **Your SELL/COVER is a PROPOSAL (owner ruling 2026-10-13: "same rules
+   should apply").** A deterministic gate decides it: the holding is sold
+   only when it FAILS the entry bar a buy of it would have to pass now
+   (technical confirming, no name-level seat opposed — a bearish news seat
+   refuses a buy — a supported non-technical thesis, the R2-R6 entry
+   rules). A holding that still passes is kept, whatever the headline; a
+   holding whose bar cannot be evaluated keeps its stop; a name bought
+   today is never sold by judgement. Say which part of the bar you
+   believe fails.
+
    Soft signals (`TARGET_BREACH`, slowing pace, geopolitical noise,
    valuation stretch, concentration drift) are NOT hard triggers. They
    are exactly the recurring flags whose mechanical re-application
@@ -276,8 +286,9 @@ Every position has deterministic numbers:
   pinned at entry** and is never recomputed, and `sessions_held` is the
   weekend-aware TRADING SESSION count (not `days_held`, which includes
   weekends and would make a position look slower than it is). >2 = fast
-  mover (be patient). <0.5 = stalled (a SELL needs a named
-  thesis trigger; going nowhere alone is not one).
+  mover (be patient). <0.5 = stalled. Stalling is information, never a sale
+  on its own: under the 2026-10-13 same-rules ruling a stalled holding that
+  still passes the entry bar is kept.
 
   **Pace is measured from the FIRST review whenever a horizon was pinned —
   there is no elapsed-time floor** (owner ruling 2026-09-25: the old

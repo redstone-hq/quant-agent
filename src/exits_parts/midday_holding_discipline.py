@@ -9,12 +9,13 @@ pipeline instance (`loop.owner`) so every line reads as before. The
 position-history map is built at most once per pass, so it comes back to
 the caller on every return (a refused symbol included) and is handed to the
 next symbol, exactly as the loop-local variable was. Sell-side code:
-behaviour is identical.
+since 2026-10-13 the check is EVIDENCE ONLY: the same-rules gate
+(`src/exits/same_rules_gate.py`) decides every judgement sale.
 """
 
 import logging
 
-from src.exits_parts.midday_state import SKIP, MiddayLoop
+from src.exits_parts.midday_state import MiddayLoop
 from src.sentinel.guarded_exit import record_exit_guard
 
 #: The moved code logged under `src.pipeline` before the move and still does.
@@ -29,7 +30,7 @@ def midday_holding_discipline(
     reason_text,
     hd_position_history: dict | None,
 ):
-    """Fact-check one exit's named trigger; `(SKIP, history)` drops it."""
+    """Fact-check one exit's named trigger — evidence only since 2026-10-13; never drops it."""
     self = loop.owner
     positions = loop.positions
     run_id = loop.run_id
@@ -99,7 +100,8 @@ def midday_holding_discipline(
             hd_check = None
         if hd_check is not None and hd_check.blocks:
             logger.warning(
-                "Position reviewer: blocking %s %s — holding-discipline claim PROVEN FALSE. %s",
+                "Position reviewer: %s %s states a holding-discipline claim PROVEN FALSE "
+                "(evidence only; the same-rules gate decided the sale). %s",
                 act,
                 symbol,
                 hd_check.finding,
@@ -108,7 +110,7 @@ def midday_holding_discipline(
                 self.db.record_intraday_evaluation(
                     symbol=symbol,
                     run_id=run_id,
-                    status="exit_blocked_holding_discipline_claim_false",
+                    status="holding_discipline_claim_false_evidence_only",
                     detail=(hd_check.finding or "")[:500],
                 )
                 record_exit_guard(self, "holding_discipline.audit_write_blocked")
@@ -121,18 +123,10 @@ def midday_holding_discipline(
                     symbol=symbol,
                     effect="audit row not written",
                 )
-            from src.risk.exit_refusal import CODE_HOLDING_DISCIPLINE_FALSE
-
-            self._record_exit_refusal(
-                symbol=symbol,
-                run_id=run_id,
-                action=act,
-                code=CODE_HOLDING_DISCIPLINE_FALSE,
-                dropped=True,
-                detail=(hd_check.finding or "")[:400],
-                layer="holding_discipline",
-            )
-            return SKIP, hd_position_history
+            # EVIDENCE ONLY since the 2026-10-13 same-rules ruling: the
+            # sale already passed `src/exits/same_rules_gate.py` (the holding
+            # fails the entry bar), so a false claim in the model's prose no
+            # longer decides it. The row above keeps the finding.
         if hd_check is not None and hd_check.verdict == "unverifiable":
             # Audit trail only. NOT a block — see above.
             logger.warning("Holding discipline: %s", hd_check.finding)

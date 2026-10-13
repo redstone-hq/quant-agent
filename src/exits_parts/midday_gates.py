@@ -1,7 +1,9 @@
 """Pre-gates of the midday exit loop, lifted verbatim out of
 `ExitEngineMixin._midday_execute_llm_actions` (src/pipeline_exits.py).
 
-The metric-contradiction veto (Phase 3.2) and the AI Risk veto (Phase 3.4).
+The metric-contradiction read (Phase 3.2) — evidence only since 2026-10-13;
+the same-rules gate (`src/exits/same_rules_gate.py`) decides every
+judgement sale before this runs, and the AI Risk exit veto is deleted.
 The body is unchanged apart from `continue` -> `return SKIP`; `self` is bound
 to the pipeline instance (`loop.owner`) so every line reads as before.
 Sell-side code: behaviour is identical.
@@ -9,7 +11,7 @@ Sell-side code: behaviour is identical.
 
 import logging
 
-from src.exits_parts.midday_state import SKIP, MiddayLoop
+from src.exits_parts.midday_state import MiddayLoop
 from src.sentinel.guarded_exit import record_exit_guard
 
 #: The moved code logged under `src.pipeline` before the move and still does.
@@ -17,7 +19,7 @@ logger = logging.getLogger("src.pipeline")
 
 
 def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
-    """Veto one symbol's exit before the noise band; `SKIP` drops it."""
+    """Record exit evidence before the noise band; never drops an exit."""
     self = loop.owner
     run_id = loop.run_id
     metric_deltas = loop.metric_deltas
@@ -58,7 +60,7 @@ def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
                     self.db.record_intraday_evaluation(
                         symbol=symbol,
                         run_id=run_id,
-                        status="exit_vetoed_contradicts_own_metrics",
+                        status="exit_metrics_improved_evidence_only",
                         detail=veto[:500],
                     )
                     record_exit_guard(self, "exit_guard.metric_audit_write")
@@ -71,41 +73,14 @@ def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
                         symbol=symbol,
                         effect="audit row not written",
                     )
-                from src.risk.exit_refusal import CODE_CONTRADICTS_METRICS
+                # EVIDENCE ONLY since the 2026-10-13 same-rules ruling: a
+                # sale has already passed `src/exits/same_rules_gate.py`
+                # (the holding fails the entry bar), so "my numbers
+                # improved" is no longer a second, hold-side standard that
+                # can veto it. The row above keeps the measurement.
 
-                self._record_exit_refusal(
-                    symbol=symbol,
-                    run_id=run_id,
-                    action=act,
-                    code=CODE_CONTRADICTS_METRICS,
-                    dropped=True,
-                    detail=veto[:400],
-                    layer="metric_contradiction",
-                )
-                return SKIP
-
-    # Phase 3.3 — EVERY exit must name a trigger, not just the second
-    # one on a symbol in a day.
-    #
-    # The gate below used to be conditioned on `symbol in
-    # already_trimmed`, so a position's FIRST sale of the day executed
-    # on soft reasoning entirely unchecked — and a first sale is almost
-    # every sale. Both of the exits the evening review graded
-    # "premature" on 2026-08-26 (EPD, MRVL) were first sales and sailed
-    # straight through.
-    #
-    # Failing closed here means HOLDING, and every position carries a
-    # broker-resident stop (AGENTS.md invariant 3), so the downside of
-    # a wrongly-blocked exit is bounded by that stop. The downside of a
-    # wrongly-allowed one is the pattern that emptied the book.
-    # Phase 3.4 — the AI Risk Manager reviewed these exits and
-    # rejected this one. Its authority over exits mirrors the veto it
-    # has always had over entries.
-    if act in ("SELL", "REDUCE", "COVER") and symbol in (risk_vetoed_symbols or set()):
-        logger.warning(
-            "Position reviewer: skipping %s %s — vetoed by AI Risk",
-            act,
-            symbol,
-        )
-        return SKIP
+    # The AI Risk seat's exit veto is DELETED (owner ruling 2026-10-13;
+    # advisory since 2026-10-09). `risk_vetoed_symbols` is kept on the loop
+    # for callers that still pass it and is no longer read.
+    _ = risk_vetoed_symbols
     return None
