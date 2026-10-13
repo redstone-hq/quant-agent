@@ -88,6 +88,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from src.trading_calendar import utc_now
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -748,7 +749,7 @@ class PromptEditor:
         payload = {
             "period": reflection.period,
             "mode": "dry_run",
-            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "generated_at": utc_now().isoformat(),
             "proposed_count": len(proposals),
             "proposals": proposals,
             # audit round 2 (#20): a bare `--mode meta --force` re-run
@@ -809,7 +810,7 @@ class PromptEditor:
     def _audit_log(self, report: ApplicationReport) -> None:
         log_path = self.evolution_dir / "edits.jsonl"
         rows: list[dict] = []
-        ts = datetime.now(tz=timezone.utc).isoformat()
+        ts = utc_now().isoformat()
         for e in report.applied:
             rows.append({"ts": ts, "period": report.period, "kind": "applied", **e.__dict__})
         for r in report.rejected:

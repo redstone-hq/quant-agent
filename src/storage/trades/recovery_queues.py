@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 
+from src.trading_calendar import sql_utc_stamp_ago
+
 logger = logging.getLogger(__name__)
 
 
@@ -272,8 +274,8 @@ def prune_pending_repegs(ledger, keep_days: int = 30) -> int:
         raise ValueError(f"prune_pending_repegs: keep_days must be > 0, got {keep_days}")
     with ledger._lock:
         stale = ledger.conn.execute(
-            "SELECT id, symbol, old_order_id, created_at FROM pending_repegs WHERE created_at < datetime('now', ?)",
-            (f"-{keep_days} days",),
+            "SELECT id, symbol, old_order_id, created_at FROM pending_repegs WHERE created_at < ?",
+            (sql_utc_stamp_ago(days=keep_days),),
         ).fetchall()
         if not stale:
             return 0
@@ -287,8 +289,8 @@ def prune_pending_repegs(ledger, keep_days: int = 30) -> int:
                 keep_days,
             )
         cursor = ledger.conn.execute(
-            "DELETE FROM pending_repegs WHERE created_at < datetime('now', ?)",
-            (f"-{keep_days} days",),
+            "DELETE FROM pending_repegs WHERE created_at < ?",
+            (sql_utc_stamp_ago(days=keep_days),),
         )
         ledger.conn.commit()
         return cursor.rowcount or 0
@@ -309,16 +311,14 @@ def prune_pending_protection_restores(ledger, keep_days: int = 30) -> int:
     manual review remains possible. Returns count deleted.
     """
     if keep_days <= 0:
-        # `datetime('now', '-0 days')` == 'now' → deletes EVERYTHING.
+        # a zero-day cutoff == now → deletes EVERYTHING.
         # Caller almost certainly passed a typo / config bug. Refuse
         # rather than silently wipe a recovery queue.
         raise ValueError(f"prune_pending_protection_restores: keep_days must be > 0, got {keep_days}")
     with ledger._lock:
         stale = ledger.conn.execute(
-            "SELECT id, symbol, sell_order_id, created_at "
-            "FROM pending_protection_restores "
-            "WHERE created_at < datetime('now', ?)",
-            (f"-{keep_days} days",),
+            "SELECT id, symbol, sell_order_id, created_at FROM pending_protection_restores WHERE created_at < ?",
+            (sql_utc_stamp_ago(days=keep_days),),
         ).fetchall()
         if not stale:
             return 0
@@ -332,8 +332,8 @@ def prune_pending_protection_restores(ledger, keep_days: int = 30) -> int:
                 keep_days,
             )
         cursor = ledger.conn.execute(
-            "DELETE FROM pending_protection_restores WHERE created_at < datetime('now', ?)",
-            (f"-{keep_days} days",),
+            "DELETE FROM pending_protection_restores WHERE created_at < ?",
+            (sql_utc_stamp_ago(days=keep_days),),
         )
         ledger.conn.commit()
         return cursor.rowcount or 0

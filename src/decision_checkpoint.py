@@ -57,6 +57,7 @@ Safety contract (from the adversarial design review):
 import json
 import logging
 from datetime import datetime, timezone
+from src.trading_calendar import utc_now
 from pathlib import Path
 from src.sentinel.counted import record_swallowed, record_swallowed_here
 
@@ -87,7 +88,7 @@ def write(ctx) -> Path | None:
             "version": CHECKPOINT_VERSION,
             "session": ctx.session,
             "run_id": ctx.run_id,
-            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "created_at_utc": utc_now().isoformat(),
             "consumed": False,
             "portfolio_decision": pd.model_dump(mode="json"),
             "analyses": [a.model_dump(mode="json") for a in (ctx.analyses or [])],
@@ -133,7 +134,7 @@ def load(session: str, max_age_minutes: float = MAX_AGE_MINUTES) -> dict | None:
         if payload.get("consumed") is not False:
             return None
         created = datetime.fromisoformat(payload["created_at_utc"])
-        age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60.0
+        age_min = (utc_now() - created).total_seconds() / 60.0
         if not (0 <= age_min <= max_age_minutes):
             logger.info(
                 "decision checkpoint %s ignored: age %.0f min exceeds %.0f",
@@ -197,7 +198,7 @@ def mark_consumed(session: str) -> bool:
         if payload.get("consumed") is True:
             return True
         payload["consumed"] = True
-        payload["consumed_at_utc"] = datetime.now(timezone.utc).isoformat()
+        payload["consumed_at_utc"] = utc_now().isoformat()
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload))
         tmp.replace(path)
@@ -227,7 +228,7 @@ def write_status(session: str, status: str) -> None:
             json.dumps(
                 {
                     "status": status,
-                    "at_utc": datetime.now(timezone.utc).isoformat(),
+                    "at_utc": utc_now().isoformat(),
                 }
             )
         )

@@ -70,6 +70,7 @@ import json
 import logging
 import os
 import time
+from src.trading_calendar import utc_now
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -333,7 +334,7 @@ def _load_cache() -> bool:
         return False
     n = _apply_litellm_data(data)
     if n:
-        age_h = (time.time() - _CACHE_PATH.stat().st_mtime) / 3600
+        age_h = (utc_now().timestamp() - _CACHE_PATH.stat().st_mtime) / 3600
         logger.info(
             "Loaded pricing from cache (%d models, cache age %.1fh)",
             n,
@@ -345,7 +346,7 @@ def _load_cache() -> bool:
 def _cache_is_fresh() -> bool:
     if not _CACHE_PATH.exists():
         return False
-    age = time.time() - _CACHE_PATH.stat().st_mtime
+    age = utc_now().timestamp() - _CACHE_PATH.stat().st_mtime
     return age < _CACHE_MAX_AGE_SECONDS
 
 
@@ -513,7 +514,7 @@ def _fetch_openrouter_pricing() -> dict[str, dict[str, float]] | None:
 def _openrouter_cache_is_fresh() -> bool:
     if not _OPENROUTER_CACHE_PATH.exists():
         return False
-    age = time.time() - _OPENROUTER_CACHE_PATH.stat().st_mtime
+    age = utc_now().timestamp() - _OPENROUTER_CACHE_PATH.stat().st_mtime
     return age < _CACHE_MAX_AGE_SECONDS
 
 
@@ -526,7 +527,7 @@ def _openrouter_cache_age_hours() -> float | None:
     successful background refresh that landed since the session started."""
     if not _OPENROUTER_CACHE_PATH.exists():
         return None
-    return (time.time() - _OPENROUTER_CACHE_PATH.stat().st_mtime) / 3600.0
+    return (utc_now().timestamp() - _OPENROUTER_CACHE_PATH.stat().st_mtime) / 3600.0
 
 
 #: Hours a written OpenRouter cache counts as current. Past this the circuit

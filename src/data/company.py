@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from src.trading_calendar import utc_now
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import asdict, dataclass
@@ -133,7 +134,7 @@ class CompanyProfileStore:
 
     def _fresh(self, entry: dict) -> bool:
         try:
-            age_days = (time.time() - float(entry.get("_fetched_at", 0))) / 86400
+            age_days = (utc_now().timestamp() - float(entry.get("_fetched_at", 0))) / 86400
         except (TypeError, ValueError):
             return False
         return age_days < _CACHE_TTL_DAYS
@@ -147,7 +148,7 @@ class CompanyProfileStore:
             return CompanyProfile(symbol=symbol)
         profile = self._fetch(symbol)
         payload = profile.as_dict()
-        payload["_fetched_at"] = time.time()
+        payload["_fetched_at"] = utc_now().timestamp()
         self._cache[symbol] = payload
         self._save()
         return profile

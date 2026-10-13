@@ -59,6 +59,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from src.trading_calendar import utc_now
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 from src.time_format import fmt_time_12h
@@ -253,7 +254,7 @@ def read_in_flight(fetch: Fetch = _http_get, repo: str = REPO, now: datetime | N
     status marked unreadable — a change that exists must not vanish because
     one follow-up call failed.
     """
-    read_at = now or datetime.now(timezone.utc)
+    read_at = now or utc_now()
     try:
         raw = _get_json(f"{API}/repos/{repo}/pulls?state=open&per_page=100", fetch)
     except RuntimeError as exc:
@@ -390,7 +391,7 @@ def render_in_flight(inf: InFlight, now: datetime | None = None, last_good: InFl
     an old list with its time on it beats no list, and it beats an empty
     one that reads as "nothing in flight".
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or utc_now()
     parts: list[str] = [START_MARK]
     if not inf.readable:
         parts.append(

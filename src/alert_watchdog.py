@@ -73,6 +73,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from src.trading_calendar import utc_now
 from pathlib import Path
 from typing import Any
 from src.data_paths import db_path
@@ -242,7 +243,7 @@ def record_check(
     path = _resolve_db_path(db_path)
     if path is None:
         return False
-    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    moment = (now or utc_now()).astimezone(timezone.utc)
     try:
         conn = _connect_rw(path)
     except Exception as exc:  # noqa: BLE001
@@ -285,7 +286,7 @@ def read_health(
     path = _resolve_db_path(db_path)
     if path is None:
         return AlertChannelHealth("unknown", error="no database path configured")
-    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    moment = (now or utc_now()).astimezone(timezone.utc)
     try:
         conn = _connect_ro(path)
     except Exception as exc:  # noqa: BLE001
