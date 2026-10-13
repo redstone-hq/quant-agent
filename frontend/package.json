@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "QAMC Mission Control cockpit \u2014 React + Vite + Tailwind, built as a static bundle served by src/api/server.py's /cockpit mount. See docs/architecture/MISSION_CONTROL_API.md and this directory's README.md.",
+  "engines": {
+    "node": "24.18.1"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

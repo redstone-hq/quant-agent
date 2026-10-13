@@ -124,20 +124,113 @@ install_units() {
   done
 }
 
+# THE DASHBOARD NEVER BLOCKS OR HALF-APPLIES A TRADING DEPLOY.
+#
+# The dashboard bundle (src/api/static_cockpit/) is gitignored build output:
+# committing it let frontend source merge without a rebuilt bundle, and a
+# panel never appeared live. So every deploy builds it -- but in this order:
+#
+#   1. BUILD FIRST, off to the side: the target commit's frontend/ is
+#      exported (git archive) into COCKPIT_WORK and built there, before the
+#      live checkout is touched. The current bundle is copied aside too.
+#   2. Checkout, units and restart run exactly as they did before the build
+#      existed, whatever the build did.
+#   3. A good build is swapped in. A failed one (no network for npm ci, wrong
+#      node, a compile error) leaves the PREVIOUS bundle serving -- restored
+#      from the copy if the checkout removed it, as the first deploy after
+#      untracking does -- and the run ends with one loud line and exit
+#      status 3: trading code deployed, dashboard stale. The previous
+#      bundle's BUILT_FROM_COMMIT (or its absence) stays, so the served-
+#      commit check below reports it stale rather than current.
+COCKPIT_DIR="${DEPLOY_ROOT}/src/api/static_cockpit"
+COCKPIT_STAMP=BUILT_FROM_COMMIT
+# A sibling of the deploy root: same filesystem, so the swap is a rename,
+# and outside the checkout, so git never sees it. Wiped at each build; on a
+# failure it keeps build.log until the next deploy.
+COCKPIT_WORK="${DEPLOY_ROOT}-cockpit-build"
+DASHBOARD_PROBLEM=""
+
+qamc_sh() {
+  sudo -n -H -u qamc env ROOT="${DEPLOY_ROOT}" WORK="${COCKPIT_WORK}" \
+    LIVE="${COCKPIT_DIR}" STAMP="${COCKPIT_STAMP}" "$@" bash -euo pipefail -c "${QAMC_SCRIPT}"
+}
+
+# Step 1. Never exits the script: any failure only sets DASHBOARD_PROBLEM.
+build_cockpit() {
+  local target="$1"
+  echo "==> building the dashboard for ${target} off to the side (as qamc)"
+  QAMC_SCRIPT='
+    rm -rf "${WORK}"
+    mkdir -p "${WORK}/src"
+    fail() { echo "$1" > "${WORK}/reason"; exit 1; }
+    # Copy the bundle being served now aside, so a checkout that removes it
+    # can never leave the dashboard 404ing.
+    if [[ -d "${LIVE}" ]]; then cp -a "${LIVE}" "${WORK}/prev"; fi
+    git -C "${ROOT}" archive "${TARGET}" frontend | tar -x -C "${WORK}/src" \
+      || fail "could not export frontend/ at ${TARGET}"
+    cd "${WORK}/src/frontend"
+    need="$(tr -d "[:space:]" < .nvmrc)"; need="${need%%.*}"
+    have="$(node -v 2>/dev/null || echo none)"
+    [[ "${have}" == "v${need}."* ]] \
+      || fail "wrong node version (found ${have}, need ${need}.x)"
+    npm ci --no-audit --no-fund > "${WORK}/build.log" 2>&1 \
+      || fail "npm ci failed (log: ${WORK}/build.log)"
+    npm run build -- --outDir "${WORK}/out" --emptyOutDir >> "${WORK}/build.log" 2>&1 \
+      || fail "npm run build failed (log: ${WORK}/build.log)"
+    [[ -s "${WORK}/out/index.html" ]] || fail "the build wrote no index.html"
+    echo "${TARGET}" > "${WORK}/out/${STAMP}"
+  '
+  if ! qamc_sh TARGET="${target}"; then
+    DASHBOARD_PROBLEM="$(sudo -n cat "${COCKPIT_WORK}/reason" 2>/dev/null || echo "dashboard build failed")"
+    echo "==> dashboard build FAILED (${DASHBOARD_PROBLEM}); the trading deploy continues" >&2
+  fi
+}
+
+# Step 3. Swap a good build in, or make sure the previous bundle still
+# serves. Never exits the script.
+install_cockpit() {
+  if [[ -z "${DASHBOARD_PROBLEM}" ]]; then
+    QAMC_SCRIPT='
+      if [[ -d "${LIVE}" ]]; then mv "${LIVE}" "${WORK}/old"; fi
+      mv "${WORK}/out" "${LIVE}"
+      rm -rf "${WORK}"
+    '
+    if qamc_sh; then
+      echo "==> dashboard bundle swapped in"
+      return 0
+    fi
+    DASHBOARD_PROBLEM="the built bundle could not be swapped in"
+  fi
+  QAMC_SCRIPT='
+    if [[ ! -d "${LIVE}" && -d "${WORK}/prev" ]]; then cp -a "${WORK}/prev" "${LIVE}"; fi
+    [[ -d "${LIVE}" ]]
+  '
+  if qamc_sh; then
+    echo "==> previous dashboard bundle left in place"
+  else
+    echo "==> NO dashboard bundle could be kept: /cockpit/ will 404 until a build succeeds" >&2
+  fi
+}
+
 deploy() {
   echo "==> fetching origin/main into ${DEPLOY_ROOT}"
   sudo -n git -C "${DEPLOY_ROOT}" fetch origin main
+  local target
+  target="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse origin/main)"
+  # Before the live checkout is touched; never stops the deploy.
+  build_cockpit "${target}"
   # The production checkout runs on a DETACHED HEAD on purpose — it is pinned
   # to an exact commit, not tracking a branch. `git pull` there fails with a
   # confusing "you are not currently on a branch", which is its own small trap.
   echo "==> checking out origin/main (detached, as production always runs)"
   sudo -n git -C "${DEPLOY_ROOT}" checkout --detach origin/main
+  install_cockpit
   # Units first, so the restart below picks up an API unit change too.
   install_units
   echo "==> restarting ${API_UNIT}"
   qamc_systemctl restart "${API_UNIT}"
 
-  local deployed expected
+  local deployed expected built
   deployed="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
   expected="$(git ls-remote origin refs/heads/main | cut -f1)"
   if [[ "${deployed}" != "${expected}" ]]; then
@@ -145,11 +238,26 @@ deploy() {
     exit 1
   fi
   echo "==> deployed ${deployed}"
+  # Served-commit check: the dashboard is current only if its stamp names
+  # the commit the box now runs.
+  built="$(sudo -n cat "${COCKPIT_DIR}/${COCKPIT_STAMP}" 2>/dev/null || true)"
+  if [[ "${built}" != "${deployed}" && -z "${DASHBOARD_PROBLEM}" ]]; then
+    DASHBOARD_PROBLEM="served bundle is from '${built:-unknown}', not ${deployed}"
+  fi
+}
+
+# Exit status 3 = trading code deployed, dashboard stale. Called last.
+finish() {
+  if [[ -n "${DASHBOARD_PROBLEM}" ]]; then
+    echo "DASHBOARD NOT UPDATED: ${DASHBOARD_PROBLEM}; trading code deployed" >&2
+    exit 3
+  fi
+  exit 0
 }
 
 if [[ "${1:-}" == "--deploy-only" ]]; then
   deploy
-  exit 0
+  finish
 fi
 
 PR="${1:?usage: merge_and_deploy.sh <pr-number> | --deploy-only}"
@@ -205,3 +313,4 @@ if ! sudo -n git -C "${DEPLOY_ROOT}" merge-base --is-ancestor \
   exit 1
 fi
 echo "==> PR #${PR} merged AND deployed"
+finish

@@ -161,9 +161,62 @@ jobs:
   # `needs.shard.result` is the aggregate over the whole matrix: it is
   # 'success' only when every leg succeeded, and 'failure', 'cancelled' or
   # 'skipped' otherwise. Anything that is not 'success' fails this job.
+  # The dashboard bundle (src/api/static_cockpit/) is build output, not
+  # committed; the deploy builds it. This job proves the build and the
+  # frontend tests pass, then runs the bundle checks in test_api_safety.py
+  # against the fresh build. QAMC_REQUIRE_COCKPIT_BUILD=1 turns their "not
+  # built" skip into a failure, so they can never skip silently here.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up node (pinned in frontend/.nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install (lockfile-exact)
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Build into src/api/static_cockpit
+        working-directory: frontend
+        run: npm run build
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test
+      - name: Set up Python (pinned in .python-version)
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+          cache: pip
+      - name: Cache virtualenv
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+      - name: Install package + test deps
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+      - name: Bundle checks against the fresh build
+        env:
+          QAMC_REQUIRE_COCKPIT_BUILD: "1"
+        run: |
+          .venv/bin/python -m pytest -q -n 0 \
+            tests/test_api_safety.py::test_cockpit_static_mount_serves_the_built_index \
+            tests/test_api_safety.py::test_cockpit_homepage_links_to_desk_diary \
+            tests/test_api_safety.py::test_cockpit_index_html_only_references_built_assets
+
   pytest:
     name: pytest
-    needs: shard
+    needs: [shard, frontend]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -193,6 +246,17 @@ jobs:
             exit 1
           fi
           echo "every test shard passed"
+      # The deploy now builds the dashboard and aborts if that fails, so a
+      # change that breaks the build must not merge.
+      - name: Require the frontend build and tests to have passed
+        run: |
+          set -euo pipefail
+          result="${{ needs.frontend.result }}"
+          echo "frontend job result: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "::error::frontend build/tests did not succeed (result: ${result})"
+            exit 1
+          fi
 
   # ADVISORY, NOT REQUIRED — deliberately absent from branch protection's
   # required-status-check list (`contexts: ["pytest"]`, verified 2026-09-18).

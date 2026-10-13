@@ -1,11 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Build output goes straight into src/api/server.py's existing /cockpit
-// StaticFiles mount (src/api/static_cockpit/) — same no-build-step-at-
-// deploy-time posture as /ui: qamc's deployment serves committed static
-// files, it never runs npm. Only `dev`'s checkout ever runs `npm run
-// build` to regenerate that directory. See frontend/README.md.
+// Build output goes into src/api/server.py's /cockpit StaticFiles mount
+// (src/api/static_cockpit/). That folder is gitignored build output: the
+// deploy, the branch preview and CI each build it, passing --outDir to
+// build into a temp folder that is swapped in only on success. See
+// frontend/README.md.
 export default defineConfig({
   plugins: [react()],
   base: "/cockpit/",
@@ -15,8 +15,8 @@ export default defineConfig({
   },
   server: {
     // `server.*` only affects `vite dev` — never `vite build` — so this
-    // block has zero effect on production, which only ever serves the
-    // prebuilt static files (see the outDir comment above).
+    // block has zero effect on production, which serves the bundle built
+    // at deploy (see the outDir comment above).
     //
     // Vite's DNS-rebinding protection rejects any request whose Host
     // header isn't localhost/an IP/an already-known pattern, which blocks
