@@ -56,6 +56,29 @@ def _completed_bars(bars, as_of: datetime | None) -> list:
     return kept
 
 
+def _entry_day(entry_date) -> str | None:
+    """`entry_date` as `YYYY-MM-DD`, or None when unknown or unparseable."""
+    text = str(entry_date)[:10] if entry_date is not None else ""
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
+
+
+def _structure_bars(bars, entry_date) -> list:
+    """Bars dated ON or after `entry_date` — the structure leg's window.
+
+    The SAME entry day the chandelier uses (one clock for "since entry"); the
+    structure leg keeps its inclusive window. Unknown entry day means no bars,
+    so the structure leg never reads a guessed window either. Undated bars
+    never count."""
+    day = _entry_day(entry_date)
+    if day is None:
+        return []
+    return [b for b in (bars or []) if getattr(b, "date", None) is not None and str(b.date)[:10] >= day]
+
+
 def _chandelier_bars(bars, entry_date, as_of: datetime | None) -> list:
     """Completed bars dated strictly AFTER `entry_date`, or [] when it is unknown.
 
@@ -66,10 +89,8 @@ def _chandelier_bars(bars, entry_date, as_of: datetime | None) -> list:
     means no bars at all — never a guess from the first bar handed in, which is
     the whole history whenever the caller could not slice. Undated bars never
     count."""
-    entry_day = str(entry_date)[:10] if entry_date is not None else ""
-    try:
-        date.fromisoformat(entry_day)
-    except ValueError:
+    entry_day = _entry_day(entry_date)
+    if entry_day is None:
         return []
     after = [b for b in (bars or []) if getattr(b, "date", None) is not None and str(b.date)[:10] > entry_day]
     return _completed_bars(after, as_of)
@@ -308,20 +329,21 @@ def evaluate_trailing_stop(
     # chandelier (LeBeau: highest high since entry - k x ATR) needs no span,
     # so it is NOT gated by it — gating it meant the chandelier first read in
     # session 8 and, on the recent book, no stop ever trailed.
-    _usable_bars = [b for b in (bars or []) if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
+    _since_entry = _structure_bars(bars, entry_date)
+    _usable_bars = [b for b in _since_entry if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
     structure_readable = len(_usable_bars) >= MIN_BARS_FOR_A_READING
 
     candidates: list[tuple[float, str]] = []
     if structure_readable:
         if is_short:
-            pivot = _structural_pivot(_swing_highs(bars or []), is_short=True)
+            pivot = _structural_pivot(_swing_highs(_since_entry), is_short=True)
             # The pivot is only usable if it is BELOW the current stop and ABOVE
             # current price: above the stop is not a ratchet, below the price is
             # not a stop.
             if pivot is not None and cur < pivot < stop:
                 candidates.append((pivot, "structure"))
         else:
-            pivot = _structural_pivot(_swing_lows(bars or []), is_short=False)
+            pivot = _structural_pivot(_swing_lows(_since_entry), is_short=False)
             # Mirror: only a pivot ABOVE the current stop and BELOW current price
             # is usable — below the stop is not a ratchet, above the price is not
             # a stop.

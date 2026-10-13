@@ -188,26 +188,18 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
         # the exposure is currently zero — see `_swing_lows` in
         # `src/risk/trailing.py` for that measurement. No new constant.
         bars = []
+        entry_day = None
         try:
             all_bars = owner.market.get_ohlcv(symbol, 120) or []
-            try:
-                opened_ts = owner.db.get_position_open_timestamp(buy)
-                record_exit_guard(owner, "trail.position_open_timestamp")
-            except Exception as e:  # noqa: BLE001
-                record_exit_guard(
-                    owner,
-                    "trail.position_open_timestamp",
-                    e,
-                    logger,
-                    symbol=symbol,
-                    effect="falls back to opening row date",
-                )
-                opened_ts = None
-            if not isinstance(opened_ts, str):
-                opened_ts = None
-            entry_ts = opened_ts or (buy or {}).get("timestamp") or ""
-            entry_day = entry_ts[:10]
-            bars = [b for b in all_bars if not entry_day or str(getattr(b, "date", ""))[:10] >= entry_day]
+            # ONE entry day for both legs: the live holding's first opening
+            # broker fill (ET date). Unknown -> no bars, so neither leg reads
+            # a guessed window.
+            entry_day = _entry_fill_day(owner, buy, position.qty, symbol)
+            bars = [
+                b
+                for b in all_bars
+                if entry_day is not None and str(getattr(b, "date", ""))[:10] >= entry_day.isoformat()
+            ]
             record_exit_guard(owner, "trail.bar_fetch")
         except Exception as e:  # noqa: BLE001
             record_exit_guard(
@@ -289,7 +281,7 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
             # opening broker fill. None (unknown) = no chandelier reading,
             # so the 120-bar fallback slice above never reaches it as if it
             # were "since entry".
-            entry_date=_entry_fill_day(owner, buy, position.qty, symbol),
+            entry_date=entry_day,
         )
         proposal = evaluation.proposal
         if proposal is None:

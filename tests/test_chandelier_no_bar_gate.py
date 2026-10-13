@@ -5,8 +5,8 @@ read from COMPLETED daily bars dated strictly AFTER the entry day only — never
 the fill price, never the entry day's own bar (it holds pre-fill prices), never
 a forming bar — and it needs at least ONE such bar. ATR is the caller's current
 14-day ATR. The entry day is passed explicitly (`entry_date`, the current
-holding's opening broker fill day); unknown means no chandelier reading. Unless
-a test says otherwise, each fixture's FIRST bar is dated on the entry day.
+holding's opening broker fill day); unknown means no chandelier reading. Every test
+states its entry day.
 The structure leg keeps its 7-bar gate. Shorts mirror.
 
 Numbers: entry 100, ATR 2, initial stop 2.5 ATR away (95 long / 105 short).
@@ -37,12 +37,7 @@ def _bar(d: date, low: float, high: float) -> OHLCV:
     return OHLCV(date=d, open=low, high=high, low=low, close=(low + high) / 2, volume=1000)
 
 
-_FIRST = object()
-
-
-def _eval(*, cur, stop, bars, qty=1.0, atr=ATR, as_of=None, entry_date=_FIRST):
-    if entry_date is _FIRST:
-        entry_date = bars[0].date if bars else date(2026, 10, 5)
+def _eval(*, cur, stop, bars, entry_date, qty=1.0, atr=ATR, as_of=None):
     kwargs = dict(
         symbol="TEST",
         setup_type="breakout",  # Type B: no range ratchets, trail only
@@ -70,32 +65,37 @@ def test_k_is_three():
 
 def test_long_zero_bars_gives_no_reading_even_for_wide_stop():
     # 5-ATR stop: a fill-based reading (100 - 6 = 94) would tighten it. It must not.
-    ev = _eval(cur=110.0, stop=90.0, bars=[])
+    ev = _eval(entry_date=date(2026, 10, 5), cur=110.0, stop=90.0, bars=[])
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_TOO_FEW_BARS
 
 
 def test_short_zero_bars_gives_no_reading_even_for_wide_stop():
-    ev = _eval(cur=90.0, stop=110.0, bars=[], qty=-1.0)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=90.0, stop=110.0, bars=[], qty=-1.0)
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_TOO_FEW_BARS
 
 
 def test_entry_day_bar_alone_gives_no_reading():
     # Its high 101 would read 95, tightening the 90 stop, if it counted.
-    ev = _eval(cur=110.0, stop=90.0, bars=[_bar(date(2026, 10, 6), 99.0, 101.0)])
+    ev = _eval(entry_date=date(2026, 10, 6), cur=110.0, stop=90.0, bars=[_bar(date(2026, 10, 6), 99.0, 101.0)])
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_TOO_FEW_BARS
-    ev = _eval(cur=90.0, stop=110.0, bars=[_bar(date(2026, 10, 6), 99.0, 101.0)], qty=-1.0)
+    ev = _eval(
+        entry_date=date(2026, 10, 6), cur=90.0, stop=110.0, bars=[_bar(date(2026, 10, 6), 99.0, 101.0)], qty=-1.0
+    )
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_TOO_FEW_BARS
 
 
 def test_only_a_forming_bar_after_entry_day_gives_no_reading():
     bars = [_bar(date(2026, 10, 12), 99.5, 100.5), _bar(date(2026, 10, 13), 104.0, 110.0)]  # 2nd still forming
-    assert _eval(cur=110.0, stop=90.0, bars=bars, as_of=MID_SESSION).proposal is None
+    assert _eval(entry_date=date(2026, 10, 12), cur=110.0, stop=90.0, bars=bars, as_of=MID_SESSION).proposal is None
     bars = [_bar(date(2026, 10, 12), 99.5, 100.5), _bar(date(2026, 10, 13), 90.0, 96.0)]
-    assert _eval(cur=90.0, stop=110.0, bars=bars, qty=-1.0, as_of=MID_SESSION).proposal is None
+    assert (
+        _eval(entry_date=date(2026, 10, 12), cur=90.0, stop=110.0, bars=bars, qty=-1.0, as_of=MID_SESSION).proposal
+        is None
+    )
 
 
 # --- The entry-day bar's pre-fill spike is ignored -------------------------
@@ -103,14 +103,14 @@ def test_only_a_forming_bar_after_entry_day_gives_no_reading():
 
 def test_long_entry_day_pre_fill_spike_is_ignored():
     bars = [_bar(date(2026, 10, 5), 99.0, 120.0), _bar(date(2026, 10, 6), 99.0, 101.0)]
-    ev = _eval(cur=110.0, stop=90.0, bars=bars)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=110.0, stop=90.0, bars=bars)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 101.0 - 3 * ATR  # 95, not 120 - 6 = 114
 
 
 def test_short_entry_day_pre_fill_spike_is_ignored():
     bars = [_bar(date(2026, 10, 5), 80.0, 101.0), _bar(date(2026, 10, 6), 99.0, 101.0)]
-    ev = _eval(cur=90.0, stop=110.0, bars=bars, qty=-1.0)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=90.0, stop=110.0, bars=bars, qty=-1.0)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 99.0 + 3 * ATR  # 105, not 80 + 6 = 86
 
@@ -120,14 +120,14 @@ def test_short_entry_day_pre_fill_spike_is_ignored():
 
 def test_long_one_bar_tightens_wide_stop():
     bars = [_bar(date(2026, 10, 5), 99.0, 100.5), _bar(date(2026, 10, 6), 99.0, 101.0)]
-    ev = _eval(cur=110.0, stop=90.0, bars=bars)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=110.0, stop=90.0, bars=bars)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 101.0 - 3 * ATR  # 95: the bar high, not the fill
 
 
 def test_short_one_bar_tightens_wide_stop():
     bars = [_bar(date(2026, 10, 5), 99.5, 101.0), _bar(date(2026, 10, 6), 99.0, 101.0)]
-    ev = _eval(cur=90.0, stop=110.0, bars=bars, qty=-1.0)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=90.0, stop=110.0, bars=bars, qty=-1.0)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 99.0 + 3 * ATR  # 105: the bar low, not the fill
 
@@ -141,7 +141,7 @@ def test_long_two_bars_new_high_moves_stop_up():
         _bar(date(2026, 10, 6), 99.0, 101.0),
         _bar(date(2026, 10, 7), 101.0, 104.0),
     ]
-    ev = _eval(cur=108.0, stop=LONG_STOP, bars=bars)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=108.0, stop=LONG_STOP, bars=bars)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.source == "chandelier"
     assert ev.proposal.new_stop == 104.0 - 3 * ATR  # 98
@@ -153,7 +153,7 @@ def test_short_two_bars_new_low_moves_stop_down():
         _bar(date(2026, 10, 6), 99.0, 101.0),
         _bar(date(2026, 10, 7), 96.0, 99.0),
     ]
-    ev = _eval(cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0)
+    ev = _eval(entry_date=date(2026, 10, 5), cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.source == "chandelier"
     assert ev.proposal.new_stop == 96.0 + 3 * ATR  # 102
@@ -162,19 +162,19 @@ def test_short_two_bars_new_low_moves_stop_down():
 def test_long_reading_below_stop_never_loosens():
     bars = [_bar(date(2026, 10, 6), 99.0, 100.5), _bar(date(2026, 10, 7), 99.5, 100.5)]
     # Reading 100.5 - 6 = 94.5 is below the 95 stop: no move.
-    assert _eval(cur=102.0, stop=LONG_STOP, bars=bars).proposal is None
+    assert _eval(entry_date=date(2026, 10, 6), cur=102.0, stop=LONG_STOP, bars=bars).proposal is None
     # Stop already tighter than the reading (98 vs 96): no move.
     bars = [_bar(date(2026, 10, 6), 99.0, 100.0), _bar(date(2026, 10, 7), 99.0, 102.0)]
-    assert _eval(cur=106.0, stop=98.0, bars=bars).proposal is None
+    assert _eval(entry_date=date(2026, 10, 6), cur=106.0, stop=98.0, bars=bars).proposal is None
 
 
 def test_short_reading_above_stop_never_loosens():
     bars = [_bar(date(2026, 10, 6), 99.5, 101.0), _bar(date(2026, 10, 7), 99.5, 101.0)]
     # Reading 99.5 + 6 = 105.5 is above the 105 stop: no move.
-    assert _eval(cur=98.0, stop=SHORT_STOP, bars=bars, qty=-1.0).proposal is None
+    assert _eval(entry_date=date(2026, 10, 6), cur=98.0, stop=SHORT_STOP, bars=bars, qty=-1.0).proposal is None
     # Stop already tighter than the reading (102 vs 104): no move.
     bars = [_bar(date(2026, 10, 6), 100.0, 101.0), _bar(date(2026, 10, 7), 98.0, 101.0)]
-    assert _eval(cur=94.0, stop=102.0, bars=bars, qty=-1.0).proposal is None
+    assert _eval(entry_date=date(2026, 10, 6), cur=94.0, stop=102.0, bars=bars, qty=-1.0).proposal is None
 
 
 # --- A forming bar is never used ------------------------------------------
@@ -186,7 +186,7 @@ def test_long_forming_bar_is_ignored():
         _bar(date(2026, 10, 12), 100.0, 102.0),
         _bar(date(2026, 10, 13), 104.0, 110.0),  # today, still forming
     ]
-    ev = _eval(cur=108.0, stop=LONG_STOP, bars=bars, as_of=MID_SESSION)
+    ev = _eval(entry_date=date(2026, 10, 9), cur=108.0, stop=LONG_STOP, bars=bars, as_of=MID_SESSION)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 102.0 - 3 * ATR  # 96, not 110 - 6
 
@@ -197,7 +197,7 @@ def test_short_forming_bar_is_ignored():
         _bar(date(2026, 10, 12), 98.0, 100.0),
         _bar(date(2026, 10, 13), 90.0, 96.0),  # today, still forming
     ]
-    ev = _eval(cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, as_of=MID_SESSION)
+    ev = _eval(entry_date=date(2026, 10, 9), cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, as_of=MID_SESSION)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 98.0 + 3 * ATR  # 104, not 90 + 6
 
@@ -205,7 +205,7 @@ def test_short_forming_bar_is_ignored():
 def test_after_close_todays_bar_is_completed_and_used():
     after_close = datetime(2026, 10, 13, 16, 30, tzinfo=ET)
     bars = [_bar(date(2026, 10, 12), 100.0, 102.0), _bar(date(2026, 10, 13), 104.0, 110.0)]
-    ev = _eval(cur=112.0, stop=LONG_STOP, bars=bars, as_of=after_close)
+    ev = _eval(entry_date=date(2026, 10, 12), cur=112.0, stop=LONG_STOP, bars=bars, as_of=after_close)
     assert ev.proposal is not None, ev.code
     assert ev.proposal.new_stop == 110.0 - 3 * ATR
 
@@ -219,17 +219,17 @@ _SHORT_HIGHS = [101.0, 102.0, 103.0, 103.5, 103.0, 102.0, 101.0]
 
 def test_long_structure_gated_below_seven():
     bars = [_bar(d, lo, lo + 2.0) for d, lo in zip(_DATES, _LONG_LOWS)]
-    seven = _eval(cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
+    seven = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
     assert seven.proposal is not None and seven.proposal.source == "structure"
-    six = _eval(cur=108.0, stop=LONG_STOP, bars=bars[:6], atr=None)
+    six = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars[:6], atr=None)
     assert six.proposal is None and six.code == TRAIL_CODE_TOO_FEW_BARS
 
 
 def test_short_structure_gated_below_seven():
     bars = [_bar(d, hi - 2.0, hi) for d, hi in zip(_DATES, _SHORT_HIGHS)]
-    seven = _eval(cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, atr=None)
+    seven = _eval(entry_date=date(2026, 10, 1), cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, atr=None)
     assert seven.proposal is not None and seven.proposal.source == "structure"
-    six = _eval(cur=92.0, stop=SHORT_STOP, bars=bars[:6], qty=-1.0, atr=None)
+    six = _eval(entry_date=date(2026, 10, 1), cur=92.0, stop=SHORT_STOP, bars=bars[:6], qty=-1.0, atr=None)
     assert six.proposal is None and six.code == TRAIL_CODE_TOO_FEW_BARS
 
 
@@ -299,3 +299,69 @@ def test_caller_entry_day_unknown_is_none_never_a_guess():
     assert _entry_fill_day(_Owner(RuntimeError("db down")), {}, 10, "TEST") is None
     # Lots that do not reconcile to the broker's held quantity: unknown.
     assert _entry_fill_day(_Owner([_row(1, "BUY", 10, "2026-10-07 14:00:00")]), {}, 3, "TEST") is None
+
+
+# --- One clock: both legs read "since entry" from the SAME entry day ---------
+
+
+def test_structure_leg_uses_the_same_entry_day():
+    bars = [_bar(d, lo, lo + 2.0) for d, lo in zip(_DATES, _LONG_LOWS)]
+    # Entry 1 Oct: all seven bars are on/after it, the structure leg reads.
+    assert _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None).proposal is not None
+    # Entry 2 Oct: the 1 Oct bar predates the holding, six remain - gated,
+    # even though the caller handed all seven in.
+    ev = _eval(entry_date=date(2026, 10, 2), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
+    assert ev.proposal is None and ev.code == TRAIL_CODE_TOO_FEW_BARS
+    # Unknown entry day: neither leg reads a guessed window.
+    for atr in (None, ATR):
+        ev = _eval(entry_date=None, cur=108.0, stop=LONG_STOP, bars=bars, atr=atr)
+        assert ev.proposal is None and ev.code == TRAIL_CODE_TOO_FEW_BARS
+
+
+def test_live_caller_slices_and_passes_one_entry_day():
+    import inspect
+
+    from src.exits_parts import trails
+
+    src = inspect.getsource(trails)
+    # The opening-record timestamp no longer sets the bar window.
+    assert "get_position_open_timestamp" not in src
+    assert src.count("_entry_fill_day(owner, buy, position.qty, symbol)") == 1
+    assert "entry_date=entry_day," in src
+
+
+# --- The backtest passes its simulated fill day, so its chandelier still moves
+
+
+def test_backtest_passes_its_fill_day_and_the_chandelier_moves(monkeypatch):
+    import src.backtest.engine as engine
+    from tests.test_backtest import _build_long_win_series, _run
+
+    real = engine.compute_trailing_stop
+    calls = []
+
+    def spy(**kwargs):
+        proposal = real(**kwargs)
+        calls.append((kwargs, proposal))
+        return proposal
+
+    monkeypatch.setattr(engine, "compute_trailing_stop", spy)
+    result = _run(_build_long_win_series())[2]
+    trades = result.trades
+    assert trades, "fixture sanity: the long-win series must open a trade"
+    assert calls, "fixture sanity: the trade must be held long enough to trail"
+    for kwargs, _ in calls:
+        assert kwargs["entry_date"] == trades[0].entry_date
+    # The fixture is a range trade whose R ratchet answers first, so isolate
+    # the chandelier on the engine's OWN bars, ATR and entry day: a Type B
+    # trade with a wide stop and no R. With the engine's entry day it reads;
+    # with none (what the backtest passed before this fix) it cannot.
+    moved = unknown = 0
+    for kwargs, _ in calls:
+        probe = dict(kwargs, setup_type="breakout", risk_per_share=None, current_stop=kwargs["entry"] * 0.5)
+        got = real(**probe)
+        moved += got is not None and got.source == "chandelier"
+        got = real(**dict(probe, entry_date=None))
+        unknown += got is not None and got.source == "chandelier"
+    assert moved > 0
+    assert unknown == 0
