@@ -10991,3 +10991,14 @@ numbers:
       Minimum minutes between two intraday portfolio_manager calls, read
       from the last intraday portfolio_manager row in agent_logs. A check
       inside the interval runs the held-book review without the paid call.
+  - id: src.stage_decision.VELOCITY_HOLD_SESSIONS
+    value: 10
+    status: owner-ruled
+    ruled_on: '2026-10-13'
+    ruling_summary: "Owner ruled on 2026-10-13 that the desk trades for velocity: hold about a couple of weeks as intent, not a hard exit (two five-session weeks = 10 sessions), only names that move enough to profit long or short."
+    ruling_record: owner ruling 2026-10-13 (hold about a couple of weeks; not a rule)
+    site: src/stage_decision.py
+    note: >-
+      Hold horizon W of the per-candidate velocity record (reach chance within
+      W, variance ratio VR(W)). Recorded only on candidate_ranked events; it
+      orders, sizes, targets and stops nothing.
