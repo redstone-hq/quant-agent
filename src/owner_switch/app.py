@@ -146,19 +146,24 @@ def _parse_action(body: bytes) -> str | None:
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _stop_path_command() -> list:
-    """main.py's one-shot entry: its first act is the credentialed Stop path.
+#: main.py's exit codes for `--mode honour_stop` (main.OWNER_STOP_EXIT and
+#: main.OWNER_STOP_CANCEL_FAULT_EXIT); main.py is not imported here because it
+#: pulls in the whole desk. tests/test_owner_intents.py pins the two together.
+STOP_SWEPT_EXIT = os.EX_TEMPFAIL
+STOP_NOT_IN_FORCE_EXIT = os.EX_OK
 
-    `--mode daily` is the P&L export; while Stop is in force main.py never
-    reaches it -- `_exit_if_owner_stopped` picks up this Stop, cancels resting
-    unfilled entries (owner_intents.honour_stop) and exits OWNER_STOP_EXIT.
-    The switch reaches the broker only through that entry, never directly.
-    """
-    return [sys.executable, str(REPO_ROOT / "main.py"), "--mode", "daily"]
+
+def _stop_path_command() -> list:
+    """main.py's Stop-only entry: intent pickup and the credentialed cancel, nothing else."""
+    return [sys.executable, str(REPO_ROOT / "main.py"), "--mode", "honour_stop"]
 
 
 def _run_stop_path() -> None:
-    """Run the Stop path now; anything but a clean Stop exit tells the owner to cancel by hand."""
+    """Run the Stop path now; a fault or any unexpected exit tells the owner to cancel by hand.
+
+    Exit 0 means Stop was no longer in force when the desk picked it up (a
+    Start pressed straight after): nothing to cancel, no alert.
+    """
     from src.owner_intents import record_stop_cancel_failure
 
     try:
@@ -166,8 +171,8 @@ def _run_stop_path() -> None:
     except Exception as exc:  # noqa: BLE001 - recorded and alerted; the Stop itself is recorded
         record_stop_cancel_failure(exc, None)
         return
-    if rc != os.EX_TEMPFAIL:
-        record_stop_cancel_failure(RuntimeError(f"desk Stop path exited {rc}, not the Stop exit"), None)
+    if rc not in (STOP_SWEPT_EXIT, STOP_NOT_IN_FORCE_EXIT):
+        record_stop_cancel_failure(RuntimeError(f"desk Stop path exited {rc}"), None)
 
 
 def start_stop_path() -> None:

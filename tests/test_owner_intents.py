@@ -112,14 +112,47 @@ def test_the_switch_runs_the_stop_path_only_when_it_records_a_stop(tmp_path, mon
     assert bool(started) is runs
 
 
-@pytest.mark.parametrize("rc,alerted", [(os.EX_TEMPFAIL, False), (0, True), (1, True)])
-def test_a_stop_path_that_does_not_end_in_the_stop_exit_alerts_the_owner(monkeypatch, alerts, rc, alerted):
+@pytest.mark.parametrize("rc,alerted", [(os.EX_TEMPFAIL, False), (0, False), (os.EX_UNAVAILABLE, True), (1, True)])
+def test_the_switch_alerts_on_a_cancel_fault_or_unexpected_exit_but_not_when_start_won(
+    monkeypatch, alerts, rc, alerted
+):
     sent, _ = alerts
     monkeypatch.setattr(app.subprocess, "run", lambda *a, **k: NS(returncode=rc))
     app._run_stop_path()
     assert bool(sent) is alerted
 
 
-def test_the_stop_path_is_main_one_shot_entry():
+def test_the_switch_runs_the_stop_only_mode_and_agrees_with_main_on_exit_codes():
+    import main
+
     cmd = app._stop_path_command()
-    assert cmd[1].endswith("main.py") and cmd[2:] == ["--mode", "daily"]
+    assert cmd[1].endswith("main.py") and cmd[2:] == ["--mode", "honour_stop"]
+    assert app.STOP_SWEPT_EXIT == main.OWNER_STOP_EXIT
+    assert main.OWNER_STOP_CANCEL_FAULT_EXIT not in (app.STOP_SWEPT_EXIT, app.STOP_NOT_IN_FORCE_EXIT)
+
+
+@pytest.mark.parametrize(
+    "outcome,code",
+    [
+        (owner_intents.SWEPT, os.EX_TEMPFAIL),
+        (owner_intents.NOT_STOPPED, 0),
+        (owner_intents.CANCEL_FAULTED, os.EX_UNAVAILABLE),
+        (None, os.EX_UNAVAILABLE),
+    ],
+)
+def test_honour_stop_mode_is_never_a_session_and_sends_nothing(monkeypatch, outcome, code):
+    import main
+
+    calls = []
+
+    def boom(*a, **k):
+        raise AssertionError("honour_stop mode built a notifier, pricing or a session")
+
+    for name in ("TelegramNotifier", "TradingPipeline", "TradingScheduler", "refresh_pricing", "load_config"):
+        monkeypatch.setattr(main, name, boom)
+    monkeypatch.setattr(main, "_owner_stop_outcome", lambda cfg, *, alert: calls.append(alert) or outcome)
+    monkeypatch.setattr(main.sys, "argv", ["main.py", "--mode", "honour_stop"])
+    with pytest.raises(SystemExit) as exit_:
+        main.main()
+    assert exit_.value.code == code
+    assert calls == [False]  # the mode itself never alerts; the switch does, on the exit code

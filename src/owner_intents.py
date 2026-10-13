@@ -130,12 +130,14 @@ def intake(db_path) -> list:
 STOP_CANCEL_FAILED = "owner_intents.stop_cancel_failed"
 
 
-def record_stop_cancel_failure(exc, result, notifier=None) -> None:
+def record_stop_cancel_failure(exc, result, notifier=None, *, alert=True) -> None:
     """A Stop's cancel of resting entries failed: durable counted row plus a plain-words owner alert."""
     from src.notifier.owner_alert_funnel import send_owner_alert_with_outcome
     from src.sentinel.counted import record_swallowed
 
     record_swallowed(STOP_CANCEL_FAILED, exc, log=logger)
+    if not alert:
+        return
     if result is None:
         text = (
             "Stop is on, but the desk could not reach the broker to cancel unfilled orders. "
@@ -150,37 +152,47 @@ def record_stop_cancel_failure(exc, result, notifier=None) -> None:
     send_owner_alert_with_outcome(text, notifier=notifier, kind="owner_stop_cancel_failed", pnl_header=False)
 
 
-def honour_stop(db_path, broker_factory) -> bool:
-    """Owner Stop at a one-shot entry: pick up intents; if stopped, cancel resting entries.
+NOT_STOPPED, SWEPT, CANCEL_FAULTED = "not_stopped", "swept", "cancel_faulted"
 
-    Returns True when Stop is in force, and the caller must then exit without
-    doing any work. `broker_factory` is called ONLY when stopped, so a stopped
-    process constructs nothing but the broker it cancels through; the cancel is
-    the Freeze sweep (protective stops and exits are kept). The owner switch
-    runs this through main.py the moment it records a Stop; every one-shot unit
-    runs it again as the in-run backstop.
+
+def honour_stop(db_path, broker_factory) -> bool:
+    """Owner Stop at a one-shot entry: True when Stop is in force and the caller must exit unworked.
+
+    The in-run backstop every one-shot unit runs; a cancel fault alerts the owner.
+    """
+    return stop_outcome(db_path, broker_factory) != NOT_STOPPED
+
+
+def stop_outcome(db_path, broker_factory, *, alert=True) -> str:
+    """Pick up intents; if stopped, cancel resting entries. NOT_STOPPED, SWEPT or CANCEL_FAULTED.
+
+    `broker_factory` is called ONLY when stopped, so a stopped process
+    constructs nothing but the broker it cancels through; the cancel is the
+    Freeze sweep (protective stops and exits are kept).
 
     The sweep never raises on a broker refusal or an unreachable broker -- it
     returns the fault in `faults` -- so the faults are read here, not just
-    exceptions. Any fault is a failure the owner hears about.
+    exceptions. Every fault writes a durable counted row; `alert=False` leaves
+    the owner alert to the caller (main.py --mode honour_stop, whose caller
+    the owner switch alerts on the exit code).
     """
     from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
 
     if not db_path:
-        return False
+        return NOT_STOPPED
     try:
         intake(db_path)
     except Exception as exc:  # noqa: BLE001 - recorded; a Stop already acted is still read below
         record_guarded_pass(NO_LEDGER, "owner_intents.stop_pickup", exc, log=logger)
     if not stop_in_force(db_path):
-        return False
+        return NOT_STOPPED
     try:
         result = broker_factory().sweep_frozen_resting_orders(db_path)
-    except Exception as exc:  # noqa: BLE001 - recorded and alerted; Stop itself still holds
-        record_stop_cancel_failure(exc, None)
-        return True
+    except Exception as exc:  # noqa: BLE001 - recorded (and alerted unless the caller alerts); Stop holds
+        record_stop_cancel_failure(exc, None, alert=alert)
+        return CANCEL_FAULTED
     if result is not None and result.faults:
-        record_stop_cancel_failure(RuntimeError(f"cancel faults: {result.faults}"), result)
-    else:
-        logger.warning("owner Stop in force: desk off; resting entries swept (%s)", result)
-    return True
+        record_stop_cancel_failure(RuntimeError(f"cancel faults: {result.faults}"), result, alert=alert)
+        return CANCEL_FAULTED
+    logger.warning("owner Stop in force: desk off; resting entries swept (%s)", result)
+    return SWEPT
