@@ -562,8 +562,17 @@ class MarketData:
 
         return read_price_with_retry(once, list(symbols), log=logger)
 
-    def get_bars_batch(self, symbols: list[str], lookback_days: int, on_page=None) -> dict[str, list]:
+    def get_bars_batch(
+        self, symbols: list[str], lookback_days: int, on_page=None, adjustment: str = "split"
+    ) -> dict[str, list]:
         """Daily bars for many symbols, one Alpaca request per page.
+
+        `adjustment`: "split" (default — the universe screen's read, which
+        ranks on recent price and volume where dividends do not change the
+        answer) or "all" (splits AND dividends — what
+        `MarketDataProvider.get_ohlcv_batch` passes, so the batched history
+        behind target revision and admission is the SAME series as the
+        single-symbol `get_bars` below, `Adjustment.ALL`).
 
         Follows `next_page_token` here (not inside the SDK) so every page is
         visible: `on_page()` is called once per page requested. The client is
@@ -596,13 +605,11 @@ class MarketData:
             timeframe=TimeFrame.Day,
             start=end - _td(days=int(lookback_days)),
             end=_sip_safe_end(),
-            # Split-adjusted only (NOT dividend-adjusted — this differs from
-            # the single-symbol `get_bars`, which asks for Adjustment.ALL).
-            # The universe screen only ranks on recent price and volume, so
-            # dividend adjustment does not change its answer. Feed is SIP:
-            # the screen ranks on volume, and IEX is ~3% of it. SIP history
-            # is free when `end` is 15+ minutes old (see `_sip_safe_end`).
-            adjustment=Adjustment.SPLIT,
+            # Default split-adjusted only (the screen's read; see docstring).
+            # The provider's batch passes "all" to match `get_bars`. Feed is
+            # SIP: the screen ranks on volume, and IEX is ~3% of it. SIP
+            # history is free when `end` is 15+ minutes old (`_sip_safe_end`).
+            adjustment=Adjustment(adjustment),
             feed=DataFeed.SIP,
         )
         fields = req.to_request_fields()
