@@ -9,8 +9,10 @@ the return value get this behaviour without each one being edited.
 the morning report (HTTP 400, unbalanced HTML), the identical body went out
 three times, and nothing told the owner. The transport now reports each
 failed attempt as a `WireFailure` saying whether a resend can land; only
-those are retried; the last failure is written in the undelivered row and
-sent to the owner as one plain line.
+those are retried; the last failure is written in the undelivered row. A
+refusal is also sent to the owner as one plain line, using an attempt the
+refusal left unspent: the budget of `max_attempts` wire calls is never
+exceeded.
 
 Never raises: a failing alert path must not abort the money path it reports on.
 """
@@ -141,17 +143,23 @@ def _record_undelivered(
         logger.exception("could not record an undelivered owner alert")
 
 
-def _tell_owner(notifier, kind: str, attempts: int, failure: WireFailure | None) -> None:
-    """ONE short plain line so a lost message is not silent: which one, and why.
+def _tell_owner(notifier, kind: str, attempts: int, max_attempts: int, failure: WireFailure | None) -> None:
+    """ONE short plain line so a refused message is not silent: which one, and why.
 
+    The notice SPENDS the message's attempt budget, never extends it: it goes
+    out only when a refusal (`retryable=False`) ended the loop with an attempt
+    left. When the budget is spent, or no wire attempt failed (empty text, a
+    pre-wire error), there is no notice — the undelivered row is the record.
     A single attempt through `send_once`: plain text, fully escaped, no link,
     no credit line — tiny and always valid. Risk category, because only a
     message that passed the category filter can reach the wire and fail.
     A notifier without the real transport (a test double) gets none.
     """
+    if failure is None or failure.retryable or attempts >= max_attempts:
+        return
     if getattr(getattr(notifier, "send", None), "_is_delivery_funnel", None) is not True:
         return
-    why = failure.summary if failure is not None else "no reason recorded"
+    why = failure.summary
     line = f"Not delivered: {kind} message ({attempts} attempt{'s' if attempts != 1 else ''}). {why}"
     try:
         notifier.send_once(line, link_url="", kind=FAILURE_NOTICE_KIND, category=CATEGORY_RISK)
@@ -203,8 +211,9 @@ def deliver_with_outcome(
     """`deliver_with_retry`, but also says whether the drop was deliberate.
 
     Returns (delivered, suppressed). Both False is a real failure that was
-    retried where a retry could help, recorded undelivered, and reported to
-    the owner in one line. A caller that keeps its own durable retry (the
+    retried where a retry could help, recorded undelivered, and — for a
+    refusal, within the same attempt budget — reported to the owner in one
+    line. A caller that keeps its own durable retry (the
     cost circuit) passes max_attempts=1. Never raises.
     """
     attempts = 0
@@ -235,7 +244,7 @@ def deliver_with_outcome(
             run_id=send_kwargs.get("run_id"),
             reason=failure.reason if failure is not None else None,
         )
-        _tell_owner(notifier, kind, attempts, failure)
+        _tell_owner(notifier, kind, attempts, max_attempts, failure)
     except Exception:  # noqa: BLE001
         logger.exception("owner alert delivery discipline failed")
     return False, False

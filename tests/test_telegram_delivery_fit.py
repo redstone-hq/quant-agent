@@ -178,6 +178,13 @@ def test_refused_body_is_not_resent_and_the_owner_is_told_why(rig):
     assert [r["kind"] for r in rows if r["status"] == "sent"] == [delivery.FAILURE_NOTICE_KIND]
 
 
+def test_refusal_notice_never_exceeds_the_attempt_budget(rig):
+    n, posts, rows, responses, sleeps = rig
+    responses.append(_Resp(400, {"ok": False, "error_code": 400, "description": REFUSAL}))
+    assert delivery.deliver_with_outcome(n, "hello", max_attempts=1, kind="cost") == (False, False)
+    assert len(posts) == 1, "a one-attempt budget spent on the refusal leaves no room for a notice"
+
+
 def test_rate_limit_waits_telegrams_retry_after_then_lands(rig):
     n, posts, _, responses, sleeps = rig
     limited = {"ok": False, "error_code": 429, "description": "Too Many Requests", "parameters": {"retry_after": 7}}
@@ -191,7 +198,8 @@ def test_server_and_network_failures_are_retried_then_reported(rig):
     gateway = {"ok": False, "error_code": 502, "description": "Bad Gateway"}
     responses.extend(_Resp(502, gateway) for _ in range(delivery.MAX_ATTEMPTS))
     assert n.send("hello", kind="evening") is False
-    assert len(posts) == delivery.MAX_ATTEMPTS + 1 and len(sleeps) == delivery.MAX_ATTEMPTS - 1
+    # The budget is spent on the message itself: no notice past it.
+    assert len(posts) == delivery.MAX_ATTEMPTS and len(sleeps) == delivery.MAX_ATTEMPTS - 1
     undelivered = [r for r in rows if r["status"] == delivery.UNDELIVERED_STATUS]
     assert len(undelivered) == 1 and f"after {delivery.MAX_ATTEMPTS} attempts" in undelivered[0]["detail"]
     assert "Bad Gateway" in undelivered[0]["detail"]
@@ -200,6 +208,6 @@ def test_server_and_network_failures_are_retried_then_reported(rig):
     rows.clear()
     responses.extend(requests.ConnectionError(f"DNS hiccup for url: {URL}") for _ in range(delivery.MAX_ATTEMPTS))
     assert n.send("hello") is False
-    assert len(posts) == delivery.MAX_ATTEMPTS + 1
+    assert len(posts) == delivery.MAX_ATTEMPTS
     failed = [r for r in rows if r["status"] == "failed"]
     assert failed and all(TOKEN not in r["detail"] and "<redacted>" in r["detail"] for r in failed)

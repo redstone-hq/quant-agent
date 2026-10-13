@@ -241,15 +241,24 @@ class TelegramNotifier:
             )
             response.raise_for_status()
         except requests.HTTPError as exc:
-            raise self._note_wire_failure(self._refusal(exc, response)) from exc
+            refused: Exception = exc
         except requests.RequestException as exc:
-            raise self._note_wire_failure(
-                WireFailure(
-                    f"network error: {self._redact(exc)}",
-                    retryable=True,
-                    summary="could not reach Telegram",
-                )
-            ) from exc
+            failure = WireFailure(
+                f"network error: {self._redact(exc)}",
+                retryable=True,
+                summary="could not reach Telegram",
+            )
+            refused = failure
+        else:
+            return
+        # Built and raised OUTSIDE the except block, `from None`: the
+        # `requests` exception carries the token in its URL, and a chained
+        # or in-flight one is printed by any traceback logged later (the
+        # JSON-body guard, `logger.exception` upstream). Only the redacted
+        # reason travels on.
+        if not isinstance(refused, WireFailure):
+            refused = self._refusal(refused, response)
+        raise self._note_wire_failure(refused) from None
 
     def _refusal(self, exc: Exception, response: Any) -> WireFailure:
         """Telegram's reason for refusing a send, from its JSON body.
