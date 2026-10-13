@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from src.storage.db import Database
+from src.storage.schema.manager import DatabaseSchema
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -48,19 +50,13 @@ def _now_after(day: str) -> datetime:
 
 
 def _make_db(path: Path) -> sqlite3.Connection:
+    _d = Database(str(path))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     con = sqlite3.connect(path)
-    con.execute(
-        "CREATE TABLE specialist_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " run_id TEXT NOT NULL, decision_id TEXT, agent_name TEXT NOT NULL,"
-        " kind TEXT NOT NULL, scope TEXT NOT NULL, symbol TEXT,"
-        " evidence_json TEXT NOT NULL, timestamp TEXT NOT NULL)",
-    )
-    con.execute(
-        "CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " symbol TEXT NOT NULL, action TEXT NOT NULL, qty REAL NOT NULL,"
-        " price REAL NOT NULL, run_id TEXT, decision_id TEXT,"
-        " timestamp TEXT NOT NULL)",
-    )
+    # Fresh-database shape: the run-scoped report tables are absent until _report_tables().
+    for _t in ("intra_check_reports", "evening_reports", "session_reports"):
+        con.execute(f"DROP TABLE IF EXISTS {_t}")
     return con
 
 
@@ -374,16 +370,8 @@ def _report_tables(con) -> None:
     Deliberately NOT created by `_make_db`, so every test above this point
     still exercises the no-report-tables path a fresh database presents.
     """
-    con.execute(
-        "CREATE TABLE intra_check_reports (run_id TEXT PRIMARY KEY,"
-        " date TEXT NOT NULL, payload_json TEXT NOT NULL,"
-        " positions_json TEXT, timestamp TEXT NOT NULL)",
-    )
-    con.execute(
-        "CREATE TABLE session_reports (date TEXT NOT NULL, mode TEXT NOT NULL,"
-        " run_id TEXT, payload_json TEXT NOT NULL, positions_json TEXT,"
-        " timestamp TEXT NOT NULL, PRIMARY KEY (date, mode))",
-    )
+    DatabaseSchema(conn=con)._create_tables()  # the real DDL for the report tables
+    con.commit()
 
 
 def _intra_report(con, run_id, day, scan_status, hour=10):
