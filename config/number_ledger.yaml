@@ -10941,11 +10941,3 @@ numbers:
     cost_while_unanswered: >-
       Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
       keeps passing.
-  - id: src.quantities.r_multiple(qty)
-    value: 1.0
-    status: not-trade-governing
-    site: src/quantities.py
-    note: >-
-      Dead default (src/risk/metrics.py::position_risk): a grep on 2026-10-12 of every .py under src, scripts and main.py for calls to
-      `r_multiple(` finds only the two production calls in src/risk/metrics.py, and both pass `qty_f` explicitly, so
-      this default is never used. Dynamic calls through getattr or star-args were not searched.

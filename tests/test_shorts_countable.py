@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 
 from src.models import Position, TargetPosition, TechAnalysisResult, TechReasoningChain
 from src.portfolio_constructor import PortfolioConstructor
-from src.quantities import r_multiple
+from src.quantities import summarize_closed_position
 from src.risk.metrics import portfolio_heat, position_risk
 from tests.pipeline_factory import build_pipeline
 
@@ -211,36 +211,50 @@ def test_constructor_long_only_behaviour_unchanged_beside_a_short():
 
 
 # ==========================================================================
-# 2a. risk/metrics.r_multiple
+# 2a. A short's per-lot R (quantities.summarize_closed_position)
 # ==========================================================================
 
 
-def test_r_multiple_long_only_unchanged():
-    """No-op proof: the default qty is +1.0, so every existing long call site
-    keeps its exact result. Same literals as tests/test_risk_metrics.py."""
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=90.0) == 2.0
-    assert r_multiple(current_price=95.0, entry=100.0, initial_stop=90.0) == -0.5
-    assert r_multiple(current_price=120.0, entry=100.0, initial_stop=110.0) is None
-    # Explicitly passing a positive qty must change nothing.
-    assert r_multiple(120.0, 100.0, 90.0, qty=250.0) == 2.0
+def _lot(action, qty, price, **kw):
+    row = {
+        "action": action,
+        "qty": qty,
+        "price": price,
+        "symbol": "SHRT",
+        "fill_qty": None,
+        "fill_price": None,
+        "fill_status": "filled",
+        "stop_loss": 0,
+        "decision_id": None,
+        "position_id": "pos-short",
+        "timestamp": "2026-01-01 10:00:00",
+    }
+    row.update(kw)
+    return row
 
 
-def test_r_multiple_short_in_profit_is_positive():
-    """Short at $100 with the stop $10 ABOVE at $110. Price falls to $80 →
-    +$20 of profit on $10 of risk = +2R. Pre-fix this returned None, because
-    `entry - stop` was negative and read as 'no risk defined'."""
-    assert r_multiple(current_price=80.0, entry=100.0, initial_stop=110.0, qty=-50) == 2.0
+def _short_r(cover_price, stop):
+    """Per-lot R of a short of 50 at $100 with its entry stop at `stop`, covered at `cover_price`."""
+    return summarize_closed_position(
+        [_lot("SHORT", 50, 100.0, stop_loss=stop), _lot("COVER", 50, cover_price, timestamp="2026-01-02 10:00:00")]
+    ).r_multiple
 
 
-def test_r_multiple_short_underwater_is_negative():
-    """Price rose to $105 against a short entered at $100, risking $10 → -0.5R."""
-    assert r_multiple(current_price=105.0, entry=100.0, initial_stop=110.0, qty=-50) == -0.5
+def test_a_short_in_profit_has_positive_r():
+    """Short at $100 with the stop $10 ABOVE at $110. Price falls to $80 ->
+    +$20 of profit on $10 of risk = +2R."""
+    assert _short_r(80.0, 110.0) == 2.0
 
 
-def test_r_multiple_short_with_stop_below_entry_is_none():
+def test_a_short_underwater_has_negative_r():
+    """Price rose to $105 against a short entered at $100, risking $10 -> -0.5R."""
+    assert _short_r(105.0, 110.0) == -0.5
+
+
+def test_a_short_with_its_stop_below_entry_has_no_r():
     """Mirror of the long guard: a short's stop must sit ABOVE entry. A stop
     below entry defines no risk, so no R-multiple may be fabricated."""
-    assert r_multiple(current_price=80.0, entry=100.0, initial_stop=90.0, qty=-50) is None
+    assert _short_r(80.0, 90.0) is None
 
 
 # ==========================================================================
