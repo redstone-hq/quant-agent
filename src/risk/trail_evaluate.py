@@ -10,6 +10,7 @@ types stay in `src/risk/trailing.py`; read its module docstring first.
 from __future__ import annotations
 
 from dataclasses import replace as _replace
+from datetime import date, datetime
 
 from src.risk.trail_range_ratchet import _range_breakeven_ratchet, _range_second_ratchet
 from src.risk.trail_structure import _structural_pivot, _swing_highs, _swing_lows
@@ -38,6 +39,63 @@ from src.risk.trailing import (
 __all__ = ["compute_trailing_stop", "evaluate_trailing_stop"]
 
 
+def _completed_bars(bars, as_of: datetime | None) -> list:
+    """Bars whose daily session has finished at `as_of` (None = now).
+
+    Same bound as `src.data.market._completed_only`: a bar dated after
+    `last_completed_bar_date` is still forming and is dropped. A bar with no
+    date is kept, matching that filter."""
+    from src.trading_calendar import last_completed_bar_date
+
+    cutoff = last_completed_bar_date(as_of).isoformat()
+    kept = []
+    for b in bars or []:
+        d = getattr(b, "date", None)
+        if d is None or str(d)[:10] <= cutoff:
+            kept.append(b)
+    return kept
+
+
+def _entry_day(entry_date) -> str | None:
+    """`entry_date` as `YYYY-MM-DD`, or None when unknown or unparseable."""
+    text = str(entry_date)[:10] if entry_date is not None else ""
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
+
+
+def _structure_bars(bars, entry_date) -> list:
+    """Bars dated ON or after `entry_date` — the structure leg's window.
+
+    The SAME entry day the chandelier uses (one clock for "since entry"); the
+    structure leg keeps its inclusive window. Unknown entry day means no bars,
+    so the structure leg never reads a guessed window either. Undated bars
+    never count."""
+    day = _entry_day(entry_date)
+    if day is None:
+        return []
+    return [b for b in (bars or []) if getattr(b, "date", None) is not None and str(b.date)[:10] >= day]
+
+
+def _chandelier_bars(bars, entry_date, as_of: datetime | None) -> list:
+    """Completed bars dated strictly AFTER `entry_date`, or [] when it is unknown.
+
+    `entry_date` is the calendar day of the CURRENT holding's opening broker
+    fill. The entry day's own bar includes prices from before the fill, so it
+    is not information since entry and never counts (the backtest fills at the
+    next open, so this matches it). Unknown entry day (None or unparseable)
+    means no bars at all — never a guess from the first bar handed in, which is
+    the whole history whenever the caller could not slice. Undated bars never
+    count."""
+    entry_day = _entry_day(entry_date)
+    if entry_day is None:
+        return []
+    after = [b for b in (bars or []) if getattr(b, "date", None) is not None and str(b.date)[:10] > entry_day]
+    return _completed_bars(after, as_of)
+
+
 def compute_trailing_stop(
     *,
     symbol: str,
@@ -51,7 +109,9 @@ def compute_trailing_stop(
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float = 1.0,
     structural_ceiling: bool | None = None,
+    as_of: datetime | None = None,
     risk_per_share: float | None = None,
+    entry_date: date | str | None = None,
 ) -> TrailProposal | None:
     """Propose a tightened stop, or None when no move is warranted.
 
@@ -75,6 +135,16 @@ def compute_trailing_stop(
     Type A — see `src.risk.constants.is_trend_trade`. `None` (the default,
     and every legacy row) falls back to the analyst's label alone, which is
     the exact behaviour this argument replaces.
+
+    `as_of` is the clock the chandelier uses to tell a COMPLETED daily bar
+    from a still-forming one (`trading_calendar.last_completed_bar_date`).
+    `None` means now. Tests and replays pass it explicitly.
+
+    `entry_date` is the calendar day of the CURRENT holding's opening broker
+    fill (`trades.filled_at` of the first opening lot after the last flat
+    point, `quantities.live_position_lots`). The chandelier reads only
+    completed bars dated strictly after it; None (unknown) means the
+    chandelier gives no reading at all — never a guessed entry day.
     """
     return evaluate_trailing_stop(
         symbol=symbol,
@@ -88,7 +158,9 @@ def compute_trailing_stop(
         min_ratchet_ticks=min_ratchet_ticks,
         qty=qty,
         structural_ceiling=structural_ceiling,
+        as_of=as_of,
         risk_per_share=risk_per_share,
+        entry_date=entry_date,
     ).proposal
 
 
@@ -105,7 +177,9 @@ def evaluate_trailing_stop(
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float | None = None,  # None reads as a long — see `is_short` below
     structural_ceiling: bool | None = None,
+    as_of: datetime | None = None,
     risk_per_share: float | None = None,
+    entry_date: date | str | None = None,
 ) -> TrailEvaluation:
     """`compute_trailing_stop`, plus the code naming why it ended where it
     did. Same arguments, same arithmetic, same proposal — this IS the body;
@@ -250,50 +324,59 @@ def evaluate_trailing_stop(
     # the noise band's own edge: a level read off today's price is a pure
     # price-follower, which is a different exit rule from the ratified one and
     # needs an argued decision, not a quiet patch here.
-    _usable_bars = [b for b in (bars or []) if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
-    if len(_usable_bars) < MIN_BARS_FOR_A_READING:
-        return _or_range(TrailEvaluation(None, TRAIL_CODE_TOO_FEW_BARS))
+    # The bar-count minimum belongs to the STRUCTURE leg alone: it is the
+    # pivot span `_swing_lows` needs before it can confirm one pivot. The
+    # chandelier (LeBeau: highest high since entry - k x ATR) needs no span,
+    # so it is NOT gated by it — gating it meant the chandelier first read in
+    # session 8 and, on the recent book, no stop ever trailed.
+    _since_entry = _structure_bars(bars, entry_date)
+    _usable_bars = [b for b in _since_entry if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
+    structure_readable = len(_usable_bars) >= MIN_BARS_FOR_A_READING
 
     candidates: list[tuple[float, str]] = []
-    if is_short:
-        pivot = _structural_pivot(_swing_highs(bars or []), is_short=True)
-        # The pivot is only usable if it is BELOW the current stop and ABOVE
-        # current price: above the stop is not a ratchet, below the price is
-        # not a stop.
-        if pivot is not None and cur < pivot < stop:
-            candidates.append((pivot, "structure"))
-    else:
-        pivot = _structural_pivot(_swing_lows(bars or []), is_short=False)
-        # Mirror: only a pivot ABOVE the current stop and BELOW current price
-        # is usable — below the stop is not a ratchet, above the price is not
-        # a stop.
-        if pivot is not None and stop < pivot < cur:
-            candidates.append((pivot, "structure"))
+    if structure_readable:
+        if is_short:
+            pivot = _structural_pivot(_swing_highs(_since_entry), is_short=True)
+            # The pivot is only usable if it is BELOW the current stop and ABOVE
+            # current price: above the stop is not a ratchet, below the price is
+            # not a stop.
+            if pivot is not None and cur < pivot < stop:
+                candidates.append((pivot, "structure"))
+        else:
+            pivot = _structural_pivot(_swing_lows(_since_entry), is_short=False)
+            # Mirror: only a pivot ABOVE the current stop and BELOW current price
+            # is usable — below the stop is not a ratchet, above the price is not
+            # a stop.
+            if pivot is not None and stop < pivot < cur:
+                candidates.append((pivot, "structure"))
 
     if atr_f is not None and atr_f > 0:
-        # Missing data must not produce an action. With no usable bar the
-        # extreme used to fall back to CURRENT PRICE, which makes the
-        # chandelier `price - 3 x ATR`: a pure price-follower read off today's
-        # print, exactly the synthesised candidate the comment above refuses.
-        # It fires on an entry-day position and on EVERY bar-fetch failure
-        # (the caller leaves `bars` empty on an exception), so it would
-        # tighten a stop off nothing. No bar -> no chandelier, and the refusal
-        # is recorded as `no_bars_since_entry`.
+        # The chandelier's extreme is every COMPLETED daily bar dated strictly
+        # AFTER the entry day — never the fill, the entry day's own bar (it
+        # holds pre-fill prices), today's print or a still-forming bar. It
+        # needs at least ONE such bar: with none there is no information
+        # since entry, and a reading would only overrule the entry stop the
+        # desk just chose. A forming bar is dropped here even though the live
+        # feed already drops it. ATR is the caller's current 14-day ATR. An
+        # unknown entry day gives no chandelier reading (`_chandelier_bars`).
+        _completed = _chandelier_bars(bars, entry_date, as_of)
         if is_short:
-            lows = [_finite(getattr(b, "low", None)) for b in (bars or [])]
+            lows = [_finite(getattr(b, "low", None)) for b in _completed]
             lows = [l for l in lows if l is not None]
             if lows:
                 chandelier = min(lows) + CHANDELIER_ATR_MULTIPLE * atr_f
                 if cur < chandelier < stop:
                     candidates.append((chandelier, "chandelier"))
         else:
-            highs = [_finite(getattr(b, "high", None)) for b in (bars or [])]
+            highs = [_finite(getattr(b, "high", None)) for b in _completed]
             highs = [h for h in highs if h is not None]
             if highs:
                 chandelier = max(highs) - CHANDELIER_ATR_MULTIPLE * atr_f
                 if stop < chandelier < cur:
                     candidates.append((chandelier, "chandelier"))
 
+    if not candidates and not structure_readable:
+        return _or_range(TrailEvaluation(None, TRAIL_CODE_TOO_FEW_BARS))
     if not candidates:
         return _or_range(TrailEvaluation(None, TRAIL_CODE_NO_CANDIDATE))
 

@@ -7,7 +7,7 @@ file so `tests/test_trailing_stops.py` does not grow.
 import pytest  # noqa: F401
 
 from src.risk.trailing import compute_trailing_stop, venue_tick
-from tests.test_trailing_stops import _bars, _rising_with_higher_lows
+from tests.test_trailing_stops import _ENTRY_DAY, _bars, _rising_with_higher_lows
 
 
 def _falling_with_lower_highs():
@@ -41,6 +41,7 @@ def test_small_improvement_now_ratchets_where_the_2pct_floor_refused_it():
         reference_target=None,
         bars=_rising_with_higher_lows(),
         atr=2.0,
+        entry_date=_ENTRY_DAY,
     )
     assert proposal is not None, "a real improvement must not be refused"
     improvement = proposal.new_stop - stop

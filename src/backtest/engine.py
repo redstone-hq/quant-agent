@@ -430,6 +430,10 @@ def run_backtest(
                 # at fill — never the live `pos.stop` a prior trail moved).
                 # Powers the +1R breakeven and +2R -> +1R ratchets (item 142).
                 risk_per_share=_risk_per_share(pos, qty_sign),
+                # The simulated fill day (next open after the signal): the
+                # chandelier reads only completed bars dated after it, the
+                # structure leg bars on or after it — the live rule.
+                entry_date=pos.entry_date,
             )
             # CAVEAT (item 142): passing the frozen entry stop here means BOTH
             # R-ratchets now fire in backtest whereas NONE fired before this

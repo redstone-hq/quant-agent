@@ -178,12 +178,13 @@ NOISE_BAND_ATR_MULTIPLE = 1.25
 #: other half of this note and `tests/test_pivot_window_independence.py` for
 #: the test that pins it.
 PIVOT_WINDOW = 3
-#: The fewest bars SINCE ENTRY that can support a reading at all. Not a chosen
-#: number: `_swing_lows` needs `window` bars on both sides of a low before it
-#: will confirm one, so this is exactly the window the structure leg already
-#: requires. Below it the chandelier would still answer off one or two prints
-#: — `today's high - 3 x ATR` on an entry-day position — which is a price
-#: follower, not a structural reading. Both legs refuse below it.
+#: The fewest bars SINCE ENTRY the STRUCTURE leg needs for a reading. Not a
+#: chosen number: `_swing_lows` needs `window` bars on both sides of a low
+#: before it will confirm one, so this is exactly that window. It gates the
+#: structure leg ONLY. The chandelier is not held to it (2026-10-13): it needs
+#: ONE completed daily bar dated after the entry day and reads the highest
+#: such high (never the fill, the entry-day bar or a forming bar) - 3 x the
+#: current 14-day ATR. Gating it at 7 meant it first read in session 8.
 MIN_BARS_FOR_A_READING = PIVOT_WINDOW * 2 + 1
 
 #: How many initial-risk-units (R) of profit a Type A / range trade must
@@ -253,13 +254,9 @@ TRAIL_CODE_NO_CANDIDATE = "no_structure_and_no_usable_chandelier"
 TRAIL_CODE_BELOW_MIN_RATCHET = "move_smaller_than_min_ratchet"
 TRAIL_CODE_INSIDE_NOISE_BAND = "inside_noise_band"
 TRAIL_CODE_ROUNDED_OFF_SIDE = "rounded_candidate_not_between_stop_and_price"
-#: Too few bars since entry for either leg to be read. Missing data must not
-#: produce an action, and "missing" is not only the empty set: the caller
-#: filters bars to SINCE ENTRY, so a position opened today hands this module
-#: exactly one bar, from which the chandelier would read `today's high - 3 x
-#: ATR` — a pure price-follower off a single print. The minimum is not chosen
-#: here: it is `MIN_BARS_FOR_A_READING` below, the window the STRUCTURE leg
-#: already needs before it can confirm its first pivot.
+#: Too few bars since entry for the STRUCTURE leg to be read
+#: (`MIN_BARS_FOR_A_READING`), and the ungated chandelier offered no usable
+#: level either. Recorded only when no candidate exists at all.
 TRAIL_CODE_TOO_FEW_BARS = "too_few_bars_since_entry"
 
 

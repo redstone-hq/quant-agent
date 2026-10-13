@@ -38,6 +38,16 @@ def _desk(*, short=False, stop=None):
         "take_profit": None,
         "timestamp": "2026-08-01 14:00:00",
     }
+    # The live holding's opening broker fill, 7 Aug: every 10 Aug bar is after it.
+    p.db.get_position_chain_rows.return_value = [
+        {
+            "id": 1,
+            "symbol": "BBB" if short else "AAA",
+            "action": "SHORT" if short else "BUY",
+            "qty": 10,
+            "filled_at": "2026-08-07 14:00:00.000000",
+        }
+    ]
     live = {"stop": stop if stop is not None else (105.0 if short else 95.0)}
     p.broker.get_current_stop_price.side_effect = lambda *a, **k: live["stop"]
 
