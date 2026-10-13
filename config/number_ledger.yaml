@@ -1640,14 +1640,13 @@ numbers:
         which behaviour does not change is removed instead of re-picked.
   - id: src.config.SmartMoneyConfig.insider_calendar_routine_years
     value: 3
-    status: arbitrary
+    status: sourced
     site: src/config/__init__.py
-    published_study: >-
-      Cohen, Malloy & Pomorski (2012), "Decoding Inside Information", Journal of Finance 67(3):1009-1043
-      (https://papers.ssrn.com/abstract=1692517). The paper splits insiders into routine (a trading pattern
-      by calendar month repeated over several years) and opportunistic (no such pattern). Matches per citing
-      paper, unverified: the abstract and summaries confirm the routine/opportunistic split but not that the
-      paper's own cut-off is exactly 3 years, so 3 is NOT yet confirmed against the paper's method section.
+    source: >-
+      Cohen, Malloy & Pomorski (2012), "Decoding Inside Information", Journal of Finance 67(3):1009-1043;
+      NBER Working Paper 16454 (https://www.nber.org/papers/w16454), page 11: "we define a routine trader
+      as an insider who placed a trade in the same calendar month for at least three consecutive years."
+      Checked against the paper's own text on 2026-10-13, so 3 is the published cut-off, not a round number.
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1655,31 +1654,6 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
-    open_question: >-
-      How many years of same-calendar-window activity establish that a
-      purchase is routine?
-    cost_while_unanswered: >-
-      A routine annual grant is read as conviction, or a genuine repeat buyer
-      is filtered out.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
-        routing pass, which specifies each recording field by name
-      records: >-
-        every insider and congressional purchase the desk ingests, with its
-        transaction and filing dates, the filer's role, the gaps to that
-        filer's own prior purchases, the other filers buying the same name in
-        the same span, and the price path of the name afterwards -- read off
-        the filings record and market prices, never off this desk's own fills.
-      closes_when: >-
-        that record is long enough to show how post-filing price behaviour
-        varies with each window -- the span that makes a cluster, the length
-        of the lookback, the cadence gaps that mark a buy routine, and the age
-        of a calendar pattern -- so each window is read off where behaviour
-        actually changes rather than set to a round number; a window across
-        which behaviour does not change is removed instead of re-picked.
   - id: src.config.SmartMoneyConfig.insider_history_retention_days
     value: 1830
     status: not-trade-governing
