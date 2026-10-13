@@ -2,7 +2,9 @@
 
 k40 (measured 2026-10-12): the open-time repair refused to re-place a stop
 the price had gapped through ("would fire immediately") and handed it to a
-suspended reviewer, leaving the shares with no stop and no exit.
+suspended reviewer, leaving the shares with no stop and no exit. The exit
+now goes through the desk's protected sell path, sized off a fresh position
+read.
 """
 
 from datetime import datetime
@@ -10,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.execution.broker_parts.market_data import LivePrice
+from src.execution.broker_parts.trim_book import trim_keeps_shares
 from src.execution.stop_repair import repair_stop_coverage
 from src.trading_calendar import ET
 
@@ -21,21 +24,31 @@ def _print(price, at=_TUE_0931, *, source="last_trade", today_print=True):
     return LivePrice(price=price, source=source, trade_at=at, is_today_print=today_print, is_today=today_print)
 
 
-def _broker(reading, open_orders=None, readable=True):
+def _pos(qty, symbol="AMD"):
+    return SimpleNamespace(symbol=symbol, qty=str(qty))
+
+
+def _broker(reading, *, held, open_orders=None, readable=True, resting=()):
+    """A mock broker returning realistic position / order objects."""
     b = MagicMock()
     b.STOP_LIMIT_BUFFER_PCT = 0.01
     b.get_latest_price_stamped.return_value = reading
     b.list_open_orders_checked.return_value = (readable, list(open_orders or []))
-    b.submit_order.return_value = {"id": "mkt-1", "status": "accepted"}
+    b.get_positions.return_value = [_pos(held), _pos(7, "MSFT")]
+    b.snapshot_protective_stops.return_value = (True, list(resting))
+    b.trim_keeps_shares.side_effect = trim_keeps_shares
+    b.clear_stops_for_trim.return_value = (True, [], None, dict(resting[0]) if resting else None)
+    b.submit_order.return_value = {"id": "mkt-1", "status": "accepted", "symbol": "AMD"}
     return b
 
 
-def _run(broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None, now=_TUE_0931):
+def _run(broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None, now=_TUE_0931, resting=None):
     db = MagicMock()
     with (
         patch("src.storage.trades.pending_stop_amends_store.get_all", return_value=list(owed)),
         patch("src.trading_calendar.et_now", return_value=now),
         patch("src.execution.exit_path_records.record_stop_repair_refusal") as rec,
+        patch("src.protection.owner_alerts.OwnerAlerts._alert_owner_exit_declined"),
     ):
         result = repair_stop_coverage(
             broker=broker,
@@ -45,47 +58,94 @@ def _run(broker, *, is_short=False, stop=90.0, qty=0.3456, owed=(), outcome=None
             is_short=is_short,
             db=db,
             outcome=outcome,
+            resting_stops=resting,
         )
-    return result, rec
+    return result, rec, db
 
 
-def test_long_gap_down_through_the_stop_sells_the_protected_qty():
-    b = _broker(_print(85.0))
-    outcome = {}
-    result, rec = _run(b, outcome=outcome)
-    assert result is False  # no stop placed: the position is being exited
-    b.submit_order.assert_called_once()
+def _sent(b):
     kw = b.submit_order.call_args.kwargs
-    assert (kw["symbol"], kw["qty"], kw["side"]) == ("AMD", 0.3456, "sell")
-    assert kw.get("limit_price") is None
-    b._submit_protective_stop_retrying.assert_not_called()
+    return kw["qty"], kw["side"], kw.get("limit_price")
+
+
+_GTC = {"id": "gtc-1", "qty": 10.0, "stop_price": 90.0}
+
+
+def test_long_gap_down_sells_only_the_unprotected_remainder_via_protected_path():
+    b = _broker(_print(85.0), held=10.3456, resting=[_GTC])
+    outcome = {}
+    result, rec, db = _run(b, outcome=outcome, resting=[_GTC])
+    assert result is False  # no stop placed: the remainder is being exited
+    assert _sent(b) == (0.3456, "sell", None)
+    b.clear_stops_for_trim.assert_called_once()  # trim path: the whole-share stop stays
+    b.cancel_snapshotted_stops.assert_not_called()
     row = rec.call_args.kwargs
     assert row["code"] == "breached_stop_executed"
-    assert row["placed"]["order_id"] == "mkt-1"
-    assert row["placed"]["stop_price"] == 90.0 and row["placed"]["print_price"] == 85.0
-    assert outcome["repair_refusal_code"] == "breached_stop_executed"
+    assert row["placed"]["order_id"] == "mkt-1" and row["placed"]["label"] == "PARTIAL_SELL"
+    assert row["placed"]["level_source"] == "broker_resting_stop"
+    assert row["placed"]["print_price"] == 85.0
+    assert db.insert_trade.call_args.kwargs["action"] == "PARTIAL_SELL"
+    assert db.insert_trade.call_args.kwargs["broker_order_id"] == "mkt-1"
 
 
-def test_short_gap_up_through_the_stop_covers():
-    b = _broker(_print(115.0))
-    result, rec = _run(b, is_short=True, stop=110.0, qty=3.0)
-    kw = b.submit_order.call_args.kwargs
-    assert (kw["qty"], kw["side"]) == (3.0, "buy")
-    assert rec.call_args.kwargs["code"] == "breached_stop_executed"
+def test_whole_share_stop_filled_between_reads_sells_the_remainder_only():
+    # The sweep saw 10.3456 held with nothing covering it; by the fresh read
+    # the whole-share stop had filled and only 0.3456 remains.
+    b = _broker(_print(85.0), held=0.3456)
+    result, rec, db = _run(b, qty=10.3456)
+    assert _sent(b) == (0.3456, "sell", None)
+    assert rec.call_args.kwargs["placed"]["label"] == "SELL"
+    assert rec.call_args.kwargs["placed"]["level_source"] == "recorded_row"
+
+
+def test_short_gap_up_covers_the_whole_short():
+    b = _broker(_print(115.0), held=-3)
+    result, rec, db = _run(b, is_short=True, stop=110.0, qty=3.0)
+    assert _sent(b) == (3.0, "buy", None)
+    assert db.insert_trade.call_args.kwargs["action"] == "COVER"
+
+
+def test_short_whose_stop_already_filled_covers_only_what_is_still_short():
+    b = _broker(_print(115.0), held=-2)
+    result, rec, db = _run(b, is_short=True, stop=110.0, qty=5.0)
+    assert _sent(b) == (2.0, "buy", None)  # never 5: that would flip the account long 3
+
+
+def test_short_partly_held_by_a_resting_stop_is_never_covered_in_part():
+    b = _broker(_print(115.0), held=-5)
+    result, rec, db = _run(b, is_short=True, stop=110.0, qty=2.0)
+    b.submit_order.assert_not_called()
+    assert rec.call_args.kwargs["code"] == "breached_stop_partial_cover_refused"
+
+
+def test_nothing_held_any_more_sends_nothing_and_records_it():
+    b = _broker(_print(85.0), held=0)
+    result, rec, db = _run(b)
+    b.submit_order.assert_not_called()
+    assert rec.call_args.kwargs["code"] == "breached_stop_nothing_held"
 
 
 def test_superseded_stop_with_an_owed_amend_does_not_trigger():
-    b = _broker(_print(85.0))
-    result, rec = _run(b, owed=[{"symbol": "AMD", "intended_stop": 80.0}])
+    b = _broker(_print(85.0), held=10.3456)
+    result, rec, db = _run(b, owed=[{"symbol": "AMD", "intended_stop": 80.0}])
     b.submit_order.assert_not_called()
     assert rec.call_args.kwargs["code"] == "would_fire_immediately"
     assert "superseded" in rec.call_args.kwargs["reason"]
 
 
+def test_resting_broker_stop_not_crossed_makes_the_recorded_level_stale():
+    resting = [{"id": "gtc-1", "qty": 10.0, "stop_price": 80.0}]
+    b = _broker(_print(85.0), held=10.3456, resting=resting)
+    result, rec, db = _run(b, resting=resting)
+    b.submit_order.assert_not_called()
+    assert rec.call_args.kwargs["code"] == "would_fire_immediately"
+    assert "stale" in rec.call_args.kwargs["reason"]
+
+
 def test_derived_level_is_never_executed():
-    b = _broker(_print(85.0))
+    b = _broker(_print(85.0), held=10.3456)
     with patch("src.execution.stop_repair.derive_protective_level", return_value=(90.0, "derived")):
-        result, rec = _run(b, stop=None)
+        result, rec, db = _run(b, stop=None)
     b.submit_order.assert_not_called()
     assert rec.call_args.kwargs["code"] == "would_fire_immediately"
 
@@ -93,41 +153,41 @@ def test_derived_level_is_never_executed():
 def test_second_run_does_not_double_sell():
     working = SimpleNamespace(id="mkt-1", symbol="AMD", side=SimpleNamespace(value="sell"), order_type="market")
     resting_stop = SimpleNamespace(id="gtc-1", symbol="AMD", side="sell", order_type="stop")
-    b = _broker(_print(85.0), open_orders=[resting_stop, working])
-    result, rec = _run(b)
+    b = _broker(_print(85.0), held=10.3456, open_orders=[resting_stop, working])
+    result, rec, db = _run(b)
     b.submit_order.assert_not_called()
     assert rec.call_args.kwargs["code"] == "breached_stop_exit_already_working"
     assert rec.call_args.kwargs["placed"]["order_id"] == "mkt-1"
 
 
 def test_unreadable_open_orders_sends_nothing():
-    b = _broker(_print(85.0), readable=False)
-    result, rec = _run(b)
+    b = _broker(_print(85.0), held=10.3456, readable=False)
+    result, rec, db = _run(b)
     b.submit_order.assert_not_called()
     assert rec.call_args.kwargs["code"] == "breached_stop_orders_unreadable"
 
 
 def test_unreadable_print_still_refuses():
-    # A quote (no trade print) cannot confirm the breach.
-    b = _broker(_print(85.0, source="quote_mid", today_print=False))
+    b = _broker(_print(85.0, source="quote_mid", today_print=False), held=10.3456)
     b.get_intraday_snapshots.return_value = {}
-    result, rec = _run(b)
+    result, rec, db = _run(b)
     b.submit_order.assert_not_called()
     codes = [c.kwargs["code"] for c in rec.call_args_list]
     assert codes and codes[-1] in ("would_fire_immediately", "no_trade_print_today")
 
 
 def test_premarket_print_still_refuses_and_says_so():
-    b = _broker(_print(85.0, at=_TUE_0800))
-    result, rec = _run(b, now=_TUE_0800)
+    b = _broker(_print(85.0, at=_TUE_0800), held=10.3456)
+    result, rec, db = _run(b, now=_TUE_0800)
     b.submit_order.assert_not_called()
     assert rec.call_args.kwargs["code"] == "would_fire_immediately"
     assert "regular-session trade print" in rec.call_args.kwargs["reason"]
 
 
 def test_kill_switch_refusal_is_recorded_not_reported_as_executed():
-    b = _broker(_print(85.0))
+    b = _broker(_print(85.0), held=0.3456)
     b.submit_order.return_value = {"id": None, "status": "kill_switch_halted", "detail": "kill switch"}
-    result, rec = _run(b)
+    result, rec, db = _run(b)
     assert result is False
     assert rec.call_args.kwargs["code"] == "breached_stop_exit_refused"
+    db.insert_trade.assert_not_called()
