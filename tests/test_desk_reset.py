@@ -20,6 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.storage.db import Database
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = PROJECT_ROOT / "scripts" / "desk_reset.py"
 
@@ -184,46 +186,37 @@ EVIDENCE_DROP_TOTAL = 60 + 9 + 6 + 4 + 3 + 2 + 5 + 4 + 1 + 1 + 2  # 97
 @pytest.fixture
 def db_path(tmp_path):
     p = tmp_path / "quant_agent.db"
+    # The REAL schema, not a hand-built imitation: a table the reset tool has
+    # never heard of must show up here, not hide behind a fake.
+    database = Database(str(p))
+    database.initialize()
+    database.conn.close()
     conn = sqlite3.connect(p)
-    conn.executescript(
-        """
-        CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT, action TEXT, qty REAL, price REAL);
-        CREATE TABLE positions (symbol TEXT PRIMARY KEY, qty REAL);
-        CREATE TABLE daily_pnl (date TEXT PRIMARY KEY, total_value REAL);
-        CREATE TABLE insights (date TEXT PRIMARY KEY, lessons TEXT);
-        CREATE TABLE intraday_evaluations (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT, run_id TEXT, status TEXT);
-        CREATE TABLE pending_protection_restores (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT, sell_order_id TEXT);
-        CREATE TABLE pending_repegs (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT, old_order_id TEXT);
-        CREATE TABLE specialist_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT, agent_name TEXT, kind TEXT, scope TEXT, symbol TEXT,
-            evidence_json TEXT);
-        CREATE TABLE agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_name TEXT, run_id TEXT, cost_usd REAL);
-        CREATE TABLE alert_channel_checks (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel TEXT);
-        CREATE TABLE llm_budget_days (day TEXT PRIMARY KEY, spend REAL);
-        CREATE TABLE llm_circuit_state (id INTEGER PRIMARY KEY, state TEXT);
-        CREATE TABLE future_table (id INTEGER PRIMARY KEY, note TEXT);
-        """
-    )
+    # Created lazily by the alert watchdog at runtime, not by initialize().
+    conn.execute("CREATE TABLE IF NOT EXISTS alert_channel_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT)")
     for i in range(45):
         conn.execute("INSERT INTO trades(symbol,action,qty,price) VALUES(?,?,?,?)", (f"S{i}", "BUY", 1.0, 10.0))
     for s in ("CMCSA", "DIS", "MSFT", "RSG", "SGOV", "V"):
-        conn.execute("INSERT INTO positions(symbol,qty) VALUES(?,?)", (s, 1.0))
+        conn.execute(
+            "INSERT INTO positions(symbol,qty,avg_entry,current_price,market_value,unrealized_pnl) VALUES(?,?,1,1,1,0)",
+            (s, 1.0),
+        )
     for d in range(12):
-        conn.execute("INSERT INTO daily_pnl(date,total_value) VALUES(?,?)", (f"2026-08-{d + 1:02d}", 9900.0))
+        conn.execute(
+            "INSERT INTO daily_pnl(date,total_value,daily_pnl,daily_return_pct) VALUES(?,?,0,0)",
+            (f"2026-08-{d + 1:02d}", 9900.0),
+        )
     for d in range(11):
         conn.execute("INSERT INTO insights(date,lessons) VALUES(?,?)", (f"2026-08-{d + 1:02d}", "lesson"))
     for i in range(137):
         conn.execute(
             "INSERT INTO intraday_evaluations(symbol,run_id,status) VALUES(?,?,?)", (f"S{i}", "r", "evaluated")
         )
-    conn.execute("INSERT INTO pending_protection_restores(symbol,sell_order_id) VALUES('X','o1')")
-    conn.execute("INSERT INTO pending_repegs(symbol,old_order_id) VALUES('Y','o2')")
+    conn.execute(
+        "INSERT INTO pending_protection_restores"
+        "(symbol,sell_order_id,position_qty_before_sell,specs_json) VALUES('X','o1',1,'[]')"
+    )
+    conn.execute("INSERT INTO pending_repegs(symbol,old_order_id,new_order_id) VALUES('Y','o2','o3')")
     for agent, kind, n in _EVIDENCE_ROWS:
         for _ in range(n):
             conn.execute(
@@ -237,9 +230,7 @@ def db_path(tmp_path):
         )
     for i in range(50):
         conn.execute("INSERT INTO alert_channel_checks(channel) VALUES('telegram')")
-    conn.execute("INSERT INTO llm_budget_days(day,spend) VALUES('2026-09-01', 1.5)")
-    conn.execute("INSERT INTO llm_circuit_state(id,state) VALUES(1,'closed')")
-    conn.execute("INSERT INTO future_table(note) VALUES('do not eat me')")
+    conn.execute("INSERT INTO llm_budget_days(day,baseline_cost_usd) VALUES('2026-09-01', 1.5)")
     conn.commit()
     conn.close()
     return p
@@ -532,8 +523,6 @@ def test_dry_run_prints_every_position_order_and_table(dr, wired, tmp_path, caps
     for table in dr.CLEAR_TABLES:
         assert f"CLEAR  {table}" in out
     assert "45 rows" in out  # trades row count
-    assert "future_table" in out  # unknown table surfaced
-    assert "UNKNOWN to this tool" in out
 
 
 def test_execute_without_a_tty_requires_yes(dr, wired, tmp_path, monkeypatch):
@@ -628,8 +617,40 @@ def test_plan_classifies_every_table(dr, db_path):
 
     assert cleared == set(dr.CLEAR_TABLES)
     assert "agent_logs" in kept and "llm_budget_days" in kept
-    assert unknown == {"future_table"}
+    assert unknown == set(), f"real tables the reset tool does not classify: {sorted(unknown)}"
     assert dr.EVIDENCE_TABLE not in cleared and dr.EVIDENCE_TABLE not in kept
+
+
+@pytest.fixture
+def db_with_unknown_table(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE future_table (id INTEGER PRIMARY KEY, note TEXT)")
+    conn.execute("INSERT INTO future_table(note) VALUES('do not eat me')")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.mark.parametrize("execute", [False, True])
+def test_unknown_table_refuses_the_run_and_names_it(dr, wired, db_with_unknown_table, tmp_path, capsys, execute):
+    argv = _base_argv(wired.db_path, tmp_path / "resets") + (["--execute", "--yes"] if execute else [])
+    rc = dr.run(argv)
+    err = capsys.readouterr().err
+    assert rc == 5
+    assert "future_table" in err
+    assert "TABLE_POLICY" in err
+    assert _counts(wired.db_path)["trades"] == 45  # nothing touched
+    assert _counts(wired.db_path)["future_table"] == 1
+
+
+def test_clear_database_refuses_an_unclassified_plan(dr, db_with_unknown_table):
+    conn = dr._connect(db_with_unknown_table, read_only=False)
+    try:
+        plan = dr.plan_database(conn, evidence_mode="analysis-only")
+        with pytest.raises(dr.ResetRefused, match="future_table"):
+            dr.clear_database(conn, plan, evidence_mode="analysis-only")
+    finally:
+        conn.close()
 
 
 def test_execute_clears_only_the_allowlist(dr, wired, tmp_path):
@@ -645,7 +666,6 @@ def test_execute_clears_only_the_allowlist(dr, wired, tmp_path):
     assert after["alert_channel_checks"] == 50
     assert after["llm_budget_days"] == 1
     assert after["llm_circuit_state"] == 1
-    assert after["future_table"] == 1
 
 
 def test_evidence_analysis_only_keeps_paid_specialist_observation(

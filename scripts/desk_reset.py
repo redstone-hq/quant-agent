@@ -104,6 +104,19 @@ CLEAR_TABLES = (
     "intraday_evaluations",  # per-symbol evaluation ledger + cooldowns
     "pending_protection_restores",  # write-ahead queue -> dead order ids
     "pending_repegs",  # write-ahead queue -> dead order ids
+    "pending_stop_amends",  # write-ahead queue -> dead order ids
+    "protection_restore_wal_audit",  # audit trail of the cleared restore queue
+    "order_attempts",  # every order the old book tried to place
+    "trade_refusals",  # decision ledger: what the old pipeline refused
+    "alignment_exit_readings",  # per-symbol exit readings on the old book
+    "soft_exit_heal_restores",  # exit-protection repairs on the old book
+    "trend_exit_tick_checks",  # per-symbol exit state on the old book
+    "realised_sector_weights",  # sector weights derived from the old book
+    "reconciliation_runs",  # broker-vs-local comparisons of the old book
+    "margin_interest_daily",  # financing cost of the old book (P&L ledger)
+    "evening_reports",  # evening report grading the old trades
+    "session_reports",  # session report on the old book
+    "intra_check_reports",  # intraday report on the old book
 )
 
 # Rows here are NOT trading decisions. Keeping them costs nothing and
@@ -117,6 +130,10 @@ KEEP_TABLES = (
     "llm_circuit_state",
     "llm_circuit_events",
     "llm_quota_holds",
+    "notifier_sends",  # delivery log of the alert channel (alerting health)
+    "fred_fetch_coverage_runs",  # data-provider coverage, not a decision
+    "intraday_symbol_health",  # data-feed miss counters + alert timing
+    "owner_intents",  # owner instructions: not ours to delete
     "sqlite_sequence",  # sqlite-managed; handled surgically below
 )
 
@@ -446,9 +463,8 @@ def _count(conn: sqlite3.Connection, table: str, where: str = "", params=()) -> 
 def plan_database(conn: sqlite3.Connection, *, evidence_mode: str) -> dict:
     """Work out, without changing anything, exactly which rows would go.
 
-    Tables this tool has never heard of are KEPT and reported — silently
-    clearing an unknown table is how a reset tool eats something it
-    shouldn't.
+    Tables this tool has never heard of are reported under `unknown`; the
+    caller must refuse to run (see assert_all_classified).
     """
     present = list_tables(conn)
     clear: list[dict] = []
@@ -558,8 +574,25 @@ def backup_database(db_path: Path, dest: Path) -> dict:
     return {"path": str(dest), "bytes": dest.stat().st_size}
 
 
+def assert_all_classified(plan: dict) -> None:
+    """Refuse if the database holds a table this tool has no policy for.
+
+    A new table must be classified in TABLE_POLICY before a reset may run;
+    silently skipping it would leave contaminated rows (or delete valuable
+    ones) without anyone deciding.
+    """
+    names = sorted(e["table"] for e in plan["unknown"])
+    if names:
+        raise ResetRefused(
+            "REFUSING: table(s) not classified in TABLE_POLICY: "
+            + ", ".join(names)
+            + ". Add each to CLEAR_TABLES or KEEP_TABLES in scripts/desk_reset.py."
+        )
+
+
 def clear_database(conn: sqlite3.Connection, plan: dict, *, evidence_mode: str) -> dict:
     """Apply the plan. One transaction: all of it lands or none of it does."""
+    assert_all_classified(plan)
     deleted: dict[str, int] = {}
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -981,6 +1014,11 @@ def run(argv: list[str] | None = None) -> int:
             plan = plan_database(conn, evidence_mode=args.evidence)
         finally:
             conn.close()
+        try:
+            assert_all_classified(plan)
+        except ResetRefused as exc:
+            print(f"\n{exc}\n", file=sys.stderr)
+            return 5
 
     print(render_plan(book, plan, window, paths, execute=args.execute, checks=checks))
 
