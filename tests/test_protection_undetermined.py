@@ -4,10 +4,11 @@ Measured defect: the owner was paged "PROTECTION UNDETERMINED (it ended
 early)" every weekday at 08:03 ET (earnings_preprocess) and 09:00 ET
 (--mode daily) because the page treated ANY result without
 `stop_coverage_gaps` as a session that failed to audit. Those modes have no
-audit in their contract. The fix: each session class declares
-`AUDITS_BROKER_STOPS`, and the page reads that declaration through
-src/sessions/stop_audit.py. The enumeration test below keeps declaration
-and audit from drifting apart in either direction.
+audit in their contract. The fix: src/sessions/stop_audit.py (imports
+nothing, so the api reach guard stays intact) declares which session each
+mode runs and which sessions audit; each session class repeats the fact as
+`AUDITS_BROKER_STOPS` beside its audit. This test is what ties the three
+together -- class attribute, table, and the audit code -- so none can drift.
 """
 
 from __future__ import annotations
@@ -19,10 +20,19 @@ from pathlib import Path
 
 import pytest
 
+from src.intraday.safety import IntradaySafety
+from src.intraday.session import IntradaySession
+from src.sessions.earnings_preprocess_session import EarningsPreprocessSession
+from src.sessions.evening_session import EveningSession
+from src.sessions.morning_session import MorningSession
+from src.sessions.position_review_session import PositionReviewSession
+from src.sessions.quarterly_meta_session import QuarterlyMetaReflectionSession
 from src.sessions.stop_audit import (
+    MODE_SESSION,
+    SESSION_AUDITS_BROKER_STOPS,
     STOP_COVERAGE_KEY,
     mode_audits_broker_stops,
-    session_class_for_mode,
+    session_name_for_mode,
 )
 from src.trader_feed.naked import (
     naked_position_alert,
@@ -31,6 +41,18 @@ from src.trader_feed.naked import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+SESSION_CLASSES = {
+    c.__name__: c
+    for c in (
+        IntradaySafety,
+        IntradaySession,
+        EarningsPreprocessSession,
+        EveningSession,
+        MorningSession,
+        PositionReviewSession,
+        QuarterlyMetaReflectionSession,
+    )
+}
 
 
 def _every_mode() -> set[str]:
@@ -50,13 +72,16 @@ def _module_writes_audit(cls) -> bool:
 
 
 def _check_declaration_matches_audit(mode: str) -> None:
-    cls = session_class_for_mode(mode)  # KeyError = unregistered mode
-    if cls is None:
+    name = session_name_for_mode(mode)  # KeyError = unregistered mode
+    if name is None:
         return
-    declared = bool(getattr(cls, "AUDITS_BROKER_STOPS", False))
+    cls = SESSION_CLASSES[name]  # KeyError = table names a class this test does not know
+    on_class = bool(getattr(cls, "AUDITS_BROKER_STOPS", False))
+    in_table = SESSION_AUDITS_BROKER_STOPS[name]
+    assert on_class == in_table, f"{name}: class says {on_class}, stop_audit table says {in_table}"
     writes = _module_writes_audit(cls)
-    assert declared == writes, (
-        f"{mode} -> {cls.__name__}: AUDITS_BROKER_STOPS={declared} but its module "
+    assert in_table == writes, (
+        f"{mode} -> {name}: declared AUDITS_BROKER_STOPS={in_table} but its module "
         f"{'writes' if writes else 'never writes'} {STOP_COVERAGE_KEY}"
     )
 
@@ -66,23 +91,38 @@ def test_every_mode_is_registered_and_declaration_matches_the_audit(mode):
     _check_declaration_matches_audit(mode)
 
 
-def test_the_enumeration_check_can_fail_in_both_directions(monkeypatch):
-    morning = session_class_for_mode("morning")
-    assert morning.AUDITS_BROKER_STOPS is True
-    monkeypatch.setattr(morning, "AUDITS_BROKER_STOPS", False)
+def test_every_table_entry_names_a_real_session_class():
+    assert set(SESSION_AUDITS_BROKER_STOPS) == set(SESSION_CLASSES)
+    assert {n for n in MODE_SESSION.values() if n is not None} <= set(SESSION_CLASSES)
+
+
+def test_the_enumeration_check_can_fail_in_every_direction(monkeypatch):
+    monkeypatch.setattr(MorningSession, "AUDITS_BROKER_STOPS", False)
+    with pytest.raises(AssertionError, match="class says False"):
+        _check_declaration_matches_audit("morning")
+    monkeypatch.undo()
+
+    monkeypatch.setitem(SESSION_AUDITS_BROKER_STOPS, "MorningSession", False)
+    monkeypatch.setattr(MorningSession, "AUDITS_BROKER_STOPS", False)
     with pytest.raises(AssertionError, match="writes stop_coverage_gaps"):
         _check_declaration_matches_audit("morning")
+    monkeypatch.undo()
 
-    earnings = session_class_for_mode("earnings_preprocess")
-    assert earnings.AUDITS_BROKER_STOPS is False
-    monkeypatch.setattr(earnings, "AUDITS_BROKER_STOPS", True)
+    monkeypatch.setitem(SESSION_AUDITS_BROKER_STOPS, "EarningsPreprocessSession", True)
+    monkeypatch.setattr(EarningsPreprocessSession, "AUDITS_BROKER_STOPS", True)
     with pytest.raises(AssertionError, match="never writes"):
         _check_declaration_matches_audit("earnings_preprocess")
 
 
 def test_unregistered_mode_fails_the_enumeration():
     with pytest.raises(KeyError):
-        session_class_for_mode("some_new_mode_nobody_registered")
+        session_name_for_mode("some_new_mode_nobody_registered")
+
+
+def test_stop_audit_module_imports_nothing_from_src():
+    """src/api reaches src/trader_feed, which reads this module: it must not open a route to session code."""
+    src = inspect.getsource(sys.modules["src.sessions.stop_audit"])
+    assert not re.search(r"^\s*(from|import)\s+src", src, re.M)
 
 
 def test_the_two_measured_false_pages_are_now_silent():
