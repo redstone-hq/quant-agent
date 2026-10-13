@@ -662,3 +662,39 @@ def test_classify_is_case_insensitive_generally():
     fl = L.classify(lower.message, lower.level)
     fu = L.classify(upper.message, upper.level)
     assert fl is not None and fu is not None and fl.key == fu.key == "broker_turned_us_away"
+
+
+def _fam(key):
+    return next(f for f in L.FAMILIES if f.key == key)
+
+
+def test_an_owner_accepted_family_says_so_and_stays_hurt():
+    fam = _fam("overnight_fractional_exposure")
+    finding = L.Finding(family=fam, count=1, dollars_uncovered=12.5)
+    text = L.disposition(finding, set(), set(), is_new=True)
+    assert "owner-accepted 2 Sep" in text
+    assert "$12.50 uncovered" in text
+    assert "not yet on the list" not in text
+    assert fam.reason == L.MONEY_UNPROTECTED
+    other = L.Finding(family=_fam("seat_answer_unreadable"), count=5)
+    report = L.Report(window_start=WIDE_START, window_end=WIDE_END, findings=[other, finding])
+    assert report.reported[0].family.key == "overnight_fractional_exposure"
+
+
+def test_the_accepted_dollars_are_read_from_the_log_line():
+    ts = WIDE_END - timedelta(hours=1)
+    rec = L.LogRecord(
+        ts,
+        "WARNING",
+        "x",
+        "OVERNIGHT FRACTIONAL EXPOSURE: 2 position(s) carrying a sub-share remainder with no live stop "
+        "until the next session — $41.07 total at risk. Expected and bounded by design",
+    )
+    report = L.analyse([rec], WIDE_START, WIDE_END)
+    assert report.findings[0].dollars_uncovered == 41.07
+
+
+def test_a_family_without_acceptance_is_unchanged():
+    finding = L.Finding(family=_fam("seat_answer_unreadable"), count=1)
+    assert _fam("seat_answer_unreadable").accepted_on is None
+    assert L.disposition(finding, set(), set(), is_new=True) == "new — not yet on the list"

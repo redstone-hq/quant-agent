@@ -426,6 +426,7 @@ def main():
             send_naked_position_alert(
                 notifier,
                 result if isinstance(result, dict) else None,
+                mode=args.mode,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("naked-position alert failed in finally: %s", exc)

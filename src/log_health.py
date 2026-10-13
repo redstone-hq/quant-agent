@@ -191,6 +191,13 @@ class FaultFamily:
     #: resolved later in the window is not reported — the desk fixed it, and
     #: a fixed fault reported as current is a false alarm.
     resolved_by: tuple[re.Pattern[str], ...] = ()
+    #: ISO date on which the owner explicitly accepted this standing exposure.
+    #: The family stays in its HURT ordering (acceptance is not a fix and must
+    #: not hide risk); only its disposition changes, from "new — not yet on the
+    #: list" to "owner-accepted <day month>".
+    accepted_on: str | None = None
+    #: Captures the dollars uncovered from the log line, when it carries them.
+    dollars: re.Pattern[str] | None = None
 
 
 def _p(*patterns: str) -> tuple[re.Pattern[str], ...]:
@@ -361,18 +368,21 @@ FAMILIES: tuple[FaultFamily, ...] = (
         short_name="sub-share remainders carrying no stop overnight",
         sentence=(
             "{n} holding{plural} went through the night with a sub-share "
-            "remainder no safety net can cover, because the broker will not "
-            "hold one overnight"
+            "remainder carrying no stop, because the broker will not hold "
+            "one overnight; the whole shares keep their stop"
         ),
         reason=MONEY_UNPROTECTED,
-        # Real, unbounded, and NOT a bug: the broker refuses an overnight stop
-        # on a part-share, so this is a standing constraint rather than a
-        # failure. It is still money with no floor under it, so it is
+        # Real, bounded (only the fraction; whole shares carry a GTC stop), and
+        # NOT a bug: the broker refuses an overnight stop on a part-share, so
+        # this is a standing constraint. The owner accepted it 2026-09-02. It
+        # is still money with no floor under it, so it is
         # reported — but only while it is TRUE. Once the next session repairs
         # the coverage it is resolved and drops out, which is why a report
         # before the open carries it and a report after the close does not.
         patterns=_p(r"OVERNIGHT FRACTIONAL EXPOSURE"),
         resolved_by=_p(r"COVERAGE REPAIRED:"),
+        accepted_on="2026-09-02",
+        dollars=re.compile(r"\$([\d,]+(?:\.\d+)?) total at risk", re.IGNORECASE),
         # A standing broker constraint, not a defect anyone is fixing: the
         # broker refuses an overnight stop on a part-share. It was never
         # item 127's to close, and item 127 is retired.
@@ -633,6 +643,8 @@ class Finding:
     #: Earliest occurrence anywhere in the retained history, for the families
     #: whose severity is a function of how long they have been failing.
     first_seen_ever: datetime | None = None
+    #: Dollars uncovered per the most recent matching line, when it states them.
+    dollars_uncovered: float | None = None
 
     @property
     def reportable(self) -> bool:
@@ -807,7 +819,7 @@ def analyse(
     findings: dict[str, Finding] = {}
     resolved: dict[str, int] = {}
 
-    def bump(family: FaultFamily, ts: datetime) -> None:
+    def bump(family: FaultFamily, ts: datetime, message: str = "") -> None:
         finding = findings.get(family.key)
         if finding is None:
             finding = Finding(family=family)
@@ -817,6 +829,10 @@ def analyse(
             finding.first_seen = ts
         if finding.last_seen is None or ts > finding.last_seen:
             finding.last_seen = ts
+            if family.dollars is not None:
+                m = family.dollars.search(message)
+                if m:
+                    finding.dollars_uncovered = float(m.group(1).replace(",", ""))
 
     for record in records:
         if _is_owner_alert_echo(record):
@@ -839,7 +855,7 @@ def analyse(
                 # self-healed morning became a HURT verdict.
                 resolved[family.key] = resolved.get(family.key, 0) + 1
                 continue
-            bump(family, record.timestamp)
+            bump(family, record.timestamp, record.message)
         elif record.level in _SERIOUS_LEVELS:
             # Fail-closed: the desk itself called this a fault, and this module
             # has no wording for it. Saying nothing would be the one outcome
@@ -955,6 +971,12 @@ def disposition(finding: Finding, on_board: set[int], in_tiers: set[int], is_new
         return "on the list"
     if finding.family.reason is None:
         return "watched and left alone"
+    if finding.family.accepted_on:
+        day = datetime.fromisoformat(finding.family.accepted_on)
+        text = f"owner-accepted {day.day} {day:%b}"
+        if finding.dollars_uncovered is not None:
+            text += f", ${finding.dollars_uncovered:,.2f} uncovered"
+        return text
     # No board item means nobody has picked this up. Saying anything warmer
     # would let the message claim work is happening that is not.
     return "new — not yet on the list" if is_new else "still not on the list"

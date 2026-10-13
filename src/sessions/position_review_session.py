@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 class PositionReviewSession:
     """Midday/close position review session (moved verbatim from TradingPipeline)."""
 
+    # Declared beside the audit that writes `stop_coverage_gaps`; read by
+    # src/sessions/stop_audit.py and enforced by tests/test_protection_undetermined.py.
+    AUDITS_BROKER_STOPS = True
+
     def __init__(
         self,
         *,
