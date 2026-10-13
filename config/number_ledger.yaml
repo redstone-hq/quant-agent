@@ -623,6 +623,22 @@ numbers:
     note: >-
       The measured move claimed when no structural level stands in the way, in
       sqrt(session)-scaled ATRs (src/config/__init__.py::RiskConfig).
+  - id: src.quantities._RECONCILE_TOLERANCE
+    value: 1e-06
+    status: instrument
+    site: src/quantities.py
+    source: >-
+      Floating-point comparison slack, in shares, when checking that a position
+      chain's executed entries minus executed exits equal the broker-held
+      quantity (`held_position_risk`). Same slack the closed-position reducer
+      already uses to decide a chain has gone flat (src/quantities.py::summarize_closed_position).
+      Share quantities are summed as floats,
+      so an exact equality test would reject a reconciled chain over rounding.
+      Alpaca fractional quantities carry up to 9 decimals
+      (src/execution/order_gates.py::ORDER_QTY_DECIMALS), so any real unrecorded
+      fill is at least 1e-9 shares and in practice whole or fractional lots far
+      above 1e-6; the slack can hide at most 1e-6 shares x price of risk. A
+      mismatch above it makes R unknown (None), never a smaller number.
   - id: src.execution.order_gates.ORDER_QTY_DECIMALS
     value: 9
     status: instrument

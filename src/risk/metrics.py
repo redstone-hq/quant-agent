@@ -24,7 +24,7 @@ budget but carries a great deal of open risk.
 **R-multiple** — profit in units of the risk originally taken: unrealised
 P&L / per-lot entry risk, where entry risk is the sum over the open lots of
 lot qty x |lot fill - that lot's OWN initial stop| scaled to the shares still
-held (`quantities.open_position_risk_dollars`, via `held_position_risk_dollars`).
+held (`quantities.held_position_risk`).
 Never one stop against the broker's blended average entry: after a scale-in
 that overstates R. None ("R unknown") if any lot lacks a usable stop. For a
 single lot this is exactly `(current - entry) / (entry - initial_stop)`.
@@ -45,8 +45,6 @@ import logging
 import math
 from dataclasses import dataclass, field
 
-from src.quantities import _executed_qty, open_position_risk_dollars
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -58,7 +56,6 @@ __all__ = [
     "portfolio_heat",
     "format_heat_block",
     "unrealized_pnl_pct",
-    "held_position_risk_dollars",
 ]
 
 
@@ -176,7 +173,7 @@ def position_risk(
     `stop` is the LIVE stop (broker truth, already trailed). `initial_stop` is
     informational only (carried on the result for display); it is NEVER an R
     denominator. `entry_risk_dollars` is the per-lot risk on the shares held
-    (`held_position_risk_dollars`); R = unrealised P&L / it, None when it is
+    (`quantities.held_position_risk`); R = unrealised P&L / it, None when it is
     None — never a guess from the live or a single initial stop.
 
     A negative `qty` is a short (Alpaca's own sign convention, passed through
@@ -269,23 +266,6 @@ def _per_lot_r(qty: float, entry: float, cur: float, risk: float | None, unknown
     return round((cur - entry) * qty / risk, 2)
 
 
-def held_position_risk_dollars(opening_row: dict | None, lots: object, held_qty: float) -> float | None:
-    """Per-lot dollar risk on the shares still held — the ONE open-position R denominator.
-
-    `lots` are the position's executed opening rows (`db.get_position_open_lots`).
-    When the chain cannot be resolved (None / not a list / empty), the opening
-    row alone is used ONLY if its own quantity covers the whole holding — a
-    single lot; otherwise R is unknown (None) rather than one lot's stop
-    standing in for the others. Short when `held_qty` < 0.
-    """
-    held = _finite(held_qty) or 0.0
-    if not isinstance(lots, list) or not lots:
-        if not isinstance(opening_row, dict) or _executed_qty(opening_row) + 1e-6 < abs(held):
-            return None
-        lots = [opening_row]
-    return open_position_risk_dollars(lots, "short" if held < 0 else "long", held)
-
-
 @dataclass(frozen=True)
 class PortfolioHeat:
     """Book-level roll-up of `PositionRisk`."""
@@ -343,7 +323,7 @@ def portfolio_heat(
 
     `stops` maps symbol → live stop price; a symbol absent from the map is
     treated as unprotected. `entry_risks` maps symbol → per-lot dollar risk on
-    the held shares (`held_position_risk_dollars`); absent or None → R unknown.
+    the held shares (`quantities.held_position_risk`); absent or None → R unknown.
     `exclude_symbols` drops cash-equivalent sweep
     holdings, which are deliberately stopless and are not risk positions.
     """

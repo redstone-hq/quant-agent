@@ -50,10 +50,10 @@ logger = logging.getLogger("src.pipeline")
 
 def _held_risk(db, opening_row, held_qty) -> float | None:
     """Per-lot dollar risk on the held shares; None (R unknown) if unreadable."""
-    from src.risk.metrics import held_position_risk_dollars
+    from src.quantities import held_position_risk
 
     try:
-        lots = db.get_position_open_lots(opening_row) if opening_row else None
+        lots = db.get_position_chain_rows(opening_row) if opening_row else None
     except Exception as e:  # noqa: BLE001 — R degrades to unknown, never a guess
         logger.warning("open lots lookup failed for %s: %s", (opening_row or {}).get("symbol"), e)
         lots = None
@@ -61,7 +61,7 @@ def _held_risk(db, opening_row, held_qty) -> float | None:
         held = float(held_qty or 0)
     except (TypeError, ValueError):
         return None
-    return held_position_risk_dollars(opening_row, lots, held)
+    return held_position_risk(lots, held, opening_row)[0]
 
 
 class PromptExposure:

@@ -50,7 +50,6 @@ def compute_trailing_stop(
     atr: float | None = None,
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float = 1.0,
-    initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
     risk_per_share: float | None = None,
 ) -> TrailProposal | None:
@@ -66,11 +65,9 @@ def compute_trailing_stop(
     trade works; a short's stop lives ABOVE price and ratchets DOWN toward it.
     Defaults to +1.0 so every existing (long-only) call site is unchanged.
 
-    `initial_stop` is the stop AT ENTRY (before any trail ever moved it) —
-    used only by the Type A breakeven ratchet (fix #3, see module docstring)
-    to measure the risk actually taken. Optional and additive: omitting it
-    (every pre-fix call site, until updated) simply means that ratchet never
-    fires, reproducing the exact old behaviour.
+    `risk_per_share` is 1R per held share from the per-lot function
+    (`quantities.held_position_risk` / held qty) — used only by the Type A
+    R ratchets. None (R unknown) means those ratchets never fire.
 
     `structural_ceiling` is the constructor's MEASURED breakout verdict,
     pinned at entry (item 82, #649/#652). Passing it routes a measured
@@ -90,7 +87,6 @@ def compute_trailing_stop(
         atr=atr,
         min_ratchet_ticks=min_ratchet_ticks,
         qty=qty,
-        initial_stop=initial_stop,
         structural_ceiling=structural_ceiling,
         risk_per_share=risk_per_share,
     ).proposal
@@ -108,7 +104,6 @@ def evaluate_trailing_stop(
     atr: float | None = None,
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float | None = None,  # None reads as a long — see `is_short` below
-    initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
     risk_per_share: float | None = None,
 ) -> TrailEvaluation:
@@ -131,13 +126,6 @@ def evaluate_trailing_stop(
         return TrailEvaluation(None, TRAIL_CODE_NO_LIVE_STOP)
 
     is_short = (_finite(qty) or 1.0) < 0
-    if risk_per_share is None and initial_stop is not None:
-        # Single-lot adapter ONLY (backtest positions never scale in): one
-        # lot's |entry - initial stop| IS its per-lot R per share. A live,
-        # possibly multi-lot position passes `risk_per_share` from the per-lot
-        # function instead (`exits_parts.trails`).
-        init = _finite(initial_stop)
-        risk_per_share = abs(ent - init) if init is not None and init > 0 else None
 
     # Type A vs Type B is the SAME breakout verdict every other money-path
     # reader now uses: the analyst's label OR the constructor's MEASURED

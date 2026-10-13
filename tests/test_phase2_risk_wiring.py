@@ -271,6 +271,7 @@ def test_position_facts_carry_the_r_multiple_against_the_entry_stop():
     pipeline = build_pipeline(db=MagicMock(), broker=MagicMock())
     pipeline.db.get_symbol_last_buy.return_value = {
         "stop_loss": 90.0,
+        "action": "BUY",
         "qty": 10,
         "price": 100.0,
         "take_profit": 130.0,

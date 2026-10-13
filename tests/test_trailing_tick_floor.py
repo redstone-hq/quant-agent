@@ -92,7 +92,7 @@ def test_a_trailed_stop_can_never_move_toward_more_risk():
                                 bars=bars,
                                 atr=atr,
                                 qty=qty,
-                                initial_stop=stop,
+                                risk_per_share=(abs(entry - stop) if stop else None),
                             )
                             checked += 1
                             if proposal is None:

@@ -449,18 +449,43 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
     return orders
 
 
+#: (position or symbol, reason) -> ET date last warned. "R unknown" is logged at
+#: WARNING once per position per reason per day, so a permanently dead R
+#: ratchet is visible without flooding every tick.
+_R_UNKNOWN_WARNED: dict[tuple[str, str], str] = {}
+
+
+def _warn_r_unknown(symbol: str, opening_row: dict | None, reason: str) -> None:
+    from src.trading_calendar import et_today
+
+    key = (str((opening_row or {}).get("position_id") or symbol), reason)
+    today = et_today().isoformat()
+    if _R_UNKNOWN_WARNED.get(key) == today:
+        return
+    _R_UNKNOWN_WARNED[key] = today
+    logger.warning(
+        "trail: %s R unknown (%s) — +1R breakeven / +2R lock ratchets cannot fire; structural trail unaffected",
+        symbol,
+        reason,
+    )
+
+
 def _risk_per_share(owner, opening_row: dict | None, held_qty, symbol: str) -> float | None:
-    """Per-lot entry risk / held shares, or None when R is unknown."""
-    from src.risk.metrics import held_position_risk_dollars
+    """Per-lot entry risk / held shares, or None (warned) when R is unknown."""
+    from src.quantities import held_position_risk
 
     try:
-        lots = owner.db.get_position_open_lots(opening_row)
+        lots = owner.db.get_position_chain_rows(opening_row)
     except Exception as e:  # noqa: BLE001 — R unknown, never a guess
         logger.warning("trail: open lots lookup failed for %s: %s — R ratchets skipped", symbol, e)
         lots = None
     try:
         held = float(held_qty or 0)
     except (TypeError, ValueError):
+        _warn_r_unknown(symbol, opening_row, "unreadable_held_qty")
         return None
-    risk = held_position_risk_dollars(opening_row, lots, held)
-    return risk / abs(held) if risk and held else None
+    risk, reason = held_position_risk(lots, held, opening_row)
+    if risk is None:
+        _warn_r_unknown(symbol, opening_row, reason)
+        return None
+    return risk / abs(held)

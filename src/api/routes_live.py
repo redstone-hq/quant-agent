@@ -29,7 +29,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from src.api.db_reads import get_open_entry_rows
+from src.api.db_reads import get_open_position_rows
 from src.api.loud_reads import record_dashboard_fault
 from src.storage.analytics.trade_review import open_position_r
 from src.api.drift_state import deploy_drift_state as _deploy_drift_state
@@ -603,7 +603,7 @@ def get_positions() -> PositionsResponse:
         try:
             rs = open_position_r(
                 result.get("positions", []),
-                get_open_entry_rows([str(p.get("symbol")) for p in result.get("positions", []) if p.get("symbol")]),
+                get_open_position_rows([str(p.get("symbol")) for p in result.get("positions", []) if p.get("symbol")]),
             )
         except Exception as exc:  # the R columns are display-only; never lose the positions over them
             record_dashboard_fault("get_positions.open_r", exc)

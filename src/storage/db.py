@@ -2166,9 +2166,9 @@ class Database:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_position_open_row(buy_row)
 
-    def get_position_open_lots(self, buy_row: dict | None) -> list[dict] | None:
-        """Thin shim: every executed opening lot of `buy_row`'s position (TradeAnalytics)."""
-        return self._analytics().get_position_open_lots(buy_row)
+    def get_position_chain_rows(self, buy_row: dict | None) -> list[dict] | None:
+        """Thin shim: every executed row of `buy_row`'s position chain (TradeAnalytics)."""
+        return self._analytics().get_position_chain_rows(buy_row)
 
     def get_recent_insights(self, limit: int = 7) -> list[dict]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""

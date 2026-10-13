@@ -467,6 +467,71 @@ def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: floa
     return full * min(1.0, held / entered)
 
 
+#: Shares of slack allowed when reconciling a chain's lots to the held quantity.
+_RECONCILE_TOLERANCE = 1e-6
+
+
+def held_position_risk(
+    chain_rows: object, held_qty: float, opening_row: dict | None = None
+) -> tuple[float | None, str]:
+    """`(risk dollars on the shares held, reason)` — the ONE open-position R denominator.
+
+    Every reader of open-position R (prompt facts, heat block, trail ratchets,
+    dashboard, backtest) calls this. `chain_rows` are the position's EXECUTED
+    rows (opening lots and exits) from `select_position_chain_rows`. Risk is
+    `open_position_risk_dollars` over the opening lots, each against its OWN
+    initial stop. R is unknown (None) — never a smaller number — when:
+      - `position_chain_unresolved`: no rows and no opening row to stand in;
+      - `lots_do_not_reconcile`: executed entries minus executed exits do not
+        equal the held quantity (e.g. a filled add not yet marked filled —
+        dropping it would shrink 1R and fire the breakeven ratchet early);
+      - `direction_mismatch`: the chain's side is not the held side;
+      - `lot_without_usable_stop`: any lot has no readable or right-side stop.
+    With no chain (legacy row without a `position_id`), `opening_row` alone is
+    the chain, so it too must reconcile exactly to the held quantity.
+    """
+    held_signed = _finite(held_qty) or 0.0
+    held = abs(held_signed)
+    if held <= 0:
+        return None, "no_held_quantity"
+    rows = chain_rows if isinstance(chain_rows, list) and chain_rows else None
+    if rows is None:
+        rows = [opening_row] if isinstance(opening_row, dict) else []
+    opens, exits, direction = _split_chain(rows)
+    if not opens or direction is None:
+        return None, "position_chain_unresolved"
+    if (held_signed < 0) != (direction == "short"):
+        return None, "direction_mismatch"
+    entered = sum(_executed_qty(r) for r in opens)
+    exited = sum(_executed_qty(r) for r in exits)
+    if abs(entered - exited - held) > _RECONCILE_TOLERANCE:
+        return None, "lots_do_not_reconcile"
+    risk = open_position_risk_dollars(opens, direction, held)
+    if risk is None:
+        return None, "lot_without_usable_stop"
+    return risk, "ok"
+
+
+def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -> list[dict] | None:
+    """Every EXECUTED row of `opening_row`'s position chain, oldest first — the ONE lot reader.
+
+    `predicate` is the caller's executed-trade SQL predicate (the storage and
+    API copies are kept identical). None when the row carries no
+    `position_id`/symbol or is not an opening row: the chain is unresolved.
+    """
+    if not isinstance(opening_row, dict):
+        return None
+    pid = opening_row.get("position_id")
+    symbol = opening_row.get("symbol")
+    if not pid or not symbol or str(opening_row.get("action") or "").upper() not in _OPEN_ACTIONS:
+        return None
+    rows = conn.execute(
+        f"SELECT * FROM trades WHERE symbol = ? AND position_id = ? AND {predicate} ORDER BY timestamp ASC, id ASC",
+        (symbol, pid),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def _executed_qty(row: dict) -> float:
     """Shares this row actually moved. Prefers the reconciled fill over the
     requested quantity, mirroring `compute_trade_calibration`."""

@@ -1664,19 +1664,30 @@ def get_trade_review_rows() -> dict:
             conn.close()
 
 
-def get_open_entry_rows(symbols: list[str]) -> list[dict]:
-    """Opening (BUY/SHORT) rows for the given symbols, for the held-position stop and R display."""
+def get_open_position_rows(symbols: list[str]) -> list[dict]:
+    """Executed rows of each symbol's latest position chain, for the held-position stop and R display.
+
+    Same lot reader as the trail and the prompt (`quantities.select_position_chain_rows`), with the
+    executed-trade predicate, so unfilled or cancelled opening rows never become lots.
+    """
+    from src.quantities import select_position_chain_rows
+
     if not symbols:
         return []
     conn = None
     try:
         conn = _connect()
-        marks = ",".join("?" for _ in symbols)
-        rows = conn.execute(
-            f"SELECT * FROM trades WHERE action IN ('BUY', 'SHORT') AND symbol IN ({marks}) ORDER BY timestamp, id",
-            [s.upper() for s in symbols],
-        ).fetchall()
-        return [dict(r) for r in rows]
+        pred = _executed_trade_predicate()
+        out: list[dict] = []
+        for sym in sorted({s.upper() for s in symbols}):
+            row = conn.execute(
+                f"SELECT * FROM trades WHERE symbol = ? AND action IN ('BUY', 'SHORT') AND {pred} "
+                "AND position_id IS NOT NULL AND position_id != '' ORDER BY timestamp DESC, id DESC LIMIT 1",
+                (sym,),
+            ).fetchone()
+            if row is not None:
+                out.extend(select_position_chain_rows(conn, dict(row), pred) or [])
+        return out
     except sqlite3.Error:
         return []
     finally:

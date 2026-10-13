@@ -74,7 +74,7 @@ def test_evaluate_returns_the_same_proposal_as_compute_plus_a_code():
         current_price=105.0,
         current_stop=90.0,
         reference_target=140.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     ev = evaluate_trailing_stop(**kwargs)
     assert ev.proposal is None and compute_trailing_stop(**kwargs) is None
@@ -103,6 +103,7 @@ def test_a_stop_that_does_not_trail_leaves_its_reason_once_per_change(tmp_path):
         "setup_type": "range",
         "take_profit": 140.0,
         "stop_loss": 90.0,
+        "action": "BUY",
         "qty": 10,
         "price": 100.0,
         "timestamp": "2026-09-01 14:00:00",
@@ -142,6 +143,7 @@ def test_a_rejected_replace_is_recorded(tmp_path):
         "setup_type": "range",
         "take_profit": 140.0,
         "stop_loss": 90.0,
+        "action": "BUY",
         "qty": 10,
         "price": 100.0,
         "timestamp": "2026-09-01 14:00:00",

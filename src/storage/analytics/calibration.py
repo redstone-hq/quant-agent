@@ -563,32 +563,12 @@ class TradeAnalytics:
             ).fetchone()
         return dict(row) if row else None
 
-    def get_position_open_lots(self, buy_row: dict | None) -> list[dict] | None:
-        """Every EXECUTED opening lot of the position `buy_row` belongs to, oldest first.
+    def get_position_chain_rows(self, buy_row: dict | None) -> list[dict] | None:
+        """Every executed row of `buy_row`'s position chain (`quantities.select_position_chain_rows`)."""
+        from src.quantities import select_position_chain_rows
 
-        The per-lot R denominator (`quantities.open_position_risk_dollars`)
-        needs each lot with its OWN frozen initial stop; one row's stop against
-        the broker's blended average entry overstates R after a scale-in.
-        None when `buy_row` is missing, carries no `position_id`, or is not an
-        opening row: the chain cannot be resolved, so R is unknown.
-        """
-        if not buy_row:
-            return None
-        pid = buy_row.get("position_id")
-        symbol = buy_row.get("symbol")
-        opening = (buy_row.get("action") or "").upper()
-        if not pid or not symbol or opening not in _POSITION_OPEN_ACTIONS:
-            return None
-        predicate = self._executed_trade_predicate()
         with self._lock:
-            rows = self.conn.execute(
-                "SELECT * FROM trades WHERE symbol = ? "
-                "AND position_id = ? AND action = ? "
-                f"AND {predicate} "
-                "ORDER BY timestamp ASC, id ASC",
-                (symbol, pid, opening),
-            ).fetchall()
-        return [dict(r) for r in rows]
+            return select_position_chain_rows(self.conn, buy_row, self._executed_trade_predicate())
 
     def get_recent_insights(self, limit: int = 7) -> list[dict]:
         """Last N evening insights, newest first. PM reads to build 7-day narrative."""

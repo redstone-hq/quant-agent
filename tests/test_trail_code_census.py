@@ -79,7 +79,7 @@ def test_candidate_inside_the_band_is_still_refused_outright():
         bars=bars,
         atr=atr,
         qty=10,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     # chandelier 104 - 3*2 = 98.0 sits above the band floor 100.0 - 2.5 = 97.5
     assert ev.proposal is None
