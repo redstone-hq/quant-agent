@@ -17,10 +17,8 @@ from src.trade_actions import SHORT_EXIT_ACTIONS as _SHORT_EXIT_ACTIONS
 from src.trade_actions import SHORT_EXIT_PREFIXES as _SHORT_EXIT_PREFIXES
 from src.trade_actions import exit_action_side as _exit_action_side
 from src.trade_actions import executed_qty as _executed_qty
-from src.trade_actions import is_filled_trail_stop as _is_filled_trail_stop
 from src.trade_actions import is_position_exit_action as _is_position_exit_action
 from src.trade_actions import share_change as _share_change
-from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position
 
 
 def _new_position_id() -> str:

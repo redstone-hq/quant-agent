@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from src.stop_price_classification import classify_stop_price
-from src.trade_actions import POSITION_OPEN_ACTIONS, executed_qty, share_change
+from src.trade_actions import FILL_ORDER_UNKNOWN, POSITION_OPEN_ACTIONS, executed_qty, live_lot_rows, share_change
 
 __all__ = [
     "ETF_LEVERAGE",
@@ -444,7 +444,7 @@ def entry_risk_dollars(opens: list[dict], direction: str) -> float | None:
     side = 1.0 if direction == "long" else -1.0
     total = 0.0
     for row in opens:
-        qty, price = _executed_qty(row), _executed_price(row)
+        qty, price = executed_qty(row), _executed_price(row)
         if qty <= 0:
             continue
         stop = recorded_initial_stop(row)
@@ -461,17 +461,11 @@ def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: floa
     (and therefore unrealised R) unchanged. None if any lot has no usable stop.
     Closed positions use the full sum (`entry_risk_dollars`) instead."""
     full = entry_risk_dollars(opens, direction)
-    entered = sum(_executed_qty(r) for r in opens)
+    entered = sum(executed_qty(r) for r in opens)
     held = abs(_finite(held_qty) or 0.0)
     if full is None or entered <= 0 or held <= 0:
         return None
     return full * min(1.0, held / entered)
-
-
-#: The share-counting rule ("in" / "out" / None) and the executed share
-#: quantity are defined ONCE in src/trade_actions.py, shared with the position
-#: grouper so the two can never disagree about whether shares left the book.
-_share_change = share_change
 
 
 def held_position_risk(
@@ -480,18 +474,25 @@ def held_position_risk(
     """`(risk dollars on the shares held, reason)` — the ONE open-position R denominator.
 
     Every reader of open-position R (prompt facts, heat block, trail ratchets,
-    dashboard, backtest) calls this. `chain_rows` are the position's EXECUTED
-    rows (opening lots and exits) from `select_position_chain_rows`. Risk is
-    `open_position_risk_dollars` over the opening lots, each against its OWN
-    initial stop. R is unknown (None) — never a smaller number — when:
+    dashboard, backtest) calls this. `chain_rows` are the symbol's EXECUTED
+    rows from `select_position_chain_rows`. Which lots are live is derived from
+    the fill sequence itself (`trade_actions.live_lot_rows`: the share-changing
+    rows after the last point the running share count was zero) — NEVER from
+    the stored `position_id`, which is fixed at write time and is wrong when a
+    stop's fill is reconciled after a fresh buy. Risk is
+    `open_position_risk_dollars` over the live opening lots, each against its
+    OWN initial stop. R is unknown (None) — never a smaller number — when:
       - `position_chain_unresolved`: no rows and no opening row to stand in;
-      - `lots_do_not_reconcile`: executed entries minus executed share-reducing
-        fills (`_share_change`; an unfilled TRAIL_STOP stop-move row is NOT an
-        exit) do not equal the held quantity at the broker's 9-decimal grid (e.g. a filled add not yet marked filled —
-        dropping it would shrink 1R and fire the breakeven ratchet early);
-      - `direction_mismatch`: the chain's side is not the held side;
+      - `fill_order_unknown`: only some share-changing rows carry a fill time,
+        so the fills cannot be put in order;
+      - `lots_do_not_reconcile`: live executed entries minus live executed
+        share-reducing fills (`share_change`; an unfilled TRAIL_STOP stop-move
+        row is NOT an exit) do not equal the held quantity at the broker's
+        9-decimal grid (e.g. a filled add not yet marked filled — dropping it
+        would shrink 1R and fire the breakeven ratchet early);
+      - `direction_mismatch`: the live lots' side is not the held side;
       - `lot_without_usable_stop`: any lot has no readable or right-side stop.
-    With no chain (legacy row without a `position_id`), `opening_row` alone is
+    With no rows (legacy row without a `position_id`), `opening_row` alone is
     the chain, so it too must reconcile exactly to the held quantity.
     """
     held_signed = _finite(held_qty) or 0.0
@@ -503,17 +504,22 @@ def held_position_risk(
         rows = [opening_row] if isinstance(opening_row, dict) else []
     from src.execution.order_gates import ORDER_QTY_DECIMALS
 
-    opens = [r for r in rows if _share_change(r) == "in"]
-    exits = [r for r in rows if _share_change(r) == "out"]
-    if not opens:
+    if not rows:
         return None, "position_chain_unresolved"
-    direction = _OPEN_ACTIONS[str(opens[0].get("action")).upper()]
-    if any(_OPEN_ACTIONS[str(r.get("action")).upper()] != direction for r in opens):
+    live = live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS)
+    if live is None:
+        return None, FILL_ORDER_UNKNOWN
+    opens = [r for r in live if share_change(r) == "in"]
+    exits = [r for r in live if share_change(r) == "out"]
+    if not opens:
+        return None, "lots_do_not_reconcile"
+    direction = POSITION_OPEN_ACTIONS[str(opens[0].get("action")).upper()]
+    if any(POSITION_OPEN_ACTIONS[str(r.get("action")).upper()] != direction for r in opens):
         return None, "direction_mismatch"
     if (held_signed < 0) != (direction == "short"):
         return None, "direction_mismatch"
-    entered = sum(_executed_qty(r) for r in opens)
-    exited = sum(_executed_qty(r) for r in exits)
+    entered = sum(executed_qty(r) for r in opens)
+    exited = sum(executed_qty(r) for r in exits)
     # Exact equality on the broker's own share grid: no tolerance of our own.
     if round(entered - exited, ORDER_QTY_DECIMALS) != round(held, ORDER_QTY_DECIMALS):
         return None, "lots_do_not_reconcile"
@@ -524,26 +530,25 @@ def held_position_risk(
 
 
 def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -> list[dict] | None:
-    """Every EXECUTED row of `opening_row`'s position chain, oldest first — the ONE lot reader.
+    """Every EXECUTED row of `opening_row`'s SYMBOL, in fill order — the ONE lot reader.
 
-    `predicate` is the caller's executed-trade SQL predicate (the storage and
-    API copies are kept identical). None when the row carries no
-    `position_id`/symbol or is not an opening row: the chain is unresolved.
+    Deliberately NOT filtered by `position_id`: that id is fixed when a row is
+    written and never regrouped, so a fresh buy written before an earlier
+    stop's fill was reconciled carries the OLD id. `held_position_risk` finds
+    the live lots from this full fill sequence instead. `predicate` is the
+    caller's executed-trade SQL predicate (the storage and API copies are kept
+    identical). None when the row carries no symbol or is not an opening row.
     """
     if not isinstance(opening_row, dict):
         return None
-    pid = opening_row.get("position_id")
     symbol = opening_row.get("symbol")
-    if not pid or not symbol or str(opening_row.get("action") or "").upper() not in _OPEN_ACTIONS:
+    if not symbol or str(opening_row.get("action") or "").upper() not in POSITION_OPEN_ACTIONS:
         return None
     rows = conn.execute(
-        f"SELECT * FROM trades WHERE symbol = ? AND position_id = ? AND {predicate} ORDER BY timestamp ASC, id ASC",
-        (symbol, pid),
+        f"SELECT * FROM trades WHERE symbol = ? AND {predicate} ORDER BY timestamp ASC, id ASC",
+        (symbol,),
     ).fetchall()
     return [dict(r) for r in rows]
-
-
-_executed_qty = executed_qty  # defined once in src/trade_actions.py
 
 
 def _executed_price(row: dict) -> float:
@@ -566,7 +571,6 @@ def _executed_price(row: dict) -> float:
 #: longs). The `qty` this function returns is NEGATIVE for a short, which is
 #: the only place direction is expressed: it is what tells `r_multiple` which
 #: side the position was, so a profitable short comes back as a positive R.
-_OPEN_ACTIONS = POSITION_OPEN_ACTIONS  # defined once in src/trade_actions.py
 
 
 def _split_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:
@@ -577,15 +581,15 @@ def _split_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:
     direction: str | None = None
     for row in rows:
         action = str(row.get("action") or "").upper()
-        if action in _OPEN_ACTIONS:
+        if action in POSITION_OPEN_ACTIONS:
             if direction is None:
-                direction = _OPEN_ACTIONS[action]
+                direction = POSITION_OPEN_ACTIONS[action]
             opens.append(row)
         elif action == "TRAIL_STOP":
             # Only a FILLED trail stop closed anything.
             status = str(row.get("fill_status") or "").lower()
-            filled = status == "filled" or (status == "" and _executed_qty(row) > 0)
-            if filled and _executed_qty(row) > 0:
+            filled = status == "filled" or (status == "" and executed_qty(row) > 0)
+            if filled and executed_qty(row) > 0:
                 exits.append(row)
         elif action:
             exits.append(row)
@@ -624,18 +628,18 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
     if not opens or direction is None or not exits:
         return None
 
-    open_qty = sum(_executed_qty(r) for r in opens)
-    exit_qty = sum(_executed_qty(r) for r in exits)
+    open_qty = sum(executed_qty(r) for r in opens)
+    exit_qty = sum(executed_qty(r) for r in exits)
     if open_qty <= 0 or exit_qty <= 0:
         return None
     if exit_qty + 1e-6 < open_qty:
         return None  # still open — outcome is not known yet
 
     def _vwap(chain: list[dict]) -> float:
-        total_qty = sum(_executed_qty(r) for r in chain)
+        total_qty = sum(executed_qty(r) for r in chain)
         if total_qty <= 0:
             return 0.0
-        return sum(_executed_qty(r) * _executed_price(r) for r in chain) / total_qty
+        return sum(executed_qty(r) * _executed_price(r) for r in chain) / total_qty
 
     entry_price = _vwap(opens)
     exit_price = _vwap(exits)

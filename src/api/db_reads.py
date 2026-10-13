@@ -32,8 +32,6 @@ from src.api.deps import get_db_path
 from src.api.holding_entry_evidence import entry_evidence
 from src.data_paths import alerting_dir
 from src.trade_actions import (
-    POSITION_EXIT_ACTIONS,
-    POSITION_EXIT_PREFIXES,
     POSITION_OPEN_ACTIONS,
     executed_qty,
     share_change,
@@ -328,11 +326,7 @@ def get_trades(
 #: the write-capable `Database` class (see module docstring and
 #: tests/test_api_safety.py). One definition shared with the writer's
 #: position grouper, so this reader can never call a chain flat while the
-#: writer still thinks shares are held (or the reverse). The private names are
-#: aliases (the SAME objects), kept for tests/test_exit_vocab_mirror.py.
-_POSITION_OPEN_ACTIONS = POSITION_OPEN_ACTIONS
-_POSITION_EXIT_ACTIONS = POSITION_EXIT_ACTIONS
-_POSITION_EXIT_PREFIXES = POSITION_EXIT_PREFIXES
+#: writer still thinks shares are held (or the reverse).
 
 
 def get_position_history(position_id: str) -> dict | None:
@@ -385,7 +379,7 @@ def get_position_history(position_id: str) -> dict | None:
         exit_row = rows[-1] if (is_closed and len(rows) > 1) else None
         interim = rows[1:-1] if exit_row is not None else rows[1:]
 
-        exit_family_rows = [r for r in rows[1:] if (r.get("action") or "").upper() not in _POSITION_OPEN_ACTIONS]
+        exit_family_rows = [r for r in rows[1:] if (r.get("action") or "").upper() not in POSITION_OPEN_ACTIONS]
         priced = [r for r in exit_family_rows if r.get("realized_pnl") is not None]
         realized_total = sum(r["realized_pnl"] for r in priced) if priced else None
         unpriced_executed = any(r.get("realized_pnl") is None and is_executed_trade(r) for r in exit_family_rows)
@@ -1646,10 +1640,11 @@ def get_trade_review_rows() -> dict:
 
 
 def get_open_position_rows(symbols: list[str]) -> list[dict]:
-    """Executed rows of each symbol's latest position chain, for the held-position stop and R display.
+    """Executed rows of each held symbol, for the held-position stop and R display.
 
-    Same lot reader as the trail and the prompt (`quantities.select_position_chain_rows`), with the
-    executed-trade predicate, so unfilled or cancelled opening rows never become lots.
+    Same lot reader as the trail and the prompt (`quantities.select_position_chain_rows`: the symbol's
+    whole executed fill sequence, not one stored `position_id`), with the executed-trade predicate, so
+    unfilled or cancelled opening rows never become lots.
     """
     from src.quantities import select_position_chain_rows
 
@@ -1663,7 +1658,7 @@ def get_open_position_rows(symbols: list[str]) -> list[dict]:
         for sym in sorted({s.upper() for s in symbols}):
             row = conn.execute(
                 f"SELECT * FROM trades WHERE symbol = ? AND action IN ('BUY', 'SHORT') AND {pred} "
-                "AND position_id IS NOT NULL AND position_id != '' ORDER BY timestamp DESC, id DESC LIMIT 1",
+                "ORDER BY timestamp DESC, id DESC LIMIT 1",
                 (sym,),
             ).fetchone()
             if row is not None:

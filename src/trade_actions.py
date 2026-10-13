@@ -194,3 +194,84 @@ def share_change(row) -> str | None:
     if is_position_exit_action(action):
         return "out"
     return None
+
+
+#: Why `live_lot_rows` could not order the fills; the open-R reader reports it.
+FILL_ORDER_UNKNOWN = "fill_order_unknown"
+
+
+def _fill_order_key(row) -> str | None:
+    """The time a row's shares moved, as the ledger records it, or None.
+
+    `trades` has no separate broker fill-time column. `timestamp` is the best
+    record of WHEN shares moved: the broker's own `filled_at` for a broker exit
+    the reconciler wrote back, the submission time for a decided order, and the
+    placement time for a resting stop (a lower bound on its fill). It is NOT
+    replaced by `fill_reconciled_at`, which is when the desk later CONFIRMED the
+    terminal status: a stop that filled before a fresh buy but was reconciled
+    after it would then sort after the buy and hide the flat point.
+    """
+    try:
+        value = row.get("timestamp")
+    except AttributeError:
+        return None
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def live_lot_rows(rows: list, *, decimals: int) -> list | None:
+    """The rows of the position LIVE NOW, derived from the fill sequence alone.
+
+    `rows` are one symbol's EXECUTED rows. Walks the share-changing ones
+    (`share_change`) in fill order, keeping a running share count; whenever the
+    count returns to zero (at the broker's `decimals` share grid) everything
+    before is a closed position and the next opening fill starts a fresh set
+    of lots. Returns the share-changing rows after the LAST flat point — never
+    trusting a stored `position_id`, which is fixed when a row is written and
+    is wrong when a fill is reconciled late.
+
+    Mirrors the position grouper's walk: an exit with nothing open, and an exit
+    that cannot retire the open side (a SELL against a short), move no shares
+    of the live position; an over-sell closes it. An opening fill on the other
+    side while a position is open is kept, so the caller's direction check
+    refuses it.
+
+    Fill order is `(timestamp, id)` (see `_fill_order_key`). None — R unknown,
+    never a guess — when only SOME share-changing rows carry a time: they
+    cannot be ordered. Rows with no time at all (in-memory callers: the
+    backtest's one lot) are taken in the order given.
+    """
+    moving = [r for r in rows if share_change(r) is not None]
+    keys = [_fill_order_key(r) for r in moving]
+    if any(k is None for k in keys):
+        if any(k is not None for k in keys):
+            return None
+    else:
+        moving = [r for _, r in sorted(zip(keys, moving), key=lambda kr: (kr[0], _row_id(kr[1])))]
+    live: list = []
+    net = 0.0
+    direction: str | None = None
+    for row in moving:
+        qty = executed_qty(row)
+        if share_change(row) == "in":
+            if direction is None:
+                live, net = [], 0.0
+                direction = POSITION_OPEN_ACTIONS[str(row.get("action")).upper()]
+            live.append(row)
+            net += qty
+            continue
+        side = exit_action_side(row.get("action"))
+        if direction is None or (side is not None and side != direction):
+            continue
+        live.append(row)
+        net -= qty
+        if round(net, decimals) <= 0:
+            live, net, direction = [], 0.0, None
+    return live
+
+
+def _row_id(row) -> float:
+    try:
+        return float(row.get("id") or 0)
+    except (TypeError, ValueError):
+        return 0.0

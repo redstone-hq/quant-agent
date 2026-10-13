@@ -11,13 +11,15 @@ so it builds with no Database/TradingPipeline behind it
 (tests/boundary_harness.py). Database keeps same-named thin shims that
 construct this per call.
 
-The module-level helpers and constants (position-id assignment, exit
-vocabulary, exit-reason categorisation, decision-id resolution, PM-target
-extraction) now live in position_chain.py and are re-imported here, so
-`from src.storage.db import _assign_position_ids` keeps working (one
-definition, there). The backfills, the restore/repeg recovery queues and the
-excursion/gap/positions bodies live in backfills.py, recovery_queues.py and
-excursions.py; the same-named methods below are thin shims over them.
+The module-level helpers (position-id assignment in position_chain.py;
+exit-reason categorisation, decision-id resolution and PM-target extraction
+in exit_reasons.py) are re-imported here, so `from src.storage.db import
+_assign_position_ids` keeps working (one definition, there). The trades.action
+vocabulary and the TRAIL_STOP fill rules are defined once in
+src/trade_actions.py and re-exported here under their old private names.
+The backfills, the restore/repeg recovery queues and the excursion/gap/
+positions bodies live in backfills.py, recovery_queues.py and excursions.py;
+the same-named methods below are thin shims over them.
 """
 
 from __future__ import annotations
@@ -35,8 +37,8 @@ from src.storage.trades import backfills as _backfills
 from src.storage.trades import recovery_queues as _recovery_queues
 from src.storage.trades import excursions as _excursions
 from src.util.time import UTC
-from src.storage.trades.position_chain import (  # noqa: F401  re-export: defined there
-    _trail_stop_reduced_position,
+from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position  # noqa: F401  re-export
+from src.storage.trades.position_chain import (  # noqa: F401  re-export; vocabulary defined in src/trade_actions.py
     _new_position_id,
     _LONG_EXIT_ACTIONS,
     _LONG_EXIT_PREFIXES,

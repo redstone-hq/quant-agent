@@ -331,3 +331,60 @@ def test_grouper_counts_a_partially_filled_canceled_stop_so_a_fresh_buy_opens_it
     risk, reason = held_position_risk(chain, 50)
     assert reason == "ok"
     assert risk / 50 == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------- live lots come from the fill sequence
+
+
+@pytest.mark.parametrize(
+    "opening, exiting, entry, stop, fresh_entry, fresh_stop, held",
+    [
+        ("BUY", "SELL", 100.0, 50.0, 60.0, 50.0, 50),  # long: fresh lot risks $10/share
+        ("SHORT", "COVER", 50.0, 100.0, 60.0, 70.0, -50),  # short mirror: $10/share
+    ],
+)
+def test_delayed_reconcile_fresh_lot_r_is_its_own_not_the_old_position_s(
+    db, opening, exiting, entry, stop, fresh_entry, fresh_stop, held
+):
+    """Open 100; the resting stop fills 40 (not yet reconciled); exit 60 (not
+    yet reconciled); a fresh 50 is written while the ledger still thinks 100
+    are held, so it is stamped with the OLD position id; then all reconciles.
+
+    The book went flat before the fresh lot, so 1R is that lot's own $10/share.
+    Defect: open R trusted the stored id — 150 in, 100 out, 50 held balanced,
+    and 1R came out $36.67 marked "ok" (~3.7x too small: the ratchets fire early).
+    """
+    from src.exits_parts.trails import _risk_per_share
+
+    sym = f"DR{opening[0]}"
+
+    def write(action, qty, price, stop_loss=None, fill_status="filled", oid=None):
+        db.insert_trade(
+            symbol=sym,
+            action=action,
+            qty=qty,
+            price=price,
+            reasoning="seq",
+            run_id="r",
+            stop_loss=stop_loss,
+            setup_type="range",
+            fill_status=fill_status,
+            broker_order_id=oid,
+        )
+
+    write(opening, 100, entry, stop_loss=stop)
+    write("TRAIL_STOP", 100, stop - 5.0 if opening == "BUY" else stop + 5.0, fill_status="submitted", oid=f"{sym}-stop")
+    write(exiting, 60, entry, fill_status="submitted", oid=f"{sym}-exit")
+    write(opening, 50, fresh_entry, stop_loss=fresh_stop)
+    db.update_trade_fill(f"{sym}-stop", "canceled", 40, entry)
+    db.update_trade_fill(f"{sym}-exit", "filled", 60, entry)
+
+    pids = {
+        r["position_id"]
+        for r in db.conn.execute("SELECT position_id FROM trades WHERE symbol = ? AND action = ?", (sym, opening))
+    }
+    assert len(pids) == 1  # the fresh lot really did join the old stored id
+
+    owner = SimpleNamespace(db=db)
+    opening_row = db.get_symbol_last_buy(sym, action=opening)
+    assert _risk_per_share(owner, opening_row, held, sym) == pytest.approx(10.0)
