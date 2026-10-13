@@ -1032,6 +1032,11 @@ cash_reserve:
 intraday_scan:
   enabled: true
   cooldown_hours: 3.0       # min hours between two decisions for the same symbol
+  # Owner ruling 2026-10-13: the paid portfolio_manager ("what to buy") call
+  # runs at most once per hour; the free held-book review still runs every
+  # 30-minute check. Read against the last intraday portfolio_manager row in
+  # agent_logs, so it survives a restart.
+  pm_min_interval_minutes: 60
   # No name cap and no move threshold: movers are ranked by move / own ATR
   # and sent in that order until llm_cost_circuit's budget refuses.
 

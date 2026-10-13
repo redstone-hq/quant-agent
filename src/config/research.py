@@ -36,6 +36,14 @@ class IntradayScanConfig(BaseModel):
     symbol — prevents repeated scans from churning the same setup every
     30-minute tick while a move is still developing."""
 
+    pm_min_interval_minutes: float = Field(default=60.0, ge=0, le=390)
+    """Owner ruling 2026-10-13: the PAID portfolio-manager ("what to buy")
+    call runs at most once per this many minutes during the intraday cycle,
+    which fires every 30 minutes. Measured from the durable agent_logs
+    record of the last intraday portfolio_manager call, so it survives a
+    restart. A check inside the interval still runs the free held-book
+    review and stops; only the paid call is skipped. 0 disables the gate."""
+
 
 class NominationConfig(BaseModel):
     """Phase 9 (`docs/QAMC_REMEDIATION_SPEC.md` §9.1/§9.2) — bounds on how

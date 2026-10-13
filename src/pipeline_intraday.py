@@ -20,6 +20,7 @@ Nothing here may import `src.pipeline`: this module is one of its bases.
 
 import inspect
 import logging
+from datetime import datetime, timezone
 
 from src.agents.base import agent_log_kwargs, seat_acceptance_kwargs
 from src.cost_circuit import PaidAnalysisSuspended
@@ -39,6 +40,7 @@ from pathlib import Path  # noqa: F401 -- re-exported
 
 from src.intraday_scan_outcome import failed_scan_result  # noqa: F401 -- re-exported
 from src.trading_calendar import session_date_key  # noqa: F401 -- re-exported
+from src.trading_calendar import utc_now
 # --- end mirror block ---
 
 #: The moved code logged under `src.pipeline` before the move and still does;
@@ -247,6 +249,36 @@ class IntradayScanBody:
             # still runs - with NO portfolio-manager call.
             return self._intraday_scan_call(ctx, [], snapshots or {}, include_holds=True)
 
+        # Owner ruling 2026-10-13: the paid portfolio-manager call runs at
+        # most once per `pm_min_interval_minutes`. Inside the interval the
+        # check runs the same free held-book path as a no-mover check. The
+        # movers are recorded, and get no cooldown row, so the next paid
+        # call can still see them.
+        last_pm = self._minutes_since_last_intraday_pm_call()
+        if last_pm is not None and last_pm < cfg.pm_min_interval_minutes:
+            logger.info(
+                "Intraday scan: paid PM call skipped for cadence -- last intraday PM call %.1f min ago, "
+                "minimum %.0f min (owner ruling 2026-10-13); held book still reviewed",
+                last_pm,
+                cfg.pm_min_interval_minutes,
+            )
+            for rank, (late, late_move) in enumerate(candidates, start=1):
+                record_dropped_name(
+                    self,
+                    ctx,
+                    late,
+                    "pm_cadence",
+                    rank=rank,
+                    move_pct=late_move,
+                    detail=(
+                        f"paid PM call made {last_pm:.1f} min ago; "
+                        f"at most one per {cfg.pm_min_interval_minutes:.0f} min"
+                    ),
+                )
+            # Held-book check only; the decision record carries skipped:pm_cadence.
+            ctx.pm_skip_reason = "pm_cadence"
+            return self._intraday_scan_call(ctx, [], snapshots, include_holds=True)
+
         # Owner ruling 2026-10-12: "Later batches are weaker moves. So why
         # send them at all?" ONE paid call per check: the strongest-ranked
         # `_NAMES_PER_PAID_CALL` movers (largest move in the name's own ATR
@@ -271,6 +303,30 @@ class IntradayScanBody:
                 detail=f"one paid call per check; only the top {_NAMES_PER_PAID_CALL} ranked movers are sent",
             )
         return self._intraday_scan_call(ctx, candidates[:_NAMES_PER_PAID_CALL], snapshots, include_holds=True)
+
+    def _minutes_since_last_intraday_pm_call(self) -> float | None:
+        """Minutes since the last intraday portfolio_manager agent_logs row, or None if there is none.
+
+        The durable record of a paid PM call (it survives a restart). Only
+        intraday runs count: the ruling caps the intraday cycle, not the
+        morning run. A read failure is logged and returns None, so the
+        spent-money cap stays the backstop rather than a whole check lost.
+        """
+        try:
+            row = self.db.execute(
+                "SELECT MAX(timestamp) FROM agent_logs "
+                "WHERE agent_name = 'portfolio_manager' AND run_id LIKE 'intra_check-%'"
+            ).fetchone()
+        except Exception as exc:  # noqa: BLE001
+            _site(self, "pm_cadence_read", exc, log=logger)
+            return None
+        stamp = row[0] if row is not None else None
+        if not isinstance(stamp, str) or not stamp:
+            return None
+        last = datetime.fromisoformat(stamp)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)  # SQLite datetime('now') is UTC
+        return (utc_now() - last).total_seconds() / 60.0
 
     def _intraday_scan_call(self, ctx: RunContext, candidates, snapshots, *, include_holds: bool) -> dict:
         """One paid call's worth of ranked movers through Tech -> PM -> RM -> execution.
@@ -582,7 +638,8 @@ class IntradayScanBody:
             return gate_skip
 
         if held_only:
-            ctx.pm_skip_reason = "intraday_no_movers"
+            # A skip reason set by the caller (the hourly paid-call cadence) stands.
+            ctx.pm_skip_reason = getattr(ctx, "pm_skip_reason", None) or "intraday_no_movers"
         # Owner ruling 2026-10-12 (approved): no paid PM buy call when the
         # account has no room to open any new position. Same headroom
         # execution sizes against, same minimum-risk floor at each mover's
