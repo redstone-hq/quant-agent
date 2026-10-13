@@ -114,9 +114,9 @@ def test_d_short_mirror_a_higher_high_before_the_open_does_not_cover() -> None:
 
 def test_e_an_add_today_does_not_shield_a_position_opened_weeks_ago() -> None:
     desk = _desk(VLO, open_ts="2026-09-01 14:30:00", last_buy_ts=f"{et_today()} 14:30:00")
-    assert desk._position_opened_today("VLO") is False
+    assert desk._position_opened_today("VLO", is_short=False) is False
     fresh = _desk(VLO, open_ts=f"{et_today()} 14:30:00")
-    assert fresh._position_opened_today("VLO") is True
+    assert fresh._position_opened_today("VLO", is_short=False) is True
 
 
 def test_f_unknown_open_date_never_fires_the_lower_low_and_says_why() -> None:

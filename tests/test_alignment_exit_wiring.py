@@ -636,7 +636,7 @@ def test_unknown_entry_date_holds_rather_than_sells():
         raise RuntimeError("db down")
 
     p.db = types.SimpleNamespace(get_symbol_last_buy=_boom)
-    assert p._position_opened_today("AAA") is True
+    assert p._position_opened_today("AAA", is_short=False) is True
     best: dict = {}
     p._alignment_exit_scan(
         [_pos_stub()],
