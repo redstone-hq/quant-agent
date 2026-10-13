@@ -7223,10 +7223,8 @@ numbers:
       names for a human to add; it never adds one.
   - id: src.delever.forced.DeleverForced._force_delever:factor[0]
     value: 0.97
-    status: derived
+    status: arbitrary
     site: src/delever/forced.py
-    derived_from: src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT
-    base_value: 0.03
     note: >-
       The CONSERVATIVE proceeds estimate for the sweep's break-early guard:
       projected_proceeds += mark x 0.97. The de-lever no longer prices its SELL
@@ -7234,10 +7232,11 @@ numbers:
       MARKET order (see _live_delever_price, delever-live-fill, supersedes the
       former fixed-3%-limit sites) -- so this is now solely an accounting
       haircut: it assumes the marketable fill lands up to 3% below the mark
-      (the same must-fill slippage STOP_LIMIT_BUFFER_PCT budgets for a gapping
-      exit) so the loop never stops one position too early and leaves a
-      residual deficit. Under-counting proceeds is the safe error. 0.97 =
-      1 - STOP_LIMIT_BUFFER_PCT, not a fresh number. Was factor[1] until
+      so the loop never stops one position too early and leaves a residual
+      deficit. Under-counting proceeds is the safe error. It was derived as
+      1 - STOP_LIMIT_BUFFER_PCT until 2026-10-13, when that stop-limit buffer
+      was deleted with the protective-stop fallback; the value is unchanged
+      and now stands on its own as an ARBITRARY number. Was factor[1] until
       2026-09-30 (board item 182): the 1.02 sweep-sizing cushion that used to
       precede it in this function was reformulated away, so this literal is
       now the first factor-band literal in source order. Positional id only --
@@ -7259,6 +7258,26 @@ numbers:
       bid, whose displayed size is finite, so this is a reachable state, not
       a theoretical one. Booking from the filled quantity and continuing to
       sell while the deficit stands would delete this haircut entirely.
+    open_question: >-
+      How far below the last mark does a de-lever whole-position sell with no
+      live quote actually fill on this account, read off recorded de-lever
+      fills against the mark the sweep credited them at?
+    cost_while_unanswered: >-
+      Too small a haircut and the sweep stops one position early, leaving a
+      residual deficit; too large and it sells more than the deficit needs.
+    settles_by:
+      kind: measurement
+      state: specified
+      where: config/number_ledger.yaml (this row; re-labelled arbitrary 2026-10-13)
+      records: >-
+        for each forced de-lever whole-position sell, the mark credited at
+        decision time and the actual average fill price, as a shortfall
+        distribution in percent of mark.
+      closes_when: >-
+        the shortfall distribution is in hand and the haircut is set at a
+        stated high percentile of it; DELETE outcome: if proceeds become
+        booked from the filled quantity, the estimate is no longer needed and
+        the haircut is removed.
   - id: src.pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]
     value: 0.5
     status: owner-ruled
