@@ -159,6 +159,9 @@ _STATUS_LABELS: dict[str, str] = {
     "daily_loss_halted": "stopped for the day after losses (historical)",  # retired-ok
     "kill_switch_halted": "stopped by the manual kill switch",
     "paid_analysis_suspended": "paid thinking is suspended",
+    "evening_commentary_skipped": (
+        "report delivered in full; only the paid AI commentary was skipped (AI cost cap reached)"
+    ),
     "evidence_gate_skip": "skipped — the data was incomplete",
     "intraday_scan_crashed": "the scan for movers crashed",
     "intraday_scan_out_of_credit": "the scan for movers stopped: the research account is out of credit",
@@ -170,6 +173,20 @@ _STATUS_LABELS: dict[str, str] = {
     "scheduler_exited": "the scheduler stopped",
     "unknown": "outcome not recorded",
 }
+
+
+def headline_status(mode: str, result: dict) -> str:
+    """The status code the HEADLINE reports for a session result.
+
+    An evening report that carries the day's figures (`total_value`) was
+    delivered; a suspended paid circuit then only cost it the AI commentary,
+    so it is headed as that, never as the red FAILED of a run that did not
+    finish. Every other mode/status is returned unchanged.
+    """
+    status = str(result.get("status", "unknown"))
+    if mode == "evening" and status == "paid_analysis_suspended" and result.get("total_value") is not None:
+        return "evening_commentary_skipped"
+    return status
 
 
 def humanize_status(status: str) -> str:
