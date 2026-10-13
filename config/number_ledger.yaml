@@ -327,6 +327,14 @@ numbers:
     value: 40
     status: arbitrary
     site: src/config/execution.py
+    measured_2026_10_13: >-
+      Measured 2026-10-13, trades table, BUY rows from 2026-10-12 [measured, live DB read-
+      only]: 7 filled buys; adverse slippage (fill above intended) median 0.0 bps, max 0.0
+      bps; signed fill-vs-intended median -0.08 bps (favourable), one favourable outlier -401
+      bps (XOM 179.70 intended, 172.49 filled). Cap of 40 bound 0 times, and entries are plain
+      DAY MARKET orders since 2026-10-09 so the cap does not price them. No
+      entry_slippage_check rows exist. n=7 is too thin: stays arbitrary. The value is not
+      shown wrong.
     note: >-
       The entry-slippage belt: executed geometry worse than this rejects the
       fill. docs/INCIDENT_HISTORY.md records the belt comparing every range
@@ -423,6 +431,12 @@ numbers:
     value: 3
     status: arbitrary
     site: src/config/research.py
+    measured_2026_10_13: >-
+      Measured 2026-10-13, intraday_evaluations from 2026-10-12 [measured, live DB read-only]:
+      166 selected scans over 101 symbols, 65 repeat selections of the same symbol, 0 repeats
+      closer than 3h, shortest gap 3.28h, so the lock is respected. Blocked crossings are not
+      recorded (the log only says 'outside the 3.0h cooldown'), so how often it BINDS and the
+      repeat-crossing curve are unmeasured. Stays arbitrary; value not shown wrong.
     note: >-
       The intraday scan trigger, its cooldown and its per-scan cap. THE SCAN
       IS ON -- the 2026-09-14 verification corrected a stale settings comment
@@ -498,6 +512,11 @@ numbers:
     value: 3
     status: arbitrary
     site: src/config/research.py
+    measured_2026_10_13: >-
+      Measured 2026-10-13, nomination_summary cap_demand rows from 2026-10-12 [measured, live
+      DB read-only]: 2 runs; per-seat cap bound in 1 (earnings seat offered 5, kept 3, dropped
+      MRVL and ORCL at medium conviction), 0 in the other (0 offered). n=2 runs is too thin:
+      stays arbitrary; value not shown wrong.
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -541,6 +560,10 @@ numbers:
     value: 6
     status: arbitrary
     site: src/config/research.py
+    measured_2026_10_13: >-
+      Measured 2026-10-13, nomination_summary cap_demand rows from 2026-10-12 [measured, live
+      DB read-only]: 2 runs; run-level cap of 6 bound 0 times (distinct after merge 3 and 0).
+      n=2 runs is too thin: stays arbitrary; value not shown wrong.
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -4893,6 +4916,14 @@ numbers:
     value: 3
     status: arbitrary
     site: src/execution/broker_parts/stop_place.py
+    measured_2026_10_13: >-
+      Re-measured 2026-10-13 from the live log, lines dated 2026-10-12 onward [measured,
+      quant_agent.log and .1]: 25 protective-stop placements, 0 'attempt FAILED' lines, 0
+      placed-on-retry lines, so no retry has been exercised and the ceiling and delays are
+      unconstrained by data. Alpaca's published rate-limit/retry guidance could NOT be
+      retrieved (docs.alpaca.markets/docs/trading-api states no limit; guessed sub-URLs
+      returned 404), so no source is cited. Status stays arbitrary: 0 retries is not a
+      clearing time.
     note: >-
       Retry ceiling for placing the protective stop immediately after an
       entry fills (src/execution/broker_parts/stop_place.py::_STOP_PLACEMENT_MAX_ATTEMPTS). docs/WORK.md item
@@ -4933,6 +4964,14 @@ numbers:
     value: 0.5
     status: arbitrary
     site: src/execution/broker_parts/stop_place.py
+    measured_2026_10_13: >-
+      Re-measured 2026-10-13 from the live log, lines dated 2026-10-12 onward [measured,
+      quant_agent.log and .1]: 25 protective-stop placements, 0 'attempt FAILED' lines, 0
+      placed-on-retry lines, so no retry has been exercised and the ceiling and delays are
+      unconstrained by data. Alpaca's published rate-limit/retry guidance could NOT be
+      retrieved (docs.alpaca.markets/docs/trading-api states no limit; guessed sub-URLs
+      returned 404), so no source is cited. Status stays arbitrary: 0 retries is not a
+      clearing time.
     note: >-
       First of the two stop-placement retry delays, same site and same
       falsified reasoning as src.execution.broker_parts.stop_place._STOP_PLACEMENT_MAX_ATTEMPTS
@@ -4965,6 +5004,14 @@ numbers:
     value: 1.5
     status: arbitrary
     site: src/execution/broker_parts/stop_place.py
+    measured_2026_10_13: >-
+      Re-measured 2026-10-13 from the live log, lines dated 2026-10-12 onward [measured,
+      quant_agent.log and .1]: 25 protective-stop placements, 0 'attempt FAILED' lines, 0
+      placed-on-retry lines, so no retry has been exercised and the ceiling and delays are
+      unconstrained by data. Alpaca's published rate-limit/retry guidance could NOT be
+      retrieved (docs.alpaca.markets/docs/trading-api states no limit; guessed sub-URLs
+      returned 404), so no source is cited. Status stays arbitrary: 0 retries is not a
+      clearing time.
     note: >-
       Second of the two stop-placement retry delays, same site and same
       falsified reasoning as src.execution.broker_parts.stop_place._STOP_PLACEMENT_MAX_ATTEMPTS
