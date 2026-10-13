@@ -10907,3 +10907,14 @@ numbers:
     cost_while_unanswered: >-
       Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
       keeps passing.
+  - id: src.config.IntradayScanConfig.pm_min_interval_minutes
+    value: 60.0
+    status: owner-ruled
+    ruled_on: '2026-10-13'
+    ruling_summary: "Owner ruled on 2026-10-13 that the paid portfolio_manager (\"what to buy\") call runs at most once per hour during the intraday cycle, while the free 30-minute held-book check and stops stay unchanged."
+    ruling_record: owner ruling 2026-10-13 (paid PM call at most once per hour intraday; ~$0.16/call measured from agent_logs)
+    site: src/config/research.py
+    note: >-
+      Minimum minutes between two intraday portfolio_manager calls, read
+      from the last intraday portfolio_manager row in agent_logs. A check
+      inside the interval runs the held-book review without the paid call.
