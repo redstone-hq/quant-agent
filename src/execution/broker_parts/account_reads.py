@@ -332,7 +332,9 @@ class AccountReads(AssetEligibilityReads):
         try:
             from alpaca.trading.requests import GetPortfolioHistoryRequest
 
-            now = datetime.now(timezone.utc)
+            from src.trading_calendar import utc_now
+
+            now = utc_now()
             req = GetPortfolioHistoryRequest(
                 timeframe="1D",
                 extended_hours=False,
@@ -376,7 +378,9 @@ class AccountReads(AssetEligibilityReads):
         try:
             from alpaca.trading.requests import GetPortfolioHistoryRequest
 
-            now = datetime.now(timezone.utc)
+            from src.trading_calendar import utc_now
+
+            now = utc_now()
             req = GetPortfolioHistoryRequest(
                 timeframe="1D",
                 extended_hours=False,
