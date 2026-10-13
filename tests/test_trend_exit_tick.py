@@ -72,7 +72,7 @@ class _Desk:
             position_facts_for=lambda due: {},
             execute_guarded_exits=self.execute,
             open_orders_checked=self.orders,
-            final_today=lambda symbols: self.final & symbols,
+            final_today=lambda positions: self.final & {p.symbol for p in positions},
         )
 
 
@@ -338,3 +338,40 @@ def test_an_order_being_cancelled_is_not_a_sale_in_flight():
         NS(symbol="TSLA", side="sell", order_type="stop", status="new"),
     ]
     assert working_exit_symbols(orders) == {"NVDA"}
+
+
+def test_wired_same_day_guard_checks_a_short_against_its_short_opening(monkeypatch):
+    """A short opened today is final today: the guard must ask about its SHORT
+    opening, not a BUY it never had (which would wrongly read 'not today')."""
+    from types import SimpleNamespace
+
+    from src import trading_calendar as cal
+    from src.intraday import trend_exit_tick as tick
+
+    asked = []
+
+    def opened_today(symbol, *, is_short=False):
+        asked.append((symbol, is_short))
+        return is_short  # the short was opened today; there is no BUY today
+
+    db = SimpleNamespace(_trades=lambda: None, get_trades=lambda **kw: [])
+    parts = {
+        "db": db,
+        "broker": SimpleNamespace(list_open_orders_checked=lambda: []),
+        "_alignment_exit_cached": lambda **kw: None,
+        "_midday_execute_llm_actions": lambda *a, **kw: [],
+        "_build_position_facts": lambda *a, **kw: {},
+        "_symbols_already_trimmed_today": lambda: set(),
+        "_position_opened_today": opened_today,
+        "_build_review_metric_deltas": lambda *a, **kw: {},
+    }
+    captured = {}
+    monkeypatch.setattr(cal, "in_regular_session", lambda now: True)
+    monkeypatch.setattr(tick, "trend_exit_on_tick", lambda **kw: captured.update(kw) or {})
+
+    run = tick.wire_trend_exit(parts.get)
+    run([], run_id="r1")
+    short = SimpleNamespace(symbol="XYZ", qty=-10)
+
+    assert captured["final_today"]([short]) == {"XYZ"}
+    assert asked == [("XYZ", True)]
