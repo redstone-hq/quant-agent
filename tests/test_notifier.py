@@ -2811,11 +2811,12 @@ def test_redact_logs_the_original_garbled_token_for_diagnosis(caplog):
     assert any("10,21.36" in rec.message for rec in caplog.records)
 
 
-def test_send_redacts_malformed_number_before_it_reaches_telegram(monkeypatch):
-    """End-to-end: `send()` is the single chokepoint every owner-facing
-    message passes through (Telegram/owner reports), regardless of which
-    upstream formatter wrote the free-text prose — so the guard belongs
-    here, not duplicated across every PM/risk/thesis call site."""
+def test_send_does_not_judge_numbers_the_guard_runs_at_model_prose(monkeypatch):
+    """`send()` cannot tell desk-formatted text from model prose, and running
+    the guard there garbled real desk figures ("stop covers 3, $164.61").
+    The guard now runs where model prose enters a message (trader feed
+    `_clip`) — see tests/test_number_guard_scope.py — so `send()` itself
+    passes the text through unjudged."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "BOT_TOK")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "CHAT_ID")
     monkeypatch.delenv("TELEGRAM_DISABLED", raising=False)
@@ -2830,8 +2831,8 @@ def test_send_redacts_malformed_number_before_it_reaches_telegram(monkeypatch):
 
     assert ok is True
     sent = mock_post.call_args.kwargs["json"]["text"]
-    assert "10,21.36" not in sent
-    assert "number garbled" in sent
+    assert "10,21.36" in sent
+    assert "number garbled" not in sent
 
 
 def test_redact_raw_exception_text_replaces_only_the_exception_token():

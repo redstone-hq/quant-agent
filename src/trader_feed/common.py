@@ -22,6 +22,7 @@ from src.notifier import (
     _margin_interest_lines,
     _new_block,
     _new_section,
+    _redact_malformed_numbers,
     _seal_section,
     company_name,
     describe_ai_cost,
@@ -84,7 +85,7 @@ def _fmt_elapsed(seconds: float) -> str:
     return f"{int(seconds // 60)}m {int(seconds % 60)}s"
 
 
-def _clip(value: Any, limit: int = 140) -> str:
+def _clip(value: Any, limit: int = 140, *, model_prose: bool = True) -> str:
     """Collapse whitespace/newlines to one line, then clip via the shared,
     boundary-aware `_clip_text` (src/notifier.py) instead of a raw
     `text[:limit]` slice.
@@ -95,8 +96,16 @@ def _clip(value: Any, limit: int = 140) -> str:
     this with `limit=105` on LLM prose that routinely runs 300-500+ chars.
     Callers below have also had their limits raised substantially (this
     formatter renders several such bullets per message, well inside
-    Telegram's real 4096-char budget)."""
+    Telegram's real 4096-char budget).
+
+    Model prose is where a garbled figure ("$10,21.36") can enter an owner
+    message, so the garbled-number guard runs here — before clipping, so
+    the clip budget measures the text that actually ships. Callers clipping
+    text the desk built itself (machine fault text) pass
+    `model_prose=False`: the guard must never judge desk figures."""
     text = " ".join(str(value or "").split())
+    if model_prose:
+        text = _redact_malformed_numbers(text)
     return _clip_text(text, limit, marker="…")
 
 
@@ -355,7 +364,8 @@ def _machine_detail(text: Any) -> str:
     would be inventing a fact. What changes is that the owner is told what
     he is looking at and that there is nothing in it for him to do.
     """
-    return f"Machine fault text, kept for the record — nothing here needs anything from you: {_clip(text, 900)}"
+    detail = _clip(text, 900, model_prose=False)
+    return f"Machine fault text, kept for the record — nothing here needs anything from you: {detail}"
 
 
 def _order_end_plain(fill_status: Any) -> str:
