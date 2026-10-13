@@ -5,7 +5,9 @@ equity ETFs, run fresh every trading day, dropping only clearly dead names,
 with every dropped name recorded with its reason. The "is anything
 happening" cut-off is not designed yet, so this module only RECORDS: it runs
 the existing eligibility checks of `src/universe_screen.py` (asset, history,
-price, spread, volatility, size, sector, plain equity fund, takeover) over the
+price, spread, volatility, S&P liquidity ratio, size, sector, plain equity fund,
+takeover; the session screen runs the liquidity ratio first, here the free
+bar checks run in the bars pass and the ratio opens the per-name pass) over the
 whole Alpaca active US-equity asset list (read through the read-only broker
 the API uses) and writes one durable record per
 name. It sends nothing to any AI, admits nothing, removes nothing and never

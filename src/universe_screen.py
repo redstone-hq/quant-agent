@@ -17,6 +17,27 @@ pre-existing behaviour.
 THE CRITERIA, and where each threshold comes from (every number is in
 `config/number_ledger.yaml`; nothing below is chosen here):
 
+  liquidity   FIRST filter (owner ruling 2026-10-13): S&P's index-entry
+              float-adjusted liquidity ratio (FALR). Annual dollar value
+              traded = average closing price x total volume over the 365
+              calendar days before the evaluation date (the last bar);
+              FALR = that / float-adjusted market capitalisation, and a
+              name passes at FALR >= 0.75 (S&P Composite 1500 addition
+              rule since 2023-01-04; definition per S&P's 2024-12-09 FALR
+              clarification). No float-share source exists in the desk's
+              data, so the denominator is TOTAL market capitalisation
+              (shares outstanding x price, Nasdaq listing): total >= float,
+              so the ratio is never overstated on that side (stricter).
+              Volume is Alpaca SIP consolidated volume, which includes
+              off-exchange (dark-pool / TRF) prints S&P excludes -- that
+              side overstates the ratio (looser). Both are known limits.
+              Drops, each with its reason: ratio below 0.75; market cap
+              absent from a readable profile (`market_cap_unknown`); under 365
+              calendar days of bars. An unreadable profile stays the
+              inconclusive `profile_unavailable` (never admitted). Not
+              applied to an ETF: a fund has no float-adjusted market cap.
+              Replaces any dollar-volume floor; the screen has none.
+
   asset       broker says the symbol exists, is `active`, `tradable`, a US
               equity on a listed exchange, and is not a warrant, unit,
               right, preferred or depositary receipt. Delisted /
@@ -106,7 +127,7 @@ import re
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -116,6 +137,15 @@ logger = logging.getLogger(__name__)
 #: threshold: it only has to exceed the one-year history test with room for
 #: holidays and a missing first week. Ledger: not-trade-governing.
 HISTORY_FETCH_DAYS = 400
+
+#: S&P float-adjusted liquidity ratio floor for addition to the S&P
+#: Composite 1500 ("must be greater than or equal to 0.75 at the time of
+#: addition", S&P DJI 2023-01-04). Ledger: sourced.
+SP_MIN_LIQUIDITY_RATIO = 0.75
+
+#: S&P's FALR window: "the 365 calendar days prior to the evaluation date"
+#: (S&P DJI FALR clarification, 2024-12-09). Ledger: sourced.
+SP_LIQUIDITY_LOOKBACK_DAYS = 365
 
 #: Exchanges a listed US common stock trades on, as Alpaca spells them
 #: (lower-cased; the SDK's enum text is `assetexchange.<name>`). Same set as
@@ -287,6 +317,8 @@ PLAIN_REASON = {
     "fund_category_unknown": "a fund with no category on record",
     "leveraged_or_inverse_fund": "a leveraged or inverse fund",
     "not_equity_fund": "a bond, cash or other non-stock fund",
+    "liquidity_below_sp_ratio": "trades too little for its size (S&P: a year's trading under 0.75x its market value)",
+    "liquidity_history_short": "under a year of trading to measure its trading-to-size ratio",
     # No longer screen criteria (2026-10-09); kept so older recorded
     # events still read in plain words.
     "not_shortable": "cannot be sold short",
@@ -549,6 +581,41 @@ def check_bars(
     return failures, measured
 
 
+def check_liquidity_ratio(bars: list, profile) -> tuple[list[str], dict]:
+    """S&P float-adjusted liquidity ratio (module docstring, "liquidity").
+
+    `profile` None (could not read) returns no verdict here: the profile
+    check records it inconclusive. A fund is not applicable."""
+    if profile is None:
+        return [], {}
+    if isinstance(profile, dict) and str(profile.get("quote_type") or "").strip().upper() == ETF_QUOTE_TYPE:
+        return [], {"liquidity_ratio": NOT_APPLICABLE_FUND}
+    measured: dict[str, Any] = {"liquidity_cap_basis": "total market cap (no float source; stricter)"}
+    cap = profile.get("market_cap_usd") if isinstance(profile, dict) else None
+    if not isinstance(cap, (int, float)) or isinstance(cap, bool) or not math.isfinite(cap) or cap <= 0:
+        return ["market_cap_unknown"], measured
+    if not bars:
+        return ["liquidity_history_short"], measured
+    try:
+        start = getattr(bars[-1], "date") - timedelta(days=SP_LIQUIDITY_LOOKBACK_DAYS)
+        if getattr(bars[0], "date") > start:
+            return ["liquidity_history_short"], measured
+        window = [b for b in bars if getattr(b, "date") > start]
+        closes = [float(b.close) for b in window]
+        volume = sum(float(getattr(b, "volume", 0) or 0) for b in window)
+    except (AttributeError, TypeError, ValueError):
+        return ["liquidity_history_short"], measured
+    if not closes:
+        return ["liquidity_history_short"], measured
+    traded = (sum(closes) / len(closes)) * volume
+    ratio = traded / float(cap)
+    measured["traded_value_365d_usd"] = round(traded, 0)
+    measured["liquidity_ratio"] = round(ratio, 4)
+    if ratio < SP_MIN_LIQUIDITY_RATIO:
+        return ["liquidity_below_sp_ratio"], measured
+    return [], measured
+
+
 def check_fund(category) -> tuple[list[str], dict]:
     """An ETF: unlevered equity funds only; its category is its sector key."""
     text = str(category or "").strip()
@@ -740,16 +807,23 @@ def screen_symbol(
             logger.warning("universe screen: bars failed for %s: %s", symbol, exc)
             result.failures = ["market_data_unavailable"]
             return result
-    failures, measured = check_bars(bars, th, reference_dates)
-    result.measured.update(measured)
-    if failures:
-        result.failures = failures
-        return result
+    # The profile is read before the bar checks: the S&P liquidity ratio is
+    # the FIRST filter (owner ruling 2026-10-13) and needs market cap.
     try:
         profile = sources.get_profile(symbol)
     except Exception as exc:  # noqa: BLE001
         logger.warning("universe screen: profile failed for %s: %s", symbol, exc)
         profile = None
+    failures, measured = check_liquidity_ratio(bars, profile) if bars else ([], {})
+    result.measured.update(measured)
+    if failures:
+        result.failures = failures
+        return result
+    failures, measured = check_bars(bars, th, reference_dates)
+    result.measured.update(measured)
+    if failures:
+        result.failures = failures
+        return result
     failures, measured = check_profile(profile, th, _field(asset, "name", "") or "")
     result.measured.update(measured)
     if failures or measured.get("fund"):
