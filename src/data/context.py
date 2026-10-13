@@ -31,20 +31,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from dateutil.relativedelta import relativedelta
+import pandas as pd
 
 from src.data.technical import ATR_PERIOD, atr_series
 from src.models import OHLCV
 from src.quantities import avg_dollar_volume
 
-# Calendar horizons. Each is a real calendar offset from the latest bar's date
-# (one week; 1, 3, 6, 12 calendar months), resolved against the series' own date
-# index by `_anchor_index`, so holidays are handled by the data itself.
-_HORIZON_1W = relativedelta(days=7)
-_HORIZON_1M = relativedelta(months=1)
-_HORIZON_3M = relativedelta(months=3)
-_HORIZON_6M = relativedelta(months=6)
-_HORIZON_12M = relativedelta(months=12)
+# Return horizons. DEFINITION, not tunable numbers: the 1w/1m/3m/6m/12m return
+# is by definition the change over 7 calendar days / 1 / 3 / 6 / 12 calendar
+# months back from the latest bar's date, resolved against the series' own date
+# index by `_anchor_index` (last bar on or before that date), so holidays are
+# handled by the data itself. These are calendar periods, not lookback windows.
+_HORIZON_1W = pd.DateOffset(days=7)
+_HORIZON_1M = pd.DateOffset(months=1)
+_HORIZON_3M = pd.DateOffset(months=3)
+_HORIZON_6M = pd.DateOffset(months=6)
+_HORIZON_12M = pd.DateOffset(months=12)
+
+# Session-count windows for the 52-week range / ATR percentile (_W_12M) and the
+# up/down volume window (_W_1M). Unchanged bar counts; see number_ledger.yaml.
+_W_1M, _W_12M = 21, 252
 
 # Sessions used to measure whether a moving average is rising or falling.
 _SLOPE_LOOKBACK = 10
@@ -148,21 +154,21 @@ class MarketContext:
     unfilled_gaps: list[Gap] = field(default_factory=list)
 
 
-def _anchor_index(bars: list[OHLCV], horizon: relativedelta) -> int | None:
+def _anchor_index(bars: list[OHLCV], horizon: pd.DateOffset) -> int | None:
     """Index of the last bar on or before (latest bar date - `horizon`).
 
     None when the series starts after that calendar date (too short).
     """
     if not bars:
         return None
-    target = bars[-1].date - horizon
+    target = (pd.Timestamp(bars[-1].date) - horizon).date()
     for i in range(len(bars) - 1, -1, -1):
         if bars[i].date <= target:
             return i
     return None
 
 
-def _pct_change(bars: list[OHLCV], horizon: relativedelta) -> float | None:
+def _pct_change(bars: list[OHLCV], horizon: pd.DateOffset) -> float | None:
     idx = _anchor_index(bars, horizon)
     if idx is None or idx >= len(bars) - 1:
         return None
@@ -317,11 +323,9 @@ def compute_market_context(
                     rel_3m = value
 
     # 52-week range.
-    idx_12m = _anchor_index(bars, _HORIZON_12M)
-    start_52w = 0 if idx_12m is None else idx_12m
-    window_52w = closes[start_52w:]
-    high_52w = float(highs[start_52w:].max())
-    low_52w = float(lows[start_52w:].min())
+    window_52w = closes[-_W_12M:] if len(closes) >= _W_12M else closes
+    high_52w = float(highs[-len(window_52w) :].max())
+    low_52w = float(lows[-len(window_52w) :].min())
     span = high_52w - low_52w
     range_position = round((last_close - low_52w) / span * 100.0, 1) if span > 0 else None
 
@@ -336,8 +340,7 @@ def compute_market_context(
     if atr.size:
         atr_now = float(atr[-1])
         atr_pct = round(atr_now / last_close * 100.0, 2)
-        # atr[j] belongs to bar j + (len(bars) - atr.size).
-        recent = atr[max(0, start_52w - (len(bars) - atr.size)) :]
+        recent = atr[-_W_12M:] if atr.size >= _W_12M else atr
         if recent.size > 1:
             atr_percentile = round(float((recent <= atr_now).sum()) / float(recent.size) * 100.0, 1)
             if atr_percentile >= 70:
@@ -418,8 +421,8 @@ def compute_market_context(
 
     # 20-day average dollar volume — the SAME definition the two admission
     # gates use (`src.quantities.avg_dollar_volume`), not a third one. This
-    # site previously averaged a generic one-month-of-sessions count (21 bars)
-    # leaking into a measure whose name, the
+    # site previously averaged `_W_1M` = 21 bars: the generic
+    # one-month-of-sessions constant leaking into a measure whose name, the
     # config key it is compared against and every log line all say 20. With
     # one halted session in the window the three implementations read
     # $11.400M / $12.000M / $11.429M on identical bars.
@@ -428,9 +431,8 @@ def compute_market_context(
 
     # Accumulation vs distribution.
     up_down_ratio = None
-    idx_1m = _anchor_index(bars, _HORIZON_1M)
-    if idx_1m is not None and idx_1m < len(bars) - 1:
-        window = bars[idx_1m + 1 :]
+    if len(bars) > _W_1M:
+        window = bars[-_W_1M:]
         up_vol = sum(b.volume for b in window if b.close > b.open)
         down_vol = sum(b.volume for b in window if b.close < b.open)
         if down_vol > 0:

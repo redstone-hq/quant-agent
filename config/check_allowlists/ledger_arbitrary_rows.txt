@@ -57,6 +57,8 @@ src.config.SmartMoneyConfig.refresh_deadline_s
 src.data.context._CONSOLIDATION_WINDOW
 src.data.context._MAX_GAPS_REPORTED
 src.data.context._SLOPE_LOOKBACK
+src.data.context._W_12M
+src.data.context._W_1M
 src.data.insider_signal._BAND_HIGH
 src.data.insider_signal._BAND_LOW
 src.data.insider_signal._WEIGHTS[INDETERMINATE]
