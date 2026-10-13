@@ -41,7 +41,7 @@ class Trade:
     target_price: float | None
     exit_date: date
     exit_price: float
-    exit_reason: str  # "stop" | "target" | "horizon" | "end_of_data"
+    exit_reason: str  # "stop" | "horizon" | "end_of_data"
     shares: float
     risk_pct: float
     setup_type: str

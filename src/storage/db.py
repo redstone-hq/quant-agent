@@ -51,11 +51,7 @@ from src.storage.analytics.calibration import (  # re-export mirror: defined the
     _is_filled_trail_stop,
 )
 from src.util.time import ET, UTC, et_today
-from src.storage.clock_stamp import (  # noqa: F401  (re-exported)
-    sqlite_utc_timestamp,
-    utc_now_stamp,
-    utc_stamp_ago,
-)
+from src.trading_calendar import sql_utc_stamp, sql_utc_stamp_ago
 
 logger = logging.getLogger(__name__)
 
@@ -308,8 +304,8 @@ class Database:
 
     @staticmethod
     def _sqlite_utc_timestamp(when: datetime) -> str:
-        """SQLite's stored format for `when`; the body lives in clock_stamp."""
-        return sqlite_utc_timestamp(when)
+        """SQLite's stored format for `when`; the body lives in src.trading_calendar."""
+        return sql_utc_stamp(when)
 
     @classmethod
     def _et_day_utc_bounds(cls, trading_day: date | None = None) -> tuple[str, str]:
@@ -395,7 +391,7 @@ class Database:
                     "  thesis_ma_kind, not_evaluated_reason"
                     ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        utc_now_stamp(),
+                        sql_utc_stamp(),
                         run_id or None,
                         session_date or str(et_today()),
                         sym,
@@ -451,7 +447,7 @@ class Database:
             src = obs.get("source")
             rows.append(
                 (
-                    utc_now_stamp(),
+                    sql_utc_stamp(),
                     run_id or None,
                     session_date or str(et_today()),
                     sym,
@@ -1237,7 +1233,7 @@ class Database:
         with self._lock:
             rows = self.conn.execute(
                 "SELECT * FROM intraday_evaluations WHERE symbol=? AND timestamp >= ? ORDER BY timestamp DESC",
-                (symbol.upper(), utc_stamp_ago(hours=float(cooldown_hours))),
+                (symbol.upper(), sql_utc_stamp_ago(hours=float(cooldown_hours))),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1323,7 +1319,7 @@ class Database:
                 "(symbol, consecutive_misses, last_alert_at) VALUES (?, ?, ?) "
                 "ON CONFLICT(symbol) DO UPDATE SET consecutive_misses=excluded.consecutive_misses"
                 + (", last_alert_at=?" if should_alert else ""),
-                (symbol, misses, last_alert_at) + ((utc_now_stamp(),) if should_alert else ()),
+                (symbol, misses, last_alert_at) + ((sql_utc_stamp(),) if should_alert else ()),
             )
             self.conn.commit()
             result["consecutive_misses"] = misses
@@ -1413,7 +1409,7 @@ class Database:
         with self._lock:
             cursor = self.conn.execute(
                 "DELETE FROM agent_logs WHERE timestamp < ?",
-                (utc_stamp_ago(days=keep_days),),
+                (sql_utc_stamp_ago(days=keep_days),),
             )
             self.conn.commit()
             return cursor.rowcount or 0
@@ -1435,7 +1431,7 @@ class Database:
         with self._lock:
             cursor = self.conn.execute(
                 "DELETE FROM specialist_evidence WHERE timestamp < ?",
-                (utc_stamp_ago(days=keep_days),),
+                (sql_utc_stamp_ago(days=keep_days),),
             )
             self.conn.commit()
             return cursor.rowcount or 0
@@ -1463,7 +1459,7 @@ class Database:
         with self._lock:
             cursor = self.conn.execute(
                 "DELETE FROM notifier_sends WHERE timestamp < ?",
-                (utc_stamp_ago(days=keep_days),),
+                (sql_utc_stamp_ago(days=keep_days),),
             )
             self.conn.commit()
             return cursor.rowcount or 0
@@ -1676,7 +1672,7 @@ class Database:
                      payload_json=excluded.payload_json,
                      positions_json=excluded.positions_json,
                      timestamp=?""",
-                (date, run_id, payload_json, positions_json, utc_now_stamp()),
+                (date, run_id, payload_json, positions_json, sql_utc_stamp()),
             )
             self.conn.commit()
 
@@ -1715,6 +1711,7 @@ class Database:
         entry_atr: float | None = None,
         stop_basis: str | None = None,
         stop_level_basis: str | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
         return self._trades().insert_trade(
@@ -1740,6 +1737,7 @@ class Database:
             entry_atr,
             stop_basis,
             stop_level_basis,
+            filled_at=filled_at,
         )
 
     def insert_trade_refusal(self, **kwargs) -> int | None:
@@ -1810,9 +1808,18 @@ class Database:
         fill_status: str,
         fill_qty: float | None = None,
         fill_price: float | None = None,
+        filled_at: str | None = None,
     ) -> int:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
-        return self._trades().update_trade_fill(broker_order_id, fill_status, fill_qty, fill_price)
+        return self._trades().update_trade_fill(broker_order_id, fill_status, fill_qty, fill_price, filled_at)
+
+    def regroup_position_ids(self, symbol: str) -> set[str] | None:
+        """Re-derive one symbol's stored position ids from the fill walk (TradeLedger.regroup_position_ids)."""
+        return self._trades().regroup_position_ids(symbol)
+
+    def backfill_fill_times(self, updates: list[tuple[int, str, str]]) -> set[str]:
+        """Broker fill times plus the regroup, one locked write (TradeLedger.backfill_fill_times)."""
+        return self._trades().backfill_fill_times(updates)
 
     def _realized_pnl_through_trade(self, symbol: str, through_id: int) -> float | None:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
@@ -2066,7 +2073,7 @@ class Database:
                      payload_json=excluded.payload_json,
                      positions_json=excluded.positions_json,
                      timestamp=?""",
-                (date, mode, run_id, payload_json, positions_json, utc_now_stamp()),
+                (date, mode, run_id, payload_json, positions_json, sql_utc_stamp()),
             )
             self.conn.commit()
 
@@ -2099,7 +2106,7 @@ class Database:
                      payload_json=excluded.payload_json,
                      positions_json=excluded.positions_json,
                      timestamp=?""",
-                (run_id, date, payload_json, positions_json, utc_now_stamp()),
+                (run_id, date, payload_json, positions_json, sql_utc_stamp()),
             )
             self.conn.commit()
 
@@ -2165,6 +2172,10 @@ class Database:
     def get_position_open_row(self, buy_row: dict | None) -> dict | None:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_position_open_row(buy_row)
+
+    def get_position_chain_rows(self, buy_row: dict | None) -> list[dict] | None:
+        """Thin shim: every executed row of `buy_row`'s position chain (TradeAnalytics)."""
+        return self._analytics().get_position_chain_rows(buy_row)
 
     def get_recent_insights(self, limit: int = 7) -> list[dict]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""

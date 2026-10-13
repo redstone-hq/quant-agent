@@ -1,0 +1,415 @@
+"""Open-position R is per lot everywhere: prompt facts, heat block, +1R ratchet.
+
+R = unrealised P&L / sum over open lots of lot qty x |lot fill - that lot's
+OWN initial stop|. Never one lot's stop against the broker's average entry.
+
+Worked example (the defect): buy 100 @ $50 stop $45, add 100 @ $60 stop $52,
+average entry $55, price $62. Per-lot risk = 500 + 800 = $1300; P&L = $1400;
+R = +1.08. 1R per share is $6.50, so the breakeven ratchet fires at >= $61.50.
+
+What origin/main did: the AI prompt path used the LATEST buy's stop ($52),
+(62-55)/(55-52) = +2.33R. The trail used the FIRST lot's stop ($45, via the
+position's open row), 1R = $10, so the breakeven ratchet fired LATE (>= $65).
+"""
+
+import itertools
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.models import Position
+from src.storage.db import Database
+from tests.pipeline_factory import build_pipeline
+
+
+@pytest.fixture
+def db(tmp_path):
+    database = Database(str(tmp_path / "open_r.db"))
+    database.initialize()  # real schema via the schema manager
+    yield database
+    database.close()
+
+
+_FILL_SECONDS = itertools.count(1)
+
+
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): each fixture fill a second after the last."""
+    return (datetime(2026, 10, 12, 14, 0) + timedelta(seconds=next(_FILL_SECONDS))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _open(db, symbol, action, qty, price, stop, setup_type="range", take_profit=None):
+    db.insert_trade(
+        symbol=symbol,
+        action=action,
+        qty=qty,
+        price=price,
+        reasoning="entry",
+        run_id="r",
+        stop_loss=stop,
+        take_profit=take_profit,
+        setup_type=setup_type,
+        fill_status="filled",
+        filled_at=_fill_time(),
+    )
+
+
+def _pos(symbol, qty, avg_entry, current_price) -> Position:
+    return Position(
+        symbol=symbol,
+        qty=qty,
+        avg_entry=avg_entry,
+        current_price=current_price,
+        market_value=qty * current_price,
+        unrealized_pnl=qty * (current_price - avg_entry),
+        sector="Technology",
+    )
+
+
+def _facts_and_heat(db, position, live_stop):
+    p = build_pipeline(db=db, broker=MagicMock())
+    p.broker.get_current_stop_price.return_value = live_stop
+    p._atr_for_symbol = MagicMock(return_value=1.0)
+    facts = p._build_position_facts(positions=[position], morning_trades=[], total_value=100_000.0)
+    heat = p._build_portfolio_heat([position], 100_000.0)
+    return facts[position.symbol], heat.per_position[0]
+
+
+def _trail(db, position, live_stop):
+    """Run the real trail pass; return the real evaluation it produced."""
+    from src.risk import trailing
+
+    p = build_pipeline(db=db, broker=MagicMock(), market=MagicMock())
+    p.broker.get_current_stop_price.return_value = live_stop
+    p.market.get_ohlcv.return_value = []
+    p._atr_for_symbol = MagicMock(return_value=1.0)
+    seen = []
+    real = trailing.evaluate_trailing_stop
+
+    def _capture(**kwargs):
+        seen.append(real(**kwargs))
+        return SimpleNamespace(proposal=None, code="noop", structural_code=None)
+
+    with (
+        patch("src.execution.scale_in.pending_protection_symbols", return_value=set()),
+        patch("src.risk.trailing.evaluate_trailing_stop", side_effect=_capture),
+    ):
+        p._apply_deterministic_trails([position], run_id="r1")
+    assert len(seen) == 1
+    return seen[0]
+
+
+def _r_ratchet_fired(ev) -> bool:
+    return ev.proposal is not None and ev.proposal.source in ("breakeven_ratchet", "second_ratchet")
+
+
+# ---------------------------------------------------------------- worked example
+
+
+def test_worked_example_prompt_and_heat_r_is_per_lot(db):
+    _open(db, "ABC", "BUY", 100, 50.0, 45.0)
+    _open(db, "ABC", "BUY", 100, 60.0, 52.0)
+    fact, row = _facts_and_heat(db, _pos("ABC", 200, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] == pytest.approx(1.08)  # 1400 / 1300, not +2.33
+    assert row.r_multiple == pytest.approx(1.08)
+
+
+def test_worked_example_ratchet_waits_for_per_lot_1r(db):
+    _open(db, "ABC", "BUY", 100, 50.0, 45.0, take_profit=90.0)
+    _open(db, "ABC", "BUY", 100, 60.0, 52.0, take_profit=90.0)
+    # $61: P&L $1200 < $1300 risk — below +1R per lot, must not fire.
+    assert not _r_ratchet_fired(_trail(db, _pos("ABC", 200, 55.0, 61.0), live_stop=52.0))
+    # $62: P&L $1400 >= $1300 — fires, stop to breakeven (average entry).
+    ev = _trail(db, _pos("ABC", 200, 55.0, 62.0), live_stop=52.0)
+    assert ev.proposal is not None and ev.proposal.source == "breakeven_ratchet"
+    assert ev.proposal.new_stop == pytest.approx(55.0)
+
+
+def test_short_scale_in_is_mirrored(db):
+    # Short 100 @ $50 stop $55, add 100 @ $40 stop $46: risk 500 + 600 = $1100.
+    _open(db, "SSS", "SHORT", 100, 50.0, 55.0)
+    _open(db, "SSS", "SHORT", 100, 40.0, 46.0)
+    fact, row = _facts_and_heat(db, _pos("SSS", -200, 45.0, 38.0), live_stop=46.0)
+    assert fact["r_multiple"] == pytest.approx(1.27)  # 1400 / 1100, not +7.0
+    assert row.r_multiple == pytest.approx(1.27)
+
+
+# ---------------------------------------------------------------- single lot unchanged
+
+
+def test_single_lot_r_and_ratchet_unchanged(db):
+    _open(db, "ONE", "BUY", 100, 50.0, 45.0, take_profit=90.0)
+    fact, row = _facts_and_heat(db, _pos("ONE", 100, 50.0, 60.0), live_stop=45.0)
+    assert fact["r_multiple"] == 2.0 and row.r_multiple == 2.0  # (60-50)/(50-45)
+    assert not _r_ratchet_fired(_trail(db, _pos("ONE", 100, 50.0, 54.99), live_stop=45.0))
+    ev = _trail(db, _pos("ONE", 100, 50.0, 55.0), live_stop=45.0)
+    assert ev.proposal is not None and ev.proposal.source == "breakeven_ratchet"
+    assert ev.proposal.new_stop == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------- missing stop
+
+
+def test_lot_without_stop_makes_r_unknown_and_no_r_ratchet(db):
+    _open(db, "MIS", "BUY", 100, 50.0, 45.0, take_profit=200.0)
+    _open(db, "MIS", "BUY", 100, 60.0, 52.0, take_profit=200.0)
+    # Writes now refuse a stopless entry; legacy rows predating that guard exist.
+    with db._lock:
+        db.conn.execute(
+            "UPDATE trades SET stop_loss = 0, initial_stop_loss = NULL WHERE id = (SELECT MAX(id) FROM trades)"
+        )
+        db.conn.commit()
+    fact, row = _facts_and_heat(db, _pos("MIS", 200, 55.0, 80.0), live_stop=45.0)
+    assert fact["r_multiple"] is None and row.r_multiple is None
+    ev = _trail(db, _pos("MIS", 200, 55.0, 80.0), live_stop=45.0)
+    assert not _r_ratchet_fired(ev)
+
+
+# ---------------------------------------------------------------- one reader, reconcile, no adapter
+
+
+def test_dashboard_uses_the_same_reader_and_formula_and_skips_unfilled_lots(db, tmp_path, monkeypatch):
+    from src.api import db_reads
+    from src.storage.analytics.trade_review import open_position_r
+
+    _open(db, "ABC", "BUY", 100, 50.0, 45.0)
+    _open(db, "ABC", "BUY", 100, 60.0, 52.0)
+    db.insert_trade(
+        symbol="ABC",
+        action="BUY",
+        qty=500,
+        price=61.0,
+        reasoning="never filled",
+        run_id="r",
+        stop_loss=60.0,
+        fill_status="cancelled",
+    )
+    monkeypatch.setattr(db_reads, "get_db_path", lambda: str(tmp_path / "open_r.db"))
+    rows = db_reads.get_open_position_rows(["ABC"])
+    assert all(r["fill_status"] != "cancelled" for r in rows)
+    dash = open_position_r([{"symbol": "ABC", "qty": 200, "avg_entry": 55.0, "current_price": 62.0}], rows)
+    fact, _ = _facts_and_heat(db, _pos("ABC", 200, 55.0, 62.0), live_stop=52.0)
+    assert dash["ABC"]["unrealised_r"] == fact["r_multiple"] == pytest.approx(1.08)
+
+
+def test_unmarked_filled_add_makes_r_unknown_not_smaller_and_warns_every_time(db, caplog):
+    _open(db, "ADD", "BUY", 100, 50.0, 45.0, take_profit=90.0)
+    db.insert_trade(
+        symbol="ADD",
+        action="BUY",
+        qty=100,
+        price=60.0,
+        reasoning="add, fill not yet recorded",
+        run_id="r",
+        stop_loss=52.0,
+        take_profit=90.0,
+        setup_type="range",
+        fill_status="submitted",
+    )
+    # Broker holds 200; only 100 are recorded executed. Dropping the add would
+    # make 1R $5 and fire breakeven at $60 — it must be "unknown" instead.
+    fact, row = _facts_and_heat(db, _pos("ADD", 200, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] is None and row.r_multiple is None
+    with caplog.at_level("WARNING"):
+        assert not _r_ratchet_fired(_trail(db, _pos("ADD", 200, 55.0, 62.0), live_stop=52.0))
+        assert not _r_ratchet_fired(_trail(db, _pos("ADD", 200, 55.0, 63.0), live_stop=52.0))
+    warned = [r for r in caplog.records if "R unknown (lots_do_not_reconcile)" in r.getMessage()]
+    # One WARNING per evaluation: no stored state de-duplicates it (bookkeeping is banned).
+    assert len(warned) == 2 and all("ADD" in r.getMessage() for r in warned)
+
+
+def test_backtest_uses_the_per_lot_function_and_no_single_stop_adapter_survives():
+    import inspect
+
+    from src.backtest import engine
+    from src.risk import trail_evaluate
+
+    for fn in (trail_evaluate.compute_trailing_stop, trail_evaluate.evaluate_trailing_stop):
+        assert "initial_stop" not in inspect.signature(fn).parameters
+    long_pos = SimpleNamespace(direction="long", shares=40.0, entry_price=50.0, stop_initial=45.0)
+    short_pos = SimpleNamespace(direction="short", shares=40.0, entry_price=50.0, stop_initial=56.0)
+    assert engine._risk_per_share(long_pos, 40.0) == pytest.approx(5.0)
+    assert engine._risk_per_share(short_pos, -40.0) == pytest.approx(6.0)
+    wrong_side = SimpleNamespace(direction="long", shares=40.0, entry_price=50.0, stop_initial=55.0)
+    assert engine._risk_per_share(wrong_side, 40.0) is None
+
+
+# ---------------------------------------------------------------- stop-move rows are not exits
+
+
+def _trail_stop_row(db, symbol, qty, stop, fill_status=None):
+    """A stop move as the desk records it: TRAIL_STOP for the FULL size, no fill."""
+    db.insert_trade(
+        symbol=symbol,
+        action="TRAIL_STOP",
+        qty=qty,
+        price=stop,
+        reasoning="stop moved",
+        run_id="r",
+        fill_status=fill_status,
+    )
+
+
+@pytest.mark.parametrize("moves", [1, 3])
+def test_stop_move_rows_leave_r_known_and_the_ratchet_live(db, moves):
+    _open(db, "TSR", "BUY", 100, 50.0, 45.0, take_profit=90.0)
+    _open(db, "TSR", "BUY", 100, 60.0, 52.0, take_profit=90.0)
+    for i in range(moves):
+        _trail_stop_row(db, "TSR", 200, 52.0 + i * 0.1, fill_status=None if i % 2 == 0 else "submitted")
+    fact, row = _facts_and_heat(db, _pos("TSR", 200, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] == pytest.approx(1.08) and row.r_multiple == pytest.approx(1.08)
+    ev = _trail(db, _pos("TSR", 200, 55.0, 62.0), live_stop=52.0)
+    assert ev.proposal is not None and ev.proposal.source == "breakeven_ratchet"
+
+
+def test_real_partial_sell_reconciles(db):
+    from src.exits_parts.trails import _risk_per_share
+
+    _open(db, "PS", "BUY", 100, 50.0, 45.0)
+    _open(db, "PS", "BUY", 100, 60.0, 52.0)
+    db.insert_trade(
+        symbol="PS",
+        action="SELL",
+        qty=50,
+        price=61.0,
+        reasoning="trim",
+        run_id="r",
+        fill_status="filled",
+        filled_at=_fill_time(),
+    )
+    _trail_stop_row(db, "PS", 150, 53.0)
+    fact, _ = _facts_and_heat(db, _pos("PS", 150, 55.0, 62.0), live_stop=53.0)
+    assert fact["r_multiple"] == pytest.approx(1.08)  # 1050 / (1300 x 150/200)
+    owner = SimpleNamespace(db=db)
+    assert _risk_per_share(owner, db.get_symbol_last_buy("PS"), 150, "PS") == pytest.approx(6.5)
+
+
+def test_missing_sell_row_makes_r_unknown(db):
+    _open(db, "MS", "BUY", 100, 50.0, 45.0)
+    _open(db, "MS", "BUY", 100, 60.0, 52.0)
+    # Broker holds 150 but no sell was recorded: the lots cannot be trusted.
+    fact, row = _facts_and_heat(db, _pos("MS", 150, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] is None and row.r_multiple is None
+
+
+def test_partially_filled_then_canceled_stop_counts_its_filled_shares(db):
+    """A TRAIL_STOP that filled 50 of 200 and was then canceled took 50 shares
+    out of the book: share counting must subtract them (the WIDER stop rule),
+    or the lots never reconcile to the 150 held and R goes unknown."""
+    _open(db, "PC", "BUY", 100, 50.0, 45.0)
+    _open(db, "PC", "BUY", 100, 60.0, 52.0)
+    _trail_stop_row(db, "PC", 200, 53.0, fill_status="canceled")
+    db.conn.execute(
+        "UPDATE trades SET fill_qty = 50, filled_at = ? WHERE symbol = 'PC' AND action = 'TRAIL_STOP'", (_fill_time(),)
+    )
+    db.conn.commit()
+    fact, row = _facts_and_heat(db, _pos("PC", 150, 55.0, 62.0), live_stop=53.0)
+    # 1050 / (1300 x 150/200)
+    assert fact["r_multiple"] == pytest.approx(1.08) and row.r_multiple == pytest.approx(1.08)
+
+
+def test_grouper_counts_a_partially_filled_canceled_stop_so_a_fresh_buy_opens_its_own_position():
+    """Buy 100, TRAIL_STOP fills 40 then is canceled, sell 60, buy 50 fresh.
+
+    The book went flat after the sell, so the fresh 50 is a NEW position whose
+    1R is its own $10/share. Defect: the grouper kept its running share total
+    with the NARROWER (realized-exit) stop rule, still saw 40 shares held, put
+    the fresh 50 into the old position, and the open-R check then balanced
+    (150 in, 100 out, 50 held) and returned 1R = $36.67 — ~3.7x too small.
+    """
+    from src.quantities import held_position_risk
+    from src.storage.trades.position_chain import _assign_position_ids
+
+    def row(i, action, qty, price, stop=None, fill_status="filled", fill_qty=None):
+        return {
+            "id": i,
+            "symbol": "PCB",
+            "action": action,
+            "qty": qty,
+            "price": price,
+            "fill_price": price,
+            "fill_qty": qty if fill_qty is None else fill_qty,
+            "fill_status": fill_status,
+            "stop_loss": stop,
+            "initial_stop_loss": stop,
+            "position_id": None,
+        }
+
+    rows = [
+        row(1, "BUY", 100, 100.0, stop=50.0),
+        row(2, "TRAIL_STOP", 100, 55.0, fill_status="canceled", fill_qty=40),
+        row(3, "SELL", 60, 70.0),
+        row(4, "BUY", 50, 60.0, stop=50.0),
+    ]
+    ids = _assign_position_ids(rows)
+    assert ids[1] is not None and ids[1] == ids[2] == ids[3]
+    assert ids[4] is not None and ids[4] != ids[1]
+
+    chain = [r for r in rows if ids[r["id"]] == ids[4]]
+    risk, reason = held_position_risk(chain, 50)
+    assert reason == "ok"
+    assert risk / 50 == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------- live lots come from the fill sequence
+
+
+@pytest.mark.parametrize(
+    "opening, exiting, entry, stop, fresh_entry, fresh_stop, held",
+    [
+        ("BUY", "SELL", 100.0, 50.0, 60.0, 50.0, 50),  # long: fresh lot risks $10/share
+        ("SHORT", "COVER", 50.0, 100.0, 60.0, 70.0, -50),  # short mirror: $10/share
+    ],
+)
+def test_delayed_reconcile_fresh_lot_r_is_its_own_not_the_old_position_s(
+    db, opening, exiting, entry, stop, fresh_entry, fresh_stop, held
+):
+    """Open 100; the resting stop fills 40 (not yet reconciled); exit 60 (not
+    yet reconciled); a fresh 50 is written while the ledger still thinks 100
+    are held, so it is stamped with the OLD position id; then all reconciles.
+
+    The book went flat before the fresh lot, so 1R is that lot's own $10/share.
+    Defect: open R trusted the stored id — 150 in, 100 out, 50 held balanced,
+    and 1R came out $36.67 marked "ok" (~3.7x too small: the ratchets fire early).
+    """
+    from src.exits_parts.trails import _risk_per_share
+
+    sym = f"DR{opening[0]}"
+
+    def write(action, qty, price, stop_loss=None, fill_status="filled", oid=None, filled_at=None):
+        db.insert_trade(
+            symbol=sym,
+            action=action,
+            qty=qty,
+            price=price,
+            reasoning="seq",
+            run_id="r",
+            stop_loss=stop_loss,
+            setup_type="range",
+            fill_status=fill_status,
+            broker_order_id=oid,
+            filled_at=filled_at,
+        )
+
+    # Broker fill times: open 14:00, stop 40 at 14:10, exit 60 at 14:20 (flat), fresh 50 at 14:30.
+    write(opening, 100, entry, stop_loss=stop, filled_at="2026-10-12 14:00:00")
+    write("TRAIL_STOP", 100, stop - 5.0 if opening == "BUY" else stop + 5.0, fill_status="submitted", oid=f"{sym}-stop")
+    write(exiting, 60, entry, fill_status="submitted", oid=f"{sym}-exit")
+    write(opening, 50, fresh_entry, stop_loss=fresh_stop, filled_at="2026-10-12 14:30:00")
+    db.update_trade_fill(f"{sym}-stop", "canceled", 40, entry, filled_at="2026-10-12 14:10:00")
+    db.update_trade_fill(f"{sym}-exit", "filled", 60, entry, filled_at="2026-10-12 14:20:00")
+
+    pids = {
+        r["position_id"]
+        for r in db.conn.execute("SELECT position_id FROM trades WHERE symbol = ? AND action = ?", (sym, opening))
+    }
+    # Was `== 1` ("the fresh lot really did join the old stored id"): that pinned the defect.
+    # Stored ids are now re-derived from the fill walk on every fill confirmation, so the
+    # fresh lot, which filled after the book went flat, has its own position.
+    assert len(pids) == 2
+
+    owner = SimpleNamespace(db=db)
+    opening_row = db.get_symbol_last_buy(sym, action=opening)
+    assert _risk_per_share(owner, opening_row, held, sym) == pytest.approx(10.0)

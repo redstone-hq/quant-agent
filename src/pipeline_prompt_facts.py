@@ -48,6 +48,22 @@ from src.trading_calendar import et_today, session_date_key  # noqa: F401 -- re-
 logger = logging.getLogger("src.pipeline")
 
 
+def _held_risk(db, opening_row, held_qty) -> float | None:
+    """Per-lot dollar risk on the held shares; None (R unknown) if unreadable."""
+    from src.quantities import held_position_risk
+
+    try:
+        lots = db.get_position_chain_rows(opening_row) if opening_row else None
+    except Exception as e:  # noqa: BLE001 — R degrades to unknown, never a guess
+        logger.warning("open lots lookup failed for %s: %s", (opening_row or {}).get("symbol"), e)
+        lots = None
+    try:
+        held = float(held_qty or 0)
+    except (TypeError, ValueError):
+        return None
+    return held_position_risk(lots, held, opening_row)[0]
+
+
 class PromptExposure:
     """The correlation matrix and the live stop map; standalone, built from explicit collaborators."""
 
@@ -120,24 +136,25 @@ class PromptExposure:
         ctx.correlation_matrix = matrix
         return matrix
 
-    def _build_stop_map(self, positions) -> tuple[dict[str, float], dict[str, float], set[str]]:
-        """`(live_stops, initial_stops, unreadable)` keyed by symbol.
+    def _build_stop_map(self, positions) -> tuple[dict[str, float], dict[str, float | None], set[str]]:
+        """`(live_stops, entry_risks, unreadable)` keyed by symbol.
 
-        Live stops are broker truth (already trailed). Initial stops come from
-        the last executed BUY row and are what an R-multiple's denominator must
-        use — the bet that was actually made, not the one it was ratcheted to.
+        Live stops are broker truth (already trailed). Entry risks are the
+        per-lot dollar risk on the held shares (`held_position_risk_dollars`):
+        every open lot against its OWN initial stop — the bet that was actually
+        made, never one stop against the blended average entry.
         A symbol missing from `live_stops` and not in `unreadable` is genuinely unprotected and
         `portfolio_heat` charges it at full notional; never substitute the BUY
         row's stop for a missing broker stop, because that would report
         protection the account does not have.
         """
         live_stops: dict[str, float] = {}
-        initial_stops: dict[str, float] = {}
+        entry_risks: dict[str, float | None] = {}
         unreadable: set[str] = set()
         for p in positions:
             sym = p.symbol
             try:
-                self._one_stop(p, sym, live_stops, initial_stops, unreadable)
+                self._one_stop(p, sym, live_stops, entry_risks, unreadable)
             except Exception as e:  # noqa: BLE001 — one holding degrades, never the whole book
                 # Defect 2026-10-09: one raise here used to lose the whole
                 # book's risk and skip the 25% ceiling. Unreadable → this
@@ -145,16 +162,14 @@ class PromptExposure:
                 logger.error("stop map: %s stop could not be read (%s) — charged at full market value", sym, e)
                 live_stops.pop(sym, None)
                 unreadable.add(sym)
-        return live_stops, initial_stops, unreadable
+        return live_stops, entry_risks, unreadable
 
-    def _one_stop(self, p, sym, live_stops, initial_stops, unreadable) -> None:
-        """One holding's live and initial stop, written into the caller's maps."""
+    def _one_stop(self, p, sym, live_stops, entry_risks, unreadable) -> None:
+        """One holding's live stop and per-lot entry risk, written into the caller's maps."""
         _live_read = read_stop(self.broker, sym, db=self.db, context="prompt stop map")
         unreadable.update([sym] if _live_read.unreadable else [])
         if _live_read.found:
             live_stops[sym] = _live_read.price
-        from src.quantities import recorded_initial_stop
-
         try:
             qty = float(getattr(p, "qty", 0) or 0)
         except (TypeError, ValueError):
@@ -165,9 +180,7 @@ class PromptExposure:
         except Exception as e:  # noqa: BLE001
             logger.warning("stop map: last-buy lookup failed for %s: %s", sym, e)
             buy = None
-        initial = recorded_initial_stop(buy)
-        if initial > 0:
-            initial_stops[sym] = initial
+        entry_risks[sym] = _held_risk(self.db, buy, qty)
 
 
 class PromptHistory:
@@ -657,6 +670,9 @@ class PromptPositionFacts:
                 current_price=cur,
                 stop=stop_loss or None,
                 initial_stop=initial_stop or None,
+                # Per-lot denominator: each open lot against its OWN initial
+                # stop, never `initial_stop` (one lot) against the average entry.
+                entry_risk_dollars=_held_risk(self.db, buy, p.qty),
             )
 
             facts[sym] = {

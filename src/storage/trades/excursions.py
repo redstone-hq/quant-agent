@@ -68,7 +68,8 @@ def _accumulate_excursions(ledger, position) -> None:
             f"AND ({column} IS NULL OR {column} < ?) "
             "AND position_id IN ("
             "  SELECT position_id FROM trades WHERE symbol = ? "
-            "  AND position_id IS NOT NULL ORDER BY id DESC LIMIT 1)",
+            "  AND position_id IS NOT NULL AND action IN ('BUY', 'SHORT') "
+            "  ORDER BY COALESCE(filled_at, timestamp) DESC, id DESC LIMIT 1)",
             (excursion, position.symbol, excursion, position.symbol),
         )
 
@@ -129,7 +130,8 @@ def record_overnight_gap(
             "AND (last_overnight_gap_date IS NULL OR last_overnight_gap_date < ?) "
             "AND position_id IN ("
             "  SELECT position_id FROM trades WHERE symbol = ? "
-            "  AND position_id IS NOT NULL ORDER BY id DESC LIMIT 1)",
+            "  AND position_id IS NOT NULL AND action IN ('BUY', 'SHORT') "
+            "  ORDER BY COALESCE(filled_at, timestamp) DESC, id DESC LIMIT 1)",
             (gap, gap, session_date, symbol, session_date, symbol),
         )
         ledger.conn.commit()
@@ -180,7 +182,8 @@ def _accumulate_level_distances(ledger, position) -> None:
         "AND stop_level_basis IS NOT NULL "
         "AND position_id IN ("
         "  SELECT position_id FROM trades WHERE symbol = ? "
-        "  AND position_id IS NOT NULL ORDER BY id DESC LIMIT 1) "
+        "  AND position_id IS NOT NULL AND action IN ('BUY', 'SHORT') "
+        "  ORDER BY COALESCE(filled_at, timestamp) DESC, id DESC LIMIT 1) "
         "ORDER BY id DESC LIMIT 1",
         (position.symbol, position.symbol),
     ).fetchone()

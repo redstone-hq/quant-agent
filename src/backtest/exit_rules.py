@@ -40,22 +40,22 @@ def _check_exit(
     """Whether today's bar closes `pos`, and at what raw (pre-slippage)
     price. Returns `(None, None)` when the position stays open.
 
-    STOP-FIRST ORDERING: when a day's range could have touched both the
-    stop and the target, the stop is assumed to have been hit first — see
-    the module docstring ("EXIT ORDERING"). Factored out from the main loop
-    so it is directly unit-testable for both directions without needing the
-    signal-generation machinery around it.
+    NO TARGET EXIT: the live desk never sells at a target; profit-taking is
+    the trailing stop alone, so the backtest exits only on the (possibly
+    trailed) stop or the hold horizon. `pos.target` is a reference price for
+    sizing and the trailing stop, never an exit.
+
+    GAP FILLS: a bar that opens through the stop fills at the open, not the
+    stop (nothing trades at the stop price on a gap). Factored out from the
+    main loop so it is directly unit-testable for both directions.
     """
     if pos.direction == "long":
         if bar.low <= pos.stop:
-            return "stop", pos.stop
-        if pos.target is not None and bar.high >= pos.target:
-            return "target", pos.target
+            # Gap through the stop: nothing trades at the stop, so fill at the open.
+            return "stop", min(bar.open, pos.stop)
     else:
         if bar.high >= pos.stop:
-            return "stop", pos.stop
-        if pos.target is not None and bar.low <= pos.target:
-            return "target", pos.target
+            return "stop", max(bar.open, pos.stop)
 
     hold_days = idx - pos.entry_index
     if hold_days >= max_hold_days:

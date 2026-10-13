@@ -6,6 +6,13 @@ from src.conviction_ledger import SeatStance
 from src.storage.db import Database
 
 
+def _fill_time() -> str:
+    """A broker fill time (real fills always carry one): the fill is reported as it is written."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @pytest.fixture
 def db(tmp_path):
     database = Database(str(tmp_path / "initial_stop.db"))
@@ -24,6 +31,7 @@ def test_scorer_uses_entry_stop_after_trail_above_entry(db):
         run_id="run-1",
         stop_loss=90.0,
         fill_status="filled",
+        filled_at=_fill_time(),
         decision_id="dec-1",
     )
     db.update_open_stop_loss("AAPL", 105.0, action="BUY")  # trailed above entry
@@ -35,6 +43,7 @@ def test_scorer_uses_entry_stop_after_trail_above_entry(db):
         reasoning="exit",
         run_id="run-2",
         fill_status="filled",
+        filled_at=_fill_time(),
     )
     db.record_seat_stances(
         run_id="run-1",

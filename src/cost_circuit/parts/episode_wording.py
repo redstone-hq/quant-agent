@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable, TypeVar
 from src.cost_circuit.classification import _SELF_CLEARING_HARD_TRIGGERS
-from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.cost_circuit.clock import _et_day_and_utc_bounds, _sql_stamp
 
 
 class EpisodeWording:
@@ -46,8 +46,8 @@ class EpisodeWording:
         if not suspended_at:
             return False
         row = conn.execute(
-            "SELECT (julianday('now') - julianday(?)) * 1440.0 AS minutes",
-            (suspended_at,),
+            "SELECT (julianday(?) - julianday(?)) * 1440.0 AS minutes",
+            (_sql_stamp(), suspended_at),
         ).fetchone()
         elapsed = row["minutes"] if row is not None else None
         if elapsed is None:
@@ -142,8 +142,8 @@ class EpisodeWording:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('suspend_alert_deferred', ?, ?, ?, ?, 'episode_coalescing', ?, ?, ?)",
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('suspend_alert_deferred', ?, ?, ?, ?, 'episode_coalescing', ?, ?, ?, ?, ?)",
             (
                 state.get("trigger_code"),
                 detail,
@@ -152,6 +152,8 @@ class EpisodeWording:
                 int(state.get("session_attempts") or 0),
                 float(state.get("session_cost_usd") or 0.0),
                 float(state.get("daily_cost_usd") or 0.0),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
 
@@ -182,8 +184,8 @@ class EpisodeWording:
         if row is None or not row["first_at"]:
             return {}
         elapsed = conn.execute(
-            "SELECT (julianday('now') - julianday(?)) * 1440.0 AS minutes",
-            (row["first_at"],),
+            "SELECT (julianday(?) - julianday(?)) * 1440.0 AS minutes",
+            (_sql_stamp(), row["first_at"]),
         ).fetchone()
         return {
             "episode_first_at": str(row["first_at"]),

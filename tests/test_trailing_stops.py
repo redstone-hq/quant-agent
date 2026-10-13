@@ -89,7 +89,7 @@ def test_range_trail_never_moves_a_stop_away_from_price():
             reference_target=130.0,
             bars=_rising_with_higher_lows(),
             atr=2.0,
-            initial_stop=90.0,
+            risk_per_share=abs(100.0 - 90.0),
         )
         is None
     )
@@ -119,7 +119,7 @@ def test_range_trail_refuses_until_enough_bars_to_read():
             reference_target=130.0,
             bars=rising[:n],
             atr=2.0,
-            initial_stop=90.0,
+            risk_per_share=abs(100.0 - 90.0),
         )
         assert ev.proposal is None, n
         assert ev.structural_code == TRAIL_CODE_TOO_FEW_BARS, n
@@ -139,7 +139,7 @@ def test_range_trail_keeps_the_structural_refusal_on_the_record():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert ev.proposal is not None and ev.proposal.new_stop == 100.0
     assert ev.structural_code == TRAIL_CODE_TOO_FEW_BARS
@@ -162,7 +162,7 @@ def test_a_ratchet_level_inside_the_noise_band_is_not_placed():
         reference_target=130.0,
         bars=[],
         atr=20.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_INSIDE_NOISE_BAND
@@ -181,7 +181,7 @@ def test_range_trail_takes_the_tighter_of_ratchet_and_structure():
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 110.0
@@ -246,7 +246,7 @@ def test_range_setup_reaches_breakeven_at_plus_1r():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 100.0
@@ -265,7 +265,7 @@ def test_range_setup_below_1r_still_gets_no_protection():
             reference_target=130.0,
             bars=[],
             atr=2.0,
-            initial_stop=90.0,
+            risk_per_share=abs(100.0 - 90.0),
         )
         is None
     )
@@ -283,7 +283,7 @@ def test_range_setup_does_not_re_propose_breakeven_once_already_there():
             reference_target=130.0,
             bars=[],
             atr=2.0,
-            initial_stop=90.0,
+            risk_per_share=abs(100.0 - 90.0),
         )
         is None
     )
@@ -307,7 +307,7 @@ def test_range_setup_retrace_after_1r_no_longer_gives_back_the_full_risk():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=initial_stop,
+        risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
     assert first is not None and first.new_stop == 100.0
     live_stop = first.new_stop
@@ -322,7 +322,7 @@ def test_range_setup_retrace_after_1r_no_longer_gives_back_the_full_risk():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=initial_stop,
+        risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
     assert second is None  # no further ratchet proposed on the way down
     # The live stop is what the broker actually holds; it stayed at
@@ -341,7 +341,7 @@ def test_range_setup_short_mirror_reaches_breakeven_at_plus_1r():
         reference_target=70.0,
         bars=[],
         atr=2.0,
-        initial_stop=110.0,
+        risk_per_share=abs(100.0 - 110.0),
         qty=-10,
     )
     assert proposal is not None
@@ -382,7 +382,7 @@ def test_range_setup_with_no_target_still_gets_the_breakeven_ratchet():
         reference_target=None,
         bars=[],
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 100.0
@@ -403,7 +403,7 @@ def test_breakeven_ratchet_uses_the_initial_stop_not_the_live_one():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 100.0
@@ -431,7 +431,7 @@ def test_range_second_ratchet_locks_plus_1r_at_plus_2r():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=95.0,
+        risk_per_share=abs(100.0 - 95.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 105.0
@@ -451,7 +451,7 @@ def test_range_second_ratchet_fires_directly_from_the_initial_stop():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=95.0,
+        risk_per_share=abs(100.0 - 95.0),
     )
     assert proposal is not None
     assert proposal.new_stop == 105.0
@@ -473,7 +473,7 @@ def test_range_reversal_after_2r_stops_with_plus_1r_locked():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=initial_stop,
+        risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
     assert first is not None and first.new_stop == 105.0
     live_stop = first.new_stop
@@ -489,7 +489,7 @@ def test_range_reversal_after_2r_stops_with_plus_1r_locked():
         reference_target=130.0,
         bars=[],
         atr=2.0,
-        initial_stop=initial_stop,
+        risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
     assert second is None
     assert live_stop == 105.0 > 100.0  # +1R locked, above breakeven
@@ -508,7 +508,7 @@ def test_range_below_2r_stays_at_breakeven_unchanged():
             reference_target=130.0,
             bars=[],
             atr=2.0,
-            initial_stop=95.0,
+            risk_per_share=abs(100.0 - 95.0),
         )
         is None
     )
@@ -527,7 +527,7 @@ def test_range_second_ratchet_never_loosens_a_stop():
             reference_target=130.0,
             bars=[],
             atr=2.0,
-            initial_stop=95.0,
+            risk_per_share=abs(100.0 - 95.0),
         )
         is None
     )
@@ -546,7 +546,7 @@ def test_breakout_gets_no_second_ratchet():
         reference_target=130.0,
         bars=[],
         atr=None,
-        initial_stop=95.0,
+        risk_per_share=abs(100.0 - 95.0),
     )
     assert breakout is None
     range_trade = compute_trailing_stop(
@@ -558,7 +558,7 @@ def test_breakout_gets_no_second_ratchet():
         reference_target=130.0,
         bars=[],
         atr=None,
-        initial_stop=95.0,
+        risk_per_share=abs(100.0 - 95.0),
     )
     assert range_trade is not None and range_trade.new_stop == 105.0
 
@@ -575,7 +575,7 @@ def test_range_second_ratchet_short_mirror():
         reference_target=70.0,
         bars=[],
         atr=2.0,
-        initial_stop=105.0,
+        risk_per_share=abs(100.0 - 105.0),
         qty=-10,
     )
     assert proposal is not None
@@ -1057,7 +1057,7 @@ def _regime_fixture(setup_type, structural_ceiling):
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
 
 
@@ -1076,7 +1076,7 @@ def _regime_fixture_no_structure(setup_type, structural_ceiling):
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
         atr=20.0,
-        initial_stop=80.0,
+        risk_per_share=abs(100.0 - 80.0),
     )
 
 
@@ -1114,7 +1114,7 @@ def test_item82_correct_range_is_unchanged_legacy_null_ceiling():
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
         atr=2.0,
-        initial_stop=90.0,
+        risk_per_share=abs(100.0 - 90.0),
     )
     assert legacy is not None
     assert (legacy.source, legacy.new_stop) == (proposal.source, proposal.new_stop)

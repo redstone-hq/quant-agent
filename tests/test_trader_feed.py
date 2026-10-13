@@ -1,6 +1,8 @@
 import json
 import re
 import sqlite3
+from src.trading_calendar import sql_utc_stamp
+from src.storage.db import Database
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -53,53 +55,9 @@ def _pin_clock(monkeypatch, when: datetime) -> None:
 
 def _make_db(tmp_path, monkeypatch):
     db = tmp_path / "quant_agent.db"
-    conn = sqlite3.connect(db)
-    conn.executescript(
-        """
-        CREATE TABLE specialist_evidence (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL,
-            decision_id TEXT,
-            agent_name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            symbol TEXT,
-            evidence_json TEXT NOT NULL,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            action TEXT NOT NULL,
-            qty REAL NOT NULL,
-            price REAL NOT NULL,
-            reasoning TEXT,
-            run_id TEXT,
-            broker_order_id TEXT,
-            fill_status TEXT,
-            fill_qty REAL,
-            fill_price REAL,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE positions (
-            symbol TEXT PRIMARY KEY,
-            qty REAL NOT NULL,
-            avg_entry REAL NOT NULL,
-            current_price REAL NOT NULL,
-            market_value REAL NOT NULL,
-            unrealized_pnl REAL NOT NULL
-        );
-        CREATE TABLE agent_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_name TEXT NOT NULL,
-            run_id TEXT NOT NULL,
-            output_summary TEXT,
-            cost_usd REAL
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+    _d = Database(str(db))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     monkeypatch.setattr(trader_feed, "_DB_PATH", db)
     return db
 
@@ -207,7 +165,9 @@ def test_morning_feed_surfaces_market_signal_pm_risk_cash_and_execution(tmp_path
     _trade(db, run, "SGOV", "SWEEP_SELL", qty=3, price=100.5)
     _trade(db, run, "SQQQ", "BUY", qty=4, price=25.02)
     conn = sqlite3.connect(db)
-    conn.execute("INSERT INTO positions VALUES ('SGOV', 90, 100, 100.5, 9045, 5)")
+    conn.execute(
+        "INSERT INTO positions (symbol, qty, avg_entry, current_price, market_value, unrealized_pnl) VALUES ('SGOV', 90, 100, 100.5, 9045, 5)"
+    )
     conn.commit()
     conn.close()
     _agent_log(db, run, "portfolio_manager", "Bearish tape", 0.006)
@@ -1226,7 +1186,7 @@ def test_length_pressure_protects_risk_and_execution_reasoning(tmp_path, monkeyp
 def _insert_position(db, symbol, qty=10, avg_entry=100.0, current_price=105.0):
     conn = sqlite3.connect(db)
     conn.execute(
-        "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO positions (symbol, qty, avg_entry, current_price, market_value, unrealized_pnl) VALUES (?, ?, ?, ?, ?, ?)",
         (symbol, qty, avg_entry, current_price, qty * current_price, qty * (current_price - avg_entry)),
     )
     conn.commit()
@@ -1555,13 +1515,8 @@ def test_footer_never_claims_free_when_the_cost_circuit_marked_it_inexact(
     _agent_log(db, run, "tech_analyst", "free-tier pass", cost=0.0)
     with sqlite3.connect(db) as conn:
         conn.execute(
-            "CREATE TABLE llm_budget_sessions ("
-            "run_id TEXT PRIMARY KEY, day TEXT, mode TEXT, "
-            "actual_cost_usd REAL, costs_exact INTEGER)"
-        )
-        conn.execute(
-            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact) VALUES (?, ?, ?, ?, ?)",
-            (run, "2026-09-29", "intra_check", 0.0, 0),
+            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run, "2026-09-29", "intra_check", 0.0, 0, sql_utc_stamp(), sql_utc_stamp()),
         )
     outer = {
         "status": "ok",

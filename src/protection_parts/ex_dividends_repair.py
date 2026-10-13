@@ -67,8 +67,20 @@ class CoverageRepair:
         the current hour.
         """
         from src.execution.stop_repair import repair_stop_coverage
+        from src.protection.breached_stop_closer import build_breached_stop_closer
+        from src.protection.fill_reconciler import FillReconciler
+        from src.protection.owner_alerts import OwnerAlerts
 
         opening = "SHORT" if is_short else "BUY"
+        # A stop the open already gapped through is executed through the
+        # protected sell path; the execution layer cannot import it, so it is
+        # injected from here (src/protection/breached_stop_closer.py).
+        close_breached = build_breached_stop_closer(
+            broker=self.broker,
+            db=self.db,
+            order_accepted=FillReconciler._order_accepted,
+            alert_exit_declined=OwnerAlerts._alert_owner_exit_declined,
+        )
         return repair_stop_coverage(
             broker=self.broker,
             # include_in_flight: a same-session open still at fill_status=
@@ -87,6 +99,7 @@ class CoverageRepair:
             outcome=outcome,
             resting_stops=resting_stops,
             caller="session_coverage_reconcile",
+            close_breached=close_breached,
         )
 
     def _wire_protective_stop_block_recorder(self) -> None:

@@ -63,4 +63,5 @@ def test_get_order_fill_info():
         "status": "filled",
         "filled_qty": 3.0,
         "filled_avg_price": 2.5,
+        "filled_at": None,  # the broker reported no fill time
     }

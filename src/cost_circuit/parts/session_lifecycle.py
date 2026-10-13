@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable, TypeVar
 from src.cost_circuit.classification import _unknown_cost_row_expr
-from src.cost_circuit.clock import _et_day_and_utc_bounds, _legacy_mode
+from src.cost_circuit.clock import _et_day_and_utc_bounds, _legacy_mode, _sql_stamp
 from src.cost_circuit.schema import ensure_cost_circuit_schema
 
 
@@ -130,9 +130,9 @@ class SessionLifecycle:
 
         conn.execute(
             "INSERT OR IGNORE INTO llm_budget_days"
-            "(day, baseline_cost_usd, unknown_cost_rows, costs_exact) "
-            "VALUES (?, ?, ?, ?)",
-            (day, baseline, unknown_cost_rows, int(unknown_cost_rows == 0)),
+            "(day, baseline_cost_usd, unknown_cost_rows, costs_exact, seeded_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (day, baseline, unknown_cost_rows, int(unknown_cost_rows == 0), _sql_stamp(), _sql_stamp()),
         )
         for row in legacy:
             run_id = str(row["run_id"])
@@ -140,8 +140,8 @@ class SessionLifecycle:
             conn.execute(
                 "INSERT OR IGNORE INTO llm_budget_sessions "
                 "(run_id, day, mode, actual_cost_usd, logical_calls, "
-                "provider_attempts, costs_exact, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'legacy')",
+                "provider_attempts, costs_exact, status, started_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'legacy', ?, ?)",
                 (
                     run_id,
                     day,
@@ -150,6 +150,8 @@ class SessionLifecycle:
                     calls,
                     calls,
                     int(int(row["unknown_cost_rows"] or 0) == 0),
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
         self._validate_accounting_invariants(conn, day)
@@ -172,8 +174,9 @@ class SessionLifecycle:
                 conn.execute("BEGIN IMMEDIATE")
                 self._seed_today(conn)
                 conn.execute(
-                    "INSERT OR IGNORE INTO llm_budget_sessions(run_id, day, mode) VALUES (?, ?, ?)",
-                    (run_id, day, mode),
+                    "INSERT OR IGNORE INTO llm_budget_sessions(run_id, day, mode, started_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (run_id, day, mode, _sql_stamp(), _sql_stamp()),
                 )
                 self._reconcile_quota_holds_locked(conn, current_day=day)
                 conn.commit()

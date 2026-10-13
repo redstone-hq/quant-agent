@@ -83,8 +83,8 @@ stop". A short's protective stop is a BUY stop ABOVE the market, and every
 one of these rules mirrors through a price-axis flip: ratchet DOWN instead of
 UP, trail under successive LOWER highs instead of higher lows, chandelier off
 the LOWEST low instead of the highest high, noise band and ratchet-minimum
-measured on the other side of the stop. `qty` supplies only the SIDE (same
-convention as `risk.metrics.r_multiple`): negative is a short. No order path
+measured on the other side of the stop. `qty` supplies only the SIDE:
+negative is a short. No order path
 in this repo can open a short yet, so `qty` defaults to +1.0 and every
 existing call site — which only ever knows about longs — is unchanged.
 """

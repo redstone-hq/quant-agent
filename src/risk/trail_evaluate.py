@@ -68,9 +68,9 @@ def compute_trailing_stop(
     atr: float | None = None,
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float = 1.0,
-    initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
     as_of: datetime | None = None,
+    risk_per_share: float | None = None,
 ) -> TrailProposal | None:
     """Propose a tightened stop, or None when no move is warranted.
 
@@ -78,17 +78,15 @@ def compute_trailing_stop(
     matter, because a swing low/high from before the position existed is not
     a level this trade ever defended.
 
-    `qty` supplies only the SIDE — same convention as `risk.metrics.r_multiple`.
+    `qty` supplies only the SIDE.
     A negative qty is a short: everything below mirrors across the entry
     price. A long's stop lives BELOW price and ratchets UP toward it as the
     trade works; a short's stop lives ABOVE price and ratchets DOWN toward it.
     Defaults to +1.0 so every existing (long-only) call site is unchanged.
 
-    `initial_stop` is the stop AT ENTRY (before any trail ever moved it) —
-    used only by the Type A breakeven ratchet (fix #3, see module docstring)
-    to measure the risk actually taken. Optional and additive: omitting it
-    (every pre-fix call site, until updated) simply means that ratchet never
-    fires, reproducing the exact old behaviour.
+    `risk_per_share` is 1R per held share from the per-lot function
+    (`quantities.held_position_risk` / held qty) — used only by the Type A
+    R ratchets. None (R unknown) means those ratchets never fire.
 
     `structural_ceiling` is the constructor's MEASURED breakout verdict,
     pinned at entry (item 82, #649/#652). Passing it routes a measured
@@ -112,9 +110,9 @@ def compute_trailing_stop(
         atr=atr,
         min_ratchet_ticks=min_ratchet_ticks,
         qty=qty,
-        initial_stop=initial_stop,
         structural_ceiling=structural_ceiling,
         as_of=as_of,
+        risk_per_share=risk_per_share,
     ).proposal
 
 
@@ -130,9 +128,9 @@ def evaluate_trailing_stop(
     atr: float | None = None,
     min_ratchet_ticks: int = MIN_RATCHET_TICKS,
     qty: float | None = None,  # None reads as a long — see `is_short` below
-    initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
     as_of: datetime | None = None,
+    risk_per_share: float | None = None,
 ) -> TrailEvaluation:
     """`compute_trailing_stop`, plus the code naming why it ended where it
     did. Same arguments, same arithmetic, same proposal — this IS the body;
@@ -190,7 +188,7 @@ def evaluate_trailing_stop(
             ent=ent,
             cur=cur,
             stop=stop,
-            initial_stop=initial_stop,
+            risk_per_share=risk_per_share,
             is_short=is_short,
             setup_type=setup_type,
         )
@@ -203,7 +201,7 @@ def evaluate_trailing_stop(
                     ent=ent,
                     cur=cur,
                     stop=stop,
-                    initial_stop=initial_stop,
+                    risk_per_share=risk_per_share,
                     is_short=is_short,
                     setup_type=setup_type,
                 )

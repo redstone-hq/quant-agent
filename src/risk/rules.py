@@ -279,11 +279,13 @@ def apply_gross_ceiling(
     # (`TradingPipeline._conviction_cut_order`) builds it from the §9.4
     # yes/no and the desk's own `rank_verdicts` candidate ordering — NOT
     # from the signed source score as a grade, whose graded use was retired
-    # (board item 66; see `agreement_refuses_trade`). When None (the default,
-    # and every lane with no fresh per-seat read — midday, close, intraday,
-    # PM-less morning) the order is byte-identical to before: biggest loser
-    # first. It changes only the ORDER trims are taken, never which book is
-    # over its ceiling or the never-full-liquidation clamp.
+    # (board item 66; see `agreement_refuses_trade`). Owner rulings
+    # 2026-10-09 and 2026-10-12: it orders the WINNERS only — every losing
+    # position is sold first, biggest loss first, whatever its conviction.
+    # When None (every lane with no fresh per-seat read — midday, close,
+    # intraday, PM-less morning) winners go smallest unrealised gain first.
+    # It changes only the ORDER of the cut, never which book is over its
+    # ceiling, and every cut sells a WHOLE position.
     conviction_rank: dict[str, tuple[int, int]] | None = None,
 ) -> GrossCeilingOutcome:
     """Enforce the §11.2 gross-exposure ceiling, blocking BEFORE trimming.
@@ -300,7 +302,9 @@ def apply_gross_ceiling(
        stock commission and fractional shares make a small order fine); only
        a genuine zero (`after <= 0`) is refused.
     3. **Only then**, and only if the HELD book ALONE still exceeds the
-       ceiling, are trims emitted. Proposed new exposure is not an input to
+       ceiling, are cuts emitted — each one a WHOLE position, losers
+       biggest-loss first, then winners weakest-rated first (owner rulings
+       2026-10-09 / 2026-10-12). Proposed new exposure is not an input to
        that test, structurally — so the engine can never sell something you
        own to make room for something you do not.
 
@@ -478,11 +482,22 @@ def apply_gross_ceiling(
     if over <= 1e-6:
         return out
 
-    already_exiting_fully = {
-        str(d.symbol or "").strip().upper()
-        for d in out.decisions
-        if d.action in ("SELL", "COVER") and d.allocation_pct >= 100
-    }
+    # NEVER SELL MORE THAN IS HELD. Every SELL/COVER already in the plan is
+    # sized against the shares held NOW, as is the cut below, so the cut must
+    # take only the share of the position the plan has not already sold —
+    # summed across every planned sale of that symbol. Ordering 100% on top
+    # of a planned 40% partial would sell 140% of the holding and could flip
+    # the account short.
+    planned_sold_pct: dict[str, float] = {}
+    for d in out.decisions:
+        if d.action not in ("SELL", "COVER"):
+            continue
+        pct = float(d.allocation_pct or 0.0)
+        if not math.isfinite(pct) or pct <= 0:
+            continue
+        sym = str(d.symbol or "").strip().upper()
+        planned_sold_pct[sym] = min(100.0, planned_sold_pct.get(sym, 0.0) + pct)
+    already_exiting_fully = {sym for sym, pct in planned_sold_pct.items() if pct >= 100}
     candidates = []
     for p in positions:
         symbol = str(getattr(p, "symbol", "") or "").strip().upper()
@@ -493,100 +508,96 @@ def apply_gross_ceiling(
         market_value = float(getattr(p, "market_value", 0.0) or 0.0)
         if not math.isfinite(market_value) or market_value == 0:
             continue
-        position_gross = abs(market_value) * _gross_multiplier(symbol) - exit_relief.get(symbol, 0.0)
+        position_gross = (
+            abs(market_value) * _gross_multiplier(symbol) * (1.0 - planned_sold_pct.get(symbol, 0.0) / 100.0)
+        )
         if position_gross <= 0:
             continue
         candidates.append((p, symbol, position_gross))
-    # Biggest-loser-first, largest position as tie-break, then symbol for a
-    # deterministic order across runs. The SAME ordering `_force_delever`
-    # already uses for the cash-only safety net — a second, divergent notion
-    # of "which position goes first" is exactly the sprawl §12.2 cleaned up.
+
+    # THE CUT SELLS WHOLE POSITIONS, LOSERS FIRST (owner rulings 2026-10-09
+    # and 2026-10-12). His words, 9 Oct: "You always sell losers first, and
+    # you don't break the rule, sell part of a winner." So:
     #
-    # Item 112 — when a CONVICTION cut order is supplied (the morning
-    # post-decision de-lever, which has THIS session's fresh per-seat read),
-    # it is the PRIMARY key: the lowest key goes first, so a conviction-dead
-    # winner is sold before an intact-thesis loser. A symbol the caller did
-    # not place sorts as UNREAD — bucket 1, the caller's NO-COVERAGE rung —
-    # and never as bucket 0 OPPOSED: an absent key means the desk has no
-    # read on the name, not that it argued against it, and the rule that a
-    # data gap must not author a liquidation does not depend on which of
-    # the two functions dropped the symbol. The biggest-loser trio stays as
-    # the tie-break, so with no conviction_rank the order is exactly as
-    # before.
-    if conviction_rank is not None:
-        candidates.sort(
-            key=lambda item: (
-                conviction_rank.get(item[1], (1, 0)),
-                float(getattr(item[0], "unrealized_pnl", 0.0) or 0.0),
-                -item[2],
-                item[1],
-            )
-        )
-    else:
-        candidates.sort(
-            key=lambda item: (
-                float(getattr(item[0], "unrealized_pnl", 0.0) or 0.0),
-                -item[2],
-                item[1],
-            )
-        )
-    for position, symbol, position_gross in candidates:
+    # 1. Every LOSING position (unrealised P&L below zero) goes before any
+    #    winner, biggest dollar loss first. Conviction does not reorder the
+    #    losers: an intact-thesis loser still goes before any winner.
+    # 2. Only when no loser is left does a winner go, the WEAKEST-RATED
+    #    first (12 Oct, "1a"). The rating is the caller's conviction cut
+    #    order (`conviction_rank`, lowest key first; a name it did not place
+    #    sorts as UNREAD, bucket 1 — a data gap is not an argument against
+    #    the name). With no fresh rating (every lane but the morning
+    #    post-decision pass) winners go smallest unrealised gain first: no
+    #    rating exists to read, and that order gives up the least banked
+    #    profit without inventing a grade.
+    # 3. Each cut sells the WHOLE position, and the cut stops as soon as the
+    #    book is at or under the ceiling. Selling whole may take the book
+    #    BELOW the ceiling — that overshoot is the ruled behaviour; the old
+    #    partial last trim sized to the exact breach was a partial sale of a
+    #    winner whenever the last name cut was one.
+    #
+    # Shorts mirror the rule: a short is covered whole, ranked by the same
+    # unrealised P&L (the broker reports it signed for the side held).
+    # Largest position, then symbol, break ties deterministically.
+    def _unrealised(item) -> float:
+        value = float(getattr(item[0], "unrealized_pnl", 0.0) or 0.0)
+        return value if math.isfinite(value) else 0.0
+
+    def _cut_key(item):
+        pnl = _unrealised(item)
+        if pnl < 0:
+            return (0, (), pnl, -item[2], item[1])
+        rating = conviction_rank.get(item[1], (1, 0)) if conviction_rank is not None else ()
+        return (1, rating, pnl, -item[2], item[1])
+
+    candidates.sort(key=_cut_key)
+    losers_total = sum(1 for item in candidates if _unrealised(item) < 0)
+    for rank, (position, symbol, position_gross) in enumerate(candidates, start=1):
         if over <= 1e-6:
             break
-        take = min(position_gross, over)
-        # THE MINIMUM TRIM MUST NOT AMPLIFY A ROUNDING RESIDUE. The fraction
-        # below is expressed to 0.1% and the pipeline then floors the order
-        # to whole shares, both deliberately DOWNWARD so a trim never sells
-        # the book below its ceiling. That leaves a residue of a few dollars,
-        # and before this guard the residue pulled in a WHOLE EXTRA NAME at
-        # the 1.0% floor — shedding up to 1% of a second position to chase a
-        # $2 remainder. Under the conviction cut order that spurious trim
-        # landed by construction on the HIGHEST-conviction holding still
-        # standing, because the cut walks weakest-first and the strongest
-        # name is what is left: the exact opposite of the ordering's purpose.
-        # So once a trim has been taken, stop as soon as the minimum trim
-        # would shed MORE than the breach that remains. The book is then
-        # under its ceiling to within the ticket's own precision, which is
-        # the same residue whole-share flooring already leaves.
-        # The 1.0% below is the trim builder's own long-standing minimum
-        # slice, unchanged and read here rather than re-chosen.
-        if out.trims and take < position_gross * 0.01:
-            logger.info(
-                "Gross-exposure ceiling: $%.0f of breach remains, less than "
-                "the minimum trim of %s ($%.0f) — stopping rather than selling "
-                "a second name to chase a rounding residue",
-                take,
-                symbol,
-                position_gross * 0.01,
+        pnl = _unrealised((position, symbol, position_gross))
+        if pnl < 0:
+            why = f"losing ${-pnl:,.0f} unrealised, loser #{rank} of {losers_total}, biggest loser first"
+        else:
+            order = (
+                "the weakest-rated winner still held"
+                if conviction_rank is not None
+                else "the smallest unrealised gain still held (no fresh rating this session)"
             )
-            break
-        fraction_pct = min(100.0, max(1.0, round(take / position_gross * 100, 1)))
+            why = f"no losers left; up ${pnl:,.0f} unrealised, {order}"
         is_short = position_side(position) == SECTOR_SIDE_SHORT
+        verb = "Covering" if is_short else "Selling"
+        # The rest of the position: 100% of what the plan has not already
+        # sold, expressed against the shares held now (see planned_sold_pct).
+        # Rounded DOWN to 0.1% so the two orders together never exceed it.
+        cut_pct = math.floor((100.0 - planned_sold_pct.get(symbol, 0.0)) * 10.0) / 10.0
+        if cut_pct <= 0:
+            continue
+        sells_rest = symbol in planned_sold_pct
         trim = TradeDecision(
             action="COVER" if is_short else "SELL",
             symbol=position.symbol,
-            allocation_pct=fraction_pct,
+            allocation_pct=cut_pct,
             entry_price=0.0,
             stop_loss=0.0,
             take_profit=0.0,
             reasoning=(
-                f"Deterministic de-lever ({GROSS_EXPOSURE_RULE}): the book "
-                f"already owns ${out.held_gross_after_exits:,.0f} against a "
+                f"Drawdown cut #{rank} ({GROSS_EXPOSURE_RULE}): {verb} ALL of "
+                f"{position.symbol}"
+                f"{f' (the {cut_pct:g}% the plan is not already selling)' if sells_rest else ''}"
+                f" — {why}. The book owns "
+                f"${out.held_gross_after_exits:,.0f} against a "
                 f"${out.ceiling_usd:,.0f} ceiling ({ceiling.ceiling_x:.1f}x "
-                f"equity). {ceiling.reason} Reducing {position.symbol} by "
-                f"{fraction_pct:.0f}%. New exposure was blocked first; this "
-                f"trim runs only because the book is over the ceiling on its "
-                f"own."
+                f"equity). New exposure was blocked first. {ceiling.reason}"
             )[:500],
         )
         out.trims.append(trim)
         out.notes.append(
-            f"{GROSS_EXPOSURE_RULE}: trimming {fraction_pct:.0f}% of "
-            f"{position.symbol} — the book already owns more than the "
-            f"{ceiling.ceiling_x:.1f}x ceiling allows, with no new buying "
-            f"involved. {ceiling.reason}"
+            f"{GROSS_EXPOSURE_RULE}: drawdown cut #{rank} — {verb.lower()} all of "
+            f"{position.symbol} ({why}); the book already owns more than the "
+            f"{ceiling.ceiling_x:.1f}x ceiling allows. {ceiling.reason}"
         )
-        over -= position_gross * (fraction_pct / 100.0)
+        over -= position_gross
     if out.trims:
         logger.warning(
             "Gross-exposure ceiling: held book $%.0f over the $%.0f ceiling "

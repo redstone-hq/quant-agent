@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Callable, TypeVar
 from src.cost_circuit.classification import _SELF_CLEARING_HARD_TRIGGERS
 from src.cost_circuit.refusal import _fmt_settled
-from src.cost_circuit.clock import _et_day_and_utc_bounds, _et_day_from_sqlite_utc
+from src.cost_circuit.clock import _et_day_and_utc_bounds, _et_day_from_sqlite_utc, _sql_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +248,8 @@ class CircuitState:
                 return False
             failed_call_rows += failed
         elapsed_row = conn.execute(
-            "SELECT (julianday('now') - julianday(?)) * 1440.0 AS minutes",
-            (suspended_at,),
+            "SELECT (julianday(?) - julianday(?)) * 1440.0 AS minutes",
+            (_sql_stamp(), suspended_at),
         ).fetchone()
         elapsed = elapsed_row["minutes"] if elapsed_row is not None else None
         cooldown = float(getattr(self.config, "transient_latch_cooldown_minutes", 15.0))
@@ -293,8 +293,8 @@ class CircuitState:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd, suspension_alert_state) VALUES "
-            "('auto_reset', ?, ?, ?, ?, 'transient_latch_expiry', ?, ?, ?, ?)",
+            "session_cost_usd, daily_cost_usd, suspension_alert_state, recovery_alert_updated_at, created_at) VALUES "
+            "('auto_reset', ?, ?, ?, ?, 'transient_latch_expiry', ?, ?, ?, ?, ?, ?)",
             (
                 code,
                 reason,
@@ -310,6 +310,8 @@ class CircuitState:
                 # requires suspended=1), so this is the last moment it is
                 # knowable.
                 int(state.get("alert_state") or 0),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         updated_state = conn.execute(
@@ -317,9 +319,9 @@ class CircuitState:
             "trigger_detail=NULL, run_id=NULL, mode=NULL, agent_name=NULL, "
             "session_attempts=0, session_cost_usd=0, daily_cost_usd=0, "
             "attempts_exact=1, costs_exact=1, "
-            "suspended_at=NULL, alert_state=0, reset_at=datetime('now'), "
-            "reset_reason=?, updated_at=datetime('now') WHERE singleton=1",
-            (reason,),
+            "suspended_at=NULL, alert_state=0, reset_at=?, "
+            "reset_reason=?, updated_at=? WHERE singleton=1",
+            (_sql_stamp(), reason, _sql_stamp()),
         )
         if updated_state.rowcount != 1:
             raise RuntimeError("cost-circuit singleton could not be auto-cleared")
@@ -351,8 +353,8 @@ class CircuitState:
             conn.execute(
                 "UPDATE llm_budget_days SET unknown_cost_rows=0, "
                 "failed_call_unknown_rows=0, costs_exact=1, "
-                "updated_at=datetime('now') WHERE day=?",
-                (current_day,),
+                "updated_at=? WHERE day=?",
+                (_sql_stamp(), current_day),
             )
         logger.warning(
             "cost-circuit auto-cleared hard latch %s: %s",

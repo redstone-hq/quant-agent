@@ -52,10 +52,9 @@ class _FakeMonotonic:
     its deadline arithmetic and `sleep()` for retry backoff. Substituting
     this object for the module's `time` makes the whole budget calculation
     virtual, so the result is arithmetic about deadlines rather than a race
-    against a loaded CI runner. `tests/desk_clock.freeze_desk_day` is the
-    precedent but does not fit here: it pins a module's `_now_utc()` — the
-    desk's CALENDAR day — and this budget is a monotonic DURATION with no
-    calendar in it, so there is no `_now_utc` to freeze.
+    against a loaded CI runner. Freezing the desk clock does not fit here:
+    it pins the CALENDAR instant, and this budget is a monotonic DURATION
+    with no calendar in it.
     """
 
     def __init__(self, start: float = 10_000.0):

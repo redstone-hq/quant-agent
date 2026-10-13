@@ -134,8 +134,7 @@ def test_trailing_long_breakout_structure_pick_unchanged():
     )
     assert proposal.new_stop == 110.0
     assert proposal.source == "structure"
-    # Explicit positive qty must change nothing — same convention as
-    # risk.metrics.r_multiple.
+    # Explicit positive qty must change nothing.
     proposal2 = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",

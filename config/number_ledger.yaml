@@ -623,10 +623,10 @@ numbers:
     note: >-
       The measured move claimed when no structural level stands in the way, in
       sqrt(session)-scaled ATRs (src/config/__init__.py::RiskConfig).
-  - id: src.execution.order_gates.ORDER_QTY_DECIMALS
+  - id: src.quantities.ORDER_QTY_DECIMALS
     value: 9
     status: instrument
-    site: src/execution/order_gates.py
+    site: src/quantities.py
     source: >-
       Alpaca fractional trading documentation, "Both notional and qty fields can
       take up to 9 decimal point values."
@@ -7742,6 +7742,24 @@ numbers:
     note: >-
       `window: int = PIVOT_WINDOW`, the name imported from src/risk/trailing.py;
       the body moved verbatim on 2026-10-04.
+  - id: src.risk.trail_structure._swing_lows_dated(window)
+    value: 3
+    status: derived
+    site: src/risk/trail_structure.py
+    derived_from: src.risk.trailing.PIVOT_WINDOW
+    base_value: 3
+    note: >-
+      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_lows`, added
+      2026-10-13 so the trend exit can ignore swings before the position opened.
+  - id: src.risk.trail_structure._swing_highs_dated(window)
+    value: 3
+    status: derived
+    site: src/risk/trail_structure.py
+    derived_from: src.risk.trailing.PIVOT_WINDOW
+    base_value: 3
+    note: >-
+      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_highs`, added
+      2026-10-13 so the trend exit can ignore swings before the position opened.
   # --- 2026-09-19: universe expansion and pruning (src/universe_screen.py) --
   # The screen's price, size and borrow lines are published rules; its
   # spread and volatility lines are DERIVED at run time from existing
@@ -10702,33 +10720,6 @@ numbers:
     note: >-
       Fallback copy of the SmartMoneyConfig field. Production constructs the
       thresholds from config, and base drift keeps this duplicate aligned.
-  - id: src.data.context._W_1W
-    value: 5
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Completed-session count used to label a return as one week. Five is a
-      normal full trading week, but exchange holidays mean it is not the same
-      quantity as one calendar week.
-    open_question: >-
-      Can the named one-week return be anchored to an actual calendar boundary
-      and the instrument's completed sessions rather than a fixed bar count?
-    cost_while_unanswered: >-
-      The Technical seat receives a horizon label whose elapsed calendar time
-      changes around holidays and exceptional exchange closures.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        for each present analysis date, the actual completed session selected
-        at the named calendar boundary and the elapsed calendar duration, with
-        no later return or trade outcome
-      closes_when: >-
-        the return is computed from the last completed session at or before the
-        named calendar boundary and this fixed session count is removed
   - id: src.data.context._W_1M
     value: 21
     site: src/data/context.py
@@ -10739,58 +10730,6 @@ numbers:
     open_question: >-
       Can the named one-month return be anchored to an actual calendar boundary
       and the instrument's completed sessions rather than a fixed bar count?
-    cost_while_unanswered: >-
-      The Technical seat receives a horizon label whose elapsed calendar time
-      varies with month length, holidays and exceptional exchange closures.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        for each present analysis date, the actual completed session selected
-        at the named calendar boundary and the elapsed calendar duration, with
-        no later return or trade outcome
-      closes_when: >-
-        the return is computed from the last completed session at or before the
-        named calendar boundary and this fixed session count is removed
-  - id: src.data.context._W_3M
-    value: 63
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Completed-session count used to label a return as three months. It is
-      three times the approximate monthly count, not a calendar observation.
-    open_question: >-
-      Can the named three-month return be anchored to an actual calendar
-      boundary and completed sessions rather than a multiplied approximation?
-    cost_while_unanswered: >-
-      The Technical seat receives a horizon label whose elapsed calendar time
-      varies with month length, holidays and exceptional exchange closures.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        for each present analysis date, the actual completed session selected
-        at the named calendar boundary and the elapsed calendar duration, with
-        no later return or trade outcome
-      closes_when: >-
-        the return is computed from the last completed session at or before the
-        named calendar boundary and this fixed session count is removed
-  - id: src.data.context._W_6M
-    value: 126
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Completed-session count used to label a return as six months. It is six
-      times the approximate monthly count, not a calendar observation.
-    open_question: >-
-      Can the named six-month return be anchored to an actual calendar
-      boundary and completed sessions rather than a multiplied approximation?
     cost_while_unanswered: >-
       The Technical seat receives a horizon label whose elapsed calendar time
       varies with month length, holidays and exceptional exchange closures.
@@ -11020,11 +10959,3 @@ numbers:
     cost_while_unanswered: >-
       Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
       keeps passing.
-  - id: src.quantities.r_multiple(qty)
-    value: 1.0
-    status: not-trade-governing
-    site: src/quantities.py
-    note: >-
-      Dead default (src/risk/metrics.py::position_risk): a grep on 2026-10-12 of every .py under src, scripts and main.py for calls to
-      `r_multiple(` finds only the two production calls in src/risk/metrics.py, and both pass `qty_f` explicitly, so
-      this default is never used. Dynamic calls through getattr or star-args were not searched.

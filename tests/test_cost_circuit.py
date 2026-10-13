@@ -19,7 +19,7 @@ from src.agents.base import (
     LLMStreamInterruptedError,
 )
 import src.cost_circuit
-from tests.desk_clock import freeze_desk_day
+from src import trading_calendar
 from src.cost_circuit import (
     LLMCostCircuitBreaker,
     OptionalPaidAnalysisRetrySkipped,
@@ -1564,13 +1564,15 @@ def test_old_daily_latch_migrates_without_early_clear_or_duplicate_alert(
     with sqlite3.connect(path) as conn:
         conn.execute("DROP TABLE llm_quota_holds")
         conn.execute(
-            "INSERT INTO llm_budget_days(day, baseline_cost_usd) "
-            "VALUES ('2099-01-01', 4.211481) "
-            "ON CONFLICT(day) DO UPDATE SET baseline_cost_usd=excluded.baseline_cost_usd"
+            "INSERT INTO llm_budget_days(day, baseline_cost_usd, seeded_at, updated_at) "
+            "VALUES ('2099-01-01', 4.211481, ?, ?) "
+            "ON CONFLICT(day) DO UPDATE SET baseline_cost_usd=excluded.baseline_cost_usd",
+            (trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO llm_budget_sessions(run_id, day, mode) "
-            "VALUES ('deployment-legacy', '2099-01-01', 'operator')"
+            "INSERT OR REPLACE INTO llm_budget_sessions(run_id, day, mode, started_at, updated_at) "
+            "VALUES ('deployment-legacy', '2099-01-01', 'operator', ?, ?)",
+            (trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
         conn.execute(
             "UPDATE llm_circuit_state SET suspended=1, "
@@ -2153,7 +2155,7 @@ def _age_latch(path: str, minutes: float) -> None:
     # frozen the desk's day the two are the same instant; when it has not,
     # this is `datetime.now(timezone.utc)` and the stamp is what SQLite
     # would have written anyway.
-    stamp = (src.cost_circuit._now_utc() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    stamp = (trading_calendar.utc_now() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(path) as conn:
         conn.execute(
             "UPDATE llm_circuit_state SET suspended_at=? WHERE singleton=1",
@@ -2177,7 +2179,11 @@ def _freeze_et_day(monkeypatch) -> None:
     real clock on purpose: the cooldown check measures elapsed wall time
     against that same clock, so only the ET-day bucketing needs pinning.
     """
-    freeze_desk_day(monkeypatch, src.cost_circuit)
+    from datetime import time as _time
+
+    today = datetime.now(timezone.utc).astimezone(_ET).date()
+    pinned = datetime.combine(today, _time(12, 0), tzinfo=_ET).astimezone(timezone.utc)
+    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
 
 
 def _utc_stamp_on_et_day(et_day: str) -> str:
@@ -2904,8 +2910,8 @@ def test_a_latch_that_outlived_midnight_checks_the_day_it_was_stamped_on(tmp_pat
         conn.execute("UPDATE llm_budget_sessions SET day=?", (yesterday,))
         conn.execute(
             "INSERT INTO llm_budget_days(day, unknown_cost_rows, "
-            "failed_call_unknown_rows, costs_exact) VALUES (?, 0, 0, 1)",
-            (today,),
+            "failed_call_unknown_rows, costs_exact, seeded_at, updated_at) VALUES (?, 0, 0, 1, ?, ?)",
+            (today, trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
         # Yesterday also carries one row of ANOTHER provenance, so the
         # forgiveness is not owed.
@@ -2942,8 +2948,8 @@ def test_a_clean_overnight_latch_clears_and_forgives_both_days(tmp_path):
         conn.execute("UPDATE llm_budget_sessions SET day=?", (yesterday,))
         conn.execute(
             "INSERT INTO llm_budget_days(day, unknown_cost_rows, "
-            "failed_call_unknown_rows, costs_exact) VALUES (?, 0, 0, 1)",
-            (today,),
+            "failed_call_unknown_rows, costs_exact, seeded_at, updated_at) VALUES (?, 0, 0, 1, ?, ?)",
+            (today, trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
         conn.execute(
             "UPDATE llm_circuit_state SET suspended_at=?",
@@ -3074,9 +3080,9 @@ def test_the_self_clear_leaves_another_days_failed_session_alone(
     with sqlite3.connect(path) as conn:
         conn.execute(
             "INSERT INTO llm_budget_sessions"
-            "(run_id, day, mode, actual_cost_usd, costs_exact, status) "
-            "VALUES ('run-other-failed', ?, 'midday', 0.0, 0, 'call_failed')",
-            (day,),
+            "(run_id, day, mode, actual_cost_usd, costs_exact, status, started_at, updated_at) "
+            "VALUES ('run-other-failed', ?, 'midday', 0.0, 0, 'call_failed', ?, ?)",
+            (day, trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
 
     _age_latch(path, 16)
@@ -3610,7 +3616,7 @@ def test_a_trigger_needing_an_operator_is_never_held(tmp_path, monkeypatch):
             is False
         )
         # ...but the same code, stamped a moment ago, IS held.
-        now_stamp = conn.execute("SELECT datetime('now') AS t").fetchone()["t"]
+        now_stamp = trading_calendar.sql_utc_stamp()  # the circuit's own clock, which the test may have frozen
         assert (
             circuit._suspension_still_inside_self_clear_window_locked(
                 conn,
@@ -3713,9 +3719,11 @@ def test_pre_existing_operator_resets_are_not_re_announced(tmp_path):
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd, recovery_alert_state) VALUES "
+            "session_cost_usd, daily_cost_usd, recovery_alert_state, "
+            "recovery_alert_updated_at, created_at) VALUES "
             "('reset', 'old operator reset', 'r', 'operator', 'operator', "
-            "0, 0, 0, 0)"
+            "0, 0, 0, 0, ?, ?)",
+            (trading_calendar.sql_utc_stamp(), trading_calendar.sql_utc_stamp()),
         )
         conn.execute("PRAGMA user_version = 0")
 

@@ -15,7 +15,7 @@ from src.cost_circuit.refusal import (
     PaidAnalysisSuspended,
     any_payment_refusal,
 )
-from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.cost_circuit.clock import _et_day_and_utc_bounds, _sql_stamp
 from src.cost_circuit.free_route import admit_free_route_locked
 
 logger = logging.getLogger(__name__)
@@ -175,9 +175,8 @@ class Settlement:
                 raise PaidAnalysisSuspended(str(state.get("trigger_detail") or "circuit open"), state)
 
             updated_session = conn.execute(
-                "UPDATE llm_budget_sessions SET provider_attempts=provider_attempts+1, "
-                "updated_at=datetime('now') WHERE run_id=?",
-                (reservation.run_id,),
+                "UPDATE llm_budget_sessions SET provider_attempts=provider_attempts+1, updated_at=? WHERE run_id=?",
+                (_sql_stamp(), reservation.run_id),
             )
             if updated_session.rowcount != 1:
                 raise RuntimeError(f"cost-circuit session {reservation.run_id} disappeared at authorization")
@@ -253,8 +252,8 @@ class Settlement:
             updated_session = conn.execute(
                 "UPDATE llm_budget_sessions SET actual_cost_usd=actual_cost_usd+?, "
                 "costs_exact=CASE WHEN ? THEN costs_exact ELSE 0 END, "
-                "updated_at=datetime('now') WHERE run_id=?",
-                (accounted, int(exact), reservation.run_id),
+                "updated_at=? WHERE run_id=?",
+                (accounted, int(exact), _sql_stamp(), reservation.run_id),
             )
             if updated_session.rowcount != 1:
                 raise RuntimeError(f"cost-circuit session {reservation.run_id} is missing at completion")
@@ -262,11 +261,12 @@ class Settlement:
                 "UPDATE llm_budget_days SET incremental_cost_usd=incremental_cost_usd+?, "
                 "unknown_cost_rows=unknown_cost_rows+?, "
                 "costs_exact=CASE WHEN ? THEN costs_exact ELSE 0 END, "
-                "updated_at=datetime('now') WHERE day=?",
+                "updated_at=? WHERE day=?",
                 (
                     accounted,
                     int(unknown),
                     int(exact),
+                    _sql_stamp(),
                     day,
                 ),
             )
@@ -362,14 +362,13 @@ class Settlement:
             conn.execute("BEGIN IMMEDIATE")
             if ambiguous:
                 updated_session = conn.execute(
-                    "UPDATE llm_budget_sessions SET status='call_failed', "
-                    "costs_exact=0, updated_at=datetime('now') WHERE run_id=?",
-                    (reservation.run_id,),
+                    "UPDATE llm_budget_sessions SET status='call_failed', costs_exact=0, updated_at=? WHERE run_id=?",
+                    (_sql_stamp(), reservation.run_id),
                 )
             else:
                 updated_session = conn.execute(
-                    "UPDATE llm_budget_sessions SET updated_at=datetime('now') WHERE run_id=?",
-                    (reservation.run_id,),
+                    "UPDATE llm_budget_sessions SET updated_at=? WHERE run_id=?",
+                    (_sql_stamp(), reservation.run_id),
                 )
             if updated_session.rowcount != 1:
                 raise RuntimeError(f"cost-circuit session {reservation.run_id} is missing at failure")
@@ -384,8 +383,8 @@ class Settlement:
                     # `_auto_clear_transient_latch_locked` can refuse to
                     # forgive a day that also carries any other kind.
                     "failed_call_unknown_rows=failed_call_unknown_rows+1, "
-                    "costs_exact=0, updated_at=datetime('now') WHERE day=?",
-                    (day,),
+                    "costs_exact=0, updated_at=? WHERE day=?",
+                    (_sql_stamp(), day),
                 )
                 if updated_day.rowcount != 1:
                     raise RuntimeError(f"cost-circuit day {day} is missing at failure")
@@ -398,8 +397,8 @@ class Settlement:
             conn.execute(
                 "INSERT INTO llm_circuit_events "
                 "(event_type, detail, run_id, mode, agent_name, attempts, "
-                "session_cost_usd, daily_cost_usd) VALUES "
-                "('call_failed', ?, ?, ?, ?, ?, ?, ?)",
+                "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+                "('call_failed', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     type(error).__name__,
                     reservation.run_id,
@@ -408,6 +407,8 @@ class Settlement:
                     attempts,
                     session_cost,
                     daily,
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
             if ambiguous:

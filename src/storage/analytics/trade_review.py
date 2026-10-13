@@ -5,7 +5,8 @@ and `src/agents` / `src/prompt_facts` may not import it (.importlinter).
 
 Nothing is re-derived that already exists:
   - one closed round trip per position  -> `quantities.summarize_closed_position`
-  - R (profit in units of initial risk) -> `quantities.r_multiple`
+  - R (profit in units of initial risk) -> per lot: `quantities.summarize_closed_position`
+    (closed) and `open_position_r` (open)
 (They live in src.quantities, the stdlib-only seam src/api may import.)
   - clean-record start                  -> `calibration._opened_before_clean_record`
 
@@ -20,8 +21,9 @@ import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
-from src.quantities import open_position_risk_dollars, recorded_initial_stop, summarize_closed_position
+from src.quantities import held_position_risk, live_position_lots, recorded_initial_stop, summarize_closed_position
 from src.storage.analytics.calibration import _opened_before_clean_record
+from src.trade_actions import fill_sort_key
 from src.util.time import ET
 
 CAVEAT = "small samples and lopsided results make this unreliable"
@@ -95,7 +97,7 @@ def closed_trades(rows: list[dict]) -> tuple[list[dict], int]:
     trades: list[dict] = []
     excluded = 0
     for chain in chains.values():
-        chain.sort(key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0))
+        chain.sort(key=fill_sort_key)
         position = summarize_closed_position(chain)
         if position is None:
             continue
@@ -385,31 +387,29 @@ def close_review_summary(rows: list[dict], now: datetime | None = None) -> dict:
 # ----------------------------------------------------- open-position R (display)
 
 
-def open_position_r(positions: list[dict], entry_rows: list[dict]) -> dict[str, dict]:
-    """symbol -> {"initial_stop", "unrealised_r"} for held positions, from their opening trade rows.
+def open_position_r(positions: list[dict], chain_rows: list[dict]) -> dict[str, dict]:
+    """symbol -> {"initial_stop", "unrealised_r"} for held positions, from their position chains.
 
-    Uses the stop AT ENTRY (`recorded_initial_stop`) of the most recent opening chain for the symbol.
-    `unrealised_r` = P&L on the shares still held / per-lot risk scaled to those shares
-    (`quantities.open_position_risk_dollars`); unchanged by a partial sell.
-    None if any lot lacks a usable stop. Never zero.
+    `chain_rows` are the EXECUTED rows of each held symbol (`db_reads.get_open_position_rows`, the same
+    `quantities.select_position_chain_rows` reader every other R path uses). The live lots are the fill
+    walk's open position (`quantities.live_position_lots`) - never a stored `position_id` picked by
+    timestamp, which showed a CLOSED position's stop when a fresh buy was written before the old
+    position's stop-out fill was known. `initial_stop` is the first live lot's entry stop; `unrealised_r`
+    = P&L on the shares held / `quantities.held_position_risk` - the one open-position R formula - and is
+    None when unknown (fill order unknown, a lot without a stop, or lots that do not reconcile). Never zero.
     """
-    latest: dict[str, str] = {}
-    for row in sorted(entry_rows, key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0)):
-        if str(row.get("action") or "").upper() in _OPEN_ACTIONS and row.get("position_id"):
-            latest[str(row.get("symbol") or "").upper()] = str(row["position_id"])
+    by_symbol: dict[str, list[dict]] = defaultdict(list)
+    for row in chain_rows:
+        by_symbol[str(row.get("symbol") or "").upper()].append(row)
     out: dict[str, dict] = {}
     for pos in positions:
         sym = str(pos.get("symbol") or "").upper()
-        lots = [
-            r
-            for r in entry_rows
-            if str(r.get("position_id") or "") == latest.get(sym)
-            and str(r.get("action") or "").upper() in _OPEN_ACTIONS
-        ]
+        rows = by_symbol.get(sym, [])
+        live = live_position_lots(rows) if rows else None
+        lots = [r for r in live or [] if str(r.get("action") or "").upper() in _OPEN_ACTIONS]
         stop = next((s for row in lots if (s := recorded_initial_stop(row)) > 0), None)
         qty = float(pos.get("qty") or 0)
-        direction = "short" if qty < 0 else "long"
-        risk = open_position_risk_dollars(lots, direction, qty) if lots else None
+        risk = held_position_risk(rows, qty)[0] if rows else None
         r = None
         if risk and pos.get("avg_entry") and pos.get("current_price") and qty:
             r = round((pos["current_price"] - pos["avg_entry"]) * qty / risk, 2)
@@ -429,7 +429,7 @@ def closed_r_by_exit_row(rows: list[dict]) -> dict[int, float]:
             chains[str(row["position_id"])].append(row)
     out: dict[int, float] = {}
     for chain in chains.values():
-        chain.sort(key=lambda r: (str(r.get("timestamp") or ""), r.get("id") or 0))
+        chain.sort(key=fill_sort_key)
         position = summarize_closed_position(chain)
         r = _trade_record(position, chain)["r"] if position is not None else None
         if r is not None and chain[-1].get("id") is not None:

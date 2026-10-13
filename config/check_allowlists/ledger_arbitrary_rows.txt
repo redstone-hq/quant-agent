@@ -59,9 +59,6 @@ src.data.context._MAX_GAPS_REPORTED
 src.data.context._SLOPE_LOOKBACK
 src.data.context._W_12M
 src.data.context._W_1M
-src.data.context._W_1W
-src.data.context._W_3M
-src.data.context._W_6M
 src.data.insider_signal._BAND_HIGH
 src.data.insider_signal._BAND_LOW
 src.data.insider_signal._WEIGHTS[INDETERMINATE]

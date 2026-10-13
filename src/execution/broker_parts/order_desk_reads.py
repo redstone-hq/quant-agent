@@ -348,7 +348,7 @@ def list_filled_sell_orders(desk, symbol: str, after) -> list[dict] | None:
 
 
 def get_order_fill_info(desk, order_id: str) -> dict | None:
-    """Return {status, filled_qty, filled_avg_price} for an order, or None.
+    """Return {status, filled_qty, filled_avg_price, filled_at} for an order, or None.
 
     Used by Phase 3 reconciliation. The caller decides whether the
     returned status is terminal; this method does not block / poll.
@@ -368,8 +368,20 @@ def get_order_fill_info(desk, order_id: str) -> dict | None:
         filled_avg_price = float(getattr(order, "filled_avg_price", 0) or 0)
     except (TypeError, ValueError):
         filled_avg_price = 0.0
+    # The broker's own fill time (ISO-8601), the clock the lot walk orders fills
+    # by; None when it reported none - never a substitute such as now.
+    from datetime import datetime as _datetime
+
+    raw_filled_at = getattr(order, "filled_at", None)
+    if isinstance(raw_filled_at, _datetime):
+        filled_at = raw_filled_at.isoformat()
+    elif isinstance(raw_filled_at, str) and raw_filled_at.strip():
+        filled_at = raw_filled_at.strip()
+    else:
+        filled_at = None
     return {
         "status": status,
         "filled_qty": filled_qty,
         "filled_avg_price": filled_avg_price,
+        "filled_at": filled_at,
     }

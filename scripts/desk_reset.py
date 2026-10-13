@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Daily desk reset — flatten the paper book and clear contaminated history.
 
-The owner resets the desk every day until the trade logic stabilises. That
-makes this a tool, not a remembered incantation: it is dry-run by default,
+Deleting trading history is NOT a routine daily wipe. Since 9 Oct 2026 the
+owner's ruling is to exclude history rather than delete it, so every
+--execute needs the owner's explicit yes, recorded by passing
+--owner-approved; without it the tool refuses. It is dry-run by default,
 it refuses to touch a live account, it backs up before it deletes, and it
 prints a before/after summary you can paste into a log.
 
@@ -10,7 +12,7 @@ prints a before/after summary you can paste into a log.
     ./scripts/desk_reset.py
 
     # Do it:
-    ./scripts/desk_reset.py --execute
+    ./scripts/desk_reset.py --execute --owner-approved
 
 WHAT IT DOES
     1. Proves the account is a PAPER account (four independent checks,
@@ -104,6 +106,18 @@ CLEAR_TABLES = (
     "intraday_evaluations",  # per-symbol evaluation ledger + cooldowns
     "pending_protection_restores",  # write-ahead queue -> dead order ids
     "pending_repegs",  # write-ahead queue -> dead order ids
+    "pending_stop_amends",  # write-ahead queue -> dead order ids
+    "protection_restore_wal_audit",  # audit trail of the cleared restore queue
+    "order_attempts",  # every order the old book tried to place
+    "trade_refusals",  # decision ledger: what the old pipeline refused
+    "alignment_exit_readings",  # per-symbol exit readings on the old book
+    "soft_exit_heal_restores",  # exit-protection repairs on the old book
+    "trend_exit_tick_checks",  # per-symbol exit state on the old book
+    "realised_sector_weights",  # sector weights derived from the old book
+    "realised_risk_budget",  # risk budget derived from the old book
+    "evening_reports",  # evening report grading the old trades
+    "session_reports",  # session report on the old book
+    "intra_check_reports",  # intraday report on the old book
 )
 
 # Rows here are NOT trading decisions. Keeping them costs nothing and
@@ -117,6 +131,13 @@ KEEP_TABLES = (
     "llm_circuit_state",
     "llm_circuit_events",
     "llm_quota_holds",
+    "margin_interest_daily",  # locally computed, cannot be fetched again; exclude, don't delete
+    "reconciliation_runs",  # broker-vs-local comparison history; exclude, don't delete
+    "llm_route_events",  # LLM routing/spend telemetry, like agent_logs
+    "notifier_sends",  # delivery log of the alert channel (alerting health)
+    "fred_fetch_coverage_runs",  # data-provider coverage, not a decision
+    "intraday_symbol_health",  # data-feed miss counters + alert timing
+    "owner_intents",  # owner instructions: not ours to delete
     "sqlite_sequence",  # sqlite-managed; handled surgically below
 )
 
@@ -446,9 +467,8 @@ def _count(conn: sqlite3.Connection, table: str, where: str = "", params=()) -> 
 def plan_database(conn: sqlite3.Connection, *, evidence_mode: str) -> dict:
     """Work out, without changing anything, exactly which rows would go.
 
-    Tables this tool has never heard of are KEPT and reported — silently
-    clearing an unknown table is how a reset tool eats something it
-    shouldn't.
+    Tables this tool has never heard of are reported under `unknown`; the
+    caller must refuse to run (see assert_all_classified).
     """
     present = list_tables(conn)
     clear: list[dict] = []
@@ -558,8 +578,25 @@ def backup_database(db_path: Path, dest: Path) -> dict:
     return {"path": str(dest), "bytes": dest.stat().st_size}
 
 
+def assert_all_classified(plan: dict) -> None:
+    """Refuse if the database holds a table this tool has no policy for.
+
+    A new table must be classified in TABLE_POLICY before a reset may run;
+    silently skipping it would leave contaminated rows (or delete valuable
+    ones) without anyone deciding.
+    """
+    names = sorted(e["table"] for e in plan["unknown"])
+    if names:
+        raise ResetRefused(
+            "REFUSING: table(s) not classified in TABLE_POLICY: "
+            + ", ".join(names)
+            + ". Add each to CLEAR_TABLES or KEEP_TABLES in scripts/desk_reset.py."
+        )
+
+
 def clear_database(conn: sqlite3.Connection, plan: dict, *, evidence_mode: str) -> dict:
     """Apply the plan. One transaction: all of it lands or none of it does."""
+    assert_all_classified(plan)
     deleted: dict[str, int] = {}
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -879,6 +916,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", default=None, help="Override the SQLite path (default: storage.db_path)")
     p.add_argument("--backup-root", default=None, help="Where timestamped backups go (default: <db dir>/resets)")
     p.add_argument("--execute", action="store_true", help="Actually do it. Without this the tool only prints a plan.")
+    p.add_argument(
+        "--owner-approved",
+        action="store_true",
+        help="Required with --execute: records the owner's explicit yes to deleting history.",
+    )
     p.add_argument("--yes", action="store_true", help="Skip the interactive confirmation (for scripted use).")
     p.add_argument("--allow-market-open", action="store_true", help="Proceed even though the market is open.")
     p.add_argument(
@@ -909,6 +951,13 @@ def _resolve_db_path(args, cfg) -> Path:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.execute and not args.owner_approved:
+        print(
+            "REFUSING: --execute deletes trading history, which needs the owner's explicit yes. "
+            "Re-run with --owner-approved once the owner has approved this reset.",
+            file=sys.stderr,
+        )
+        return 6
     _load_env_file()
 
     # Loaded lazily: `--skip-broker --db <path>` needs neither the broker
@@ -981,6 +1030,11 @@ def run(argv: list[str] | None = None) -> int:
             plan = plan_database(conn, evidence_mode=args.evidence)
         finally:
             conn.close()
+        try:
+            assert_all_classified(plan)
+        except ResetRefused as exc:
+            print(f"\n{exc}\n", file=sys.stderr)
+            return 5
 
     print(render_plan(book, plan, window, paths, execute=args.execute, checks=checks))
 

@@ -90,9 +90,9 @@ OTHER DECLARED SIMPLIFICATIONS
   (matches the trade-level max-drawdown methodology in `metrics.py`).
 * macro regime is not modelled — `_widen_stop_past_noise` is called with
   `regime=None`, i.e. no regime scale is applied.
-* When a day's bar could have hit BOTH the stop and the target, the engine
-  assumes the STOP was hit first. Daily OHLC cannot resolve true intrabar
-  sequence, and assuming the worse outcome is the conservative choice.
+* There is NO take-profit exit: live never sells at a target, so a position
+  leaves only by stop (trailed), the hold horizon, or end of data. A bar
+  that opens through the stop fills at the open, not the stop.
 * A position still open when the data window ends is force-closed at the
   last available close (`exit_reason="end_of_data"`), not silently dropped.
 * Every new candidate requests the same `max_position_risk_pct` and this
@@ -425,13 +425,11 @@ def run_backtest(
                 bars=bars_since_entry,
                 atr=atr_today,
                 qty=qty_sign,
-                # The ENTRY stop, frozen at fill — never the live `pos.stop` a
-                # prior trail already moved. Powers the Type A +1R breakeven
-                # ratchet and the +2R -> +1R second ratchet (item 142), the
-                # same way `_trail_open_positions` passes `initial_stop_loss`
-                # in the live pipeline. Without it both R-multiple ratchets
-                # cannot measure risk and stay silent.
-                initial_stop=pos.stop_initial,
+                # 1R per share from the SAME per-lot function the live trail
+                # uses, over this position's one lot and its ENTRY stop (frozen
+                # at fill — never the live `pos.stop` a prior trail moved).
+                # Powers the +1R breakeven and +2R -> +1R ratchets (item 142).
+                risk_per_share=_risk_per_share(pos, qty_sign),
             )
             # CAVEAT (item 142): passing the frozen entry stop here means BOTH
             # R-ratchets now fire in backtest whereas NONE fired before this
@@ -611,3 +609,19 @@ def run_backtest(
         binding_budget_days=binding_budget_days,
         contested_budget_days=contested_budget_days,
     )
+
+
+def _risk_per_share(pos, held_qty: float) -> float | None:
+    """1R per share via `quantities.held_position_risk` over the one backtest lot."""
+    from src.quantities import held_position_risk
+
+    lot = {
+        "action": "BUY" if pos.direction == "long" else "SHORT",
+        "qty": pos.shares,
+        "price": pos.entry_price,
+        "stop_loss": pos.stop_initial,
+        # The simulated fill time, in the field live fills carry the broker's.
+        "filled_at": str(entry) if (entry := getattr(pos, "entry_date", None)) is not None else None,
+    }
+    risk, _ = held_position_risk([lot], held_qty)
+    return risk / abs(held_qty) if risk and held_qty else None

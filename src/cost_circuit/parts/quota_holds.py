@@ -7,6 +7,7 @@ Every collaborator is an explicit keyword-only constructor argument.
 from __future__ import annotations
 import sqlite3
 from datetime import date, datetime, time as dt_time, timezone
+from src.cost_circuit.clock import _sql_stamp
 from src.cost_circuit.classification import _trigger_scope
 
 
@@ -129,9 +130,10 @@ class QuotaHolds:
                 "exact ledger and accounting invariants passed"
             )
             updated = conn.execute(
-                "UPDATE llm_quota_holds SET active=0, released_at=datetime('now'), "
+                "UPDATE llm_quota_holds SET active=0, released_at=?, "
                 "release_reason=?, recovery_alert_state=? WHERE id=? AND active=1",
                 (
+                    _sql_stamp(),
                     reason,
                     0 if hold["scope"] in {"day", "mode_day"} else 1,
                     hold["id"],
@@ -142,8 +144,8 @@ class QuotaHolds:
             conn.execute(
                 "INSERT INTO llm_circuit_events "
                 "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-                "session_cost_usd, daily_cost_usd) VALUES "
-                "('quota_rearmed', ?, ?, ?, ?, 'budget_rollover', ?, ?, ?)",
+                "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+                "('quota_rearmed', ?, ?, ?, ?, 'budget_rollover', ?, ?, ?, ?, ?)",
                 (
                     hold["trigger_code"],
                     reason,
@@ -152,6 +154,8 @@ class QuotaHolds:
                     hold["attempts"],
                     hold["session_cost_usd"],
                     hold["daily_cost_usd"],
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
 
@@ -188,8 +192,9 @@ class QuotaHolds:
             "INSERT INTO llm_quota_holds "
             "(scope, scope_key, day, trigger_code, trigger_detail, run_id, mode, "
             "agent_name, attempts, attempts_exact, costs_exact, session_cost_usd, "
-            "daily_cost_usd, session_limit_usd, daily_limit_usd) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "daily_cost_usd, session_limit_usd, daily_limit_usd, "
+            "alert_updated_at, recovery_alert_updated_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 scope,
                 scope_key,
@@ -206,18 +211,21 @@ class QuotaHolds:
                 daily_cost,
                 float(self.config.session_cost_limit_usd),
                 float(self.config.daily_cost_limit_usd),
+                _sql_stamp(),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('quota_held', ?, ?, ?, ?, ?, ?, ?, ?)",
-            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('quota_held', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost, _sql_stamp(), _sql_stamp()),
         )
         updated_session = conn.execute(
-            "UPDATE llm_budget_sessions SET status='quota_held', updated_at=datetime('now') WHERE run_id=?",
-            (run_id,),
+            "UPDATE llm_budget_sessions SET status='quota_held', updated_at=? WHERE run_id=?",
+            (_sql_stamp(), run_id),
         )
         if updated_session.rowcount != 1:
             raise RuntimeError(f"cost-circuit could not mark missing session {run_id} quota-held")
@@ -314,8 +322,8 @@ class QuotaHolds:
             "trigger_detail=?, run_id=?, mode=?, agent_name=?, "
             "session_attempts=?, attempts_exact=?, costs_exact=?, "
             "session_cost_usd=?, daily_cost_usd=?, "
-            "session_limit_usd=?, daily_limit_usd=?, suspended_at=datetime('now'), "
-            "alert_state=0, updated_at=datetime('now') WHERE singleton=1",
+            "session_limit_usd=?, daily_limit_usd=?, suspended_at=?, "
+            "alert_state=0, updated_at=? WHERE singleton=1",
             (
                 code,
                 detail,
@@ -329,6 +337,8 @@ class QuotaHolds:
                 daily_cost,
                 float(self.config.session_cost_limit_usd),
                 float(self.config.daily_cost_limit_usd),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         if updated_state.rowcount != 1:
@@ -336,12 +346,12 @@ class QuotaHolds:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('suspended', ?, ?, ?, ?, ?, ?, ?, ?)",
-            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('suspended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost, _sql_stamp(), _sql_stamp()),
         )
         updated_session = conn.execute(
-            "UPDATE llm_budget_sessions SET status='suspended', updated_at=datetime('now') WHERE run_id=?", (run_id,)
+            "UPDATE llm_budget_sessions SET status='suspended', updated_at=? WHERE run_id=?", (_sql_stamp(), run_id)
         )
         if updated_session.rowcount != 1:
             raise RuntimeError(f"cost-circuit could not mark missing session {run_id} suspended")

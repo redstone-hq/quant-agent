@@ -44,10 +44,15 @@ from dataclasses import dataclass
 #: should be enough."
 #:
 #: This ladder was deliberately left untouched by that removal, and its
-#: character is why: it TRIMS gross exposure gradually at -8% / -15% /
-#: -20% peak-to-trough, it never halts the desk, and it never sells a
-#: position outright. It is a ratified owner table about how much the book
-#: may OWN, not a loss alarm. Do not reintroduce a halt or a sizing brake
+#: character is why: it lowers gross exposure in steps at -8% / -15% /
+#: -20% peak-to-trough and it never halts the desk. The 0.5x floor is on the
+#: CEILING, not on what is held: each forced cut sells a whole position, so a
+#: book of one or two names can be sold all the way to cash. When it does
+#: force the book down it sells
+#: WHOLE positions — losers first, biggest loss first, then the
+#: weakest-rated winner — never part of one (owner rulings 2026-10-09 and
+#: 2026-10-12; `apply_gross_ceiling`). It is a ratified owner table about
+#: how much the book may OWN, not a loss alarm. Do not reintroduce a halt or a sizing brake
 #: on the strength of this table.
 GROSS_LADDER: tuple[tuple[float, float], ...] = (
     (-8.0, 1.5),

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import datetime
 from typing import Any, Callable
 
 from src.execution.pending_stop_drain import drain_safely as drain_owed_stop_levels  # the sweep's first coverage repair
@@ -50,6 +51,7 @@ def repair_stop_coverage(
     resting_stops: list | None = None,
     caller: str = "",
     market: Any = None,
+    close_breached: Callable[..., str | None] | None = None,
 ) -> bool:
     """Best-effort: re-place protective stop coverage on an uncovered
     position using the stop level recorded on its last opening row (BUY for
@@ -95,10 +97,14 @@ def repair_stop_coverage(
     mirrored the way `place_entry_protection` already does — below a
     sell-stop, above a buy-stop. No new constant.
 
-    It ADDS an order and nothing else. There is no path here that sells,
-    resizes, closes, zeroes a position, or re-pegs an entry: the only broker
-    call it makes is `_submit_protective_stop_retrying`, and the stop level
-    comes from a recorded row, never from a target.
+    It ADDS an order and nothing else, with ONE exception (k40, 2026-10-13):
+    when a RECORDED, current stop is already crossed by today's
+    regular-session trade print, re-placing it is impossible and leaving it
+    off strands the shares, so the repair executes that stop — a market
+    order for the uncovered quantity, capped at a fresh position read, through
+    the desk's protected sell path (see `_breach_blocker` / `_execute_breached_stop`). It
+    never resizes, closes the covered shares, or re-pegs an entry, and the
+    level comes from a recorded row or the broker's resting stop, never from a target.
 
     When the broker accepts an order id it writes that same recorded level
     back onto the opening row (`db.update_open_stop_loss` when `db` is
@@ -154,6 +160,9 @@ def repair_stop_coverage(
     # NULL; Inf round-trips as a real number).
     recorded = entry.get("stop_loss")
     stop_state, stop_price = classify_stop_price(recorded)
+    # A derived level is this janitor's own fallback, not a stop the desk
+    # decided on: it may be placed, never executed (`_breach_blocker`).
+    level_was_derived = stop_state == STOP_ABSENT
     if stop_state == STOP_ABSENT:
         # Owner ruling 2026-10-02: the desk acts rather than flagging a
         # naked position for a review nobody performs. The archive has been
@@ -302,6 +311,32 @@ def repair_stop_coverage(
     # this janitor into an immediate marketable exit.
     would_fire = False if blind else (stop_price <= price if is_short else stop_price >= price)
     if would_fire:
+        breach, exec_level, level_source = _breach_blocker(
+            db=db,
+            symbol=symbol,
+            stamped=stamped,
+            price=price,
+            level_was_derived=level_was_derived,
+            live_price_cls=LivePrice,
+            recorded_level=stop_price,
+            resting_stops=resting_stops,
+            is_short=is_short,
+            closer_supplied=close_breached is not None,
+        )
+        if breach is None:
+            return _execute_breached_stop(
+                broker=broker,
+                db=db,
+                symbol=symbol,
+                uncovered_qty=uncovered_qty,
+                is_short=is_short,
+                stop_price=exec_level,
+                level_source=level_source,
+                close_breached=close_breached,
+                stamped=stamped,
+                outcome=outcome,
+                rec=rec,
+            )
         logger.warning(
             "coverage repair: %s recorded %s-stop $%.2f is on the live-price "
             "side of $%.2f — a repair would fire immediately. Leaving the "
@@ -315,7 +350,8 @@ def repair_stop_coverage(
             outcome,
             f"the recorded stop ${stop_price:,.2f} is already on the live-"
             f"price side of ${price:,.2f}, so restoring it would exit the "
-            f"position at market — that is the reviewer's decision",
+            f"position at market — that is the reviewer's decision; it was "
+            f"not executed as a stop because {breach}",
             code="would_fire_immediately",
             record=rec,
             stop_price=stop_price,
@@ -433,3 +469,277 @@ def repair_stop_coverage(
         stop_price,
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# A recorded stop the tape has already crossed (k40, measured 2026-10-12).
+# ---------------------------------------------------------------------------
+# Sub-share remainders carry DAY stops, re-placed by this repair at the open.
+# When the price gapped through the recorded level overnight, re-placing it
+# was refused as "would fire immediately" and handed to a reviewer that is
+# suspended, so the shares sat with NO stop and NO exit. The stop decision
+# was made when the level was recorded; the tape crossing it is that
+# decision triggering. So the repair executes it: a market order on the
+# protective side for exactly the uncovered quantity that stop protected,
+# through the desk's protected sell path (write-ahead, fresh re-size, kill
+# switch, quantity floor, owner oversell gate). Every precondition fails CLOSED to the old
+# refusal, and every outcome writes the same durable row a refusal does.
+
+
+def _breach_blocker(
+    *,
+    recorded_level: float,
+    resting_stops: list | None,
+    is_short: bool,
+    closer_supplied: bool = False,
+    **checks: Any,
+) -> tuple[str | None, float, str]:
+    """`(blocker, level, level_source)`: blocker None when the breach may be
+    executed against `level`.
+
+    The CURRENT trailed stop is the one the broker holds: when a protective
+    stop rests on the symbol its level is authoritative over the recorded
+    row (a trail that landed at the broker but not on the row, or the
+    reverse, must not trigger an exit off the stale number). Resting legs
+    that disagree with each other, or a resting level the print has NOT
+    crossed, block execution.
+    """
+    blocker = _breach_precondition(**checks)
+    if blocker is None and not closer_supplied:
+        # The execution layer may not import the protection layer; the exit
+        # path is injected by a caller above both. None injected: fail closed.
+        blocker = "this caller supplied no exit path for a breached stop"
+    levels = set()
+    for spec in resting_stops or []:
+        level = spec.get("stop_price") if isinstance(spec, dict) else None
+        if isinstance(level, (int, float)) and math.isfinite(level) and level > 0:
+            levels.add(round(float(level), 4))
+    if not levels:
+        return blocker, recorded_level, "recorded_row"
+    if blocker is not None:
+        return blocker, recorded_level, "recorded_row"
+    if len(levels) > 1:
+        return "the broker holds resting stops at different levels, so the current stop is ambiguous", 0.0, ""
+    level = levels.pop()
+    print_price = float(checks["stamped"].price)
+    if not (print_price >= level if is_short else print_price <= level):
+        return (
+            f"the broker's resting stop ${level:,.2f} is the current level and today's print has not crossed it, "
+            f"so the recorded level is stale",
+            level,
+            "broker_resting_stop",
+        )
+    return None, level, "broker_resting_stop"
+
+
+def _breach_precondition(
+    *,
+    db: Any,
+    symbol: str,
+    stamped: Any,
+    price: float | None,
+    level_was_derived: bool,
+    live_price_cls: type,
+) -> str | None:
+    """None when the breach may be executed, else the plain reason it may not.
+
+    Executes only against (1) a RECORDED level, never one this repair derived;
+    (2) a real trade print, stamped today, printed inside the regular session,
+    and the very price the wrong-side test used — a snapshot substitute, a
+    quote, a pre-market or after-hours print, or yesterday's close never
+    qualifies; (3) a session open now, so the order meets today's tape rather
+    than queuing; (4) the CURRENT level — an owed out-of-hours amend still
+    pending for the symbol means the recorded level is superseded, and an
+    unreadable owed-amend table is treated the same way.
+    """
+    from src.trading_calendar import in_regular_session
+
+    if level_was_derived:
+        return "no stop was ever recorded for it — the level was derived by this repair, not decided by the desk"
+    print_ok = (
+        isinstance(stamped, live_price_cls)
+        and stamped.source == "last_trade"
+        and stamped.is_today_print
+        and isinstance(stamped.trade_at, datetime)
+        and stamped.trade_at.tzinfo is not None
+        and in_regular_session(stamped.trade_at)
+        and price == stamped.price
+    )
+    if not print_ok:
+        return "no regular-session trade print from today could be read to confirm the breach"
+    if not in_regular_session():
+        return "the regular session is not open, so a market order could not meet today's tape"
+    if db is None:
+        return "the owed-stop record could not be checked, so the recorded level may be superseded"
+    try:
+        from src.storage.trades import pending_stop_amends_store
+
+        owed = pending_stop_amends_store.get_all(db._trades())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("breached-stop check: owed-stop read failed for %s: %s", symbol, exc)
+        return "the owed-stop record could not be read, so the recorded level may be superseded"
+    if any(_same_symbol(row.get("symbol"), symbol) for row in owed or [] if isinstance(row, dict)):
+        return "a newer owed stop level is still pending for it, so the recorded level is superseded"
+    return None
+
+
+def _same_symbol(a: Any, b: Any) -> bool:
+    """Symbols equal ignoring case and the broker's class-share separator."""
+
+    def norm(x: Any) -> str:
+        return "".join(ch for ch in str(x or "").upper() if ch.isalnum())
+
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
+def _working_exit_order(broker: Any, symbol: str, side: str) -> tuple[bool, str | None]:
+    """`(readable, order_id)` of a working NON-stop order on the exit side.
+
+    A resting protective stop on the whole shares is not an exit in flight; a
+    market or limit order on the same side is, and a second one would
+    double-sell. An unreadable order book is `readable=False`: never guess.
+    """
+    try:
+        readable, orders = broker.list_open_orders_checked()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("breached-stop check: open-order read failed for %s: %s", symbol, exc)
+        return False, None
+    if not readable:
+        return False, None
+    for order in orders or []:
+        o_side = getattr(order, "side", None)
+        o_side = str(getattr(o_side, "value", o_side) or "").lower()
+        o_type = getattr(order, "order_type", None) or getattr(order, "type", None)
+        o_type = str(getattr(o_type, "value", o_type) or "").lower()
+        if _same_symbol(getattr(order, "symbol", None), symbol) and o_side == side and "stop" not in o_type:
+            return True, str(getattr(order, "id", "") or "unknown")
+    return True, None
+
+
+def _held_now(broker: Any, symbol: str, is_short: bool) -> float | None:
+    """What a closing order may close right now, from a FRESH position read:
+    the long for a sell, the short for a cover. None when the read fails."""
+    try:
+        signed = sum(
+            float(p.qty) for p in list(broker.get_positions()) if _same_symbol(getattr(p, "symbol", None), symbol)
+        )
+    except Exception as exc:  # noqa: BLE001
+        from src.sentinel.guarded import record_guarded_pass
+
+        record_guarded_pass((broker, None), "stop_repair.breach_held_reread", exc, context={"symbol": symbol})
+        logger.warning("breached-stop exit: position re-read failed for %s: %s", symbol, exc)
+        return None
+    closable = -signed if is_short else signed
+    return closable if closable > 0 else 0.0
+
+
+def _execute_breached_stop(
+    *,
+    broker: Any,
+    db: Any,
+    symbol: str,
+    uncovered_qty: float,
+    is_short: bool,
+    stop_price: float,
+    level_source: str,
+    close_breached: Callable[..., str | None],
+    stamped: Any,
+    outcome: dict | None,
+    rec: dict,
+) -> bool:
+    """Execute the crossed stop through the protected sell path; one durable
+    row either way. Always False: no stop was placed, so the gap is not
+    'repaired' — it is being exited.
+
+    Quantity: the uncovered quantity that stop protected, capped at a FRESH
+    position read (a whole-share stop that filled at the open leaves only the
+    remainder; nothing left means nothing sent), and re-capped by the
+    protected path's own read immediately before submit. A long remainder is
+    a PARTIAL_SELL (the trim path keeps the whole-share stop resting); the
+    whole position is a SELL or COVER. A short is never covered in part — the
+    desk keeps a short whole or closes it whole — so a short still partly
+    held by a resting stop is left to that stop, and a cover can never
+    exceed the short held, so it cannot flip the position long.
+    """
+    from src.execution.order_gates import _FRACTIONAL_QTY_EPSILON
+
+    side = "buy" if is_short else "sell"
+    print_price = float(stamped.price)
+    through = f"today's print ${print_price:,.2f} is through the current stop ${stop_price:,.2f} ({level_source})"
+    evidence = {
+        "stop_price": stop_price,
+        "level_source": level_source,
+        "print_price": print_price,
+        "print_at": stamped.trade_at.isoformat(),
+        "side": side,
+        "qty": uncovered_qty,
+    }
+
+    def record(tail: str, code: str, placed: dict) -> bool:
+        if isinstance(outcome, dict):
+            outcome["breached_stop_exit"] = placed
+        return _refuse(outcome, through + tail, code=code, record=rec, stop_price=stop_price, placed=placed)
+
+    readable, working_id = _working_exit_order(broker, symbol, side)
+    if not readable:
+        tail = ", but the open orders could not be read to rule out an exit already working, so nothing was sent"
+        return record(tail, "breached_stop_orders_unreadable", evidence)
+    if working_id is not None:
+        tail = f" and an exit order ({working_id}) is already working, so no second order was sent"
+        return record(tail, "breached_stop_exit_already_working", {**evidence, "order_id": working_id})
+    held = _held_now(broker, symbol, is_short)
+    if held is None:
+        return record(
+            ", but the position could not be re-read, so nothing was sent", "breached_stop_held_unreadable", evidence
+        )
+    evidence["held_now"] = held
+    if held <= _FRACTIONAL_QTY_EPSILON:
+        tail = ", but nothing is held any more (a resting stop already closed it), so nothing was sent"
+        return record(tail, "breached_stop_nothing_held", evidence)
+    qty = min(abs(float(uncovered_qty)), held)
+    whole_exit = held - qty <= _FRACTIONAL_QTY_EPSILON
+    if is_short and not whole_exit:
+        tail = (
+            f"; {held:.4f} share(s) are still short and the desk never covers part of a short, so the resting "
+            f"stop owns this exit and nothing was sent"
+        )
+        return record(tail, "breached_stop_partial_cover_refused", evidence)
+    label = ("COVER" if is_short else "SELL") if whole_exit else "PARTIAL_SELL"
+    evidence.update(qty=qty, label=label, print_price=print_price)
+    try:
+        order_id = close_breached(symbol, qty, is_short, label, evidence)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("breached-stop exit for %s raised: %s", symbol, exc)
+        evidence["refusal"] = f"the exit path raised: {exc}"
+        order_id = None
+    if not order_id:
+        why = evidence.get("refusal") or "the order was not accepted"
+        logger.error("BREACHED STOP NOT EXECUTED for %s: the protected sell path declined it (%s)", symbol, why)
+        return record(f"; the protected sell path declined the {label} ({why})", "breached_stop_exit_refused", evidence)
+    placed = {**evidence, "order_id": order_id}
+    try:
+        db.insert_trade(
+            symbol=symbol,
+            action=label,
+            qty=qty,
+            price=print_price,
+            reasoning=f"stop executed at the open: {through}",
+            run_id=str(rec.get("caller") or "stop_repair"),
+            broker_order_id=order_id,
+            fill_status="submitted",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("breached-stop exit for %s: ledger row failed (order %s is live): %s", symbol, order_id, exc)
+        placed["ledger_error"] = str(exc) or type(exc).__name__
+    logger.warning(
+        "BREACHED STOP EXECUTED: %s print $%.2f is through the current stop $%.2f (%s) — %s %.4f share(s), order %s",
+        symbol,
+        print_price,
+        stop_price,
+        level_source,
+        label,
+        qty,
+        order_id,
+    )
+    tail = f", so the stop was executed: market {label} of {qty:.4f} share(s), order {order_id}"
+    return record(tail, "breached_stop_executed", placed)

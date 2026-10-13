@@ -40,12 +40,12 @@ class PromptHeat:
             excluded = set()
             if sweeper is not None and sweeper.symbol:
                 excluded.add(str(sweeper.symbol).upper())
-            live_stops, initial_stops, unreadable = self._build_stop_map(positions)
+            live_stops, entry_risks, unreadable = self._build_stop_map(positions)
             return portfolio_heat(
                 positions=positions,
                 equity=total_value,
                 stops=live_stops,
-                initial_stops=initial_stops,
+                entry_risks=entry_risks,
                 exclude_symbols=excluded,
                 unreadable_stops=unreadable,
             )

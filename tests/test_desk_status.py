@@ -8,6 +8,7 @@ paying for anything, and a field it genuinely cannot know says
 """
 
 import sqlite3
+from src.storage.db import Database
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -48,35 +49,9 @@ class _Pos:
 
 def _empty_db(tmp_path, monkeypatch):
     db = tmp_path / "quant_agent.db"
-    conn = sqlite3.connect(db)
-    conn.executescript(
-        """
-        CREATE TABLE specialist_evidence (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL, agent_name TEXT NOT NULL, kind TEXT NOT NULL,
-            scope TEXT NOT NULL, symbol TEXT, evidence_json TEXT NOT NULL,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
-            action TEXT NOT NULL, qty REAL NOT NULL, price REAL NOT NULL,
-            reasoning TEXT, run_id TEXT, broker_order_id TEXT, fill_status TEXT,
-            fill_qty REAL, fill_price REAL,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE positions (
-            symbol TEXT PRIMARY KEY, qty REAL NOT NULL, avg_entry REAL NOT NULL,
-            current_price REAL NOT NULL, market_value REAL NOT NULL,
-            unrealized_pnl REAL NOT NULL
-        );
-        CREATE TABLE agent_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, agent_name TEXT NOT NULL,
-            run_id TEXT NOT NULL, output_summary TEXT, cost_usd REAL
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+    _d = Database(str(db))
+    _d.initialize()  # the real schema, not a hand-built copy
+    _d.close()
     monkeypatch.setattr(trader_feed, "_DB_PATH", db)
     return db
 

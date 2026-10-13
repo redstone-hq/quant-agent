@@ -22,6 +22,58 @@ logger = logging.getLogger(__name__)
 CONVICTION_CREDIT_KIND = "conviction_credit"
 
 
+def void_conviction_credit(conn: sqlite3.Connection, position_ids) -> int:
+    """Delete the conviction credit of positions whose grouping the fill walk just changed.
+
+    Credit is derived, never stored truth: `TradeLedger._regroup_position_ids_locked`
+    calls this for every position id whose membership it changed, and the evening
+    `resolve_conviction_ledger` re-scores those positions from the new grouping, so no
+    stored score disagrees with the walk. Caller holds the ledger lock; no commit.
+    """
+    ids = sorted({str(p) for p in position_ids if p})
+    if not ids:
+        return 0
+    table = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'specialist_evidence'").fetchone()
+    if table is None:  # a ledger-only database: no credit exists to void
+        return 0
+    marks = ",".join("?" * len(ids))
+    cur = conn.execute(
+        "DELETE FROM specialist_evidence WHERE kind = ? "  # noqa: S608 - placeholders only
+        f"AND json_extract(evidence_json, '$.position_id') IN ({marks})",
+        (CONVICTION_CREDIT_KIND, *ids),
+    )
+    return cur.rowcount or 0
+
+
+def _fill_walk_chains(rows) -> tuple[dict[str, list[dict]], set[str]]:
+    """Position chains in the fill walk's grouping and event order, plus the ids left unscored.
+
+    Stored ids ARE the walk's grouping: they are re-derived on every fill confirmation
+    (`TradeLedger._regroup_position_ids_locked`, which voids the credit of any position it
+    changes). A symbol whose live position's fill order is unknown has no walk to agree
+    with, so none of its positions is scored; nor is a position before the last flat
+    point the walk can order. Their ids come back in the second value.
+    """
+    from src.storage.trades.position_chain import _event_split
+
+    by_symbol: dict[str, list[dict]] = {}
+    for row in rows:
+        by_symbol.setdefault(row["symbol"], []).append(dict(row))
+    chains: dict[str, list[dict]] = {}
+    unordered: set[str] = set()
+    for symbol_rows in by_symbol.values():
+        split = _event_split(symbol_rows)
+        if split is None:
+            unordered.update(r["position_id"] for r in symbol_rows if r["position_id"])
+            continue
+        early_ids = {r["position_id"] for r in split[0] if r["position_id"]}
+        unordered.update(early_ids)
+        for row in split[1]:
+            if row["position_id"] and row["position_id"] not in early_ids:
+                chains.setdefault(row["position_id"], []).append(row)
+    return chains, unordered
+
+
 class ConvictionLedgerStore:
     """Persisted per-seat credit rows and the score-on-close pass."""
 
@@ -137,9 +189,9 @@ class ConvictionLedgerStore:
         gone flat and has not been scored before:
 
           1. reduce it to a round trip (`summarize_closed_position`),
-          2. compute its realized R with `src.risk.metrics.r_multiple` — the
-             SAME function the heat block and PMFacts already use, against
-             the stop the position was OPENED with,
+          2. compute its realized R per lot, as that round trip reports it
+             (`ClosedPosition.r_multiple`), against
+             each lot's own opening stop,
           3. credit every seat that took a side at decision time
              (`score_position`) — raw signed R, unweighted,
           4. persist one `conviction_credit` evidence row per seat.
@@ -170,13 +222,10 @@ class ConvictionLedgerStore:
         with self._lock:
             rows = self.conn.execute(
                 "SELECT id, position_id, symbol, action, qty, price, fill_qty, "
-                "fill_price, fill_status, stop_loss, initial_stop_loss, decision_id, run_id, "
-                "timestamp FROM trades WHERE position_id IS NOT NULL "
-                "ORDER BY position_id, timestamp, id",
+                "fill_price, fill_status, filled_at, stop_loss, initial_stop_loss, decision_id, run_id, "
+                "timestamp FROM trades ORDER BY symbol, id",
             ).fetchall()
-        chains: dict[str, list[dict]] = {}
-        for row in rows:
-            chains.setdefault(row["position_id"], []).append(dict(row))
+        chains, unordered = _fill_walk_chains(rows)
 
         already = self._scored_position_ids()
         counters = {
@@ -186,6 +235,7 @@ class ConvictionLedgerStore:
             "skipped_already_scored": 0,
             "skipped_no_r": 0,
             "skipped_no_stances": 0,
+            "skipped_fill_time_missing": len(unordered),
         }
         for position_id, chain in chains.items():
             closed = summarize_closed_position(chain)

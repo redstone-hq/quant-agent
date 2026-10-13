@@ -21,10 +21,14 @@ heat". It is a different number from budget risk and neither substitutes for the
 other: a winner 40% above entry with its stop still below entry has released no
 budget but carries a great deal of open risk.
 
-**R-multiple** — profit in units of the risk originally taken:
-`(current - entry) / (entry - initial_stop)`. Measured against the stop the
-position was OPENED with, never the trailed one, because the denominator is the
-bet that was actually made. `thesis_progress_pct` measures distance to target,
+**R-multiple** — profit in units of the risk originally taken: unrealised
+P&L / per-lot entry risk, where entry risk is the sum over the open lots of
+lot qty x |lot fill - that lot's OWN initial stop| scaled to the shares still
+held (`quantities.held_position_risk`).
+Never one stop against the broker's blended average entry: after a scale-in
+that overstates R. None ("R unknown") if any lot lacks a usable stop. For a
+single lot this is exactly `(current - entry) / (entry - initial_stop)`.
+`thesis_progress_pct` measures distance to target,
 which is a different question and does not normalise for how much was risked
 (audit §1.4).
 
@@ -40,8 +44,6 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-
-from src.quantities import r_multiple
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +166,15 @@ def position_risk(
     current_price: float,
     stop: float | None,
     initial_stop: float | None = None,
+    entry_risk_dollars: float | None = None,
 ) -> PositionRisk:
     """Risk arithmetic for a single position, long or short.
 
     `stop` is the LIVE stop (broker truth, already trailed). `initial_stop` is
-    the level the position was opened with; it defaults to `stop` so callers
-    that only know one level still get a defensible R-multiple denominator.
+    informational only (carried on the result for display); it is NEVER an R
+    denominator. `entry_risk_dollars` is the per-lot risk on the shares held
+    (`quantities.held_position_risk`); R = unrealised P&L / it, None when it is
+    None — never a guess from the live or a single initial stop.
 
     A negative `qty` is a short (Alpaca's own sign convention, passed through
     untouched by `broker.get_positions`). Its stop sits ABOVE entry, so risk
@@ -194,8 +199,7 @@ def position_risk(
     init_f = _finite(initial_stop) if initial_stop is not None else None
     if init_f is not None and init_f <= 0:
         init_f = None
-    if init_f is None:
-        init_f = stop_f
+    risk_f = _finite(entry_risk_dollars) if entry_risk_dollars is not None else None
 
     # +1 long, -1 short. `side` flips every per-share distance below; `shares`
     # is the unsigned share count that turns a per-share risk into dollars.
@@ -221,7 +225,7 @@ def position_risk(
             open_risk_dollars=notional,
             risk_released=False,
             protected=False,
-            r_multiple=(r_multiple(cur_f, entry_f, init_f, qty_f) if init_f and not price_unknown else None),
+            r_multiple=_per_lot_r(qty_f, entry_f, cur_f, risk_f, price_unknown or entry_unknown),
             risk_unknown=unknown,
         )
 
@@ -250,9 +254,16 @@ def position_risk(
         open_risk_dollars=round(open_r, 2),
         risk_released=released,
         protected=True,
-        r_multiple=(r_multiple(cur_f, entry_f, init_f, qty_f) if init_f and not price_unknown else None),
+        r_multiple=_per_lot_r(qty_f, entry_f, cur_f, risk_f, price_unknown or entry_unknown),
         risk_unknown=unknown,
     )
+
+
+def _per_lot_r(qty: float, entry: float, cur: float, risk: float | None, unknown: bool) -> float | None:
+    """Unrealised P&L / per-lot entry risk; None when either side is unknown."""
+    if unknown or risk is None or risk <= 0 or qty == 0:
+        return None
+    return round((cur - entry) * qty / risk, 2)
 
 
 @dataclass(frozen=True)
@@ -305,17 +316,19 @@ def portfolio_heat(
     positions,
     equity: float,
     stops: dict[str, float] | None = None,
-    initial_stops: dict[str, float] | None = None,
+    entry_risks: dict[str, float | None] | None = None,
     exclude_symbols: set[str] | frozenset[str] | None = None,
 ) -> PortfolioHeat:
     """Roll `positions` (anything with symbol/qty/avg_entry/current_price) up.
 
     `stops` maps symbol → live stop price; a symbol absent from the map is
-    treated as unprotected. `exclude_symbols` drops cash-equivalent sweep
+    treated as unprotected. `entry_risks` maps symbol → per-lot dollar risk on
+    the held shares (`quantities.held_position_risk`); absent or None → R unknown.
+    `exclude_symbols` drops cash-equivalent sweep
     holdings, which are deliberately stopless and are not risk positions.
     """
     stops = stops or {}
-    initial_stops = initial_stops or {}
+    entry_risks = entry_risks or {}
     excluded = {s.upper() for s in (exclude_symbols or set())}
     equity_f = _finite(equity) or 0.0
     rows: list[PositionRisk] = []
@@ -341,7 +354,7 @@ def portfolio_heat(
                     entry=getattr(p, "avg_entry", None),
                     current_price=getattr(p, "current_price", None),
                     stop=stops.get(symbol),
-                    initial_stop=initial_stops.get(symbol),
+                    entry_risk_dollars=entry_risks.get(symbol),
                 )
             )
         except Exception as exc:  # noqa: BLE001 — degrade one row, never the book

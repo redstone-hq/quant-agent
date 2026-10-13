@@ -404,8 +404,8 @@ on a closed position's final exit row and `/positions` rows carry `initial_stop`
 `unrealised_r`. Nothing here feeds sizing, stops or exits; `src.agents` and
 `src.prompt_facts` may not import `trade_review` (`.importlinter`). The same module's `close_review_summary` feeds the trade-review block at the end of the Telegram CLOSE REVIEW message (`src/trader_feed/trade_block.py`); the stored close report keeps structured fields only, so no agent or prompt reads that text back.
 
-R, closed-round-trip pairing and the entry-stop reader (`r_multiple`,
-`summarize_closed_position`, `recorded_initial_stop`) were moved verbatim into
+R, closed-round-trip pairing and the entry-stop reader
+(`summarize_closed_position`, `recorded_initial_stop`) were moved verbatim into
 `src/quantities.py` so the API can use the one definition without reaching the money path.
 
 Advisory only, per spec §9.5 item 6: no score this endpoint serves feeds sizing,

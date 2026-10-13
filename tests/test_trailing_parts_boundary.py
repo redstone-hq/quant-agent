@@ -60,7 +60,7 @@ def test_structure_leg_runs_from_a_stub_bar_alone():
 
 
 def test_range_ratchets_run_alone_and_never_loosen():
-    kw = dict(symbol="aaa", ent=100.0, cur=112.0, stop=90.0, initial_stop=90.0, is_short=False, setup_type="range")
+    kw = dict(symbol="aaa", ent=100.0, cur=112.0, stop=90.0, risk_per_share=10.0, is_short=False, setup_type="range")
     first = trail_range_ratchet._range_breakeven_ratchet(**kw)
     assert first.code == trailing.TRAIL_CODE_TRAILED
     assert first.proposal.new_stop == 100.0 and first.proposal.previous_stop == 90.0

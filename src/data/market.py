@@ -64,7 +64,7 @@ class NoBarsSourceError(RuntimeError):
 
 
 class MarketDataProvider:
-    def __init__(self, bars_source=None, fallback_bars=None):
+    def __init__(self, bars_source=None, fallback_bars=None, bars_batch_source=None):
         """
         bars_source: callable `(symbol, lookback_days) -> list[OHLCV]` that
         answers `get_ohlcv`. The live desk wires it to the broker's daily-bar
@@ -77,11 +77,27 @@ class MarketDataProvider:
         `fallback_bars` is the pre-2026-10-09 name of the same hook, kept so
         the pipeline's existing wiring (`set_fallback_bars(broker.get_bars)`)
         still lands on the primary source.
-        """
-        self._bars_source = bars_source if bars_source is not None else fallback_bars
 
-    def set_bars_source(self, fn) -> None:
+        `bars_batch_source`: callable `(symbols, lookback_days, adjustment=)
+        -> {symbol: list[OHLCV]}` answering `get_ohlcv_batch`. When omitted
+        it is taken from the SAME object that answers the single read
+        (`broker.get_bars_batch` beside `broker.get_bars`), so one wiring
+        line gives both reads one price source (2026-10-12: the batch read
+        Yahoo while the single read Alpaca, and open-position targets were
+        revised from the other chart).
+        """
+        self._bars_source = None
+        self._bars_batch_source = None
+        self.set_bars_source(
+            bars_source if bars_source is not None else fallback_bars,
+            batch=bars_batch_source,
+        )
+
+    def set_bars_source(self, fn, batch=None) -> None:
         self._bars_source = fn
+        if batch is None and fn is not None:
+            batch = getattr(getattr(fn, "__self__", None), "get_bars_batch", None)
+        self._bars_batch_source = batch
 
     # Pre-2026-10-09 name of `set_bars_source`; the pipeline still calls it.
     set_fallback_bars = set_bars_source
@@ -126,63 +142,39 @@ class MarketDataProvider:
         return _completed_only(bars, cutoff, symbol, "broker")
 
     def get_ohlcv_batch(self, symbols: list[str], lookback_days: int) -> dict[str, list[OHLCV]]:
-        """COMPLETED daily bars for many symbols in ONE yfinance request.
+        """COMPLETED daily bars for many symbols from the broker's data feed.
 
-        Same contract as `get_ohlcv` (completed bars only, NaN rows dropped),
-        for the universe screen, which reads a year of bars for up to a few
-        thousand candidates and cannot afford one request each. A symbol
-        missing from the reply maps to []; a failed request RAISES, so the
-        caller can tell "this symbol has no history" from "the feed is down".
+        Same contract and SAME price source as `get_ohlcv`: the broker's
+        multi-symbol daily reader (`AlpacaBroker.get_bars_batch`), asked for
+        the same adjustment the single-symbol read uses ("all": splits and
+        dividends), because the callers — open-position target revision and
+        universe admission — compare their answer against the chart the
+        alignment exit reads. Until 2026-10-12 this read Yahoo instead, and
+        targets were revised from a different chart than the one they were
+        judged on.
+
+        A symbol missing from the reply maps to []; a failed request RAISES,
+        so the caller can tell "this symbol has no history" from "the feed
+        is down". No batch source wired is a wiring defect
+        (`NoBarsSourceError`), never "no data".
         """
         wanted = [str(s).strip().upper() for s in symbols if str(s).strip()]
         if not wanted:
             return {}
-        cutoff = last_completed_bar_date()
-        end = cutoff + timedelta(days=1)
-        start = et_today() - timedelta(days=lookback_days)
-
-        def _download():
-            return yf.download(
-                wanted,
-                start=str(start),
-                end=str(end),
-                progress=False,
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
+        if self._bars_batch_source is None:
+            raise NoBarsSourceError(
+                "get_ohlcv_batch: no batch bars source wired — set_bars_source(broker.get_bars) "
+                "takes broker.get_bars_batch from the same object, or pass batch=..."
             )
-
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            df = ex.submit(_download).result(timeout=_DOWNLOAD_TIMEOUT_S * 4)
-        if df is None:
-            raise RuntimeError("yfinance batch download returned nothing")
+        cutoff = last_completed_bar_date()
+        # "all" == the single-symbol read's `Adjustment.ALL`; the screen's own
+        # call keeps its default ("split"). tests/test_ohlcv_batch_alpaca.py
+        # holds the two requests to the same adjustment.
+        got = self._bars_batch_source(wanted, lookback_days, adjustment="all") or {}
         out: dict[str, list[OHLCV]] = {}
-        multi = isinstance(df.columns, pd.MultiIndex)
         for symbol in wanted:
-            try:
-                frame = df[symbol] if multi else (df if len(wanted) == 1 else None)
-            except KeyError:
-                frame = None
-            if frame is None or frame.empty:
-                out[symbol] = []
-                continue
-            cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in frame.columns]
-            if len(cols) < 5:
-                out[symbol] = []
-                continue
-            clean = frame.dropna(subset=cols)
-            bars = [
-                OHLCV(
-                    date=idx.date(),
-                    open=float(row["Open"]),
-                    high=float(row["High"]),
-                    low=float(row["Low"]),
-                    close=float(row["Close"]),
-                    volume=int(row["Volume"]),
-                )
-                for idx, row in clean.iterrows()
-            ]
-            out[symbol] = _completed_only(bars, cutoff, symbol, "yfinance batch")
+            bars = list(got.get(symbol) or [])
+            out[symbol] = _completed_only(bars, cutoff, symbol, "broker batch")
         return out
 
     def get_company_profile(self, symbol: str) -> dict | None:

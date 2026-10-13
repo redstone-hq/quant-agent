@@ -710,6 +710,12 @@ class DatabaseSchema:
         _ensure_column("trades", "fill_qty", "fill_qty REAL")
         _ensure_column("trades", "fill_price", "fill_price REAL")
         _ensure_column("trades", "fill_reconciled_at", "fill_reconciled_at TEXT")
+        # When the shares actually moved, as the BROKER stamped it (its order's
+        # `filled_at`, naive UTC) - never when the desk noticed. The ONLY clock
+        # the open-R lot walk and the position grouper order fills by
+        # (src/trade_actions.py `fill_time`). NULL on rows written before it
+        # existed until scripts/backfill_fill_times.py fills them from Alpaca.
+        _ensure_column("trades", "filled_at", "filled_at TEXT")
         # Evening v2 structured per-trade grades. Stored as JSON arrays so
         # position_reviewer can aggregate counts (correct/premature/wrong)
         # without parsing prose. NULL for pre-v2 rows → treated as [].

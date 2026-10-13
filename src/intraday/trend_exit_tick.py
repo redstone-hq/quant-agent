@@ -195,7 +195,7 @@ def trend_exit_on_tick(
         for symbol in symbols:
             mark(symbol, OUTCOME_ERROR)
         raise SellPathError(f"sell path raised for {symbols}: {exc}", symbols) from exc
-    _settle(symbols, orders, set(final_today(set(symbols)) or set()), mark, summary, completed_bar_date)
+    _settle(symbols, orders, set(final_today(firing) or set()), mark, summary, completed_bar_date)
     summary["no_trail"] = list(summary["sold"])
     return summary
 
@@ -296,9 +296,15 @@ def wire_trend_exit(host):
             position_facts=position_facts,
         )
 
-    def final_today(symbols: set) -> set:
-        """Refusals that cannot clear today: bought in today's session, or already cut today."""
-        return {s for s in symbols if opened_today(s)} | (set(trimmed_today() or set()) & symbols)
+    def final_today(positions) -> set:
+        """Refusals that cannot clear today: opened in today's session, or already cut today.
+
+        Takes the positions, not bare symbols, so a short is checked against its
+        opening SHORT fill rather than a BUY it never had.
+        """
+        symbols = {_symbol(p) for p in positions}
+        opened = {_symbol(p) for p in positions if opened_today(_symbol(p), is_short=float(p.qty) < 0)}
+        return opened | (set(trimmed_today() or set()) & symbols)
 
     def _run_once(positions, *, run_id: str, total_value) -> dict:
         now = cal.et_now()

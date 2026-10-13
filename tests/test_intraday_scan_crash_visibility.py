@@ -46,6 +46,8 @@ explicit statuses rather than the absence of a key.
 
 from __future__ import annotations
 
+from src.storage.db import Database
+
 import fcntl
 import os
 import sqlite3
@@ -134,29 +136,9 @@ def _rehearsal_collect(result: dict):
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         db_path = tmp.name
     try:
-        conn = sqlite3.connect(db_path)
-        conn.executescript(
-            """
-            CREATE TABLE agent_logs (
-                id INTEGER PRIMARY KEY, run_id TEXT, agent_name TEXT,
-                timestamp TEXT, status TEXT, cost_usd REAL
-            );
-            CREATE TABLE specialist_evidence (
-                id INTEGER PRIMARY KEY, run_id TEXT, agent_name TEXT,
-                kind TEXT, symbol TEXT, evidence_json TEXT
-            );
-            CREATE TABLE trades (
-                id INTEGER PRIMARY KEY, run_id TEXT, symbol TEXT,
-                action TEXT, qty INTEGER
-            );
-            CREATE TABLE llm_circuit_events (
-                id INTEGER PRIMARY KEY, run_id TEXT, trigger_code TEXT,
-                detail TEXT, agent_name TEXT, event_type TEXT
-            );
-            """
-        )
-        conn.commit()
-        conn.close()
+        _real = Database(db_path)
+        _real.initialize()  # the real schema, not a hand-built copy
+        _real.close()
 
         return collect(
             session="intra_check",

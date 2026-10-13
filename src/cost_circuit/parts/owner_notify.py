@@ -9,6 +9,7 @@ import logging
 from typing import Any, Callable, TypeVar
 
 from src.cost_circuit.alert_outcome import _alert_state_value, _send_alert_outcome
+from src.cost_circuit.clock import _sql_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +109,10 @@ class OwnerNotify:
                     )
                 else:
                     cur = conn.execute(
-                        "UPDATE llm_circuit_state SET alert_state=-1, updated_at=datetime('now') "
+                        "UPDATE llm_circuit_state SET alert_state=-1, updated_at=? "
                         "WHERE singleton=1 AND suspended=1 AND (alert_state=0 OR "
-                        "(alert_state=-1 AND updated_at <= datetime('now', '-2 minutes')))"
+                        "(alert_state=-1 AND updated_at <= ?))",
+                        (_sql_stamp(), _sql_stamp(minutes_ago=2)),
                     )
                     claimed = cur.rowcount == 1
                     if claimed:
@@ -129,10 +131,8 @@ class OwnerNotify:
             )
             with self._connect() as conn:
                 conn.execute(
-                    "UPDATE llm_circuit_state SET alert_state=?, "
-                    "updated_at=datetime('now') "
-                    "WHERE singleton=1 AND alert_state=-1",
-                    (_alert_state_value(delivered, suppressed),),
+                    "UPDATE llm_circuit_state SET alert_state=?, updated_at=? WHERE singleton=1 AND alert_state=-1",
+                    (_alert_state_value(delivered, suppressed), _sql_stamp()),
                 )
                 conn.commit()
         self._notify_quota_holds_if_needed()
@@ -147,16 +147,17 @@ class OwnerNotify:
                 row = conn.execute(
                     "SELECT * FROM llm_quota_holds WHERE "
                     "(alert_state=0 OR (alert_state=-1 AND "
-                    "alert_updated_at <= datetime('now', '-2 minutes'))) "
-                    "ORDER BY id LIMIT 1"
+                    "alert_updated_at <= ?)) "
+                    "ORDER BY id LIMIT 1",
+                    (_sql_stamp(minutes_ago=2),),
                 ).fetchone()
                 if row is not None:
                     claimed = (
                         conn.execute(
                             "UPDATE llm_quota_holds SET alert_state=-1, "
-                            "alert_updated_at=datetime('now') "
+                            "alert_updated_at=? "
                             "WHERE id=? AND (alert_state=0 OR alert_state=-1)",
-                            (row["id"],),
+                            (_sql_stamp(), row["id"]),
                         ).rowcount
                         == 1
                     )
@@ -175,10 +176,8 @@ class OwnerNotify:
             sent = delivered or suppressed  # a drop is settled, not retried
             with self._connect() as conn:
                 conn.execute(
-                    "UPDATE llm_quota_holds SET alert_state=?, "
-                    "alert_updated_at=datetime('now') "
-                    "WHERE id=? AND alert_state=-1",
-                    (_alert_state_value(delivered, suppressed), hold["id"]),
+                    "UPDATE llm_quota_holds SET alert_state=?, alert_updated_at=? WHERE id=? AND alert_state=-1",
+                    (_alert_state_value(delivered, suppressed), _sql_stamp(), hold["id"]),
                 )
                 conn.commit()
             if not sent:
@@ -192,18 +191,19 @@ class OwnerNotify:
                 row = conn.execute(
                     "SELECT * FROM llm_quota_holds WHERE active=0 AND alert_state=1 AND "
                     "(recovery_alert_state=0 OR (recovery_alert_state=-1 AND "
-                    "recovery_alert_updated_at <= datetime('now', '-2 minutes'))) "
-                    "ORDER BY id LIMIT 1"
+                    "recovery_alert_updated_at <= ?)) "
+                    "ORDER BY id LIMIT 1",
+                    (_sql_stamp(minutes_ago=2),),
                 ).fetchone()
                 if row is not None:
                     claimed = (
                         conn.execute(
                             "UPDATE llm_quota_holds SET recovery_alert_state=-1, "
-                            "recovery_alert_updated_at=datetime('now') "
+                            "recovery_alert_updated_at=? "
                             "WHERE id=? AND active=0 AND alert_state=1 AND "
                             "(recovery_alert_state=0 OR "
                             "recovery_alert_state=-1)",
-                            (row["id"],),
+                            (_sql_stamp(), row["id"]),
                         ).rowcount
                         == 1
                     )
@@ -223,9 +223,9 @@ class OwnerNotify:
             with self._connect() as conn:
                 conn.execute(
                     "UPDATE llm_quota_holds SET recovery_alert_state=?, "
-                    "recovery_alert_updated_at=datetime('now') "
+                    "recovery_alert_updated_at=? "
                     "WHERE id=? AND recovery_alert_state=-1",
-                    (_alert_state_value(delivered, suppressed), hold["id"]),
+                    (_alert_state_value(delivered, suppressed), _sql_stamp(), hold["id"]),
                 )
                 conn.commit()
             if not sent:
@@ -258,17 +258,18 @@ class OwnerNotify:
                     "SELECT * FROM llm_circuit_events "
                     "WHERE event_type IN ('auto_reset','reset') "
                     "AND (recovery_alert_state=0 OR (recovery_alert_state=-1 AND "
-                    "recovery_alert_updated_at <= datetime('now', '-2 minutes'))) "
-                    "ORDER BY id LIMIT 1"
+                    "recovery_alert_updated_at <= ?)) "
+                    "ORDER BY id LIMIT 1",
+                    (_sql_stamp(minutes_ago=2),),
                 ).fetchone()
                 if row is not None:
                     claimed = (
                         conn.execute(
                             "UPDATE llm_circuit_events SET recovery_alert_state=-1, "
-                            "recovery_alert_updated_at=datetime('now') "
+                            "recovery_alert_updated_at=? "
                             "WHERE id=? AND (recovery_alert_state=0 OR "
                             "recovery_alert_state=-1)",
-                            (row["id"],),
+                            (_sql_stamp(), row["id"]),
                         ).rowcount
                         == 1
                     )
@@ -312,9 +313,9 @@ class OwnerNotify:
                 with self._connect() as conn:
                     conn.execute(
                         "UPDATE llm_circuit_events SET recovery_alert_state=2, "
-                        "recovery_alert_updated_at=datetime('now') "
+                        "recovery_alert_updated_at=? "
                         "WHERE id=? AND recovery_alert_state=-1",
-                        (event["id"],),
+                        (_sql_stamp(), event["id"]),
                     )
                     conn.commit()
                 continue
@@ -329,9 +330,9 @@ class OwnerNotify:
                 with self._connect() as conn:
                     conn.execute(
                         "UPDATE llm_circuit_events SET recovery_alert_state=2, "
-                        "recovery_alert_updated_at=datetime('now') "
+                        "recovery_alert_updated_at=? "
                         "WHERE id=? AND recovery_alert_state=-1",
-                        (event["id"],),
+                        (_sql_stamp(), event["id"]),
                     )
                     conn.commit()
                 continue
@@ -352,9 +353,9 @@ class OwnerNotify:
             with self._connect() as conn:
                 conn.execute(
                     "UPDATE llm_circuit_events SET recovery_alert_state=?, "
-                    "recovery_alert_updated_at=datetime('now') "
+                    "recovery_alert_updated_at=? "
                     "WHERE id=? AND recovery_alert_state=-1",
-                    (_alert_state_value(delivered, suppressed), event["id"]),
+                    (_alert_state_value(delivered, suppressed), _sql_stamp(), event["id"]),
                 )
                 conn.commit()
             if not sent:
