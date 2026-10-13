@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from src.risk.trailing import PIVOT_WINDOW, _finite
 
-__all__ = ["_swing_lows", "_swing_highs", "_structural_pivot"]
+__all__ = [
+    "_swing_lows",
+    "_swing_highs",
+    "_swing_lows_dated",
+    "_swing_highs_dated",
+    "_structural_pivot",
+]
 
 
 def _swing_lows(bars, window: int = PIVOT_WINDOW) -> list[float]:
@@ -120,6 +126,46 @@ def _swing_highs(bars, window: int = PIVOT_WINDOW) -> list[float]:
         if centre >= max(neighbourhood):
             highs.append(centre)
     return highs
+
+
+def _swing_pivots_dated(bars, window: int, *, highs: bool) -> list[tuple[object, float]]:
+    """`_swing_lows` / `_swing_highs` with each pivot's BAR DATE kept.
+
+    The same confirmation rule, line for line: a pivot is confirmed only when
+    `window` bars on both sides are higher (lower, for highs). The date is the
+    session the extreme PRINTED on — `bar.date`, or None when the bar carries
+    none — never the later session on which it became confirmed.
+
+    A separate function, not a change to `_swing_lows` / `_swing_highs`: the
+    trailing stop calls those and must not change behaviour. Only the trend
+    exit (`src.risk.alignment_exit`) needs to know WHEN a swing printed, so it
+    can ignore a lower low the position never lived through.
+    """
+    out: list[tuple[object, float]] = []
+    n = len(bars)
+    if n < window * 2 + 1:
+        return out
+    values = [_finite(getattr(b, "high" if highs else "low", None)) for b in bars]
+    for i in range(window, n - window):
+        centre = values[i]
+        if centre is None:
+            continue
+        neighbourhood = [v for v in values[i - window : i + window + 1] if v is not None]
+        if len(neighbourhood) < window + 1:
+            continue
+        if (centre >= max(neighbourhood)) if highs else (centre <= min(neighbourhood)):
+            out.append((getattr(bars[i], "date", None), centre))
+    return out
+
+
+def _swing_lows_dated(bars, window: int = PIVOT_WINDOW) -> list[tuple[object, float]]:
+    """Confirmed swing lows as (bar date, low), oldest first. See `_swing_pivots_dated`."""
+    return _swing_pivots_dated(bars, window, highs=False)
+
+
+def _swing_highs_dated(bars, window: int = PIVOT_WINDOW) -> list[tuple[object, float]]:
+    """Confirmed swing highs as (bar date, high), oldest first. See `_swing_pivots_dated`."""
+    return _swing_pivots_dated(bars, window, highs=True)
 
 
 def _structural_pivot(pivots: list[float], *, is_short: bool) -> float | None:

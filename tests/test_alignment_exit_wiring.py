@@ -265,7 +265,8 @@ def _scan_pipeline(verdicts: dict):
     # entry date, and an unreadable one deliberately holds.
     p._recorded = []
     p.db = types.SimpleNamespace(
-        get_symbol_last_buy=lambda sym: {"timestamp": "2020-01-01 10:00:00"},
+        get_symbol_last_buy=lambda sym, **kw: {"timestamp": "2020-01-01 10:00:00"},
+        get_position_open_timestamp=lambda row: row.get("timestamp"),
         record_alignment_exit_reading=lambda **kw: p._recorded.append(kw),
     )
     return p
@@ -346,7 +347,8 @@ def test_scan_failure_holds_and_does_not_stop_the_other_names():
 
     p._alignment_exit_for_holding = _chart
     p.db = types.SimpleNamespace(
-        get_symbol_last_buy=lambda sym: {"timestamp": "2020-01-01 10:00:00"},
+        get_symbol_last_buy=lambda sym, **kw: {"timestamp": "2020-01-01 10:00:00"},
+        get_position_open_timestamp=lambda row: row.get("timestamp"),
     )
     best: dict = {}
     p._alignment_exit_scan(
@@ -502,7 +504,8 @@ def _scan_shell(*, status="EXIT", buy_ts="2020-01-01 10:00:00", calls=None):
 
     p._alignment_exit_cached = _cached
     p.db = types.SimpleNamespace(
-        get_symbol_last_buy=lambda sym: {"timestamp": buy_ts} if buy_ts else {},
+        get_symbol_last_buy=lambda sym, **kw: {"timestamp": buy_ts} if buy_ts else {},
+        get_position_open_timestamp=lambda row: row.get("timestamp"),
     )
     return p
 

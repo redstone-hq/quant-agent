@@ -7742,6 +7742,24 @@ numbers:
     note: >-
       `window: int = PIVOT_WINDOW`, the name imported from src/risk/trailing.py;
       the body moved verbatim on 2026-10-04.
+  - id: src.risk.trail_structure._swing_lows_dated(window)
+    value: 3
+    status: derived
+    site: src/risk/trail_structure.py
+    derived_from: src.risk.trailing.PIVOT_WINDOW
+    base_value: 3
+    note: >-
+      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_lows`, added
+      2026-10-13 so the trend exit can ignore swings before the position opened.
+  - id: src.risk.trail_structure._swing_highs_dated(window)
+    value: 3
+    status: derived
+    site: src/risk/trail_structure.py
+    derived_from: src.risk.trailing.PIVOT_WINDOW
+    base_value: 3
+    note: >-
+      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_highs`, added
+      2026-10-13 so the trend exit can ignore swings before the position opened.
   # --- 2026-09-19: universe expansion and pruning (src/universe_screen.py) --
   # The screen's price, size and borrow lines are published rules; its
   # spread and volatility lines are DERIVED at run time from existing
