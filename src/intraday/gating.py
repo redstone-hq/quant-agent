@@ -1,5 +1,5 @@
-"""src.intraday.gating -- the gates around the paid scan: cooldown memory, the owner-session lock,
-the paid-scan slot, the single-scan process lock and snapshot-health tracking.
+"""src.intraday.gating -- the gates around the paid scan: the owner-session lock, the paid-scan
+slot, the single-scan process lock and snapshot-health tracking.
 
 Bodies moved verbatim from src/pipeline_intraday.py (`IntradayMixin`), which keeps
 same-named thin shims built per call. Every collaborator is an explicit keyword-only
@@ -20,7 +20,7 @@ logger = logging.getLogger("src.pipeline")
 
 
 class IntradayGating:
-    """The gates around the paid scan: cooldown memory, the owner-session lock, the paid-scan slot, the
+    """The gates around the paid scan: the owner-session lock, the paid-scan slot, the
     single-scan process lock and snapshot-health tracking. Standalone, built from explicit
     collaborators.
     """
@@ -57,55 +57,6 @@ class IntradayGating:
     @_paid_scan_waited_for.setter
     def _paid_scan_waited_for(self, value) -> None:
         self._state.set("_paid_scan_waited_for", value)
-
-    def _recently_intraday_evaluated(self, symbol: str, cooldown_hours: float) -> bool:
-        """True when the explicit evaluation ledger says this symbol ran.
-
-        Trades are not an evaluation ledger: PM parse failures, RM rejects,
-        no-target decisions, and pre-execution errors create no trade row and
-        previously bypassed cooldown, repeatedly buying the same analysis.
-        """
-        try:
-            rows = self.db.get_recent_intraday_evaluations(
-                symbol,
-                cooldown_hours=cooldown_hours,
-            )
-        except Exception as e:  # noqa: BLE001
-            record_site(self, "cooldown_ledger", e, context={"symbol": symbol}, log=logger)
-            return True
-        if isinstance(rows, list):
-            return bool(rows)
-
-        # Compatibility for lightweight test doubles and rolling upgrades in
-        # which an older DB facade has not exposed the new ledger method yet.
-        # Production Database always returns a real list above.
-        try:
-            legacy_rows = self.db.get_trades(symbol=symbol, limit=10)
-        except Exception as exc:  # noqa: BLE001
-            record_site(self, "cooldown_legacy_trades", exc, context={"symbol": symbol})
-            return True
-        from datetime import datetime as _dt, timedelta, timezone
-
-        from src.trading_calendar import utc_now
-
-        cutoff = utc_now() - timedelta(hours=cooldown_hours)
-        for row in legacy_rows if isinstance(legacy_rows, list) else []:
-            if not str(row.get("run_id") or "").startswith("intra_check-"):
-                continue
-            try:
-                ts = str(row.get("timestamp") or "")
-                when = (
-                    _dt.fromisoformat(ts.replace("Z", "+00:00"))
-                    if "T" in ts
-                    else _dt.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                )
-                if when.tzinfo is None:
-                    when = when.replace(tzinfo=timezone.utc)
-                if when >= cutoff:
-                    return True
-            except (TypeError, ValueError):
-                continue
-        return False
 
     def _blocking_owner_session(self) -> str | None:
         """Live wrapper owner mode that must not overlap paid discovery.

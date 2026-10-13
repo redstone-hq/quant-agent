@@ -9,6 +9,7 @@ hands in), never a construction-time copy.
 """
 
 import logging
+import math
 
 from src.pipeline_context import RunContext
 from src.sentinel.guarded_site import record_site as _site
@@ -22,10 +23,14 @@ logger = logging.getLogger("src.pipeline")
 def record_dropped_name(owner, ctx, symbol: str, reason: str, **details) -> None:
     """One durable pipeline event per name the scan drops, once per run and reason.
 
-    stage=opportunity, outcome=dropped, reason cooling_down | no_atr |
-    budget_refused | not_sent_weaker_rank | pm_cadence. Never raises: the scan must not fail on its
-    own bookkeeping. Deliberately NOT an intraday_evaluations row, because
-    any row there starts the cooldown for the name.
+    stage=opportunity, outcome=dropped, reason no_atr | budget_refused |
+    not_sent_weaker_rank | pm_cadence. Never raises: the scan must not fail on its
+    own bookkeeping. Deliberately NOT an intraday_evaluations row, because a
+    row there means the PM saw the name and sets its next reference price.
+
+    `move_pct` on every record is the RANKED move: |last - reference| as a
+    percent of the reference, where the reference is the price at the desk's
+    last look this session, else the prior close (see `_reference_price`).
     """
     seen = ctx.__dict__.setdefault("_dropped_seen", set())
     if (symbol, reason) in seen:
@@ -53,7 +58,6 @@ class IntradayCandidates:
         retired_cash_park_symbol=None,
         intraday_opportunity_scan_body=None,
         intraday_scan_process_lock=None,
-        recently_intraday_evaluated=None,
         track_intraday_snapshot_ok=None,
         track_intraday_snapshot_miss=None,
         blocking_owner_session=None,
@@ -66,7 +70,6 @@ class IntradayCandidates:
         self._retired_cash_park_symbol = retired_cash_park_symbol
         self._intraday_opportunity_scan_body = intraday_opportunity_scan_body
         self._intraday_scan_process_lock = intraday_scan_process_lock
-        self._recently_intraday_evaluated = recently_intraday_evaluated
         self._track_intraday_snapshot_ok = track_intraday_snapshot_ok
         self._track_intraday_snapshot_miss = track_intraday_snapshot_miss
         self._blocking_owner_session = blocking_owner_session
@@ -140,22 +143,27 @@ class IntradayCandidates:
             out.append(symbol)
         return out
 
-    def _hours_since_last_evaluation(self, symbol: str, cooldown_hours: float) -> float | None:
-        """Hours since this name's newest evaluation row; None when unreadable."""
-        from datetime import UTC, datetime
+    def _reference_price(self, symbol: str, prev_close: float) -> tuple[float, str]:
+        """The price this name's move is measured from, and which one it is.
 
-        from src.trading_calendar import utc_now
-
+        The price recorded at the desk's latest look at the name THIS session
+        ("last_look"), else the prior close ("prev_close"). A name the desk
+        has not looked at today has, as its last seen price, yesterday's
+        close, so both are "the move since the desk last saw the name" and
+        rank against each other in one list. A row with no stored price
+        (pre-2026-10-13, or an exit-path row) and an unreadable ledger both
+        fall back to the prior close, the never-looked-at rule; neither
+        locks the name out.
+        """
+        reader = getattr(self.db, "get_session_reference_price", None)
         try:
-            rows = self.db.get_recent_intraday_evaluations(symbol, cooldown_hours=cooldown_hours)
-            if not isinstance(rows, list) or not rows:
-                return None
-            raw = str(rows[0]["timestamp"]).replace("T", " ")[:19]
-            then = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-            return round((utc_now() - then).total_seconds() / 3600.0, 3)
-        except Exception as exc:  # noqa: BLE001 - the reason is still recorded without the age
-            _site(self, "cooldown_age_read", exc, context={"symbol": symbol}, log=logger)
-            return None
+            ref = reader(symbol) if callable(reader) else None
+        except Exception as exc:  # noqa: BLE001 - the name still ranks, from the prior close
+            _site(self, "reference_price_read", exc, context={"symbol": symbol}, log=logger)
+            ref = None
+        if isinstance(ref, (int, float)) and not isinstance(ref, bool) and math.isfinite(ref) and ref > 0:
+            return float(ref), "last_look"
+        return float(prev_close), "prev_close"
 
     def _intraday_scan_mover_candidates(
         self,
@@ -164,8 +172,14 @@ class IntradayCandidates:
         """Cheap snapshot of who moved, ranked by move / own ATR. No paid calls.
 
         Returns (symbol, move_pct) pairs, largest move-in-ATR-multiples
-        first. Every name outside its cooldown with a readable ATR is
-        returned; there is no cap and no move threshold.
+        first. Every name with a readable ATR is returned; there is no cap,
+        no move threshold and no re-look clock. The move is measured from
+        the desk's last look at the name this session, else the prior close
+        (`_reference_price`), so a name looked at an hour ago competes on
+        what it did since, in the same ranking as every fresh mover. The
+        ranked `move_pct` is the one every downstream record carries; the
+        live price and its reference ride on `ctx._mover_rank_basis` for the
+        evaluation row and its ATR stamp.
 
         Runs before the owner-lock wait so a contended morning/midday
         cannot vanish the mover list. A skip after wait names these
@@ -177,12 +191,13 @@ class IntradayCandidates:
             resolve_live_price,
         )
 
-        cfg = self.config.intraday_scan
         universe = list(self.config.trading.universe)
         snapshots = self.broker.get_intraday_snapshots(universe) or {}
         if not snapshots:
             return [], {}
         ranked: list[tuple[str, float, float]] = []
+        basis_by_symbol: dict[str, dict] = {}
+        ctx.__dict__["_mover_rank_basis"] = basis_by_symbol
         for symbol in universe:
             snap = snapshots.get(symbol) or {}
             # item 120: the move that buys a PAID look has to be today's.
@@ -213,25 +228,18 @@ class IntradayCandidates:
                 continue
             if prev <= 0:
                 continue
-            move_pct = abs(last - prev) / prev * 100.0
-            if self._recently_intraday_evaluated(symbol, cfg.cooldown_hours):
-                record_dropped_name(
-                    self,
-                    ctx,
-                    symbol,
-                    "cooling_down",
-                    move_pct=move_pct,
-                    cooldown_hours=cfg.cooldown_hours,
-                    hours_since_last=self._hours_since_last_evaluation(symbol, cfg.cooldown_hours),
-                )
-                continue
+            ref, basis = self._reference_price(symbol, prev)
+            move_pct = abs(last - ref) / ref * 100.0
+            basis_by_symbol[symbol.upper()] = {"last": float(last), "ref_price": ref, "move_ref": basis}
             # Rank by the move in the name's OWN range (ATR as a percent of
-            # the prior close), never a flat percentage: 2% on a 1%/day name
-            # outranks 4% on an 8%/day name. A name whose ATR cannot be read
-            # is dropped with a recorded reason, never given a made-up one.
-            atr_pct, move_atr = self._intraday_move_in_atr(move_pct, self._read_atr(symbol), prev)
+            # the reference), never a flat percentage: 2% on a 1%/day name
+            # outranks 4% on an 8%/day name. Same reference on both sides,
+            # so move_atr is exactly |last - ref| / ATR. A name whose ATR
+            # cannot be read is dropped with a recorded reason, never given
+            # a made-up one.
+            atr_pct, move_atr = self._intraday_move_in_atr(move_pct, self._read_atr(symbol), ref)
             if atr_pct is None or move_atr is None:
-                record_dropped_name(self, ctx, symbol, "no_atr", move_pct=move_pct)
+                record_dropped_name(self, ctx, symbol, "no_atr", move_pct=move_pct, move_ref=basis)
                 continue
             ranked.append((symbol, move_pct, move_atr))
         # Largest move-in-own-ATR first. No move threshold: the scan body
@@ -273,12 +281,15 @@ class IntradayCandidates:
         and the 5-7% band produced zero orders from 51 selections — so
         re-picking the flat number in either direction has no basis, and
         the ATR-relative form has no data yet. This records the
-        denominator, on bars the scan already paid to fetch, changing no
-        behaviour: the threshold, the cap and the cooldown all still
-        decide exactly what they decided before.
+        denominator, on bars the scan already paid to fetch. The flat
+        threshold, the name cap and the 3h re-look cooldown have since
+        all been deleted; this is now the scan's one rank key.
 
-        Returns (atr_pct_of_prev_close, move_in_atr_multiples), either of
-        which is None when the inputs cannot support it.
+        `prev_close` is the price the move was measured from: the prior
+        close, or the price at the desk's last look this session (see
+        `_reference_price`). Returns (atr_pct_of_that_price,
+        move_in_atr_multiples), either of which is None when the inputs
+        cannot support it.
         """
         if not isinstance(atr_14, (int, float)) or atr_14 <= 0:
             return None, None
@@ -301,9 +312,14 @@ class IntradayCandidates:
         """Stamp the ATR denominator onto the detail of a mover's ledger row.
 
         Held on the run context and written with the row itself, which
-        starts the cooldown and is written only once the PM has seen the
-        mover (adversary review 2026-10-12): no new row, no extra market or
-        model call. Best-effort — a measurement must never cost the scan.
+        records the price the PM saw the mover at and is written only once
+        the PM has seen it (adversary review 2026-10-12): no new row, no
+        extra market or model call. Best-effort — a measurement must never
+        cost the scan.
+
+        `move_pct` is the ranked move (since the reference in
+        `ctx._mover_rank_basis`), so the ATR here is taken against that same
+        reference and `move_atr` matches the rank key; `move_ref` names it.
         """
         upper = symbol.upper()
         if upper not in mover_symbols:
@@ -312,16 +328,18 @@ class IntradayCandidates:
         if not isinstance(move_pct, (int, float)):
             return
         snap = snapshots.get(symbol) or snapshots.get(upper) or {}
+        basis = (ctx.__dict__.get("_mover_rank_basis") or {}).get(upper) or {}
         atr_pct, move_atr = self._intraday_move_in_atr(
             float(move_pct),
             getattr(indicators, "atr_14", None),
-            snap.get("prev_close"),
+            basis.get("ref_price", snap.get("prev_close")),
         )
         detail = f"move_pct={float(move_pct):.4f}"
         if atr_pct is None or move_atr is None:
             detail += ";atr_pct=unreadable;move_atr=unreadable"
         else:
             detail += f";atr_pct={atr_pct:.4f};move_atr={move_atr:.4f}"
+        detail += f";move_ref={basis.get('move_ref', 'prev_close')}"
         ctx.__dict__.setdefault("_mover_ledger_detail", {})[upper] = detail
 
     def _intraday_paid_scan_skip(self, ctx: RunContext, movers: list[str]) -> dict:
