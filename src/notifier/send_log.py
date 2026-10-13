@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from src.notifier.base import _DB_PATH, logger
+from src.trading_calendar import sql_utc_stamp
 
 
 def record_send(
@@ -69,14 +70,14 @@ def record_send(
                     run_id TEXT,
                     text TEXT NOT NULL,
                     detail TEXT,
-                    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+                    timestamp TEXT NOT NULL
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notifier_sends_kind_ts ON notifier_sends(kind, timestamp)")
             conn.execute(
-                "INSERT INTO notifier_sends (kind, status, run_id, text, detail) VALUES (?, ?, ?, ?, ?)",
-                (kind, status, run_id, safe_text, safe_detail),
+                "INSERT INTO notifier_sends (kind, status, run_id, text, detail, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                (kind, status, run_id, safe_text, safe_detail, sql_utc_stamp()),
             )
             conn.commit()
         finally:

@@ -31,6 +31,8 @@ import logging
 import sqlite3
 from datetime import datetime, timezone
 
+from src.trading_calendar import utc_now
+
 from src.owner_flags import (  # noqa: F401
     FREEZE,
     PAUSE,
@@ -54,7 +56,7 @@ _OWNER_WORDS = {
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 def _iso(dt: datetime) -> str:

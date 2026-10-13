@@ -155,7 +155,7 @@ from pathlib import Path
 from typing import Any
 
 from src.trading_day import most_recent_trading_day
-from src.trading_calendar import ET
+from src.trading_calendar import ET, utc_now
 from src.data_paths import alerting_dir, db_path
 
 logger = logging.getLogger(__name__)
@@ -557,7 +557,7 @@ class RefusalSignatureStatus:
 
 def _utc_now() -> datetime:
     """Seam for tests — real code never patches `datetime` itself."""
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 def _parse_iso(stamp: str) -> datetime | None:

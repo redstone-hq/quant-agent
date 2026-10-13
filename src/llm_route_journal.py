@@ -38,6 +38,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from src.trading_calendar import sql_utc_stamp
+
 logger = logging.getLogger(__name__)
 
 # Repo root = .../src/llm_route_journal.py -> .../src -> repo root.
@@ -89,7 +91,7 @@ CREATE TABLE IF NOT EXISTS llm_route_events (
     -- Shortened repr of the triggering error, for shape analysis later.
     error_shape   TEXT,
     detail        TEXT,
-    timestamp     TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_route_events_ts
     ON llm_route_events(timestamp);
@@ -190,8 +192,8 @@ def record(
                     "INSERT INTO llm_route_events "
                     "(event_type, agent_name, run_id, route, from_route, tier, "
                     " input_usd_per_mtok, output_usd_per_mtok, wait_s, "
-                    " error_shape, detail) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    " error_shape, detail, timestamp) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         event_type,
                         agent_name,
@@ -204,6 +206,7 @@ def record(
                         wait_s,
                         error_shape,
                         detail,
+                        sql_utc_stamp(),
                     ),
                 )
                 conn.commit()

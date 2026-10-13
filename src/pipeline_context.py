@@ -23,6 +23,8 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from src.trading_calendar import utc_now
 from typing import TYPE_CHECKING, Literal
 
 from src.models import parse_telemetry
@@ -49,7 +51,7 @@ class RunContext:
 
     run_id: str
     session: SessionType
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: utc_now().replace(tzinfo=None))
 
     # === Set at the start of each run (broker snapshot) ===
     account: dict = field(default_factory=dict)

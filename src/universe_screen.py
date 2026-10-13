@@ -128,6 +128,8 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+
+from src.trading_calendar import utc_now
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -954,7 +956,7 @@ class UniverseStore:
 def _event(state: dict, action: str, symbol: str, reasons: list[str], today: date, measured=None):
     event = {
         "date": today.isoformat(),
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "at": utc_now().isoformat(timespec="seconds"),
         "action": action,
         "symbol": symbol,
         "reasons": list(reasons),
