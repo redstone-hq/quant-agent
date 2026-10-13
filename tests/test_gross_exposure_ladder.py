@@ -2085,7 +2085,7 @@ def test_a_delever_left_over_the_ceiling_writes_a_durable_shortfall_row(tmp_path
             {
                 "symbol": "NVDA",
                 "action": "SELL",
-                "qty_submitted": 100.0,
+                "qty_submitted": 200.0,  # the whole position (owner ruling 2026-10-09)
                 "broker_order_id": "ord-NVDA",
                 "terminal_status": "canceled",
                 "stop_coverage_confirmed": True,
@@ -2323,7 +2323,8 @@ def test_a_gross_delever_covers_a_short_at_any_gap_up_off_the_live_quote(gap_pct
     """The short-side twin. A BUY-to-cover crosses the LIVE ask (the gapped-up
     print), so it fills at a 3%, 8% and 20% gap-UP alike, where the old fixed
     3%-off-stale-mark cover limit ($103) sat BELOW a bigger gap and rested.
-    The trim is a BUY (cover) of exactly half the short."""
+    The cut is a BUY (cover) of the WHOLE short (owner ruling 2026-10-09:
+    the ladder sells whole positions, never part of one)."""
     from src.pipeline_context import RunContext
 
     ref = 100.0
@@ -2352,7 +2353,7 @@ def test_a_gross_delever_covers_a_short_at_any_gap_up_off_the_live_quote(gap_pct
             "($103) sat BELOW the print and would have rested unfilled"
         )
     assert order["fillable"] is True
-    assert order["qty"] == pytest.approx(100.0), "cover exactly half the short"
+    assert order["qty"] == pytest.approx(200.0), "cover the whole short, never part of it"
     assert "delever_incomplete" not in ctx.leverage
 
 
@@ -2384,48 +2385,32 @@ def test_a_gross_delever_uses_a_market_order_when_no_live_quote_is_available():
     assert "delever_incomplete" not in ctx.leverage
 
 
-def test_a_gross_delever_trims_down_to_the_ceiling_and_never_below_it():
-    """Correct quantity and no over-trim, both directions.
-
-    Exact case: a 2.0x book ($20k on $10k, 1.0x ceiling) is trimmed by
-    exactly the 100 shares that bring it to $10k — leaving 100 at 1.0x, not a
-    share less. Whole-share case: a 1.5x book ($15k) needs 50 shares but the
-    trim floors to 49, leaving 101 shares (1.01x) — the desk deliberately
-    rounds the trim DOWN so it can never sell the book BELOW its ceiling; the
-    one-share sliver still over is reported, not silently over-corrected."""
+def test_a_gross_delever_sells_the_whole_position_never_part_of_it():
+    """Owner ruling 2026-10-09: the ladder sells WHOLE positions, never part
+    of one. A 2.0x single-name book ($20k on $10k, 1.0x ceiling) is $10k
+    over; the cut sells all 200 shares, not the 100 that would land exactly
+    on the ceiling. A 1.5x book is likewise sold whole (150 shares), not
+    floored to a 49-share partial sale. The overshoot below the ceiling is
+    the ruled behaviour."""
     from src.pipeline_context import RunContext
 
     ref = 100.0
-
-    # Exact: trims to the ceiling, never past it.
     exact = [_position("NVDA", qty=200.0, current_price=ref)]  # 2.0x
     pipeline, _events, submitted = _gap_fill_pipeline(gap_price=ref, originals=exact)
     ctx = RunContext(run_id="run-qty-exact", session="morning")
     ctx.positions = [_position("NVDA", qty=200.0, current_price=ref)]
     ctx.total_value = EQUITY
     assert pipeline._enforce_gross_ceiling(ctx)
-    assert submitted["ord-NVDA"]["qty"] == pytest.approx(100.0), (
-        "trim exactly the 100 shares that bring $20k gross to the $10k ceiling"
-    )
-    remaining = pipeline.broker.get_positions()
-    assert remaining and remaining[0].qty == pytest.approx(100.0), (
-        "100 shares left = 1.0x, exactly the ceiling and never below it"
-    )
+    assert submitted["ord-NVDA"]["qty"] == pytest.approx(200.0), "the whole position, never part of it"
     assert "delever_incomplete" not in ctx.leverage
 
-    # Whole-share flooring: never over-trims below the ceiling.
     frac = [_position("MSFT", qty=150.0, current_price=ref)]  # 1.5x
     pipeline2, _e2, submitted2 = _gap_fill_pipeline(gap_price=ref, originals=frac)
     ctx2 = RunContext(run_id="run-qty-floor", session="morning")
     ctx2.positions = [_position("MSFT", qty=150.0, current_price=ref)]
     ctx2.total_value = EQUITY
     assert pipeline2._enforce_gross_ceiling(ctx2)
-    trimmed = submitted2["ord-MSFT"]["qty"]
-    assert trimmed == pytest.approx(49.0), (
-        "the trim floors to whole shares (49), never rounding UP to 50 and selling the book below its ceiling"
-    )
-    left = pipeline2.broker.get_positions()[0].qty
-    assert left * ref >= 10_000.0, "the remaining book is never below the ceiling"
+    assert submitted2["ord-MSFT"]["qty"] == pytest.approx(150.0), "the whole position, never a floored partial"
 
 
 @pytest.mark.parametrize("gap_pct", [0.03, 0.08, 0.20])
@@ -2804,7 +2789,7 @@ def _win_and_loser():
     return winner, loser
 
 
-def test_conviction_rank_trims_the_weakest_thesis_before_the_biggest_loser():
+def test_conviction_rank_never_cuts_a_winner_before_a_loser():
     """With a cut order supplied, the OPPOSED winner is cut before the
     supported loser — the exact inversion of the default biggest-loser
     order, proven on the same book and ceiling."""
@@ -2823,8 +2808,9 @@ def test_conviction_rank_trims_the_weakest_thesis_before_the_biggest_loser():
         ceiling,
         conviction_rank={"WIN": (OPPOSED, 0), "LOS": (SUPPORTED, 5)},
     )
-    assert convicted.trims[0].symbol == "WIN", (
-        "the holding a seat argues against must be trimmed before the intact-thesis loser"
+    assert convicted.trims[0].symbol == "LOS", (
+        "owner ruling 2026-10-09: every loser goes before any winner, whatever "
+        "the conviction; the rating orders the winners only"
     )
 
 
@@ -2872,83 +2858,32 @@ def _total_shed(outcome, sizes):
     return sum(sizes[t.symbol] * t.allocation_pct / 100.0 for t in outcome.trims)
 
 
-def test_one_trim_clears_the_breach_instead_of_dragging_in_a_second_name():
-    """The trim fraction rounds UP to the 0.1% the ticket carries.
-
-    Rounding to NEAREST could leave a few dollars of breach behind, which
-    then pulled in a whole extra name at the 1.0% minimum trim. Under the
-    conviction cut order that spurious second trim lands by construction on
-    the HIGHEST-conviction holding still standing — the exact opposite of
-    this build's purpose — because the cut walks weakest-first. Asserted as
-    a DIRECTION, not just a bound: the supported name is not touched at all.
-    """
+def test_the_loser_goes_whole_first_even_when_a_seat_opposes_the_winner():
+    """Owner rulings 2026-10-09 / 2026-10-12: losers first, biggest loss
+    first, each sold WHOLE; a winner is cut only once no loser is left, and
+    then whole. $20k book against a $15k ceiling: the $6k loser alone clears
+    the $5k breach, so the opposed $14k winner is untouched."""
     big, small = _unequal_book()
-    sizes = {"BIG": 14_000.0, "SML": 6_000.0}
-    ceiling = resolve_gross_ceiling(-16.0, base_x=BASE_X)  # 1.0x -> $10k, over $10k
-    assert ceiling.ceiling_x == 1.0
-
-    convicted = apply_gross_ceiling(
-        [],
-        [big, small],
-        EQUITY,
-        ceiling,
-        conviction_rank={"BIG": (OPPOSED, 0), "SML": (SUPPORTED, 5)},
-    )
-    assert [t.symbol for t in convicted.trims] == ["BIG"], (
-        "one trim must clear the breach; the supported name must not be dragged in by a rounding residue"
-    )
-    # The residue is the ticket's own 0.1% precision, rounded DOWN so a trim
-    # never sells the book below its ceiling — not a second name's worth.
-    assert _total_shed(convicted, sizes) == pytest.approx(10_000.0, abs=14.0)
-
-    # Without the guard this was TWO trims, the second landing on the
-    # highest-conviction holding to chase a few dollars.
-    baseline = apply_gross_ceiling([], [big, small], EQUITY, ceiling)
-    assert "SML" not in [t.symbol for t in convicted.trims], (
-        "the supported name is untouched; the baseline order reaching it is "
-        f"its own ordering, not a residue: {[t.symbol for t in baseline.trims]}"
-    )
-
-
-def test_conviction_order_clears_the_ceiling_and_never_empties_the_book():
-    """On UNEQUAL position sizes — where ordering genuinely can change the
-    total — reordering the cut still clears the breach and still leaves the
-    book standing.
-
-    It does NOT shed an identical dollar amount, and this test refuses to
-    claim it does. With the rounding fixed, the residual difference is the
-    0.1% granularity the trim fraction is expressed in, applied to one
-    position.
-    """
-    big, small = _unequal_book()
-    sizes = {"BIG": 14_000.0, "SML": 6_000.0}
     ceiling = resolve_gross_ceiling(-10.0, base_x=BASE_X)  # 1.5x -> $15k
-    over = 20_000.0 - 15_000.0
+    for rank in (None, {"BIG": (OPPOSED, 0), "SML": (SUPPORTED, 5)}):
+        outcome = apply_gross_ceiling([], [big, small], EQUITY, ceiling, conviction_rank=rank)
+        assert [(t.symbol, t.allocation_pct) for t in outcome.trims] == [("SML", 100.0)]
 
-    baseline = apply_gross_ceiling([], [big, small], EQUITY, ceiling)
-    convicted = apply_gross_ceiling(
+
+def test_a_breach_bigger_than_the_losers_then_takes_the_winner_whole():
+    """$20k book against a $10k ceiling: the $6k loser goes whole first, and
+    the remaining $4k breach takes the winner WHOLE — never a 29% slice of it.
+    Selling whole overshoots the ceiling; that is the ruled behaviour."""
+    big, small = _unequal_book()
+    ceiling = resolve_gross_ceiling(-16.0, base_x=BASE_X)  # 1.0x -> $10k
+    outcome = apply_gross_ceiling(
         [],
         [big, small],
         EQUITY,
         ceiling,
         conviction_rank={"BIG": (OPPOSED, 0), "SML": (SUPPORTED, 5)},
     )
-    assert baseline.trims[0].symbol == "SML"
-    assert convicted.trims[0].symbol == "BIG"
-
-    shed_baseline = _total_shed(baseline, sizes)
-    shed_convicted = _total_shed(convicted, sizes)
-    # Each clears the breach to within the ticket's own 0.1% precision, which
-    # rounds DOWN on purpose so a trim never sells below the ceiling.
-    tick = 0.001 * max(sizes.values())
-    assert shed_baseline == pytest.approx(over, abs=tick)
-    assert shed_convicted == pytest.approx(over, abs=tick)
-    # And the two orderings now agree to within that same one step — no
-    # ordering drags in a whole extra name.
-    assert abs(shed_convicted - shed_baseline) <= tick + 1e-6
-    assert len(convicted.trims) == len(baseline.trims) == 1
-    for outcome, label in ((baseline, "baseline"), (convicted, "convicted")):
-        assert 20_000.0 - _total_shed(outcome, sizes) > 0, f"{label} empties the book"
+    assert [(t.symbol, t.allocation_pct) for t in outcome.trims] == [("SML", 100.0), ("BIG", 100.0)]
 
 
 def test_conviction_rank_does_not_provoke_a_trim_from_new_buys():
@@ -3406,9 +3341,10 @@ def test_the_book_is_not_sold_down_twice_across_one_morning():
     pipeline._enforce_gross_ceiling_by_conviction(ctx)
     pipeline._discharge_deferred_gross_ceiling(ctx)
 
-    # $5k over a $20k ceiling: at most that plus one 0.1% rounding step.
-    assert sold_qty["NVDA"] * 100.0 <= 5_000.0 + 0.001 * 25_000.0 + 1e-6, (
-        f"the book was sold down twice: ${sold_qty['NVDA'] * 100.0:,.0f} shed against a $5,000 breach"
+    # $5k over a $20k ceiling: the one name is sold WHOLE (owner ruling
+    # 2026-10-09), exactly once — a second pass would book a second sale.
+    assert sold_qty["NVDA"] == pytest.approx(start_qty), (
+        f"the book was sold down twice or in part: {sold_qty['NVDA']:.0f} of {start_qty:.0f} shares sold"
     )
     assert sold_qty["NVDA"] > 0, "the breach must actually be cleared"
 
@@ -3537,3 +3473,33 @@ def test_a_symbol_absent_from_the_cut_order_is_unread_not_opposed():
         conviction_rank={"OPP": (OPPOSED, 0)},  # GONE deliberately absent
     )
     assert outcome.trims[0].symbol == "OPP"
+
+
+def test_the_drawdown_cut_never_sells_more_than_is_held_on_top_of_a_planned_partial():
+    """A planned partial sell plus the ladder's whole-position cut must add up
+    to the holding, never more. Before the fix the cut ordered 100% of the
+    shares held on top of a planned 40% sell — 140% of the position, which
+    could leave the account short."""
+    positions = [
+        _position("NVDA", qty=100.0, avg_entry=120.0, current_price=100.0),  # $10k, losing
+        _position("AMD", qty=100.0, avg_entry=90.0, current_price=100.0),  # $10k, winning
+    ]
+    partial = TradeDecision(
+        action="SELL",
+        symbol="NVDA",
+        allocation_pct=40.0,
+        entry_price=0.0,
+        stop_loss=0.0,
+        take_profit=0.0,
+        reasoning="partial",
+    )
+    ceiling = resolve_gross_ceiling(-25.0, base_x=BASE_X)  # 0.5x -> $5k
+
+    outcome = apply_gross_ceiling([partial], positions, EQUITY, ceiling)
+
+    nvda_cut = [t for t in outcome.trims if t.symbol == "NVDA"]
+    assert len(nvda_cut) == 1, "the loser is cut first"
+    total_pct = partial.allocation_pct + nvda_cut[0].allocation_pct
+    assert total_pct <= 100.0, f"plan sells {total_pct}% of NVDA — more than is held"
+    assert total_pct == pytest.approx(100.0, abs=0.1), "the cut still sells the whole loser"
+    assert [t.allocation_pct for t in outcome.trims if t.symbol == "AMD"] == [100.0]
