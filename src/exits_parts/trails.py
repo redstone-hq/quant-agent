@@ -451,11 +451,13 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
 
 #: (position or symbol, reason) -> ET date last warned. "R unknown" is logged at
 #: WARNING once per position per reason per day, so a permanently dead R
-#: ratchet is visible without flooding every tick.
+#: ratchet is visible without flooding every tick. The de-dup is in memory
+#: only: a process restart can repeat the warning once that day.
 _R_UNKNOWN_WARNED: dict[tuple[str, str], str] = {}
 
 
 def _warn_r_unknown(symbol: str, opening_row: dict | None, reason: str) -> None:
+    """WARNING once per position per reason per ET day (in-memory; a restart can repeat it once)."""
     from src.trading_calendar import et_today
 
     key = (str((opening_row or {}).get("position_id") or symbol), reason)

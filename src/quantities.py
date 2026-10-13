@@ -467,8 +467,38 @@ def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: floa
     return full * min(1.0, held / entered)
 
 
-#: Shares of slack allowed when reconciling a chain's lots to the held quantity.
-_RECONCILE_TOLERANCE = 1e-6
+#: Share-changing EXIT actions on the `trades` table (the same vocabulary as
+#: src/storage/trades/position_chain.py, restated because this module imports
+#: no storage code). Prefix matches carry a trim fraction, e.g. PARTIAL_SELL(15%).
+_SHARE_EXIT_PREFIXES: tuple[str, ...] = ("SELL", "PARTIAL_SELL", "COVER", "PARTIAL_COVER")
+_SHARE_EXIT_ACTIONS: frozenset[str] = frozenset(
+    {"EMERGENCY_SELL", "EMERGENCY_COVER", "FORCE_DELEVER", "REDUCE", "TAKE_PROFIT", "STOP_OUT", "RECONCILED_EXIT"}
+)
+
+
+def _share_change(row: dict) -> str | None:
+    """ "in" (an executed opening lot), "out" (an executed share-reducing fill) or None.
+
+    Classified by ACTION, never by the mere presence of a quantity. A
+    TRAIL_STOP row is written for the FULL position at every stop move with no
+    fill status; it is protection sitting there, and counts as "out" only when
+    the broker filled it (fill_status 'filled', or a legacy NULL status with a
+    real fill_qty — the rule of calibration `_is_filled_trail_stop`). Every
+    other action (HOLD, SWEEP_*, records) changes no shares of this position.
+    """
+    action = str(row.get("action") or "").upper()
+    if action in _OPEN_ACTIONS:
+        return "in"
+    if action == "TRAIL_STOP":
+        status = str(row.get("fill_status") or "").lower()
+        try:
+            fill_qty = float(row.get("fill_qty") or 0)
+        except (TypeError, ValueError):
+            fill_qty = 0.0
+        return "out" if status == "filled" or (status == "" and fill_qty > 0) else None
+    if action.startswith(_SHARE_EXIT_PREFIXES) or action in _SHARE_EXIT_ACTIONS:
+        return "out"
+    return None
 
 
 def held_position_risk(
@@ -482,8 +512,9 @@ def held_position_risk(
     `open_position_risk_dollars` over the opening lots, each against its OWN
     initial stop. R is unknown (None) — never a smaller number — when:
       - `position_chain_unresolved`: no rows and no opening row to stand in;
-      - `lots_do_not_reconcile`: executed entries minus executed exits do not
-        equal the held quantity (e.g. a filled add not yet marked filled —
+      - `lots_do_not_reconcile`: executed entries minus executed share-reducing
+        fills (`_share_change`; an unfilled TRAIL_STOP stop-move row is NOT an
+        exit) do not equal the held quantity at the broker's 9-decimal grid (e.g. a filled add not yet marked filled —
         dropping it would shrink 1R and fire the breakeven ratchet early);
       - `direction_mismatch`: the chain's side is not the held side;
       - `lot_without_usable_stop`: any lot has no readable or right-side stop.
@@ -497,14 +528,21 @@ def held_position_risk(
     rows = chain_rows if isinstance(chain_rows, list) and chain_rows else None
     if rows is None:
         rows = [opening_row] if isinstance(opening_row, dict) else []
-    opens, exits, direction = _split_chain(rows)
-    if not opens or direction is None:
+    from src.execution.order_gates import ORDER_QTY_DECIMALS
+
+    opens = [r for r in rows if _share_change(r) == "in"]
+    exits = [r for r in rows if _share_change(r) == "out"]
+    if not opens:
         return None, "position_chain_unresolved"
+    direction = _OPEN_ACTIONS[str(opens[0].get("action")).upper()]
+    if any(_OPEN_ACTIONS[str(r.get("action")).upper()] != direction for r in opens):
+        return None, "direction_mismatch"
     if (held_signed < 0) != (direction == "short"):
         return None, "direction_mismatch"
     entered = sum(_executed_qty(r) for r in opens)
     exited = sum(_executed_qty(r) for r in exits)
-    if abs(entered - exited - held) > _RECONCILE_TOLERANCE:
+    # Exact equality on the broker's own share grid: no tolerance of our own.
+    if round(entered - exited, ORDER_QTY_DECIMALS) != round(held, ORDER_QTY_DECIMALS):
         return None, "lots_do_not_reconcile"
     risk = open_position_risk_dollars(opens, direction, held)
     if risk is None:

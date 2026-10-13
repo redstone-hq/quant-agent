@@ -225,3 +225,52 @@ def test_backtest_uses_the_per_lot_function_and_no_single_stop_adapter_survives(
     assert engine._risk_per_share(short_pos, -40.0) == pytest.approx(6.0)
     wrong_side = SimpleNamespace(direction="long", shares=40.0, entry_price=50.0, stop_initial=55.0)
     assert engine._risk_per_share(wrong_side, 40.0) is None
+
+
+# ---------------------------------------------------------------- stop-move rows are not exits
+
+
+def _trail_stop_row(db, symbol, qty, stop, fill_status=None):
+    """A stop move as the desk records it: TRAIL_STOP for the FULL size, no fill."""
+    db.insert_trade(
+        symbol=symbol,
+        action="TRAIL_STOP",
+        qty=qty,
+        price=stop,
+        reasoning="stop moved",
+        run_id="r",
+        fill_status=fill_status,
+    )
+
+
+@pytest.mark.parametrize("moves", [1, 3])
+def test_stop_move_rows_leave_r_known_and_the_ratchet_live(db, moves):
+    _open(db, "TSR", "BUY", 100, 50.0, 45.0, take_profit=90.0)
+    _open(db, "TSR", "BUY", 100, 60.0, 52.0, take_profit=90.0)
+    for i in range(moves):
+        _trail_stop_row(db, "TSR", 200, 52.0 + i * 0.1, fill_status=None if i % 2 == 0 else "submitted")
+    fact, row = _facts_and_heat(db, _pos("TSR", 200, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] == pytest.approx(1.08) and row.r_multiple == pytest.approx(1.08)
+    ev = _trail(db, _pos("TSR", 200, 55.0, 62.0), live_stop=52.0)
+    assert ev.proposal is not None and ev.proposal.source == "breakeven_ratchet"
+
+
+def test_real_partial_sell_reconciles(db):
+    from src.exits_parts.trails import _risk_per_share
+
+    _open(db, "PS", "BUY", 100, 50.0, 45.0)
+    _open(db, "PS", "BUY", 100, 60.0, 52.0)
+    db.insert_trade(symbol="PS", action="SELL", qty=50, price=61.0, reasoning="trim", run_id="r", fill_status="filled")
+    _trail_stop_row(db, "PS", 150, 53.0)
+    fact, _ = _facts_and_heat(db, _pos("PS", 150, 55.0, 62.0), live_stop=53.0)
+    assert fact["r_multiple"] == pytest.approx(1.08)  # 1050 / (1300 x 150/200)
+    owner = SimpleNamespace(db=db)
+    assert _risk_per_share(owner, db.get_symbol_last_buy("PS"), 150, "PS") == pytest.approx(6.5)
+
+
+def test_missing_sell_row_makes_r_unknown(db):
+    _open(db, "MS", "BUY", 100, 50.0, 45.0)
+    _open(db, "MS", "BUY", 100, 60.0, 52.0)
+    # Broker holds 150 but no sell was recorded: the lots cannot be trusted.
+    fact, row = _facts_and_heat(db, _pos("MS", 150, 55.0, 62.0), live_stop=52.0)
+    assert fact["r_multiple"] is None and row.r_multiple is None
