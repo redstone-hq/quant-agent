@@ -183,7 +183,6 @@ def _log_target_divergence(
     log_divergence(
         symbol=symbol,
         derivation=derivation,
-        threshold_pct=cfg.target_divergence_warn_pct,
         recorder=refusal_recorder,
     )
 

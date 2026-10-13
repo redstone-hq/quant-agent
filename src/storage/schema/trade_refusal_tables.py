@@ -9,8 +9,8 @@ Board item 223 (2026-10-01) adds `requested_risk_pct`, the risk the seat ASKED f
 sub-floor observation records the request itself and not only the floor it sat under.
 
 `observed_gap_pct` (2026-10-05) carries the signed computed-vs-analyst target gap, one row
-per comparison, so the ledger row `target_divergence_warn_pct` can be read off a
-distribution instead of argued about. Nothing accumulates: every share is a read-time query.
+per comparison, so the model's chart-reading is read off a distribution instead of argued
+about. Nothing accumulates: every share is a read-time query.
 
 Idempotent. Columns added after the table first shipped are ALTERed in for existing files.
 """

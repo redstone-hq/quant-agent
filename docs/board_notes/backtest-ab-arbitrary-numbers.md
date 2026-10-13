@@ -20,7 +20,7 @@ and `src/data/levels.py` for config reads leaves this set:
 | `risk.max_cluster_risk_share_pct` | `allocate_risk_budget` cluster share cap |
 | `risk.absolute_min_stop_atr_multiple` | `_resolve_stop` level-backed exemption floor |
 | `risk.min_level_touches_for_stop_honor` | structural-level stop honouring |
-| `risk.max_target_reach_atr_multiple`, `risk.max_target_horizon_sessions`, `risk.target_divergence_warn_pct` | target sanity checks only — advisory, no fill effect |
+| `risk.max_target_reach_atr_multiple`, `risk.max_target_horizon_sessions` | target sanity checks only — advisory, no fill effect (`risk.target_divergence_warn_pct`, also listed here, was deleted 2026-10-13) |
 | `execution.max_entry_slippage_bps` | reused by the CLI as the flat slippage estimate on both fills |
 
 `risk.min_stop_atr_multiple` is deliberately excluded: the owner closed it at

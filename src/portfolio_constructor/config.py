@@ -871,12 +871,6 @@ class ConstructorConfig:
     # it. `max_target_reach_atr_multiple` on the line above is a DIFFERENT
     # number doing the target-estimation job and is unchanged.
     max_target_horizon_sessions: int = 60
-    # The model's target is not thrown away — it becomes evidence. Above this
-    # absolute percentage gap between the computed target and the model's
-    # guess, the disagreement is logged at WARNING rather than INFO, because
-    # a model that is consistently far from the chart is a finding about the
-    # model, not about the trade.
-    target_divergence_warn_pct: float = 25.0
     # NO `min_trade_weight_delta` HERE ANY MORE (owner ruling 2026-09-30,
     # board item 183) -- the flat 0.5%-of-book churn floor is DELETED, not
     # resized. The desk's own delta loop now attempts every nonzero

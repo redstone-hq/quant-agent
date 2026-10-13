@@ -868,10 +868,6 @@ risk:
   # READING is unchanged and still stamped on every sized stop.
   # Guard on the analyst's expected_horizon_sessions before it enters sqrt().
   max_target_horizon_sessions: 60
-  # The model's target is kept as EVIDENCE, never as arithmetic. Above this
-  # absolute gap from the computed target the disagreement is logged loudly —
-  # a model consistently far from the chart is a finding about the seat.
-  target_divergence_warn_pct: 25.0
   require_stop_loss: true
   # Cash-only is the pydantic CLASS default (`false`), not what this desk
   # runs — see `allow_margin: true` below. Set this back to `false` to

@@ -39,7 +39,6 @@ src.config.NominationConfig.max_per_seat_per_run
 src.config.NominationConfig.max_total_per_run
 src.config.RiskConfig.max_target_horizon_sessions
 src.config.RiskConfig.min_level_touches_for_stop_honor
-src.config.RiskConfig.target_divergence_warn_pct
 src.config.SmartMoneyConfig.cluster_window_days
 src.config.SmartMoneyConfig.congress_lookback_days
 src.config.SmartMoneyConfig.insider_cadence_max_gap_dispersion
