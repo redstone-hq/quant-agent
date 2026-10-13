@@ -8,6 +8,8 @@ Functions take the `TradeLedger` (`db._trades()`), so the big ledger file does n
 
 from __future__ import annotations
 
+from src.trading_calendar import sql_utc_stamp
+
 
 def get(ledger, symbol: str) -> dict | None:
     """The last session the trend pass ran in for `symbol` (`bar_date`), and its outcome; None if never."""
@@ -25,8 +27,8 @@ def record(ledger, symbol: str, *, bar_date: str, outcome: str, run_id: str | No
     def _do():
         cur = ledger.conn.execute(
             "INSERT OR REPLACE INTO trend_exit_tick_checks (symbol, bar_date, outcome, run_id, updated_at) "
-            "VALUES (?, ?, ?, ?, datetime('now'))",
-            (symbol, bar_date, outcome, run_id),
+            "VALUES (?, ?, ?, ?, ?)",
+            (symbol, bar_date, outcome, run_id, sql_utc_stamp()),
         )
         ledger.conn.commit()
         return cur.rowcount or 0

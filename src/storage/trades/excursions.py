@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from src.trading_calendar import sql_utc_stamp
+
 import logging
 import json
 
@@ -247,13 +249,22 @@ def sync_positions(ledger, positions) -> None:
                 ledger.conn.execute(
                     """INSERT INTO positions (symbol, qty, avg_entry, current_price, market_value,
                        unrealized_pnl, sector, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                            ON CONFLICT(symbol) DO UPDATE SET
                              qty=excluded.qty, avg_entry=excluded.avg_entry,
                              current_price=excluded.current_price, market_value=excluded.market_value,
                              unrealized_pnl=excluded.unrealized_pnl, sector=excluded.sector,
-                             updated_at=datetime('now')""",
-                    (p.symbol, p.qty, p.avg_entry, p.current_price, p.market_value, p.unrealized_pnl, p.sector),
+                             updated_at=excluded.updated_at""",
+                    (
+                        p.symbol,
+                        p.qty,
+                        p.avg_entry,
+                        p.current_price,
+                        p.market_value,
+                        p.unrealized_pnl,
+                        p.sector,
+                        sql_utc_stamp(),
+                    ),
                 )
                 # Stop-floor evidence, RECORDING ONLY — see the
                 # `max_adverse_excursion` migration note for what this

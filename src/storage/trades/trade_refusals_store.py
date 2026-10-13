@@ -17,6 +17,8 @@ as a declined trade.
 
 from __future__ import annotations
 
+from src.trading_calendar import sql_utc_stamp
+
 _COLUMNS = (
     "run_id",
     "symbol",
@@ -68,12 +70,11 @@ def insert(
         observed_gap_pct,
     )
     sql = (
-        f"INSERT INTO trade_refusals (timestamp, {', '.join(_COLUMNS)}) "
-        f"VALUES (datetime('now'), {', '.join('?' for _ in _COLUMNS)})"
+        f"INSERT INTO trade_refusals (timestamp, {', '.join(_COLUMNS)}) VALUES (?, {', '.join('?' for _ in _COLUMNS)})"
     )
 
     def _do():
-        cur = ledger.conn.execute(sql, values)
+        cur = ledger.conn.execute(sql, (sql_utc_stamp(), *values))
         ledger.conn.commit()
         return cur.lastrowid
 
