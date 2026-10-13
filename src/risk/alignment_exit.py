@@ -109,6 +109,10 @@ CHART_MA_PERIODS: tuple[int, ...] = tuple(sorted(set(SMA_LADDER) | set(SMA_LADDE
 #: the desk unable to tell a held position from an unreadable one.
 CODE_EXIT = "alignment_exit_confirmed"
 CODE_HOLD = "alignment_intact"
+#: A HOLD where the lower-low test could not run because the position's open
+#: date is unknown. Not the same reading as an intact trend, so not the same
+#: code; consumers treat it as a HOLD exactly like `CODE_HOLD`.
+CODE_HOLD_OPEN_UNKNOWN = "alignment_intact_open_unknown"
 CODE_NO_MARK = "alignment_unreadable_no_mark"
 CODE_NO_ATR = "alignment_unreadable_no_atr"
 CODE_NO_CLOSES = "alignment_unreadable_no_closes"
@@ -495,17 +499,24 @@ def _structure_verdict(
     breach = (last - latest) if is_short else (latest - last)
     breach_atrs = breach / a
     if not (swing_broken or closed_through):
+        open_unknown = len(dated) >= 2 and _as_date(position_open_date) is None
+        swing_word = "higher high" if is_short else "lower low"
         return AlignmentExitCheck(
             "HOLD",
-            CODE_HOLD,
+            CODE_HOLD_OPEN_UNKNOWN if open_unknown else CODE_HOLD,
             marks,
             ref,
             breach_atrs,
             None,
             f"structure intact — close {last:.4f} is still "
             f"{'below' if is_short else 'above'} the last confirmed swing {side} "
-            f"{latest:.4f} and no {'higher high' if is_short else 'lower low'} is "
-            f"confirmed since the position opened; {vote}",
+            f"{latest:.4f}; "
+            + (
+                f"the position's open date was unknown, so the {swing_word} test did not run"
+                if open_unknown
+                else f"no {swing_word} is confirmed since the position opened"
+            )
+            + f"; {vote}",
             **common,
         )
     if swing_broken:

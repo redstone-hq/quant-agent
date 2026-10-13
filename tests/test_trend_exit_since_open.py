@@ -124,3 +124,17 @@ def test_f_unknown_open_date_never_fires_the_lower_low_and_says_why() -> None:
     v = _live(VLO, open_ts=None, last_buy_ts=_stamp(0))
     assert v.status == "HOLD", v.reason
     assert "open date is unknown" in v.reason
+
+
+def test_g_unknown_open_holds_under_its_own_code_and_does_not_claim_a_clean_trend() -> None:
+    v = _pure(VLO, opened=None)
+    assert v.status == "HOLD", v.reason
+    assert v.code == "alignment_intact_open_unknown"
+    assert "open date was unknown" in v.reason and "did not run" in v.reason
+    assert "since the position opened" not in v.reason.split(";")[0]
+
+
+def test_h_unknown_open_still_exits_when_the_close_goes_through_the_swing() -> None:
+    rise = [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
+    v = _pure(rise + [104.0], opened=None)
+    assert v.status == "EXIT" and v.code == CODE_EXIT
