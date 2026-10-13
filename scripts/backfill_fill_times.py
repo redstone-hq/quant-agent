@@ -69,7 +69,7 @@ def _read_rows(db_path: Path) -> list[dict]:
 
 def _r_unknown_open(rows: list[dict]) -> list[str]:
     """Symbols the ledger holds shares of whose fill order is unknown (R unknown, no R ratchets)."""
-    from src.execution.order_gates import ORDER_QTY_DECIMALS
+    from src.quantities import ORDER_QTY_DECIMALS
     from src.storage.trades.position_chain import _executed_row
     from src.trade_actions import executed_qty, live_lot_rows, share_change
 

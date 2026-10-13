@@ -42,7 +42,21 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from src.stop_price_classification import classify_stop_price
-from src.trade_actions import FILL_ORDER_UNKNOWN, POSITION_OPEN_ACTIONS, executed_qty, live_lot_rows, share_change
+from src.trade_actions import (
+    FILL_ORDER_UNKNOWN,
+    POSITION_OPEN_ACTIONS,
+    executed_qty,
+    live_lot_rows,
+    share_change,
+)
+
+#: The most decimal places an order quantity may carry - the broker's fractional grid
+#: (ledger: src.quantities.ORDER_QTY_DECIMALS), the same grid as `_FRACTIONAL_QTY_EPSILON`
+#: in src/execution/order_gates.py and the `<= 9` clamp in src/pipeline_sizing.py. It lives
+#: here, below the broker seam, so the lot walk's readers (this module and
+#: src/storage/trades/position_chain.py) share it without importing src.execution;
+#: src/execution/order_gates.py imports it from here (src/execution/sell_quantity.py through it).
+ORDER_QTY_DECIMALS = 9
 
 __all__ = [
     "ETF_LEVERAGE",
@@ -474,8 +488,6 @@ def held_position_risk(
     rows = chain_rows if isinstance(chain_rows, list) and chain_rows else None
     if rows is None:
         rows = [opening_row] if isinstance(opening_row, dict) else []
-    from src.execution.order_gates import ORDER_QTY_DECIMALS
-
     if not rows:
         return None, "position_chain_unresolved"
     live = live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS, held=held)
@@ -504,8 +516,6 @@ def held_position_risk(
 def live_position_lots(chain_rows: list) -> list | None:
     """The live position's share-changing rows (`trade_actions.live_lot_rows` on the broker's
     share grid): [] when flat, None when the fill order is unknown."""
-    from src.execution.order_gates import ORDER_QTY_DECIMALS
-
     return live_lot_rows(chain_rows, decimals=ORDER_QTY_DECIMALS)
 
 

@@ -36,6 +36,7 @@ from src.storage.trades import trade_refusals_store as _refusals_store
 from src.storage.trades import backfills as _backfills
 from src.storage.trades import recovery_queues as _recovery_queues
 from src.storage.trades import excursions as _excursions
+from src.trading_calendar import sql_utc_stamp
 from src.util.time import UTC
 from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position  # noqa: F401  re-export
 from src.trade_actions import broker_fill_time
@@ -394,7 +395,7 @@ class TradeLedger:
             "fill_status": fill_status,
             "filled_at": filled_at,
             "position_id": None,
-            "timestamp": timestamp or self._sqlite_utc_timestamp(datetime.now(UTC)),
+            "timestamp": timestamp or sql_utc_stamp(),
         }
         ordered = _event_order([*history, placeholder])
         if ordered is None:
@@ -567,9 +568,9 @@ class TradeLedger:
         with self._lock:
             cur = self.conn.execute(
                 "UPDATE trades SET fill_status = ?, fill_qty = ?, fill_price = ?, "
-                "fill_reconciled_at = datetime('now'), filled_at = COALESCE(?, filled_at) "
+                "fill_reconciled_at = ?, filled_at = COALESCE(?, filled_at) "
                 "WHERE broker_order_id = ?",
-                (fill_status, fill_qty, fill_price, filled_at, broker_order_id),
+                (fill_status, fill_qty, fill_price, sql_utc_stamp(), filled_at, broker_order_id),
             )
             try:
                 has_fill = float(fill_qty or 0) > 0
@@ -898,7 +899,7 @@ class TradeLedger:
                 "run_id, broker_order_id, fill_status, fill_qty, fill_price, "
                 "fill_reconciled_at, timestamp, position_id, exit_reason_category, "
                 "decision_id_status, filled_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'filled', ?, ?, datetime('now'), ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'filled', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     symbol,
                     action,
@@ -909,6 +910,7 @@ class TradeLedger:
                     broker_order_id,
                     qty,
                     price,
+                    sql_utc_stamp(),  # fill_reconciled_at, from the one clock
                     ts,
                     position_id,
                     exit_category,

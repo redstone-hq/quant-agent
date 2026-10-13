@@ -623,10 +623,10 @@ numbers:
     note: >-
       The measured move claimed when no structural level stands in the way, in
       sqrt(session)-scaled ATRs (src/config/__init__.py::RiskConfig).
-  - id: src.execution.order_gates.ORDER_QTY_DECIMALS
+  - id: src.quantities.ORDER_QTY_DECIMALS
     value: 9
     status: instrument
-    site: src/execution/order_gates.py
+    site: src/quantities.py
     source: >-
       Alpaca fractional trading documentation, "Both notional and qty fields can
       take up to 9 decimal point values."

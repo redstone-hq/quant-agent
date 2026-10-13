@@ -50,7 +50,6 @@ class DatabaseSchema:
                 fill_price REAL,                       -- actual avg fill price
                 realized_pnl REAL,                     -- average-cost realized P&L for confirmed exits
                 fill_reconciled_at TEXT,               -- when we confirmed the terminal status
-                filled_at TEXT,                        -- the BROKER's own fill time (naive UTC)
                 timestamp TEXT NOT NULL DEFAULT (datetime('now'))
             );
 

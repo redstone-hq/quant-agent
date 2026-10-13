@@ -14,6 +14,7 @@ do NOT collapse them:
 
 from __future__ import annotations
 
+
 #: Actions that OPEN a position chain, mapped to the direction it carries.
 #: SHORT mints a chain exactly as BUY does — owner decision, 2026-08-31:
 #: "money made lost, decisions made lost, it's the same thing as everything
@@ -240,12 +241,18 @@ def broker_fill_time(raw) -> str | None:
     Full precision - UTC, microseconds, fixed width - never truncated to the second:
     Alpaca reports microseconds, and at one-second precision an add and a stop-out in
     the same second tied and sorted by row id, add first, which merged the positions.
-    Takes the broker's ISO-8601 text or a datetime; a naive time is taken as UTC.
+    Takes the broker's two real types, ISO-8601 text or a datetime (a naive time is
+    taken as UTC). Anything else - None, blank or unparseable text, a number, a test
+    double - is no fill time: None, explicitly, never an exception, so a pipeline run
+    never aborts on what the broker sent.
     """
-    if raw is None:
-        return None
-    stamp = raw.isoformat() if hasattr(raw, "isoformat") else str(raw).strip()
-    return _instant(stamp) if stamp else None
+    from datetime import datetime
+
+    if isinstance(raw, datetime):
+        return _instant(raw.isoformat())
+    if isinstance(raw, str) and raw.strip():
+        return _instant(raw.strip())
+    return None
 
 
 def fill_instant(row) -> str | None:

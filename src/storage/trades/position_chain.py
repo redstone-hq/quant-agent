@@ -19,6 +19,7 @@ from src.trade_actions import exit_action_side as _exit_action_side
 from src.trade_actions import executed_qty as _executed_qty
 from src.trade_actions import is_position_exit_action as _is_position_exit_action
 from src.trade_actions import fill_time_split as _fill_time_split
+from src.quantities import ORDER_QTY_DECIMALS
 from src.trade_actions import fill_sort_key as _fill_sort_key
 from src.trade_actions import share_change as _share_change
 from src.trade_actions import walk_positions as _walk_positions
@@ -61,8 +62,6 @@ def _event_split(rows: list[dict]) -> tuple[list[dict], list[dict]] | None:
     every fill timed nothing is earlier. None when a fill with no broker fill time sits
     inside the live position - the same rows make open R unknown.
     """
-    from src.execution.order_gates import ORDER_QTY_DECIMALS
-
     moving = [r for r in rows if _share_change(r) is not None and _executed_row(r)]
     split = _fill_time_split(moving, held=None, decimals=ORDER_QTY_DECIMALS)
     if split is None:
@@ -111,8 +110,6 @@ def _assign_position_ids(rows: list[dict], *, reserved=()) -> dict:
     nor exits (HOLD, SWEEP_*) keep theirs. A `reserved` id (carried by rows before
     the last flat point the walk can order) is never kept by a walked position.
     """
-    from src.execution.order_gates import ORDER_QTY_DECIMALS
-
     groups, unattached, _ = _walk_positions(rows, decimals=ORDER_QTY_DECIMALS, executed=_executed_row)
     assignments: dict = {}
     claimed: set[str] = set(reserved)

@@ -194,10 +194,7 @@ def test_dashboard_uses_the_same_reader_and_formula_and_skips_unfilled_lots(db, 
     assert dash["ABC"]["unrealised_r"] == fact["r_multiple"] == pytest.approx(1.08)
 
 
-def test_unmarked_filled_add_makes_r_unknown_not_smaller_and_warns_once(db, caplog):
-    from src.exits_parts import trails
-
-    trails._R_UNKNOWN_WARNED.clear()
+def test_unmarked_filled_add_makes_r_unknown_not_smaller_and_warns_every_time(db, caplog):
     _open(db, "ADD", "BUY", 100, 50.0, 45.0, take_profit=90.0)
     db.insert_trade(
         symbol="ADD",
@@ -219,7 +216,8 @@ def test_unmarked_filled_add_makes_r_unknown_not_smaller_and_warns_once(db, capl
         assert not _r_ratchet_fired(_trail(db, _pos("ADD", 200, 55.0, 62.0), live_stop=52.0))
         assert not _r_ratchet_fired(_trail(db, _pos("ADD", 200, 55.0, 63.0), live_stop=52.0))
     warned = [r for r in caplog.records if "R unknown (lots_do_not_reconcile)" in r.getMessage()]
-    assert len(warned) == 1 and "ADD" in warned[0].getMessage()
+    # One WARNING per evaluation: no stored state de-duplicates it (bookkeeping is banned).
+    assert len(warned) == 2 and all("ADD" in r.getMessage() for r in warned)
 
 
 def test_backtest_uses_the_per_lot_function_and_no_single_stop_adapter_survives():
