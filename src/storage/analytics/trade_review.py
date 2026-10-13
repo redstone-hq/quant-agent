@@ -5,7 +5,8 @@ and `src/agents` / `src/prompt_facts` may not import it (.importlinter).
 
 Nothing is re-derived that already exists:
   - one closed round trip per position  -> `quantities.summarize_closed_position`
-  - R (profit in units of initial risk) -> `quantities.r_multiple`
+  - R (profit in units of initial risk) -> per lot: `quantities.summarize_closed_position`
+    (closed) and `open_position_r` (open)
 (They live in src.quantities, the stdlib-only seam src/api may import.)
   - clean-record start                  -> `calibration._opened_before_clean_record`
 

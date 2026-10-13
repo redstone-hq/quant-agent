@@ -186,9 +186,9 @@ class ConvictionLedgerStore:
         gone flat and has not been scored before:
 
           1. reduce it to a round trip (`summarize_closed_position`),
-          2. compute its realized R with `src.risk.metrics.r_multiple` — the
-             SAME function the heat block and PMFacts already use, against
-             the stop the position was OPENED with,
+          2. compute its realized R per lot, as that round trip reports it
+             (`ClosedPosition.r_multiple`), against
+             each lot's own opening stop,
           3. credit every seat that took a side at decision time
              (`score_position`) — raw signed R, unweighted,
           4. persist one `conviction_credit` evidence row per seat.

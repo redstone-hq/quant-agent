@@ -59,7 +59,7 @@ def compute_trailing_stop(
     matter, because a swing low/high from before the position existed is not
     a level this trade ever defended.
 
-    `qty` supplies only the SIDE — same convention as `risk.metrics.r_multiple`.
+    `qty` supplies only the SIDE.
     A negative qty is a short: everything below mirrors across the entry
     price. A long's stop lives BELOW price and ratchets UP toward it as the
     trade works; a short's stop lives ABOVE price and ratchets DOWN toward it.
