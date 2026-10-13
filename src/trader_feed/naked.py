@@ -38,7 +38,7 @@ def stop_coverage_was_audited(result: dict | None) -> bool:
     return isinstance(result, dict) and "stop_coverage_gaps" in result
 
 
-def protection_undetermined_alert(result: dict | None) -> str | None:
+def protection_undetermined_alert(result: dict | None, mode: str | None = None) -> str | None:
     """The page for a session that cannot say whether anything is naked.
 
     PR #978 defect D. The session that DIED is exactly the session where
@@ -46,9 +46,21 @@ def protection_undetermined_alert(result: dict | None) -> str | None:
     is silence -- and the one thing that must never be invented is a
     default of "everything is fine". This states the true thing: the
     question was not answered, go and look.
+
+    `mode` is the run mode / scheduler job name. The page is only true for
+    a mode whose session DECLARES that it audits stops at the broker
+    (`AUDITS_BROKER_STOPS` on the session class, resolved by
+    src/sessions/stop_audit.py): earnings_preprocess and the daily CSV
+    export never run the audit, so their silence is not a missing answer.
+    A dead auditing session (result None) still pages. A caller that cannot
+    name its mode is treated as auditing -- fail closed, page.
     """
 
     if stop_coverage_was_audited(result):
+        return None
+    from src.sessions.stop_audit import mode_audits_broker_stops
+
+    if not mode_audits_broker_stops(mode):
         return None
     # Plain words only: no status token, no run id. A raw state string is
     # not something the owner can read, and the machine reason is unchanged
@@ -94,22 +106,24 @@ def naked_position_alert(result: dict | None) -> str | None:
     )
 
 
-def send_naked_position_alert(notifier, result: dict | None, owner=None) -> bool:
+def send_naked_position_alert(notifier, result: dict | None, owner=None, mode: str | None = None) -> bool:
     """Raise `naked_position_alert` on `notifier`. Never raises. True if sent.
 
     Called once per session, by every entry point that sends a session
     summary (main.py, src/scheduler.py), BEFORE the summary itself.
 
-    Silence is never the output: a session that never ran the stop audit
-    (died, or returned early) raises `protection_undetermined_alert`
-    instead -- see PR #978 defect D.
+    Silence is never the output of an AUDITING session: one that never ran
+    the stop audit (died, or returned early) raises
+    `protection_undetermined_alert` instead -- see PR #978 defect D. A mode
+    whose session declares no broker stop audit is silent here by design;
+    `mode` is how the caller says which it was (None = unknown = page).
 
     `owner` is whatever the caller holds that reaches the ledger (the pipeline);
     when given, a failure here also leaves a counted row. Omitted, it is logged
     with a traceback only.
     """
     try:
-        text = naked_position_alert(result) or protection_undetermined_alert(result)
+        text = naked_position_alert(result) or protection_undetermined_alert(result, mode=mode)
         if not text:
             return False
         symbols = [str(g.get("symbol")) for g in uncovered_stop_gaps(result) if g.get("symbol")]

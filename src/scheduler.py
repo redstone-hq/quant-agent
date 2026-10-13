@@ -247,6 +247,7 @@ class TradingScheduler:
                             self.notifier,
                             result if isinstance(result, dict) else None,
                             owner=self.pipeline,
+                            mode=name,
                         )
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
