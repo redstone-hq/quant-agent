@@ -136,6 +136,27 @@ install_units() {
   done
 }
 
+# Long-running desk services other than the API, derived from the unit files
+# the deploy installs: a .service that is not oneshot and has no sibling
+# .timer. Nothing here names a unit, so a new long-running service is picked
+# up without editing this script. Timer-driven oneshots load fresh code on
+# every run and need no restart. Paused units are left alone.
+long_running_units() {
+  local src name type unit_list names
+  unit_list="$(unit_sources)" || exit 1
+  names="$(for src in ${unit_list}; do basename "${src}"; done)"
+  for src in ${unit_list}; do
+    name="$(basename "${src}")"
+    [[ "${name}" == *.service ]] || continue
+    [[ "${name}" == "${API_UNIT}" ]] && continue
+    grep -qxF "${name%.service}.timer" <<<"${names}" && continue
+    unit_is_paused "${name}" && continue
+    type="$(sudo -n grep -m1 -E '^Type=' "${src}" | cut -d= -f2 | tr -d '[:space:]')"
+    [[ "${type:-simple}" == "oneshot" ]] && continue
+    echo "${name}"
+  done
+}
+
 # THE DASHBOARD NEVER BLOCKS OR HALF-APPLIES A TRADING DEPLOY.
 #
 # The dashboard bundle (src/api/static_cockpit/) is gitignored build output:
@@ -227,7 +248,7 @@ install_cockpit() {
 deploy() {
   echo "==> fetching origin/main into ${DEPLOY_ROOT}"
   sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" fetch origin main
-  local target
+  local target name
   target="$(sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" rev-parse origin/main)"
   # Before the live checkout is touched; never stops the deploy.
   build_cockpit "${target}"
@@ -241,6 +262,14 @@ deploy() {
   install_units
   echo "==> restarting ${API_UNIT}"
   qamc_systemctl restart "${API_UNIT}"
+  # Every other long-running unit (e.g. the owner switch) keeps the code it
+  # imported at start, so it must be restarted too or a merge never goes live.
+  local long_running
+  long_running="$(long_running_units)" || exit 1
+  for name in ${long_running}; do
+    echo "==> restarting ${name}"
+    qamc_systemctl restart "${name}"
+  done
 
   local deployed expected built
   deployed="$(sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
