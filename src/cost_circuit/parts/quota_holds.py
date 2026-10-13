@@ -7,6 +7,7 @@ Every collaborator is an explicit keyword-only constructor argument.
 from __future__ import annotations
 import sqlite3
 from datetime import date, datetime, time as dt_time, timezone
+from src.cost_circuit.clock import _sql_stamp
 from src.cost_circuit.classification import _trigger_scope
 
 
@@ -129,9 +130,10 @@ class QuotaHolds:
                 "exact ledger and accounting invariants passed"
             )
             updated = conn.execute(
-                "UPDATE llm_quota_holds SET active=0, released_at=datetime('now'), "
+                "UPDATE llm_quota_holds SET active=0, released_at=?, "
                 "release_reason=?, recovery_alert_state=? WHERE id=? AND active=1",
                 (
+                    _sql_stamp(),
                     reason,
                     0 if hold["scope"] in {"day", "mode_day"} else 1,
                     hold["id"],
@@ -216,8 +218,8 @@ class QuotaHolds:
             (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
         )
         updated_session = conn.execute(
-            "UPDATE llm_budget_sessions SET status='quota_held', updated_at=datetime('now') WHERE run_id=?",
-            (run_id,),
+            "UPDATE llm_budget_sessions SET status='quota_held', updated_at=? WHERE run_id=?",
+            (_sql_stamp(), run_id),
         )
         if updated_session.rowcount != 1:
             raise RuntimeError(f"cost-circuit could not mark missing session {run_id} quota-held")
@@ -314,8 +316,8 @@ class QuotaHolds:
             "trigger_detail=?, run_id=?, mode=?, agent_name=?, "
             "session_attempts=?, attempts_exact=?, costs_exact=?, "
             "session_cost_usd=?, daily_cost_usd=?, "
-            "session_limit_usd=?, daily_limit_usd=?, suspended_at=datetime('now'), "
-            "alert_state=0, updated_at=datetime('now') WHERE singleton=1",
+            "session_limit_usd=?, daily_limit_usd=?, suspended_at=?, "
+            "alert_state=0, updated_at=? WHERE singleton=1",
             (
                 code,
                 detail,
@@ -329,6 +331,8 @@ class QuotaHolds:
                 daily_cost,
                 float(self.config.session_cost_limit_usd),
                 float(self.config.daily_cost_limit_usd),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         if updated_state.rowcount != 1:
@@ -341,7 +345,7 @@ class QuotaHolds:
             (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
         )
         updated_session = conn.execute(
-            "UPDATE llm_budget_sessions SET status='suspended', updated_at=datetime('now') WHERE run_id=?", (run_id,)
+            "UPDATE llm_budget_sessions SET status='suspended', updated_at=? WHERE run_id=?", (_sql_stamp(), run_id)
         )
         if updated_session.rowcount != 1:
             raise RuntimeError(f"cost-circuit could not mark missing session {run_id} suspended")
