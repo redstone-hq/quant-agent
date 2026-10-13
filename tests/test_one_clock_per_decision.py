@@ -284,9 +284,9 @@ def test_utc_now_is_aware_utc():
     assert now.tzinfo is not None and now.utcoffset() == timedelta(0)
 
 
-def test_et_now_is_utc_now_converted_not_a_second_read(monkeypatch):
+def test_et_now_is_utc_now_converted_not_a_second_read(freeze_clock):
     pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    freeze_clock(pinned)
     assert trading_calendar.et_now() == pinned
     assert trading_calendar.et_now().utcoffset() == timedelta(hours=-4)
     assert trading_calendar.et_today() == pinned.date()
@@ -294,14 +294,14 @@ def test_et_now_is_utc_now_converted_not_a_second_read(monkeypatch):
     assert sql_utc_stamp_ago(days=1, minutes=30) == "2026-10-12 15:30:00"
 
 
-def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(monkeypatch, tmp_path):
+def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(freeze_clock, tmp_path):
     from types import SimpleNamespace
 
     from src.cost_circuit import LLMCostCircuitBreaker
     from src.storage.db import Database
 
     pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    freeze_clock(pinned)
     assert sql_utc_stamp() == "2026-10-13 16:00:00"
 
     path = str(tmp_path / "circuit.db")
@@ -343,3 +343,22 @@ def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(mon
     assert len(stamps) >= 7, stamps  # every *_at column of the four tables, keyed by column
     assert any(k.startswith("llm_circuit_events.") for k in stamps), stamps
     assert set(stamps.values()) == {"2026-10-13 16:00:00"}, stamps
+
+
+def test_freeze_clock_reaches_modules_that_imported_utc_now_by_name(freeze_clock):
+    """src.inflight did `from src.trading_calendar import utc_now`; patching the
+    trading_calendar attribute cannot reach that binding, a process clock freeze can."""
+    from src import inflight
+
+    pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
+    freeze_clock(pinned)
+    assert inflight.utc_now() == pinned
+
+
+def test_monkeypatching_trading_calendar_misses_by_name_importers(monkeypatch):
+    """The old approach: the by-name binding in src.inflight keeps the wall clock."""
+    from src import inflight
+
+    pinned = datetime(2001, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    assert inflight.utc_now() != pinned

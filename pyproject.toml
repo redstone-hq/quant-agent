@@ -46,6 +46,8 @@ dev = [
     "pytest-asyncio>=0.24.0",
     # Runs the suite across every CPU (see [tool.pytest.ini_options] below).
     "pytest-xdist>=3.6",
+    # Freezes the real clock for every module, however it imported utc_now (tests/conftest.py freeze_clock).
+    "time-machine==2.16.0",
     # Size/shape limits (tests/test_ruff_clean.py). Pinned EXACTLY: a new ruff
     # release can change what a rule counts, which would move a fixed limit.
     "ruff==0.16.10",

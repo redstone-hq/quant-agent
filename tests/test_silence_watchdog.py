@@ -307,6 +307,7 @@ def test_script_sends_through_the_owner_alert_path_and_exits_1(
     db,
     state_path,
     monkeypatch,
+    freeze_clock,
 ):
     _notifier_env(monkeypatch)
     friday = _MONDAY - timedelta(days=3)
@@ -315,7 +316,7 @@ def test_script_sends_through_the_owner_alert_path_and_exits_1(
     from scripts import silence_heartbeat
 
     fixed_now = _et(_MONDAY, 23, 0).astimezone(timezone.utc)
-    monkeypatch.setattr(silence_watchdog, "_utc_now", lambda: fixed_now)
+    freeze_clock(fixed_now)
 
     with patch("src.notifier.requests.post") as post:
         post.return_value = MagicMock(
@@ -329,7 +330,7 @@ def test_script_sends_through_the_owner_alert_path_and_exits_1(
     assert post.called
 
 
-def test_script_exits_0_and_sends_nothing_on_a_healthy_desk(db, state_path, monkeypatch):
+def test_script_exits_0_and_sends_nothing_on_a_healthy_desk(db, state_path, monkeypatch, freeze_clock):
     monday_end = _et(_MONDAY, 23, 0).astimezone(timezone.utc)
     for mode, (lo, hi) in SESSION_WINDOWS.items():
         checked_at = (_et(_MONDAY, 0, 0) + timedelta(minutes=(lo + hi) // 2)).astimezone(timezone.utc)
@@ -337,7 +338,7 @@ def test_script_exits_0_and_sends_nothing_on_a_healthy_desk(db, state_path, monk
 
     from scripts import silence_heartbeat
 
-    monkeypatch.setattr(silence_watchdog, "_utc_now", lambda: monday_end)
+    freeze_clock(monday_end)
     with patch("src.notifier.requests.post") as post:
         code, line = silence_heartbeat.run_check(silence_watchdog.DEFAULT_SILENT_WINDOW_THRESHOLD)
 
@@ -443,13 +444,13 @@ def test_paused_state_never_touches_the_silence_marker(
     assert paused_state_path.exists()
 
 
-def test_script_paused_path_sends_once_and_exits_1(paused_state_path, monkeypatch):
+def test_script_paused_path_sends_once_and_exits_1(paused_state_path, monkeypatch, freeze_clock):
     """End to end through the entry point the wrapper actually execs."""
     _notifier_env(monkeypatch)
     from scripts import silence_heartbeat
 
     fixed_now = _et(_MONDAY, 15, 0).astimezone(timezone.utc)
-    monkeypatch.setattr(silence_watchdog, "_utc_now", lambda: fixed_now)
+    freeze_clock(fixed_now)
 
     with patch("src.notifier.requests.post") as post:
         post.return_value = MagicMock(
