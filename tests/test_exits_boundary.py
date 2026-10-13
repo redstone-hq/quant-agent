@@ -69,9 +69,9 @@ def test_holding_discipline_ignores_a_non_exit_action():
 def test_position_opened_today_reads_the_recorded_timestamp():
     assert AlignmentExit is not None
     ae_none = _build(AlignmentExit, db=_Db(None))
-    assert ae_none._position_opened_today("AAPL") is False
+    assert ae_none._position_opened_today("AAPL", is_short=False) is False
     ae_today = _build(AlignmentExit, db=_Db({"timestamp": f"{et_today()}T14:00:00"}))
-    assert ae_today._position_opened_today("AAPL") is True
+    assert ae_today._position_opened_today("AAPL", is_short=False) is True
 
 
 def test_target_revision_with_nothing_flagged_and_nothing_held_adjudicates_nothing():

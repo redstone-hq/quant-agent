@@ -341,7 +341,7 @@ class AlignmentExit:
             return None, f"the latest {opening} row carries no position id, so the position's open is unknown"
         return stamp, f"position opened {stamp}"
 
-    def _position_opened_today(self, symbol: str, *, is_short: bool = False) -> bool:
+    def _position_opened_today(self, symbol: str, *, is_short: bool) -> bool:
         """Was this POSITION opened in TODAY's session? DATE EQUALITY ONLY.
 
         Reads the position's OPEN (first opening fill since flat), not the
