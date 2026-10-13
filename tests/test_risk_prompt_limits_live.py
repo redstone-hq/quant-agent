@@ -688,9 +688,12 @@ def test_the_rest_of_the_omission_is_recorded_not_silently_swept():
     # `RiskConfig` and a stale settings file carrying it now raises. Its
     # sibling `max_target_reach_atr_multiple` is a different number, is still
     # omitted here for the original reason, and is unchanged.
-    assert len(omitted) == 11, (
+    # 11 -> 10 on 2026-10-13, made-up numbers row 20a: `target_divergence_warn_pct`
+    # (a log-level-only warning threshold that changed no order) was deleted
+    # from settings.yaml and its wiring.
+    assert len(omitted) == 10, (
         f"the engine's hand-enumerated RiskConfig now omits {len(omitted)} "
-        f"settings present in settings.yaml, not 11 — if that grew, thread "
+        f"settings present in settings.yaml, not 10 — if that grew, thread "
         f"the new one; if it shrank, lower this number. Omitted: {omitted}"
     )
 
