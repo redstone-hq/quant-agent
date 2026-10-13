@@ -47,7 +47,7 @@ fi
 if [[ "$STATUS" -ne 0 ]]; then
     MSG="owner Stop gate could not decide for ${UNIT} (status ${STATUS}); running the unit"
     echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${MSG}" >&2
-    if [[ "$STATUS" -ne 3 ]]; then
+    if [[ "$STATUS" -ne 70 ]]; then
         # Python never reached its own recorder (missing, import error,
         # timeout): put the ERROR line where the log health report reads.
         echo "$(date -u '+%Y-%m-%d %H:%M:%S'),000 [ERROR] src.owner_stop_gate: ${MSG}" >>"${OWNER_STOP_GATE_LOG:-${PROJECT_ROOT}/quant_agent.log}" 2>/dev/null || true

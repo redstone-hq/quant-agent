@@ -12,8 +12,8 @@ decided anything. Deciding Stop needs two things -- the database path and the
 owner intents in it -- so that is all this reads.
 
 Cancelling resting UNFILLED entries needs the broker, so the gate never does
-it: the owner switch cancels them the moment it records the Stop
-(``owner_intents.cancel_resting_at_stop``, any fault alerts the owner), and
+it: the owner switch has them cancelled the moment it records the Stop
+(main.py's credentialed ``owner_intents.honour_stop``; any fault alerts the owner), and
 ``main._exit_if_owner_stopped`` stays the in-run backstop for a unit that
 starts before the gate has seen the Stop. While stopped, every gated unit is
 skipped.
@@ -37,8 +37,8 @@ import yaml
 logger = logging.getLogger("src.owner_stop_gate")
 
 RUN = 0
-STOP = 75  # main.OWNER_STOP_EXIT (os.EX_TEMPFAIL); the shell script matches it
-UNDECIDED = 3
+STOP = os.EX_TEMPFAIL  # main.OWNER_STOP_EXIT (75); the shell script matches it
+UNDECIDED = os.EX_SOFTWARE  # 70; the shell script matches it
 UNDECIDED_SITE = "owner_stop_gate.undecided"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

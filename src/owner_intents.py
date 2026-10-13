@@ -130,32 +130,8 @@ def intake(db_path) -> list:
 STOP_CANCEL_FAILED = "owner_intents.stop_cancel_failed"
 
 
-def cancel_resting_at_stop(broker_factory, *, notifier=None):
-    """Cancel resting UNFILLED entries for a Stop; any fault is a failure the owner hears about.
-
-    Called by the process that RECORDS the Stop (the owner switch) at that
-    moment, and again by `honour_stop` as the in-run backstop. Protective stops
-    and exits are kept (src/execution/freeze_cancel.py). `cancel_resting_entries`
-    never raises on a broker refusal or an unreachable broker -- it returns the
-    fault in `faults` -- so the faults are read here, not just exceptions.
-    Returns the SweepResult, or None when the broker could not be reached at all.
-    Every failure writes a durable counted row and pushes an owner alert.
-    """
-    from src.execution.freeze_cancel import cancel_resting_entries
-
-    try:
-        result = cancel_resting_entries(broker_factory())
-    except Exception as exc:  # noqa: BLE001 - reported below; Stop itself still holds
-        _report_stop_cancel_failure(exc, None, notifier)
-        return None
-    if result.faults:
-        _report_stop_cancel_failure(RuntimeError(f"cancel faults: {result.faults}"), result, notifier)
-    else:
-        logger.warning("owner Stop: resting entries cancelled=%s shrunk=%s", result.cancelled, result.shrunk)
-    return result
-
-
-def _report_stop_cancel_failure(exc, result, notifier) -> None:
+def record_stop_cancel_failure(exc, result, notifier=None) -> None:
+    """A Stop's cancel of resting entries failed: durable counted row plus a plain-words owner alert."""
     from src.notifier.owner_alert_funnel import send_owner_alert_with_outcome
     from src.sentinel.counted import record_swallowed
 
@@ -179,9 +155,14 @@ def honour_stop(db_path, broker_factory) -> bool:
 
     Returns True when Stop is in force, and the caller must then exit without
     doing any work. `broker_factory` is called ONLY when stopped, so a stopped
-    process constructs nothing but the broker it cancels through. This is the
-    in-run BACKSTOP: the owner switch already cancelled when the Stop was
-    recorded (`cancel_resting_at_stop`); a fault here alerts the owner too.
+    process constructs nothing but the broker it cancels through; the cancel is
+    the Freeze sweep (protective stops and exits are kept). The owner switch
+    runs this through main.py the moment it records a Stop; every one-shot unit
+    runs it again as the in-run backstop.
+
+    The sweep never raises on a broker refusal or an unreachable broker -- it
+    returns the fault in `faults` -- so the faults are read here, not just
+    exceptions. Any fault is a failure the owner hears about.
     """
     from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
 
@@ -193,5 +174,13 @@ def honour_stop(db_path, broker_factory) -> bool:
         record_guarded_pass(NO_LEDGER, "owner_intents.stop_pickup", exc, log=logger)
     if not stop_in_force(db_path):
         return False
-    cancel_resting_at_stop(broker_factory)
+    try:
+        result = broker_factory().sweep_frozen_resting_orders(db_path)
+    except Exception as exc:  # noqa: BLE001 - recorded and alerted; Stop itself still holds
+        record_stop_cancel_failure(exc, None)
+        return True
+    if result is not None and result.faults:
+        record_stop_cancel_failure(RuntimeError(f"cancel faults: {result.faults}"), result)
+    else:
+        logger.warning("owner Stop in force: desk off; resting entries swept (%s)", result)
     return True

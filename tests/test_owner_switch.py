@@ -30,6 +30,12 @@ def _intent_count(db):
         conn.close()
 
 
+@pytest.fixture(autouse=True)
+def _no_desk_stop_path(monkeypatch):
+    """An accepted Stop launches main.py's Stop path; these tests check recording only."""
+    monkeypatch.setattr("src.owner_switch.app.start_stop_path", lambda: None)
+
+
 @pytest.fixture
 def switch(tmp_path):
     token_file = tmp_path / "token"

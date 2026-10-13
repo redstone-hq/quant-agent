@@ -17,6 +17,9 @@ import logging
 import os
 import sqlite3
 import stat
+import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,23 +143,36 @@ def _parse_action(body: bytes) -> str | None:
     return word if isinstance(word, str) and word in ACTIONS else None
 
 
-def stop_broker():
-    """The broker the switch cancels through on Stop: keys from its environment (.env).
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-    Paper/live comes from settings.yaml `alpaca.paper`, read without credential
-    resolution. Missing keys raise, which `cancel_resting_at_stop` reports to
-    the owner as a cancel failure rather than passing silently.
+
+def _stop_path_command() -> list:
+    """main.py's one-shot entry: its first act is the credentialed Stop path.
+
+    `--mode daily` is the P&L export; while Stop is in force main.py never
+    reaches it -- `_exit_if_owner_stopped` picks up this Stop, cancels resting
+    unfilled entries (owner_intents.honour_stop) and exits OWNER_STOP_EXIT.
+    The switch reaches the broker only through that entry, never directly.
     """
-    import yaml
+    return [sys.executable, str(REPO_ROOT / "main.py"), "--mode", "daily"]
 
-    from src.execution.broker import AlpacaBroker
 
-    key, secret = os.environ.get("ALPACA_API_KEY", ""), os.environ.get("ALPACA_SECRET_KEY", "")
-    if not key or not secret:
-        raise ConfigError("ALPACA_API_KEY / ALPACA_SECRET_KEY not in the owner switch environment")
-    cfg = yaml.safe_load((Path.cwd() / "config" / "settings.yaml").read_text()) or {}
-    paper = (cfg.get("alpaca") or {}).get("paper", True) is not False
-    return AlpacaBroker(api_key=key, secret_key=secret, paper=paper)
+def _run_stop_path() -> None:
+    """Run the Stop path now; anything but a clean Stop exit tells the owner to cancel by hand."""
+    from src.owner_intents import record_stop_cancel_failure
+
+    try:
+        rc = subprocess.run(_stop_path_command(), cwd=REPO_ROOT, capture_output=True, check=False).returncode
+    except Exception as exc:  # noqa: BLE001 - recorded and alerted; the Stop itself is recorded
+        record_stop_cancel_failure(exc, None)
+        return
+    if rc != os.EX_TEMPFAIL:
+        record_stop_cancel_failure(RuntimeError(f"desk Stop path exited {rc}, not the Stop exit"), None)
+
+
+def start_stop_path() -> None:
+    """Cancel resting entries for a just-recorded Stop without holding the phone's request open."""
+    threading.Thread(target=_run_stop_path, name="owner-stop-cancel", daemon=False).start()
 
 
 def _record(db_path: str, stored_action: str) -> int:
@@ -204,16 +220,6 @@ def handle_post(settings: Settings, path: str, headers, body: bytes) -> Response
     if ACTIONS[word] == STOP:
         # Cancel resting UNFILLED entries now, by the process that recorded the
         # Stop: the Stop gate holds no broker credentials and skips every unit
-        # while stopped. Any fault alerts the owner (src/owner_intents.py).
-        from src.owner_intents import cancel_resting_at_stop
-
-        result = cancel_resting_at_stop(stop_broker)
-        if result is None or result.faults:
-            return _json(
-                200,
-                ok=True,
-                action=word,
-                intent=intent_id,
-                note="Stop recorded, but some unfilled orders could not be cancelled: cancel them at the broker",
-            )
+        # while stopped. Any failure alerts the owner (src/owner_intents.py).
+        start_stop_path()
     return _json(200, ok=True, action=word, intent=intent_id, note="recorded; the desk acts on it at its next pickup")
