@@ -288,3 +288,46 @@ def test_partially_filled_then_canceled_stop_counts_its_filled_shares(db):
     fact, row = _facts_and_heat(db, _pos("PC", 150, 55.0, 62.0), live_stop=53.0)
     # 1050 / (1300 x 150/200)
     assert fact["r_multiple"] == pytest.approx(1.08) and row.r_multiple == pytest.approx(1.08)
+
+
+def test_grouper_counts_a_partially_filled_canceled_stop_so_a_fresh_buy_opens_its_own_position():
+    """Buy 100, TRAIL_STOP fills 40 then is canceled, sell 60, buy 50 fresh.
+
+    The book went flat after the sell, so the fresh 50 is a NEW position whose
+    1R is its own $10/share. Defect: the grouper kept its running share total
+    with the NARROWER (realized-exit) stop rule, still saw 40 shares held, put
+    the fresh 50 into the old position, and the open-R check then balanced
+    (150 in, 100 out, 50 held) and returned 1R = $36.67 — ~3.7x too small.
+    """
+    from src.quantities import held_position_risk
+    from src.storage.trades.position_chain import _assign_position_ids
+
+    def row(i, action, qty, price, stop=None, fill_status="filled", fill_qty=None):
+        return {
+            "id": i,
+            "symbol": "PCB",
+            "action": action,
+            "qty": qty,
+            "price": price,
+            "fill_price": price,
+            "fill_qty": qty if fill_qty is None else fill_qty,
+            "fill_status": fill_status,
+            "stop_loss": stop,
+            "initial_stop_loss": stop,
+            "position_id": None,
+        }
+
+    rows = [
+        row(1, "BUY", 100, 100.0, stop=50.0),
+        row(2, "TRAIL_STOP", 100, 55.0, fill_status="canceled", fill_qty=40),
+        row(3, "SELL", 60, 70.0),
+        row(4, "BUY", 50, 60.0, stop=50.0),
+    ]
+    ids = _assign_position_ids(rows)
+    assert ids[1] is not None and ids[1] == ids[2] == ids[3]
+    assert ids[4] is not None and ids[4] != ids[1]
+
+    chain = [r for r in rows if ids[r["id"]] == ids[4]]
+    risk, reason = held_position_risk(chain, 50)
+    assert reason == "ok"
+    assert risk / 50 == pytest.approx(10.0)

@@ -151,3 +151,46 @@ def trail_stop_reduced_position(row, action: str) -> bool:
     if executed > 0:
         return True
     return is_filled_trail_stop(row, "TRAIL_STOP")
+
+
+def executed_qty(row) -> float:
+    """Shares this row actually moved: the reconciled `fill_qty` when one was
+    recorded, otherwise the requested `qty`. The ONE share-quantity reader for
+    share counting (position grouping, open-R lots, the chain-flat check)."""
+    try:
+        fill = float(row.get("fill_qty") or 0)
+    except (TypeError, ValueError):
+        fill = 0.0
+    if fill > 0:
+        return fill
+    try:
+        return float(row.get("qty") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def share_change(row) -> str | None:
+    """SHARE-COUNTING rule: "in" (an opening lot), "out" (a share-reducing exit)
+    or None (moves no shares of the position). The ONE answer to "did shares
+    leave", used by the position grouper, the open-R lot check and the API's
+    chain-flat check alike.
+
+    Classified by ACTION, never by the mere presence of a quantity. A TRAIL_STOP
+    row is written for the FULL position at every stop move with no fill; it is
+    protection sitting there, and counts as "out" only under
+    `trail_stop_reduced_position` — which includes a stop that filled partially
+    and was then canceled (its `fill_qty` shares are gone; `executed_qty`
+    prefers that fill). Every other action (HOLD, SWEEP_*, records) is None.
+
+    Says nothing about whether the row EXECUTED: callers that see unexecuted
+    rows (a canceled SELL, a rejected BUY) must also apply their executed-trade
+    test; the open-R reader's rows are already filtered by it.
+    """
+    action = str(row.get("action") or "").upper()
+    if action in POSITION_OPEN_ACTIONS:
+        return "in"
+    if action == "TRAIL_STOP":
+        return "out" if trail_stop_reduced_position(row, action) else None
+    if is_position_exit_action(action):
+        return "out"
+    return None

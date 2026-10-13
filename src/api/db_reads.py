@@ -31,6 +31,13 @@ from zoneinfo import ZoneInfo
 from src.api.deps import get_db_path
 from src.api.holding_entry_evidence import entry_evidence
 from src.data_paths import alerting_dir
+from src.trade_actions import (
+    POSITION_EXIT_ACTIONS,
+    POSITION_EXIT_PREFIXES,
+    POSITION_OPEN_ACTIONS,
+    executed_qty,
+    share_change,
+)
 from src.trading_calendar import et_today
 
 ET = ZoneInfo("America/New_York")
@@ -316,35 +323,16 @@ def get_trades(
             conn.close()
 
 
-#: Mirrors `_POSITION_OPEN_ACTIONS` / `_POSITION_EXIT_ACTIONS` /
-#: `_POSITION_EXIT_PREFIXES` in src/storage/db.py exactly — see that module
-#: for why each entry is here (SWEEP_BUY/SWEEP_SELL are deliberately absent,
-#: the cash-sweep vehicle has no thesis to chain a position around; the COVER
-#: family joined on 2026-08-31 when shorts started chaining exactly as longs
-#: do). Duplicated rather than imported: this file must never import the
-#: write-capable `Database` class (see module docstring and
-#: tests/test_api_safety.py) — position_id ITSELF is read straight off the
-#: row (already persisted by the writer), this vocabulary is only needed here
-#: to work out whether a chain has gone flat yet.
-_POSITION_OPEN_ACTIONS = frozenset({"BUY", "SHORT"})
-_POSITION_EXIT_ACTIONS = frozenset(
-    {
-        "EMERGENCY_SELL",
-        "EMERGENCY_COVER",
-        "FORCE_DELEVER",
-        "REDUCE",
-        "TAKE_PROFIT",
-        "STOP_OUT",
-        "TRAIL_STOP",
-        # RECONCILED_EXIT (item 173(a)): a broker-side exit the reconciler wrote
-        # back but could not prove was a protective stop. The writer counts it as
-        # a real closed lot (_EITHER_SIDE_EXIT_ACTIONS in src/storage/db.py), so
-        # the reader MUST subtract it too — otherwise a position the broker
-        # actually closed reports "open" forever in get_position_history.
-        "RECONCILED_EXIT",
-    }
-)
-_POSITION_EXIT_PREFIXES = ("SELL", "PARTIAL_SELL", "COVER", "PARTIAL_COVER")
+#: The trades.action vocabulary and the share-counting rule come from
+#: src/trade_actions.py — pure, storage-free, so importing it never pulls in
+#: the write-capable `Database` class (see module docstring and
+#: tests/test_api_safety.py). One definition shared with the writer's
+#: position grouper, so this reader can never call a chain flat while the
+#: writer still thinks shares are held (or the reverse). The private names are
+#: aliases (the SAME objects), kept for tests/test_exit_vocab_mirror.py.
+_POSITION_OPEN_ACTIONS = POSITION_OPEN_ACTIONS
+_POSITION_EXIT_ACTIONS = POSITION_EXIT_ACTIONS
+_POSITION_EXIT_PREFIXES = POSITION_EXIT_PREFIXES
 
 
 def get_position_history(position_id: str) -> dict | None:
@@ -358,7 +346,7 @@ def get_position_history(position_id: str) -> dict | None:
 
     No new writes: every field here already lives on the `trades` rows this
     reads (see `Database.insert_trade` / `_assign_position_ids` in
-    src/storage/db.py, which minted/inherited `position_id` and stamped
+    src/storage/trades/position_chain.py, which minted/inherited `position_id` and stamped
     `realized_pnl` at write time) — this function only orders and sums them.
 
     Returns None when no trade carries this position_id — the route turns
@@ -376,29 +364,22 @@ def get_position_history(position_id: str) -> dict | None:
         rows = [dict(r) for r in rows]
         entry = rows[0]
 
-        # Same net-qty accounting `_assign_position_ids` uses to decide when
-        # a chain closes (an entry — BUY or SHORT — adds executed qty, a
-        # recognized exit-family action subtracts it; a TRAIL_STOP only
-        # counts once actually FILLED) — reused here only to answer "is this
-        # chain flat yet", not to re-derive any id. A short's qty counts up
-        # and down exactly as a long's does; direction is never negated here.
+        # The same share-counting rule `_assign_position_ids` uses to decide
+        # when a chain closes (src/trade_actions.py `share_change`: an entry
+        # adds executed qty, a share-reducing exit subtracts it — a TRAIL_STOP
+        # counts for the shares it actually filled, including a partial fill
+        # later canceled). This asks "are any shares left", not "is there a
+        # priced realized exit". A short's qty counts up and down exactly as a
+        # long's does; direction is never negated here.
         net = 0.0
         for r in rows:
             if not is_executed_trade(r):
                 continue
-            action = (r.get("action") or "").upper()
-            qty = float(r.get("fill_qty") or r.get("qty") or 0)
-            if action in _POSITION_OPEN_ACTIONS:
-                net += qty
-                continue
-            if action not in _POSITION_EXIT_ACTIONS and not action.startswith(_POSITION_EXIT_PREFIXES):
-                continue
-            if action == "TRAIL_STOP":
-                status = str(r.get("fill_status") or "").lower()
-                filled = status == "filled" or (status == "" and float(r.get("fill_qty") or 0) > 0)
-                if not filled:
-                    continue
-            net -= qty
+            change = share_change(r)
+            if change == "in":
+                net += executed_qty(r)
+            elif change == "out":
+                net -= executed_qty(r)
         is_closed = net <= 1e-6
 
         exit_row = rows[-1] if (is_closed and len(rows) > 1) else None

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from src.stop_price_classification import classify_stop_price
-from src.trade_actions import POSITION_OPEN_ACTIONS, is_position_exit_action, trail_stop_reduced_position
+from src.trade_actions import POSITION_OPEN_ACTIONS, executed_qty, share_change
 
 __all__ = [
     "ETF_LEVERAGE",
@@ -468,25 +468,10 @@ def open_position_risk_dollars(opens: list[dict], direction: str, held_qty: floa
     return full * min(1.0, held / entered)
 
 
-def _share_change(row: dict) -> str | None:
-    """ "in" (an executed opening lot), "out" (an executed share-reducing fill) or None.
-
-    Classified by ACTION via `src/trade_actions.py`, never by the mere presence
-    of a quantity. A TRAIL_STOP row is written for the FULL position at every
-    stop move with no fill; it is protection sitting there, and counts as "out"
-    only under the SHARE-COUNTING rule `trail_stop_reduced_position` — which
-    includes a stop that filled partially and was then canceled (its
-    `fill_qty` shares are gone; `_executed_qty` prefers that fill). Every
-    other action (HOLD, SWEEP_*, records) changes no shares of this position.
-    """
-    action = str(row.get("action") or "").upper()
-    if action in _OPEN_ACTIONS:
-        return "in"
-    if action == "TRAIL_STOP":
-        return "out" if trail_stop_reduced_position(row, action) else None
-    if is_position_exit_action(action):
-        return "out"
-    return None
+#: The share-counting rule ("in" / "out" / None) and the executed share
+#: quantity are defined ONCE in src/trade_actions.py, shared with the position
+#: grouper so the two can never disagree about whether shares left the book.
+_share_change = share_change
 
 
 def held_position_risk(
@@ -558,19 +543,7 @@ def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -
     return [dict(r) for r in rows]
 
 
-def _executed_qty(row: dict) -> float:
-    """Shares this row actually moved. Prefers the reconciled fill over the
-    requested quantity, mirroring `compute_trade_calibration`."""
-    try:
-        fill = float(row.get("fill_qty") or 0)
-    except (TypeError, ValueError):
-        fill = 0.0
-    if fill > 0:
-        return fill
-    try:
-        return float(row.get("qty") or 0)
-    except (TypeError, ValueError):
-        return 0.0
+_executed_qty = executed_qty  # defined once in src/trade_actions.py
 
 
 def _executed_price(row: dict) -> float:
@@ -587,7 +560,7 @@ def _executed_price(row: dict) -> float:
 
 
 #: Opening actions, mapped to the direction the position carries. Both sides
-#: are live: `_assign_position_ids` (src/storage/db.py) mints a chain on a
+#: are live: `_assign_position_ids` (src/storage/trades/position_chain.py) mints a chain on a
 #: SHORT exactly as it does on a BUY, and a COVER retires it exactly as a SELL
 #: retires a long (owner decision, 2026-08-31 — shorts count identically to
 #: longs). The `qty` this function returns is NEGATIVE for a short, which is

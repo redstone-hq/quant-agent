@@ -16,8 +16,10 @@ from src.trade_actions import POSITION_OPEN_ACTIONS as _POSITION_OPEN_ACTIONS
 from src.trade_actions import SHORT_EXIT_ACTIONS as _SHORT_EXIT_ACTIONS
 from src.trade_actions import SHORT_EXIT_PREFIXES as _SHORT_EXIT_PREFIXES
 from src.trade_actions import exit_action_side as _exit_action_side
+from src.trade_actions import executed_qty as _executed_qty
 from src.trade_actions import is_filled_trail_stop as _is_filled_trail_stop
 from src.trade_actions import is_position_exit_action as _is_position_exit_action
+from src.trade_actions import share_change as _share_change
 from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position
 
 
@@ -117,8 +119,13 @@ def _assign_position_ids(rows: list[dict]) -> dict[int, str | None]:
             continue
 
         executed = _row_counts_as_executed(action, row.get("fill_status"), row.get("fill_qty"))
-        qty = float(row.get("fill_qty") if row.get("fill_qty") else row.get("qty") or 0)
-        filled_trail = action == "TRAIL_STOP" and _is_filled_trail_stop(row, action)
+        # Shares moved, by the ONE share-counting rule the open-R lot check also
+        # uses (src/trade_actions.py): a TRAIL_STOP that filled partially and was
+        # then canceled took its fill_qty out of the book, so it must close the
+        # chain here too — else a fresh BUY after the book went flat joins the
+        # old position and that position's 1R comes out too small.
+        qty = _executed_qty(row)
+        shares_left = executed and _share_change(row) == "out"
         chain_open = current_group is not None and current_net > 1e-6
 
         if is_open:
@@ -154,10 +161,7 @@ def _assign_position_ids(rows: list[dict]) -> dict[int, str | None]:
                 groups.append([row])
                 continue
             current_group.append(row)
-            if action == "TRAIL_STOP":
-                if executed and filled_trail:
-                    current_net -= qty
-            elif executed:
+            if shares_left:
                 current_net -= qty
             if current_net <= 1e-6:
                 current_group = None
