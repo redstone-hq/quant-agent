@@ -2163,7 +2163,7 @@ def _age_latch(path: str, minutes: float) -> None:
         )
 
 
-def _freeze_et_day(monkeypatch) -> None:
+def _freeze_et_day(freeze_clock) -> None:
     """Pin `_et_day_and_utc_bounds` to one instant for the rest of the test.
 
     Several self-clear tests derive "today" from the real wall clock more
@@ -2183,7 +2183,7 @@ def _freeze_et_day(monkeypatch) -> None:
 
     today = datetime.now(timezone.utc).astimezone(_ET).date()
     pinned = datetime.combine(today, _time(12, 0), tzinfo=_ET).astimezone(timezone.utc)
-    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    freeze_clock(pinned)
 
 
 def _utc_stamp_on_et_day(et_day: str) -> str:
@@ -2431,8 +2431,9 @@ def _latch_on_failed_call(
 def test_transient_latch_self_clears_once_the_cooldown_has_elapsed(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path)
 
@@ -2462,6 +2463,7 @@ def test_transient_latch_self_clears_once_the_cooldown_has_elapsed(
 def test_auto_clear_alerts_the_owner_on_the_same_surface_as_the_suspension(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Item 174: the suspension reaches Telegram, but the auto-expiry used to
     write only an `auto_reset` DB event and a log line -- so the owner saw
@@ -2469,7 +2471,7 @@ def test_auto_clear_alerts_the_owner_on_the_same_surface_as_the_suspension(
     same-surface owner alert, stating the desk resumed and why (auto-expiry),
     while keeping the DB event and the log.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
     circuit = _latch_on_failed_call(path, notifier=notifier)
@@ -2507,11 +2509,12 @@ def test_auto_clear_alerts_the_owner_on_the_same_surface_as_the_suspension(
 def test_auto_clear_resume_alert_retries_after_a_telegram_outage(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """A failed send leaves the resume alert PENDING (state 0), not lost, so
     the next boundary tries again -- the durable-retry posture the quota
     recovery alert already has, applied to item 174."""
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path, notifier=_Notifier())
     _age_latch(path, 16)
@@ -2567,8 +2570,9 @@ def test_transient_latch_does_not_clear_on_a_backwards_clock(tmp_path):
 def test_self_clear_erases_no_settled_spend_and_raises_no_cap(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
     config = _cooldown_config(daily_cost_limit_usd=20.0, session_cost_limit_usd=10.0)
@@ -2787,10 +2791,11 @@ def test_an_unknown_row_of_another_provenance_blocks_the_self_clear(tmp_path):
 def test_legacy_unknown_cost_from_failed_call_rows_self_clears(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """The 2026-09-16 recurrence: the SAME defect surfaces under the
     downstream code once the day is inexact. It must expire the same way."""
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path)
     with sqlite3.connect(path) as conn:
@@ -2801,10 +2806,10 @@ def test_legacy_unknown_cost_from_failed_call_rows_self_clears(
     assert circuit.status()["suspended"] is False
 
 
-def test_the_daily_auto_clear_allowance_is_finite(tmp_path, monkeypatch):
+def test_the_daily_auto_clear_allowance_is_finite(tmp_path, monkeypatch, freeze_clock):
     """A fault that keeps recurring is not transient. Past the allowance the
     next occurrence latches durably and waits for a human."""
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     config = _cooldown_config(max_transient_latch_auto_clears_per_day=2)
     notifier = _Notifier()
@@ -2999,6 +3004,7 @@ def test_a_corrupt_failed_call_counter_refuses_instead_of_escalating(tmp_path):
 def test_the_self_clear_leaves_the_session_row_as_the_record(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Strictly weaker than the operator path, on purpose.
 
@@ -3006,7 +3012,7 @@ def test_the_self_clear_leaves_the_session_row_as_the_record(
     marked them exact. That enforced nothing, and made the dashboard's
     per-run cost report a by-construction-unknown figure as exact.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path)
 
@@ -3061,6 +3067,7 @@ def test_the_cooldown_is_the_midpoint_of_one_paid_run_gap(tmp_path):
 def test_the_self_clear_leaves_another_days_failed_session_alone(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Guards the deleted `llm_budget_sessions` write for real.
 
@@ -3073,7 +3080,7 @@ def test_the_self_clear_leaves_another_days_failed_session_alone(
     `_canonical_run_cost` reports a definite dollar figure for a run once
     `costs_exact` flips to 1.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path)
     day, _, _ = _et_day_and_utc_bounds()
@@ -3143,6 +3150,7 @@ def test_schema_migration_adds_recovery_alert_timestamp_on_an_old_db(tmp_path):
 def test_resume_is_not_announced_for_a_suspension_the_owner_never_received(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Item 174 pairing: the resume note must be PAIRED to a suspension note.
 
@@ -3153,7 +3161,7 @@ def test_resume_is_not_announced_for_a_suspension_the_owner_never_received(
     told about, which reads as the desk having been down without telling him.
     The honest state is that, from his side, nothing happened: neither note.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
 
     class _Down:
@@ -3184,11 +3192,11 @@ def test_resume_is_not_announced_for_a_suspension_the_owner_never_received(
         )
 
 
-def test_resume_alert_states_what_resumed_when_and_why(tmp_path, monkeypatch):
+def test_resume_alert_states_what_resumed_when_and_why(tmp_path, monkeypatch, freeze_clock):
     """Item 174 content: never a bare status word, and every number in the
     message read from the `auto_reset` event row, not recomputed at send time.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
     circuit = _latch_on_failed_call(path, notifier=notifier)
@@ -3221,13 +3229,13 @@ def test_resume_alert_states_what_resumed_when_and_why(tmp_path, monkeypatch):
     assert "remain enforced" in message
 
 
-def test_rehearsal_sends_no_resume_alert_to_the_owner(tmp_path, monkeypatch, caplog):
+def test_rehearsal_sends_no_resume_alert_to_the_owner(tmp_path, monkeypatch, caplog, freeze_clock):
     """QAMC_REHEARSAL=1 must suppress every outbound notification, including
     this one -- a rehearsal alert is indistinguishable from a real one in the
     owner's chat, which is worse than sending nothing."""
     from src.notifier import TelegramNotifier
 
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "sentinel-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "sentinel-chat")
     monkeypatch.delenv("TELEGRAM_DISABLED", raising=False)
@@ -3508,6 +3516,7 @@ def test_smart_money_cache_hit_reports_zero_cost_not_unknown():
 def test_a_latch_that_self_clears_inside_its_window_pages_nobody(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """The weekend defect, end to end.
 
@@ -3516,7 +3525,7 @@ def test_a_latch_that_self_clears_inside_its_window_pages_nobody(
     expires inside the circuit's own self-clear window must now produce no
     owner message at either edge -- and must still be fully recorded.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
     circuit = _latch_on_failed_call(path, notifier=notifier, durable=False)
@@ -3540,9 +3549,10 @@ def test_a_latch_that_self_clears_inside_its_window_pages_nobody(
 def test_the_deferral_is_written_once_per_latch_not_once_per_check(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Moving the noise into the database would not be a fix."""
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = _latch_on_failed_call(path, durable=False)
 
@@ -3559,9 +3569,10 @@ def test_the_deferral_is_written_once_per_latch_not_once_per_check(
 def test_the_durable_page_and_the_resume_both_carry_the_episode(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Duration and flap count, on both edges of a DURABLE episode."""
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
     circuit = _latch_on_failed_call(path, notifier=notifier)
@@ -3577,14 +3588,14 @@ def test_the_durable_page_and_the_resume_both_carry_the_episode(
     assert "self-cleared" in resumed
 
 
-def test_a_trigger_needing_an_operator_is_never_held(tmp_path, monkeypatch):
+def test_a_trigger_needing_an_operator_is_never_held(tmp_path, monkeypatch, freeze_clock):
     """Deferring is only ever right where the circuit itself might clear the
     latch. A code outside `_SELF_CLEARING_HARD_TRIGGERS` has no window to
     expire inside, so holding its alert would only delay a page that has to
     happen -- and an unreadable or missing stamp errs the same way."""
     from src.cost_circuit import _SELF_CLEARING_HARD_TRIGGERS
 
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     circuit = LLMCostCircuitBreaker(path, _cooldown_config(), _Notifier())
     fresh = "2999-01-01 00:00:00"
@@ -3742,6 +3753,7 @@ def test_pre_existing_operator_resets_are_not_re_announced(tmp_path):
 def test_a_relatch_of_the_same_fault_in_one_episode_pages_the_owner_once(
     tmp_path,
     monkeypatch,
+    freeze_clock,
 ):
     """Item 211 defect 1. The first coalescing attempt keyed suppression to
     the self-clear WINDOW, which is a duration and the wrong quantity: on
@@ -3757,7 +3769,7 @@ def test_a_relatch_of_the_same_fault_in_one_episode_pages_the_owner_once(
     Fails on the old behaviour: the second durable latch sent a second
     "SUSPENDED" note.
     """
-    _freeze_et_day(monkeypatch)
+    _freeze_et_day(freeze_clock)
     path = _db_path(tmp_path)
     notifier = _Notifier()
 

@@ -54,7 +54,7 @@ def _stored_stamps(path: str) -> dict[str, set[str]]:
     return stamps
 
 
-def test_every_stored_time_column_is_the_frozen_desk_clock(monkeypatch, tmp_path):
+def test_every_stored_time_column_is_the_frozen_desk_clock(freeze_clock, tmp_path):
     path = str(tmp_path / "circuit.db")
     # Schema built under the real clock, as every deployed database was.
     db = Database(path)
@@ -62,7 +62,7 @@ def test_every_stored_time_column_is_the_frozen_desk_clock(monkeypatch, tmp_path
     db.conn.close()
     before_freeze = _stored_stamps(path)  # the singleton state row, dated by the real clock
 
-    monkeypatch.setattr(trading_calendar, "utc_now", lambda: FROZEN)
+    freeze_clock(FROZEN)
 
     circuit = LLMCostCircuitBreaker(path, _config(), SimpleNamespace(send=lambda *a, **k: True))
     circuit.activate_session("run-frozen", "morning")
