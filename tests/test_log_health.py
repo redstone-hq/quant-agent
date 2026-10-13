@@ -683,7 +683,13 @@ def test_an_owner_accepted_family_says_so_and_stays_hurt():
 
 def test_the_accepted_dollars_are_read_from_the_log_line():
     ts = WIDE_END - timedelta(hours=1)
-    rec = L.LogRecord(ts, "WARNING", "x", "OVERNIGHT FRACTIONAL EXPOSURE: 2 position(s) carrying a sub-share remainder with no live stop until the next session — $41.07 total at risk. Expected and bounded by design")
+    rec = L.LogRecord(
+        ts,
+        "WARNING",
+        "x",
+        "OVERNIGHT FRACTIONAL EXPOSURE: 2 position(s) carrying a sub-share remainder with no live stop "
+        "until the next session — $41.07 total at risk. Expected and bounded by design",
+    )
     report = L.analyse([rec], WIDE_START, WIDE_END)
     assert report.findings[0].dollars_uncovered == 41.07
 
