@@ -305,7 +305,6 @@ class ReprotectResidual:
                 symbol=symbol,
                 qty=residual_qty,
                 stop_price=best_stop,
-                limit_price=None,
                 side=side,
             )
         except Exception as exc:  # noqa: BLE001

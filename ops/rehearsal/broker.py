@@ -278,26 +278,37 @@ class RehearsalTradingClient(LoudStandIn, AmendEndpoint):
         all of them at open — noise that also hides a real coverage gap.
         These are marked `pre_existing` so the report can tell what the
         session placed from what it inherited.
+
+        Each is a stop-MARKET with no limit price, split and timed exactly as
+        the live broker places one: a GTC leg over the whole shares and a DAY
+        leg over any sub-share remainder (owner ruling 2026-09-25; the
+        stop-limit fallback was deleted 2026-10-13).
         """
+        from src.execution.order_gates import _derive_stop_tif, _split_protective_qty
+
         held = {str(p["symbol"]): float(p.get("qty") or 0.0)
                 for p in self._snapshot.positions}
         for symbol, stop in sorted(self._snapshot.standing_stops.items()):
             qty = held.get(symbol, 0.0)
             if qty <= 0:
                 continue
-            order_id = f"pre-existing-stop-{symbol}"
-            self._orders[order_id] = RecordedOrder(
-                order_id=order_id,
-                symbol=symbol,
-                side="sell",
-                qty=qty,
-                order_type="stop_limit",
-                limit_price=round(stop * 0.97, 2),
-                stop_price=stop,
-                time_in_force="gtc",
-                submitted_at=now,
-                status="pre_existing",
-            )
+            whole, frac = _split_protective_qty(qty)
+            legs = [(f"pre-existing-stop-{symbol}-day", frac)] if frac > 0 else []
+            if whole >= 1:
+                legs.append((f"pre-existing-stop-{symbol}", whole))
+            for order_id, leg_qty in legs:
+                self._orders[order_id] = RecordedOrder(
+                    order_id=order_id,
+                    symbol=symbol,
+                    side="sell",
+                    qty=leg_qty,
+                    order_type="stop",
+                    limit_price=None,
+                    stop_price=stop,
+                    time_in_force=_derive_stop_tif(leg_qty).value,
+                    submitted_at=now,
+                    status="pre_existing",
+                )
 
     # -- account / positions ------------------------------------------------
 

@@ -112,7 +112,7 @@ class HoldingBroker:
         self.calls.append(("cancel", oid))
         self.orders[oid].status = "pending_cancel" if self.pending else "canceled"
 
-    def submit_stop(self, symbol, qty, stop_price, limit_price=None, *, side="sell"):
+    def submit_stop(self, symbol, qty, stop_price, *, side="sell"):
         self.calls.append(("submit", float(qty), side))
         if self.refuse_submits:
             self.refuse_submits -= 1

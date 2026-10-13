@@ -111,7 +111,6 @@ def test_protective_stop_placement_refuses_garbage_without_retrying(
             symbol="X",
             qty=10,
             stop_price=bad,
-            limit_price=None,
             side="sell",
         )
         is None
