@@ -40,6 +40,7 @@ from pathlib import Path  # noqa: F401 -- re-exported
 
 from src.intraday_scan_outcome import failed_scan_result  # noqa: F401 -- re-exported
 from src.trading_calendar import session_date_key  # noqa: F401 -- re-exported
+from src.trading_calendar import utc_now
 # --- end mirror block ---
 
 #: The moved code logged under `src.pipeline` before the move and still does;
@@ -70,11 +71,6 @@ class _HostState:
 #: intraday tech batch was $0.1237169 [same source, 139 calls]. Ledgered in
 #: config/number_ledger.yaml.
 _NAMES_PER_PAID_CALL = 5
-
-
-def _utcnow() -> datetime:
-    """The clock the PM cadence gate reads (a seam so tests can move time)."""
-    return datetime.now(timezone.utc)
 
 
 def _shim(fn):
@@ -279,11 +275,9 @@ class IntradayScanBody:
                         f"at most one per {cfg.pm_min_interval_minutes:.0f} min"
                     ),
                 )
-            result = self._intraday_scan_call(ctx, [], snapshots, include_holds=True)
-            if isinstance(result, dict):
-                result["pm_call_skipped"] = "pm_cadence"
-                result["candidates"] = mover_names
-            return result
+            # Held-book check only; the decision record carries skipped:pm_cadence.
+            ctx.pm_skip_reason = "pm_cadence"
+            return self._intraday_scan_call(ctx, [], snapshots, include_holds=True)
 
         # Owner ruling 2026-10-12: "Later batches are weaker moves. So why
         # send them at all?" ONE paid call per check: the strongest-ranked
@@ -332,7 +326,7 @@ class IntradayScanBody:
         last = datetime.fromisoformat(stamp)
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)  # SQLite datetime('now') is UTC
-        return (_utcnow() - last).total_seconds() / 60.0
+        return (utc_now() - last).total_seconds() / 60.0
 
     def _intraday_scan_call(self, ctx: RunContext, candidates, snapshots, *, include_holds: bool) -> dict:
         """One paid call's worth of ranked movers through Tech -> PM -> RM -> execution.
@@ -644,7 +638,8 @@ class IntradayScanBody:
             return gate_skip
 
         if held_only:
-            ctx.pm_skip_reason = "intraday_no_movers"
+            # A skip reason set by the caller (the hourly paid-call cadence) stands.
+            ctx.pm_skip_reason = getattr(ctx, "pm_skip_reason", None) or "intraday_no_movers"
         # Owner ruling 2026-10-12 (approved): no paid PM buy call when the
         # account has no room to open any new position. Same headroom
         # execution sizes against, same minimum-risk floor at each mover's

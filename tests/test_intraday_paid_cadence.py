@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import time_machine
+
 from src.pipeline_context import RunContext
 from src.storage.db import Database
 from tests.test_intraday_no_paid_call_when_full import _EQUITY, _book, _ceiling, _ta_log
@@ -66,11 +68,12 @@ def _check(db_path: str, now: datetime) -> dict:
     ctx.cash = 0.0
     ctx.deployable_cash = 0.0
     with (
-        patch("src.pipeline_intraday._utcnow", return_value=now),
+        time_machine.travel(now, tick=False),
         patch("src.pipeline_intraday.compute_indicators", return_value=MagicMock()),
         patch("src.pipeline_candidate_records._persist_evidence"),
     ):
         seen["result"] = p._run_intraday_opportunity_scan(ctx)
+    seen["skip_reason"] = getattr(ctx, "pm_skip_reason", None)
     real_db.conn.close()
     return seen
 
@@ -85,7 +88,7 @@ def test_paid_call_at_t_skipped_at_half_hour_and_back_at_the_hour_across_restart
     half = _check(db_path, _T0 + timedelta(minutes=30))
     assert half["pm_calls"] == 0
     assert half["held_book_reviews"] == 1
-    assert half["result"]["pm_call_skipped"] == "pm_cadence"
+    assert half["skip_reason"] == "pm_cadence"
 
     hour = _check(db_path, _T0 + timedelta(minutes=60))
     assert hour["pm_calls"] == 1
