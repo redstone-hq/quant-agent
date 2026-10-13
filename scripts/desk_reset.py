@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Daily desk reset — flatten the paper book and clear contaminated history.
 
-The owner resets the desk every day until the trade logic stabilises. That
-makes this a tool, not a remembered incantation: it is dry-run by default,
+Deleting trading history is NOT a routine daily wipe. Since 9 Oct 2026 the
+owner's ruling is to exclude history rather than delete it, so every
+--execute needs the owner's explicit yes, recorded by passing
+--owner-approved; without it the tool refuses. It is dry-run by default,
 it refuses to touch a live account, it backs up before it deletes, and it
 prints a before/after summary you can paste into a log.
 
@@ -10,7 +12,7 @@ prints a before/after summary you can paste into a log.
     ./scripts/desk_reset.py
 
     # Do it:
-    ./scripts/desk_reset.py --execute
+    ./scripts/desk_reset.py --execute --owner-approved
 
 WHAT IT DOES
     1. Proves the account is a PAPER account (four independent checks,
@@ -112,8 +114,7 @@ CLEAR_TABLES = (
     "soft_exit_heal_restores",  # exit-protection repairs on the old book
     "trend_exit_tick_checks",  # per-symbol exit state on the old book
     "realised_sector_weights",  # sector weights derived from the old book
-    "reconciliation_runs",  # broker-vs-local comparisons of the old book
-    "margin_interest_daily",  # financing cost of the old book (P&L ledger)
+    "realised_risk_budget",  # risk budget derived from the old book
     "evening_reports",  # evening report grading the old trades
     "session_reports",  # session report on the old book
     "intra_check_reports",  # intraday report on the old book
@@ -130,6 +131,9 @@ KEEP_TABLES = (
     "llm_circuit_state",
     "llm_circuit_events",
     "llm_quota_holds",
+    "margin_interest_daily",  # locally computed, cannot be fetched again; exclude, don't delete
+    "reconciliation_runs",  # broker-vs-local comparison history; exclude, don't delete
+    "llm_route_events",  # LLM routing/spend telemetry, like agent_logs
     "notifier_sends",  # delivery log of the alert channel (alerting health)
     "fred_fetch_coverage_runs",  # data-provider coverage, not a decision
     "intraday_symbol_health",  # data-feed miss counters + alert timing
@@ -912,6 +916,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", default=None, help="Override the SQLite path (default: storage.db_path)")
     p.add_argument("--backup-root", default=None, help="Where timestamped backups go (default: <db dir>/resets)")
     p.add_argument("--execute", action="store_true", help="Actually do it. Without this the tool only prints a plan.")
+    p.add_argument(
+        "--owner-approved",
+        action="store_true",
+        help="Required with --execute: records the owner's explicit yes to deleting history.",
+    )
     p.add_argument("--yes", action="store_true", help="Skip the interactive confirmation (for scripted use).")
     p.add_argument("--allow-market-open", action="store_true", help="Proceed even though the market is open.")
     p.add_argument(
@@ -942,6 +951,13 @@ def _resolve_db_path(args, cfg) -> Path:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.execute and not args.owner_approved:
+        print(
+            "REFUSING: --execute deletes trading history, which needs the owner's explicit yes. "
+            "Re-run with --owner-approved once the owner has approved this reset.",
+            file=sys.stderr,
+        )
+        return 6
     _load_env_file()
 
     # Loaded lazily: `--skip-broker --db <path>` needs neither the broker

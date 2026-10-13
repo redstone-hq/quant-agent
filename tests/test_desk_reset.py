@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -20,6 +21,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from src import alert_watchdog, llm_route_journal
+from src.storage import risk_budget_record
 from src.storage.db import Database
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -192,8 +195,10 @@ def db_path(tmp_path):
     database.initialize()
     database.conn.close()
     conn = sqlite3.connect(p)
-    # Created lazily by the alert watchdog at runtime, not by initialize().
-    conn.execute("CREATE TABLE IF NOT EXISTS alert_channel_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT)")
+    # Created lazily at runtime, not by initialize(): use each module's own DDL.
+    alert_watchdog.ensure_schema(conn)
+    risk_budget_record.ensure_table(conn)
+    conn.executescript(llm_route_journal._SCHEMA)
     for i in range(45):
         conn.execute("INSERT INTO trades(symbol,action,qty,price) VALUES(?,?,?,?)", (f"S{i}", "BUY", 1.0, 10.0))
     for s in ("CMCSA", "DIS", "MSFT", "RSG", "SGOV", "V"):
@@ -229,7 +234,7 @@ def db_path(tmp_path):
             "INSERT INTO agent_logs(agent_name,run_id,cost_usd) VALUES(?,?,?)", ("tech_analyst", "run-1", 0.01)
         )
     for i in range(50):
-        conn.execute("INSERT INTO alert_channel_checks(channel) VALUES('telegram')")
+        conn.execute("INSERT INTO alert_channel_checks(checked_at,ok,stage) VALUES('2026-09-01T00:00:00',1,'send')")
     conn.execute("INSERT INTO llm_budget_days(day,baseline_cost_usd) VALUES('2026-09-01', 1.5)")
     conn.commit()
     conn.close()
@@ -469,7 +474,7 @@ def test_live_account_refusal_places_no_broker_calls_and_leaves_db_intact(
 
     before = _counts(wired.db_path)
     backup_root = tmp_path / "resets"
-    rc = dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--owner-approved", "--yes"])
 
     assert rc == 3
     assert wired.client.writes == []
@@ -485,7 +490,7 @@ def test_live_endpoint_refusal_places_no_broker_calls(dr, wired, tmp_path):
     ac.TradingClient = lambda *a, **k: wired.client
 
     before = _counts(wired.db_path)
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
     assert rc == 3
     assert wired.client.writes == []
     assert _counts(wired.db_path) == before
@@ -528,7 +533,7 @@ def test_dry_run_prints_every_position_order_and_table(dr, wired, tmp_path, caps
 def test_execute_without_a_tty_requires_yes(dr, wired, tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
     before = _counts(wired.db_path)
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute"])
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved"])
     assert rc == 2
     assert wired.client.writes == []
     assert _counts(wired.db_path) == before
@@ -549,7 +554,7 @@ def test_backup_database_produces_a_readable_identical_copy(dr, db_path, tmp_pat
 def test_execute_backs_up_before_deleting(dr, wired, tmp_path):
     """The backup must hold the PRE-reset rows, not the post-reset ones."""
     backup_root = tmp_path / "resets"
-    rc = dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--owner-approved", "--yes"])
     assert rc == 0
 
     stamps = list(backup_root.iterdir())
@@ -568,7 +573,7 @@ def test_execute_backs_up_before_deleting(dr, wired, tmp_path):
 
 def test_execute_writes_book_snapshots_and_a_manifest(dr, wired, tmp_path):
     backup_root = tmp_path / "resets"
-    dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--yes"])
+    dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--owner-approved", "--yes"])
     stamp_dir = next(iter(backup_root.iterdir()))
 
     before = json.loads((stamp_dir / "book_before.json").read_text())
@@ -621,6 +626,56 @@ def test_plan_classifies_every_table(dr, db_path):
     assert dr.EVIDENCE_TABLE not in cleared and dr.EVIDENCE_TABLE not in kept
 
 
+def _seed_every_table(path, tables):
+    """Put 2 rows in each table, filling NOT NULL columns by declared type."""
+    conn = sqlite3.connect(path)
+    for table in tables:
+        info = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+        if not info or conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]:
+            continue
+        cols = [r for r in info if r[3] or r[5]]  # NOT NULL or part of the primary key
+        ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (table,)).fetchone()[0]
+        for i in range(2):
+            vals = []
+            for _, cname, ctype, _, _, _ in cols:
+                t = (ctype or "").upper()
+                allowed = re.search(rf"\b{re.escape(cname)}\s+IN\s*\(([^)]*)\)", ddl)  # honour CHECK ... IN (...)
+                if allowed:
+                    vals.append(re.findall(r"'([^']*)'", allowed.group(1))[i % 2])
+                else:
+                    vals.append(i + 1 if "INT" in t else float(i + 1) if t in ("REAL", "NUMERIC") else f"v{i}")
+            names = ",".join(f'"{r[1]}"' for r in cols)
+            conn.execute(f'INSERT INTO "{table}"({names}) VALUES({",".join("?" * len(cols))})', vals)
+    conn.commit()
+    conn.close()
+
+
+def test_seeded_rows_cleared_tables_empty_and_kept_tables_intact(dr, wired, tmp_path):
+    present = set(_counts(wired.db_path))
+    classified = [t for t in dr.TABLE_POLICY if t in present and dr.TABLE_POLICY[t] in ("clear", "keep")]
+    _seed_every_table(wired.db_path, classified)
+    before = _counts(wired.db_path)
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
+    assert rc == 0
+    after = _counts(wired.db_path)
+    for table in dr.CLEAR_TABLES:
+        if table in present:
+            assert before[table] > 0, f"{table} was not seeded"
+            assert after[table] == 0, f"{table} should be empty"
+    for table in dr.KEEP_TABLES:
+        if table in present and table != "sqlite_sequence":
+            assert before[table] > 0, f"{table} was not seeded"
+            assert after[table] == before[table], f"{table} must be intact"
+
+
+def test_execute_without_owner_approval_is_refused(dr, wired, tmp_path, capsys):
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    assert rc == 6
+    assert "--owner-approved" in capsys.readouterr().err
+    assert _counts(wired.db_path)["trades"] == 45
+    assert wired.client.writes == []
+
+
 @pytest.fixture
 def db_with_unknown_table(db_path):
     conn = sqlite3.connect(db_path)
@@ -633,7 +688,9 @@ def db_with_unknown_table(db_path):
 
 @pytest.mark.parametrize("execute", [False, True])
 def test_unknown_table_refuses_the_run_and_names_it(dr, wired, db_with_unknown_table, tmp_path, capsys, execute):
-    argv = _base_argv(wired.db_path, tmp_path / "resets") + (["--execute", "--yes"] if execute else [])
+    argv = _base_argv(wired.db_path, tmp_path / "resets") + (
+        ["--execute", "--owner-approved", "--yes"] if execute else []
+    )
     rc = dr.run(argv)
     err = capsys.readouterr().err
     assert rc == 5
@@ -654,7 +711,7 @@ def test_clear_database_refuses_an_unclassified_plan(dr, db_with_unknown_table):
 
 
 def test_execute_clears_only_the_allowlist(dr, wired, tmp_path):
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
     assert rc == 0
     after = _counts(wired.db_path)
 
@@ -673,7 +730,10 @@ def test_evidence_analysis_only_keeps_paid_specialist_observation(
     wired,
     tmp_path,
 ):
-    dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--evidence", "analysis-only"])
+    dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets")
+        + ["--execute", "--owner-approved", "--yes", "--evidence", "analysis-only"]
+    )
 
     conn = sqlite3.connect(wired.db_path)
     try:
@@ -700,12 +760,17 @@ def test_evidence_analysis_only_keeps_paid_specialist_observation(
 
 
 def test_evidence_none_empties_the_table(dr, wired, tmp_path):
-    dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--evidence", "none"])
+    dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets")
+        + ["--execute", "--owner-approved", "--yes", "--evidence", "none"]
+    )
     assert _counts(wired.db_path)["specialist_evidence"] == 0
 
 
 def test_evidence_all_keeps_the_table_intact(dr, wired, tmp_path):
-    dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--evidence", "all"])
+    dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes", "--evidence", "all"]
+    )
     assert _counts(wired.db_path)["specialist_evidence"] == EVIDENCE_KEEP_TOTAL + EVIDENCE_DROP_TOTAL
 
 
@@ -726,7 +791,7 @@ def test_autoincrement_ids_restart_only_for_fully_emptied_tables(
     wired,
     tmp_path,
 ):
-    dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
     conn = sqlite3.connect(wired.db_path)
     try:
         seqs = dict(conn.execute("SELECT name, seq FROM sqlite_sequence"))
@@ -874,7 +939,7 @@ def test_run_refuses_when_the_broker_clock_says_open(dr, wired, tmp_path):
     ac.TradingClient = lambda *a, **k: wired.client
 
     before = _counts(wired.db_path)
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
     assert rc == 4
     assert wired.client.writes == []
     assert _counts(wired.db_path) == before
@@ -905,7 +970,7 @@ def test_flatten_reports_broker_errors_instead_of_raising(dr):
 
 
 def test_execute_flattens_and_summarises(dr, wired, tmp_path, capsys):
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes"])
+    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes"])
     assert rc == 0
     assert "close_all_positions(cancel_orders=True)" in wired.client.writes
     out = capsys.readouterr().out
@@ -930,7 +995,9 @@ def test_a_failed_flatten_does_not_wipe_the_ledger(dr, wired, tmp_path):
 
     before = _counts(wired.db_path)
     backup_root = tmp_path / "resets"
-    rc = dr.run(_base_argv(wired.db_path, backup_root) + ["--execute", "--yes", "--settle-seconds", "0"])
+    rc = dr.run(
+        _base_argv(wired.db_path, backup_root) + ["--execute", "--owner-approved", "--yes", "--settle-seconds", "0"]
+    )
 
     assert rc == 5
     assert _counts(wired.db_path) == before  # ledger intact
@@ -954,7 +1021,7 @@ def test_positions_left_open_with_the_market_open_aborts_the_clear(dr, wired, tm
     before = _counts(wired.db_path)
     rc = dr.run(
         _base_argv(wired.db_path, tmp_path / "resets")
-        + ["--execute", "--yes", "--settle-seconds", "0", "--allow-market-open"]
+        + ["--execute", "--owner-approved", "--yes", "--settle-seconds", "0", "--allow-market-open"]
     )
     assert rc == 5
     assert _counts(wired.db_path) == before
@@ -978,13 +1045,18 @@ def test_positions_queued_with_the_market_closed_still_clears(dr, wired, tmp_pat
 
     ac.TradingClient = lambda *a, **k: wired.client
 
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--settle-seconds", "0"])
+    rc = dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets")
+        + ["--execute", "--owner-approved", "--yes", "--settle-seconds", "0"]
+    )
     assert rc == 0
     assert _counts(wired.db_path)["trades"] == 0
 
 
 def test_skip_broker_leaves_the_book_alone(dr, wired, tmp_path):
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--skip-broker"])
+    rc = dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes", "--skip-broker"]
+    )
     assert rc == 0
     assert wired.client.writes == []
     assert _counts(wired.db_path)["trades"] == 0
@@ -992,7 +1064,9 @@ def test_skip_broker_leaves_the_book_alone(dr, wired, tmp_path):
 
 def test_skip_db_leaves_the_database_alone(dr, wired, tmp_path):
     before = _counts(wired.db_path)
-    rc = dr.run(_base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--yes", "--skip-db"])
+    rc = dr.run(
+        _base_argv(wired.db_path, tmp_path / "resets") + ["--execute", "--owner-approved", "--yes", "--skip-db"]
+    )
     assert rc == 0
     assert _counts(wired.db_path) == before
     assert "close_all_positions(cancel_orders=True)" in wired.client.writes
