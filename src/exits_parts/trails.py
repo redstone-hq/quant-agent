@@ -512,5 +512,12 @@ def _entry_fill_day(owner, opening_row: dict | None, held_qty, symbol: str):
             return None
         return to_et(datetime.fromisoformat(stamp)).date()
     except Exception as e:  # noqa: BLE001 — unknown entry day, never a guess
-        logger.warning("trail: %s entry fill day unknown: %s — chandelier gives no reading", symbol, e)
+        record_exit_guard(
+            owner,
+            "trail.entry_fill_day",
+            e,
+            logger,
+            symbol=symbol,
+            effect="entry day unknown: neither trail leg reads",
+        )
         return None

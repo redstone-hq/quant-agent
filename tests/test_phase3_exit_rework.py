@@ -1022,6 +1022,10 @@ def test_deterministic_trail_places_a_broker_order():
     }
     pipeline.broker.get_current_stop_price.return_value = 95.0
     pipeline._atr_for_symbol = MagicMock(return_value=2.0)
+    # The live holding's opening broker fill, 7 Aug: every 10 Aug bar is after it.
+    pipeline.db.get_position_chain_rows.return_value = [
+        {"id": 1, "symbol": "AAA", "action": "BUY", "qty": 10, "filled_at": "2026-08-07 14:00:00.000000"}
+    ]
 
     class _B:
         def __init__(self, hi, lo, d):
