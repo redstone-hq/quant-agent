@@ -37,6 +37,7 @@ def _run(
     yahoo=None,
     get_role=None,
     get_filings_override=None,
+    fill=None,
 ):
     calls = {"bars": [], "profile": [], "filings": [], "yahoo": []}
 
@@ -67,6 +68,7 @@ def _run(
         cache=cache or ud.ReadCache(tmp_path),
         clock=clock or Clock(),
         get_yahoo=None if yahoo is None else (lambda s: calls["yahoo"].append(s) or yahoo(s)),
+        yahoo_fill=fill,
     )
     return run, calls
 
@@ -105,7 +107,7 @@ def test_every_name_gets_a_record_with_its_failing_check(tmp_path):
     }
     # Every name here has a Nasdaq sector, so the bounded Yahoo second pass
     # (funds with no category, stocks with no sector) is due for none of them.
-    assert summary["yahoo_second_pass"] == {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0}
+    assert summary["yahoo_second_pass"] == {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0, "backoffs": 0}
 
 
 def test_pending_takeover_is_recorded(tmp_path):
@@ -320,7 +322,7 @@ def test_fund_with_large_blend_category_is_admitted(tmp_path):
     row = run.records["SPY"]
     assert row["status"] == "passed" and row["measured"]["sector"] == "Large Blend"
     assert calls["yahoo"] == ["SPY"]
-    assert run.summary()["yahoo_second_pass"] == {"names": 1, "calls": 1, "failures": 0, "cache_hits": 0}
+    assert run.summary()["yahoo_second_pass"] == {"names": 1, "calls": 1, "failures": 0, "cache_hits": 0, "backoffs": 0}
 
 
 def test_fund_with_leveraged_category_is_refused(tmp_path):
@@ -345,22 +347,101 @@ def test_yahoo_failure_is_inconclusive_never_dropped_or_admitted(tmp_path):
     assert run.summary()["yahoo_second_pass"]["failures"] == 1
 
 
-def test_first_rate_limit_stops_every_further_yahoo_read(tmp_path):
-    class YFRateLimitError(Exception):
-        pass
+class YFRateLimitError(Exception):
+    pass
 
+
+THREE_FUNDS = [_asset("SPY"), _asset("QQQ"), _asset("IWM")]
+
+
+def _night(clock, until=18_000.0, **over):
+    """A YahooFill whose sleep advances the fake clock (five hours of night by default)."""
+    slept = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        clock.now += seconds
+
+    fill = ud.YahooFill(until=until, backoff_s=30.0, backoff_max_s=900.0, sleep=sleep, **over)
+    return fill, slept
+
+
+def test_throttled_yahoo_backs_off_and_completes_the_fill_in_the_same_run(tmp_path):
+    """Owner ruling 2026-10-13: a rate limit slows the pass down; it does not stop it."""
+    clock = Clock()
+    fill, slept = _night(clock)
+    throttles = {"n": 0}
+
+    def once_limited(s):
+        if throttles["n"] == 0:
+            throttles["n"] += 1
+            raise YFRateLimitError("Too Many Requests. Rate limited.")
+        return {"category": "Large Blend"}
+
+    run, calls = _run(THREE_FUNDS, tmp_path, profile=FUND, yahoo=once_limited, clock=clock, fill=fill)
+    assert calls["yahoo"] == ["IWM", "IWM", "QQQ", "SPY"]  # the throttled name is retried, nothing is skipped
+    assert slept == [30.0]
+    for name in ("SPY", "QQQ", "IWM"):
+        assert run.records[name]["status"] == "passed"
+    summary = run.summary()
+    assert summary["passed"] == 3 and summary["unreached"] == 0
+    assert summary["yahoo_second_pass"] == {"names": 3, "calls": 4, "failures": 1, "cache_hits": 0, "backoffs": 1}
+
+
+def test_backoff_doubles_up_to_its_cap_and_honours_retry_after(tmp_path):
+    clock = Clock()
+    fill, slept = _night(clock)
+    throttles = {"n": 0}
+
+    def limited_thrice(s):
+        throttles["n"] += 1
+        if throttles["n"] <= 6:
+            raise YFRateLimitError("429")
+        return {"category": "Large Blend"}
+
+    run, _ = _run([_asset("SPY")], tmp_path, profile=FUND, yahoo=limited_thrice, clock=clock, fill=fill)
+    assert slept == [30.0, 60.0, 120.0, 240.0, 480.0, 900.0]
+    assert run.records["SPY"]["status"] == "passed"
+
+    class Throttled(Exception):
+        response = type("R", (), {"headers": {"Retry-After": "7"}})()
+
+    clock, throttles["n"] = Clock(), 0
+    fill, slept = _night(clock)
+
+    def with_header(s):
+        throttles["n"] += 1
+        if throttles["n"] == 1:
+            raise Throttled("429 too many requests")
+        return {"category": "Large Blend"}
+
+    run, _ = _run([_asset("SPY")], tmp_path / "h", profile=FUND, yahoo=with_header, clock=clock, fill=fill)
+    assert slept == [7.0] and run.records["SPY"]["status"] == "passed"
+
+
+def test_a_throttle_with_no_night_left_closes_yahoo_without_failing_the_run(tmp_path):
     def limited(s):
         raise YFRateLimitError("Too Many Requests. Rate limited.")
 
-    assets = [_asset("SPY"), _asset("QQQ"), _asset("IWM")]
-    run, calls = _run(assets, tmp_path, profile=FUND, yahoo=limited)
-    assert calls["yahoo"] == ["IWM"]  # one call, no retry, nothing after it
+    clock = Clock()
+    fill, slept = _night(clock, until=100.0)  # 30 s + 60 s of backoff fits; the 120 s wait does not
+    run, calls = _run(THREE_FUNDS, tmp_path, profile=FUND, yahoo=limited, clock=clock, fill=fill)
+    assert calls["yahoo"] == ["IWM", "IWM", "IWM"] and slept == [30.0, 60.0]
     for name in ("SPY", "QQQ", "IWM"):
         row = run.records[name]
         assert row["status"] == "unreached" and row["failures"] == [ud.YAHOO_LIMITED]
     summary = run.summary()
     assert summary["passed"] == 0 and summary["dropped"] == 0 and summary["unreached"] == 3
-    assert summary["yahoo_second_pass"] == {"names": 3, "calls": 1, "failures": 1, "cache_hits": 0}
+    assert summary["yahoo_second_pass"] == {"names": 3, "calls": 3, "failures": 3, "cache_hits": 0, "backoffs": 2}
+
+
+def test_zero_backoff_stops_at_the_first_rate_limit(tmp_path):
+    def limited(s):
+        raise YFRateLimitError("Too Many Requests. Rate limited.")
+
+    run, calls = _run(THREE_FUNDS, tmp_path, profile=FUND, yahoo=limited)
+    assert calls["yahoo"] == ["IWM"]
+    assert all(run.records[n]["failures"] == [ud.YAHOO_LIMITED] for n in ("SPY", "QQQ", "IWM"))
 
 
 def test_unknown_nasdaq_sector_gets_its_yahoo_sector(tmp_path):
@@ -386,11 +467,129 @@ def test_no_yahoo_call_for_a_name_that_failed_another_check(tmp_path):
     assert run.records["TINY"]["status"] == "dropped"
 
 
-def test_yahoo_reads_are_cached_for_the_week(tmp_path):
+def test_yahoo_sector_reads_are_cached_for_the_week(tmp_path):
     cache = ud.ReadCache(tmp_path)
-    assets = [_asset("SPY"), _asset("QQQ")]
-    _, first = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
-    assert first["yahoo"] == ["QQQ", "SPY"]
-    run, second = _run(assets, tmp_path, profile=FUND, yahoo=lambda s: {"category": "Large Blend"}, cache=cache)
+    assets = [_asset("BRKB"), _asset("FERG")]
+    _, first = _run(assets, tmp_path, profile=NO_SECTOR, yahoo=lambda s: {"sector": "Industrials"}, cache=cache)
+    assert first["yahoo"] == ["BRKB", "FERG"]
+    run, second = _run(assets, tmp_path, profile=NO_SECTOR, yahoo=lambda s: {"sector": "Industrials"}, cache=cache)
     assert second["yahoo"] == []
-    assert run.summary()["yahoo_second_pass"] == {"names": 2, "calls": 0, "failures": 0, "cache_hits": 2}
+    assert run.summary()["yahoo_second_pass"] == {"names": 2, "calls": 0, "failures": 0, "cache_hits": 2, "backoffs": 0}
+
+
+# --------------------------------------------------------------------------
+# Fund category store (owner ruling 2026-10-13): read once from Yahoo, kept
+# in the desk database, served to the daily pass and the side door.
+# --------------------------------------------------------------------------
+
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
+
+from src.data.fund_category import FundCategoryStore  # noqa: E402
+
+
+def _store(tmp_path):
+    return FundCategoryStore(tmp_path / "desk.db")
+
+
+def test_stored_plain_category_admits_the_fund_without_yahoo(tmp_path):
+    store = _store(tmp_path)
+    store.put("SPY", "Large Blend", TODAY)
+    reader = ud._profile_reader(_fixture_listing(), _canon, store)
+    run, calls = _run([_asset("SPY")], tmp_path, profile=reader, yahoo=lambda s: {"category": "nope"})
+    row = run.records["SPY"]
+    assert row["status"] == "passed" and row["measured"]["sector"] == "Large Blend"
+    assert calls["yahoo"] == []
+
+
+def test_stored_leveraged_category_stays_refused(tmp_path):
+    store = _store(tmp_path)
+    store.put("SPY", "Trading--Leveraged Equity", TODAY)
+    reader = ud._profile_reader(_fixture_listing(), _canon, store)
+    run, _ = _run([_asset("SPY")], tmp_path, profile=reader)
+    assert run.records["SPY"]["failures"] == ["leveraged_or_inverse_fund"]
+
+
+def test_fund_with_no_stored_category_stays_inconclusive(tmp_path):
+    reader = ud._profile_reader(_fixture_listing(), _canon, _store(tmp_path))
+    run, _ = _run([_asset("SPY")], tmp_path, profile=reader)
+    row = run.records["SPY"]
+    assert row["status"] == "inconclusive" and row["failures"] == ["fund_category_not_listed"]
+
+
+def test_leveraged_name_is_refused_even_with_no_category(tmp_path):
+    reader = ud._profile_reader(_fixture_listing(), _canon, _store(tmp_path))
+    tqqq = _asset("SPY", name="ProShares UltraPro QQQ")
+    run, calls = _run([tqqq], tmp_path, profile=reader, yahoo=lambda s: {"category": "Large Blend"})
+    row = run.records["SPY"]
+    assert row["status"] == "dropped" and row["failures"] == ["leveraged_or_inverse_fund"]
+    assert row["measured"]["leveraged_by_name"] is True and calls["yahoo"] == []
+
+
+def test_yahoo_read_is_kept_in_the_store_for_the_next_run(tmp_path):
+    store = _store(tmp_path)
+    reader = ud._profile_reader(_fixture_listing(), _canon, store)
+    fill = ud.YahooFill(store=store)
+    _, first = _run([_asset("SPY")], tmp_path, profile=reader, yahoo=lambda s: {"category": "Large Blend"}, fill=fill)
+    assert first["yahoo"] == ["SPY"]
+    kept = store.get("SPY")
+    assert (kept.category, kept.fetched_at, kept.source) == ("Large Blend", TODAY, "yahoo")
+    run, second = _run([_asset("SPY")], tmp_path, profile=reader, yahoo=lambda s: {"category": "Large Blend"})
+    assert second["yahoo"] == [] and run.records["SPY"]["status"] == "passed"
+
+
+def test_stale_stored_category_is_refreshed_and_kept_when_yahoo_is_closed(tmp_path):
+    store = _store(tmp_path)
+    store.put("SPY", "Large Blend", TODAY - timedelta(days=400))
+    reader = ud._profile_reader(_fixture_listing(), _canon, store)
+    clock = Clock()
+    fill, _ = _night(clock, store=store, refresh_days=365)
+    run, calls = _run(
+        [_asset("SPY")], tmp_path, profile=reader, yahoo=lambda s: {"category": "Large Growth"}, clock=clock, fill=fill
+    )
+    assert calls["yahoo"] == ["SPY"] and store.get("SPY").fetched_at == TODAY
+    assert run.records["SPY"]["status"] == "passed" and run.records["SPY"]["measured"]["sector"] == "Large Growth"
+
+    def limited(s):
+        raise YFRateLimitError("429")
+
+    store.put("SPY", "Large Blend", TODAY - timedelta(days=400))
+    clock = Clock()
+    fill, _ = _night(clock, until=1.0, store=store, refresh_days=365)
+    run, _ = _run([_asset("SPY")], tmp_path / "x", profile=reader, yahoo=limited, clock=clock, fill=fill)
+    assert run.records["SPY"]["status"] == "passed"  # the stored category's record stands
+    assert run.records["SPY"]["measured"]["sector"] == "Large Blend"
+
+
+# --------------------------------------------------------------------------
+# 03:00 ET wake-up (owner ruling 2026-10-13): screen the previous session.
+# --------------------------------------------------------------------------
+
+
+class _Calendar:
+    def __init__(self, closes):
+        self.closes = closes  # {date: close datetime}
+
+    def is_trading_day(self, d):
+        return d in self.closes
+
+    def get_session_close(self, d):
+        return self.closes.get(d)
+
+
+def _close(d):
+    return datetime(d.year, d.month, d.day, 20, 0, tzinfo=timezone.utc)  # 16:00 ET in October
+
+
+def test_screen_day_at_three_am_is_the_previous_trading_day(tmp_path):
+    mon, tue = date(2026, 10, 12), date(2026, 10, 13)
+    cal = _Calendar({mon: _close(mon), tue: _close(tue)})
+    three_am_tue = datetime(2026, 10, 13, 7, 0, tzinfo=timezone.utc)
+    assert ud._screen_day(cal, tue, three_am_tue) == mon
+    assert ud._due(cal, tmp_path, tue, three_am_tue) == mon
+    after_close_tue = datetime(2026, 10, 13, 21, 0, tzinfo=timezone.utc)
+    assert ud._screen_day(cal, tue, after_close_tue) == tue
+    # Monday 03:00 after a holiday Friday: back to Thursday.
+    thu = date(2026, 10, 8)
+    cal = _Calendar({thu: _close(thu), mon: _close(mon)})
+    assert ud._screen_day(cal, mon, datetime(2026, 10, 12, 7, 0, tzinfo=timezone.utc)) == thu
+    assert ud._screen_day(_Calendar({}), mon, after_close_tue) is None

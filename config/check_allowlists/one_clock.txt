@@ -34,6 +34,4 @@
 ["src/storage/trades/ledger.py","sql_now","TradeLedger.prune_trades","DELETE FROM trades WHERE timestamp < datetime('now', ?)"]
 ["src/storage/trades/trade_refusals_store.py","sql_now","insert","INSERT INTO trade_refusals (timestamp, ) VALUES (datetime('now'), )"]
 ["src/storage/trades/trend_tick_store.py","sql_now","record._do","INSERT OR REPLACE INTO trend_exit_tick_checks (symbol, bar_date, outcome, run_id, updated_at) VALUES (?, ?, ?, ?, datetime('now'))"]
-["src/universe_daily.py","py_now","_due_today","datetime.now(timezone.utc)"]
-["src/universe_daily.py","py_now","write_record","datetime.now(timezone.utc)"]
 ["src/universe_screen.py","py_now","_event","datetime.now(timezone.utc)"]

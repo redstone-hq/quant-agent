@@ -23,6 +23,3 @@
 # intentionally not paused.
 
 paused_units:
-  - unit: quant-agent-universe-daily.timer
-    since: 2026-10-09
-    reason: first run 9 Oct was rate-limited by Yahoo on all 1258 profile calls and passed 0 names; held off so its 08:30 ET run cannot crowd the desk's own Yahoo use until the data source is fixed

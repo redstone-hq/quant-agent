@@ -223,6 +223,7 @@ class AdmissionService:
         # Company value and the fund flag come from the same Nasdaq listing the
         # daily record reads, never Yahoo: one source for every admission path.
         # An unavailable listing leaves every profile unreadable (undecided).
+        from src.data.fund_category import FundCategoryStore
         from src.data.nasdaq_fetch import fetch_json
         from src.data.nasdaq_listing import ListingUnavailable, load_listing
         from src.universe_daily import _profile_reader
@@ -232,7 +233,11 @@ class AdmissionService:
         except ListingUnavailable as exc:
             logger.warning("universe screen: Nasdaq listing unavailable: %s", exc)
             listing = None
-        _profile = _profile_reader(listing, _canonicalize_sector)
+        # A fund's category is what the nightly pass kept in the desk database
+        # (src/data/fund_category.py); the side door never reads Yahoo. No
+        # database (a stand-alone service) leaves every fund inconclusive.
+        store = FundCategoryStore(getattr(getattr(self.config, "storage", None), "db_path", None))
+        _profile = _profile_reader(listing, _canonicalize_sector, store)
 
         provider = getattr(self, "sec_form4_provider", None)
         if provider is None:

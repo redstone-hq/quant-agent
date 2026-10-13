@@ -10,6 +10,31 @@ from tests.network_guard import _no_sockets_leave_the_box, offline_calendars  # 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+@pytest.fixture
+def freeze_clock():
+    """Freeze the process clock (time-machine, tick=False). Call ``freeze_clock(when)``
+    (aware datetime; naive is read as UTC) to start; the returned traveller has
+    ``.move_to(when)`` / ``.shift(delta)``. Unlike patching ``trading_calendar.utc_now``,
+    this also reaches modules that did ``from ... import utc_now``. Undone at teardown."""
+    import datetime as _dt
+
+    import time_machine
+
+    travellers = []
+
+    def _freeze(when):
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        traveller = time_machine.travel(when, tick=False)
+        traveller.start()
+        travellers.append(traveller)
+        return traveller
+
+    yield _freeze
+    for t in reversed(travellers):
+        t.stop()
+
+
 def _register_merge_drivers() -> None:
     """Self-heal: register the merge drivers .gitattributes names (idempotent,
     local to this clone and its worktrees). Without it the docs/WORK.md driver

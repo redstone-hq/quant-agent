@@ -112,6 +112,22 @@ class UniverseScreenConfig(BaseModel):
     screen_deadline_s: float = Field(default=900.0, ge=10, le=1080)
     # Symbols per daily-bar download request (yfinance multi-ticker).
     bars_batch_size: int = Field(default=50, ge=1, le=200)
+    # A fund's Yahoo category is kept in the desk database once read
+    # (src/data/fund_category.py) and re-read by the nightly pass when the
+    # row is this old. A category names the fund's mandate, which changes
+    # only on a prospectus change; a yearly re-read bounds how long a changed
+    # mandate can go unseen without re-spending the reads that rate-limited
+    # the 9 Oct run (1,258 profile calls, all throttled).
+    fund_category_refresh_days: int = Field(default=365, ge=1)
+    # Yahoo rate limit (owner ruling 2026-10-13): slow down, do not stop.
+    # Without a Retry-After header the pass waits `yahoo_backoff_s`, doubling
+    # per consecutive throttle up to `yahoo_backoff_max_s`, then continues
+    # until the desk's day starts (08:00 ET). 30 s is the smallest wait that
+    # a 5-hour night (03:00-08:00) still spends mostly reading; 900 s (the
+    # screen_deadline_s default) caps one wait at a quarter hour so a throttle
+    # that lifts is noticed well inside the night.
+    yahoo_backoff_s: float = Field(default=30.0, ge=0)
+    yahoo_backoff_max_s: float = Field(default=900.0, ge=0)
 
 
 class NewsConfig(BaseModel):
