@@ -33,10 +33,19 @@ STOP = 100.0
 BAND_FLOOR = PRICE - NOISE_BAND_ATR_MULTIPLE * ATR
 
 
+from datetime import date as _date
+
+#: Every fixture bar is a real completed daily bar dated after the entry day:
+#: the chandelier reads only bars dated strictly after `entry_date`.
+_ENTRY_DAY = _date(2026, 1, 2)
+_BAR_DAY = _date(2026, 1, 5)
+
+
 @dataclass
 class _Bar:
     high: float
     low: float
+    date: _date = _BAR_DAY
 
 
 def _bars(lows, *, peak):
@@ -66,6 +75,7 @@ def _evaluate(bars):
         current_stop=STOP,
         reference_target=None,
         bars=bars,
+        entry_date=_ENTRY_DAY,
         atr=ATR,
     )
 
@@ -139,6 +149,7 @@ def test_too_few_bars_reports_the_missing_data_not_an_empty_search():
             current_stop=STOP,
             reference_target=None,
             bars=_bars([101.0] * n, peak=102.0) if n else [],
+            entry_date=_ENTRY_DAY,
             atr=None,
         )
         assert result.proposal is None, n
@@ -156,6 +167,7 @@ def test_bars_present_but_no_usable_leg_still_reports_no_candidate():
         current_stop=STOP,
         reference_target=None,
         bars=_bars([130.0] * 7, peak=131.0),
+        entry_date=_ENTRY_DAY,
         atr=None,
     )
     assert result.proposal is None

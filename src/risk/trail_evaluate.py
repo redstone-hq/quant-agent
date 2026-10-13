@@ -10,7 +10,7 @@ types stay in `src/risk/trailing.py`; read its module docstring first.
 from __future__ import annotations
 
 from dataclasses import replace as _replace
-from datetime import datetime
+from datetime import date, datetime
 
 from src.risk.trail_range_ratchet import _range_breakeven_ratchet, _range_second_ratchet
 from src.risk.trail_structure import _structural_pivot, _swing_highs, _swing_lows
@@ -56,6 +56,25 @@ def _completed_bars(bars, as_of: datetime | None) -> list:
     return kept
 
 
+def _chandelier_bars(bars, entry_date, as_of: datetime | None) -> list:
+    """Completed bars dated strictly AFTER `entry_date`, or [] when it is unknown.
+
+    `entry_date` is the calendar day of the CURRENT holding's opening broker
+    fill. The entry day's own bar includes prices from before the fill, so it
+    is not information since entry and never counts (the backtest fills at the
+    next open, so this matches it). Unknown entry day (None or unparseable)
+    means no bars at all — never a guess from the first bar handed in, which is
+    the whole history whenever the caller could not slice. Undated bars never
+    count."""
+    entry_day = str(entry_date)[:10] if entry_date is not None else ""
+    try:
+        date.fromisoformat(entry_day)
+    except ValueError:
+        return []
+    after = [b for b in (bars or []) if getattr(b, "date", None) is not None and str(b.date)[:10] > entry_day]
+    return _completed_bars(after, as_of)
+
+
 def compute_trailing_stop(
     *,
     symbol: str,
@@ -71,6 +90,7 @@ def compute_trailing_stop(
     structural_ceiling: bool | None = None,
     as_of: datetime | None = None,
     risk_per_share: float | None = None,
+    entry_date: date | str | None = None,
 ) -> TrailProposal | None:
     """Propose a tightened stop, or None when no move is warranted.
 
@@ -98,6 +118,12 @@ def compute_trailing_stop(
     `as_of` is the clock the chandelier uses to tell a COMPLETED daily bar
     from a still-forming one (`trading_calendar.last_completed_bar_date`).
     `None` means now. Tests and replays pass it explicitly.
+
+    `entry_date` is the calendar day of the CURRENT holding's opening broker
+    fill (`trades.filled_at` of the first opening lot after the last flat
+    point, `quantities.live_position_lots`). The chandelier reads only
+    completed bars dated strictly after it; None (unknown) means the
+    chandelier gives no reading at all — never a guessed entry day.
     """
     return evaluate_trailing_stop(
         symbol=symbol,
@@ -113,6 +139,7 @@ def compute_trailing_stop(
         structural_ceiling=structural_ceiling,
         as_of=as_of,
         risk_per_share=risk_per_share,
+        entry_date=entry_date,
     ).proposal
 
 
@@ -131,6 +158,7 @@ def evaluate_trailing_stop(
     structural_ceiling: bool | None = None,
     as_of: datetime | None = None,
     risk_per_share: float | None = None,
+    entry_date: date | str | None = None,
 ) -> TrailEvaluation:
     """`compute_trailing_stop`, plus the code naming why it ended where it
     did. Same arguments, same arithmetic, same proposal — this IS the body;
@@ -301,13 +329,15 @@ def evaluate_trailing_stop(
                 candidates.append((pivot, "structure"))
 
     if atr_f is not None and atr_f > 0:
-        # The chandelier's extreme is every COMPLETED daily bar since entry —
-        # never the fill, today's print or a still-forming bar. It needs at
-        # least ONE completed bar: with none there is no information since
-        # entry, and a reading would only overrule the entry stop the desk
-        # just chose. A bar dated after the last completed session is
-        # dropped here even though the live feed already drops it.
-        _completed = _completed_bars(bars, as_of)
+        # The chandelier's extreme is every COMPLETED daily bar dated strictly
+        # AFTER the entry day — never the fill, the entry day's own bar (it
+        # holds pre-fill prices), today's print or a still-forming bar. It
+        # needs at least ONE such bar: with none there is no information
+        # since entry, and a reading would only overrule the entry stop the
+        # desk just chose. A forming bar is dropped here even though the live
+        # feed already drops it. ATR is the caller's current 14-day ATR. An
+        # unknown entry day gives no chandelier reading (`_chandelier_bars`).
+        _completed = _chandelier_bars(bars, entry_date, as_of)
         if is_short:
             lows = [_finite(getattr(b, "low", None)) for b in _completed]
             lows = [l for l in lows if l is not None]

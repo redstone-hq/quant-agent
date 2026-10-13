@@ -284,6 +284,12 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
             # unknown: the R ratchets propose nothing; the structural
             # trail is unaffected.
             risk_per_share=_risk_per_share(owner, buy, position.qty, symbol),
+            # The chandelier reads only completed bars dated strictly after
+            # this day: the ET trading date of the CURRENT holding's first
+            # opening broker fill. None (unknown) = no chandelier reading,
+            # so the 120-bar fallback slice above never reaches it as if it
+            # were "since entry".
+            entry_date=_entry_fill_day(owner, buy, position.qty, symbol),
         )
         proposal = evaluation.proposal
         if proposal is None:
@@ -478,3 +484,41 @@ def _risk_per_share(owner, opening_row: dict | None, held_qty, symbol: str) -> f
         _warn_r_unknown(symbol, reason)
         return None
     return risk / abs(held)
+
+
+def _entry_fill_day(owner, opening_row: dict | None, held_qty, symbol: str):
+    """ET trading date of the live holding's first opening broker fill, or None.
+
+    The live lots are main's fill-ordered walk (`quantities.live_position_lots`
+    rule: share-changing rows after the most recent flat point, in
+    `trades.filled_at` order, checked against the broker's held quantity), so
+    an older closed holding of the same symbol never supplies the date. None
+    whenever any step is unknown: no chain rows, fill order unknown, no opening
+    lot, or no broker fill time on it. Never a guess from a decision timestamp.
+    """
+    from datetime import datetime
+
+    from src.quantities import ORDER_QTY_DECIMALS
+    from src.trade_actions import executed_qty, fill_time, live_lot_rows, share_change
+    from src.trading_calendar import to_et
+
+    try:
+        lots = owner.db.get_position_chain_rows(opening_row)
+        held = abs(float(held_qty or 0))
+        if not isinstance(lots, list) or not held:
+            return None
+        live = live_lot_rows(lots, decimals=ORDER_QTY_DECIMALS, held=held)
+        opens = [r for r in (live or []) if share_change(r) == "in"]
+        exits = [r for r in (live or []) if share_change(r) == "out"]
+        # Same exact reconcile `held_position_risk` applies: lots that do not
+        # add up to the broker's held quantity are not the live holding.
+        net = sum(executed_qty(r) for r in opens) - sum(executed_qty(r) for r in exits)
+        if round(net, ORDER_QTY_DECIMALS) != round(held, ORDER_QTY_DECIMALS):
+            return None
+        stamp = fill_time(opens[0]) if opens else None
+        if stamp is None:
+            return None
+        return to_et(datetime.fromisoformat(stamp)).date()
+    except Exception as e:  # noqa: BLE001 — unknown entry day, never a guess
+        logger.warning("trail: %s entry fill day unknown: %s — chandelier gives no reading", symbol, e)
+        return None

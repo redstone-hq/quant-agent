@@ -21,10 +21,19 @@ from src.risk.trailing import (
 )
 
 
+from datetime import date as _date
+
+#: Every fixture bar is a real completed daily bar dated after the entry day:
+#: the chandelier reads only bars dated strictly after `entry_date`.
+_ENTRY_DAY = _date(2026, 1, 2)
+_BAR_DAY = _date(2026, 1, 5)
+
+
 @dataclass
 class _Bar:
     high: float
     low: float
+    date: _date = _BAR_DAY
 
 
 def _bars(pattern):
@@ -68,6 +77,7 @@ def test_range_setup_trails_structurally_below_its_target():
         current_stop=95.0,
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -88,6 +98,7 @@ def test_range_trail_never_moves_a_stop_away_from_price():
             current_stop=117.0,
             reference_target=130.0,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             risk_per_share=abs(100.0 - 90.0),
         )
@@ -96,33 +107,50 @@ def test_range_trail_never_moves_a_stop_away_from_price():
 
 
 def test_range_trail_refuses_until_enough_bars_to_read():
-    """Missing data must not produce an action, and "missing" is not only the
-    empty set. The caller filters bars to SINCE ENTRY, so a position entered
-    today hands this module ONE bar, from which the chandelier would read
-    `today's high - 3 x ATR` — a price-follower off a single print. The
-    minimum is the window the structure leg already needs."""
-    from src.risk.trailing import (
-        MIN_BARS_FOR_A_READING,
-        TRAIL_CODE_TOO_FEW_BARS,
-        evaluate_trailing_stop,
-    )
+    """Missing data must not produce an action. The chandelier reads only
+    completed bars dated strictly AFTER the entry day (the current holding's
+    opening fill day, passed as `entry_date`): the entry day's own bar holds
+    prices from before the fill. With no bar after it there is no information
+    since entry, so the chandelier gives no reading and the structure leg
+    (which needs its 7-bar pivot span) gives none either.
 
-    rising = _rising_with_higher_lows()
-    assert len(rising) >= MIN_BARS_FOR_A_READING, "fixture sanity"
-    for n in (0, 1, MIN_BARS_FOR_A_READING - 1):
-        ev = evaluate_trailing_stop(
+    The fixture's high (107) reads 107 - 3 x 2 = 101: between the 90 stop and
+    the 105 price and outside the 1.25-ATR noise band, so it WOULD move the
+    stop if it were read. Price stays below +1R so neither range ratchet
+    answers. The last check proves the same prices are read once the bar is
+    dated after the entry day."""
+    from datetime import date
+
+    from src.models.analysis import OHLCV
+    from src.risk.trailing import TRAIL_CODE_TOO_FEW_BARS, evaluate_trailing_stop
+
+    entry_day = date(2026, 10, 6)
+
+    def _bar(d):
+        return OHLCV(date=d, open=100.0, high=107.0, low=99.0, close=105.0, volume=1000)
+
+    def _ev(bars):
+        return evaluate_trailing_stop(
             symbol="AAA",
             setup_type="range",
             entry=100.0,
             current_price=105.0,
             current_stop=90.0,
             reference_target=130.0,
-            bars=rising[:n],
+            bars=bars,
             atr=2.0,
             risk_per_share=abs(100.0 - 90.0),
+            entry_date=entry_day,
         )
+
+    for n in (0, 1):
+        ev = _ev([_bar(entry_day)] * n)
         assert ev.proposal is None, n
         assert ev.structural_code == TRAIL_CODE_TOO_FEW_BARS, n
+
+    ev = _ev([_bar(entry_day), _bar(date(2026, 10, 7))])
+    assert ev.proposal is not None and ev.proposal.source == "chandelier"
+    assert ev.proposal.new_stop == 101.0
 
 
 def test_range_trail_keeps_the_structural_refusal_on_the_record():
@@ -138,6 +166,7 @@ def test_range_trail_keeps_the_structural_refusal_on_the_record():
         current_stop=90.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -161,6 +190,7 @@ def test_a_ratchet_level_inside_the_noise_band_is_not_placed():
         current_stop=90.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=20.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -180,6 +210,7 @@ def test_range_trail_takes_the_tighter_of_ratchet_and_structure():
         current_stop=95.0,
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -197,6 +228,7 @@ def test_range_setup_trails_once_the_target_is_exceeded():
         current_stop=95.0,
         reference_target=120.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -215,6 +247,7 @@ def test_range_setup_with_no_target_still_trails_structurally():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -245,6 +278,7 @@ def test_range_setup_reaches_breakeven_at_plus_1r():
         current_stop=90.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -264,6 +298,7 @@ def test_range_setup_below_1r_still_gets_no_protection():
             current_stop=90.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             risk_per_share=abs(100.0 - 90.0),
         )
@@ -282,6 +317,7 @@ def test_range_setup_does_not_re_propose_breakeven_once_already_there():
             current_stop=100.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             risk_per_share=abs(100.0 - 90.0),
         )
@@ -306,6 +342,7 @@ def test_range_setup_retrace_after_1r_no_longer_gives_back_the_full_risk():
         current_stop=initial_stop,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
@@ -321,6 +358,7 @@ def test_range_setup_retrace_after_1r_no_longer_gives_back_the_full_risk():
         current_stop=live_stop,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
@@ -340,6 +378,7 @@ def test_range_setup_short_mirror_reaches_breakeven_at_plus_1r():
         current_stop=110.0,
         reference_target=70.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 110.0),
         qty=-10,
@@ -362,6 +401,7 @@ def test_range_setup_with_no_initial_stop_gets_no_breakeven_ratchet():
             current_stop=90.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -381,6 +421,7 @@ def test_range_setup_with_no_target_still_gets_the_breakeven_ratchet():
         current_stop=90.0,
         reference_target=None,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -402,6 +443,7 @@ def test_breakeven_ratchet_uses_the_initial_stop_not_the_live_one():
         current_stop=80.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -430,6 +472,7 @@ def test_range_second_ratchet_locks_plus_1r_at_plus_2r():
         current_stop=100.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 95.0),
     )
@@ -450,6 +493,7 @@ def test_range_second_ratchet_fires_directly_from_the_initial_stop():
         current_stop=95.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 95.0),
     )
@@ -472,6 +516,7 @@ def test_range_reversal_after_2r_stops_with_plus_1r_locked():
         current_stop=100.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
@@ -488,6 +533,7 @@ def test_range_reversal_after_2r_stops_with_plus_1r_locked():
         current_stop=live_stop,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=(abs(100.0 - initial_stop) if initial_stop else None),
     )
@@ -507,6 +553,7 @@ def test_range_below_2r_stays_at_breakeven_unchanged():
             current_stop=100.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             risk_per_share=abs(100.0 - 95.0),
         )
@@ -526,6 +573,7 @@ def test_range_second_ratchet_never_loosens_a_stop():
             current_stop=106.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             risk_per_share=abs(100.0 - 95.0),
         )
@@ -545,6 +593,7 @@ def test_breakout_gets_no_second_ratchet():
         current_stop=100.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=None,
         risk_per_share=abs(100.0 - 95.0),
     )
@@ -557,6 +606,7 @@ def test_breakout_gets_no_second_ratchet():
         current_stop=100.0,
         reference_target=130.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=None,
         risk_per_share=abs(100.0 - 95.0),
     )
@@ -574,6 +624,7 @@ def test_range_second_ratchet_short_mirror():
         current_stop=100.0,
         reference_target=70.0,
         bars=[],
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 105.0),
         qty=-10,
@@ -595,6 +646,7 @@ def test_range_second_ratchet_needs_the_initial_stop():
             current_stop=95.0,
             reference_target=130.0,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -625,6 +677,7 @@ def test_breakout_trails_from_entry_without_needing_a_target():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -642,6 +695,7 @@ def test_breakout_uses_the_highest_usable_swing_low():
         current_stop=99.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.new_stop == 110.0  # not 100.0
@@ -694,6 +748,7 @@ def test_a_lower_low_sequence_gets_no_structural_trail():
         current_stop=99.0,
         reference_target=None,
         bars=_falling_with_lower_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -714,6 +769,7 @@ def test_the_trail_follows_the_most_recent_higher_low_not_the_highest():
         current_stop=99.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.new_stop == 110.0
@@ -732,6 +788,7 @@ def test_a_single_confirmed_low_is_still_accepted():
         current_stop=95.0,
         reference_target=None,
         bars=_bars([(lo + 2, lo) for lo in lows]),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.source == "structure"
@@ -751,6 +808,7 @@ def test_short_mirror_a_higher_high_sequence_gets_no_structural_trail():
         reference_target=None,
         qty=-10,
         bars=_bars([(hi, hi - 2) for hi in highs]),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -769,6 +827,7 @@ def test_chandelier_is_the_fallback_when_structure_is_unclear():
         current_stop=95.0,
         reference_target=None,
         bars=straight_up,
+        entry_date=_ENTRY_DAY,
         atr=1.0,
     )
     assert proposal is not None
@@ -786,6 +845,7 @@ def test_structure_is_preferred_over_chandelier():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.source == "structure"
@@ -815,6 +875,7 @@ def test_a_stop_never_ratchets_down():
             current_stop=existing,
             reference_target=None,
             bars=bars,
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         if proposal is not None:
@@ -836,6 +897,7 @@ def test_a_stop_already_above_every_available_level_produces_nothing():
             current_stop=122.0,  # above the 121 chandelier and every swing low
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -866,6 +928,7 @@ def test_a_move_smaller_than_the_ratchet_threshold_is_not_worth_an_order():
             current_stop=stop,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=None,
         )
         is None
@@ -880,6 +943,7 @@ def test_a_move_smaller_than_the_ratchet_threshold_is_not_worth_an_order():
         current_stop=stop,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal is not None
@@ -901,6 +965,7 @@ def test_a_stop_is_never_placed_inside_the_atr_noise_band():
             current_stop=95.0,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=13.0,
         )
         is None
@@ -920,6 +985,7 @@ def test_no_live_stop_yields_no_proposal():
             current_stop=None,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -933,6 +999,7 @@ def test_no_live_stop_yields_no_proposal():
             current_stop=0.0,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -949,6 +1016,7 @@ def test_missing_bars_and_atr_yield_no_proposal_not_a_guess():
             current_stop=95.0,
             reference_target=None,
             bars=[],
+            entry_date=_ENTRY_DAY,
             atr=None,
         )
         is None
@@ -966,6 +1034,7 @@ def test_non_finite_or_impossible_prices_yield_no_proposal(bad):
             current_stop=95.0,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -979,6 +1048,7 @@ def test_non_finite_or_impossible_prices_yield_no_proposal(bad):
             current_stop=95.0,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
         )
         is None
@@ -995,6 +1065,7 @@ def test_a_stop_is_never_placed_at_or_above_current_price():
             current_stop=95.0,
             reference_target=None,
             bars=_rising_with_higher_lows(),
+            entry_date=_ENTRY_DAY,
             atr=0.5,
         ),
     ):
@@ -1013,6 +1084,7 @@ def test_reason_names_when_risk_is_released():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.new_stop >= 100.0
@@ -1056,6 +1128,7 @@ def _regime_fixture(setup_type, structural_ceiling):
         current_stop=95.0,
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )
@@ -1075,6 +1148,7 @@ def _regime_fixture_no_structure(setup_type, structural_ceiling):
         current_stop=111.0,
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=20.0,
         risk_per_share=abs(100.0 - 80.0),
     )
@@ -1113,6 +1187,7 @@ def test_item82_correct_range_is_unchanged_legacy_null_ceiling():
         current_stop=95.0,
         reference_target=130.0,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         risk_per_share=abs(100.0 - 90.0),
     )

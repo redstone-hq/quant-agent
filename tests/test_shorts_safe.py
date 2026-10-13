@@ -49,10 +49,19 @@ from tests.pipeline_factory import build_pipeline
 # ==========================================================================
 
 
+from datetime import date as _date
+
+#: Every fixture bar is a real completed daily bar dated after the entry day:
+#: the chandelier reads only bars dated strictly after `entry_date`.
+_ENTRY_DAY = _date(2026, 1, 2)
+_BAR_DAY = _date(2026, 1, 5)
+
+
 @dataclass
 class _Bar:
     high: float
     low: float
+    date: _date = _BAR_DAY
 
 
 def _bars(pattern):
@@ -130,6 +139,7 @@ def test_trailing_long_breakout_structure_pick_unchanged():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
     )
     assert proposal.new_stop == 110.0
@@ -143,6 +153,7 @@ def test_trailing_long_breakout_structure_pick_unchanged():
         current_stop=95.0,
         reference_target=None,
         bars=_rising_with_higher_lows(),
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         qty=250.0,
     )
@@ -163,6 +174,7 @@ def test_trailing_short_breakout_structure_pick_is_the_mirror():
         current_stop=_mirror(95.0, _AXIS),
         reference_target=None,
         bars=mbars,
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         qty=-1.0,
     )
@@ -188,6 +200,7 @@ def test_trailing_short_chandelier_fallback_is_the_mirror():
         current_stop=105.0,
         reference_target=None,
         bars=straight_down,
+        entry_date=_ENTRY_DAY,
         atr=1.0,
         qty=-1.0,
     )
@@ -212,6 +225,7 @@ def test_trailing_short_ratchets_down_only():
             current_stop=existing,
             reference_target=None,
             bars=mbars,
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             qty=-1.0,
         )
@@ -238,6 +252,7 @@ def test_trailing_short_noise_band():
             current_stop=_mirror(95.0, _AXIS),
             reference_target=None,
             bars=mbars,
+            entry_date=_ENTRY_DAY,
             atr=13.0,
             qty=-1.0,
         )
@@ -259,6 +274,7 @@ def test_trailing_short_range_setup_trails_from_entry():
         current_stop=_mirror(95.0, _AXIS),
         reference_target=_mirror(130.0, _AXIS),
         bars=mbars,
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         qty=-1.0,
     )
@@ -273,6 +289,7 @@ def test_trailing_short_range_setup_trails_from_entry():
         current_stop=_mirror(95.0, _AXIS),
         reference_target=_mirror(120.0, _AXIS),
         bars=mbars,
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         qty=-1.0,
     )
@@ -292,6 +309,7 @@ def test_trailing_short_locked_message_at_or_below_entry():
         current_stop=_mirror(95.0, _AXIS),
         reference_target=None,
         bars=mbars,
+        entry_date=_ENTRY_DAY,
         atr=2.0,
         qty=-1.0,
     )
@@ -312,6 +330,7 @@ def test_trailing_short_with_no_live_stop_yields_no_proposal():
             current_stop=None,
             reference_target=None,
             bars=_bars([(101, 99)] * 10),
+            entry_date=_ENTRY_DAY,
             atr=2.0,
             qty=-1.0,
         )

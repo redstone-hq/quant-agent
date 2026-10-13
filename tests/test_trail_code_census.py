@@ -57,9 +57,18 @@ def test_empty_census_writes_nothing():
     assert db.rows == []
 
 
+from datetime import date as _date
+
+#: Every fixture bar is a real completed daily bar dated after the entry day:
+#: the chandelier reads only bars dated strictly after `entry_date`.
+_ENTRY_DAY = _date(2026, 1, 2)
+_BAR_DAY = _date(2026, 1, 5)
+
+
 class _Bar:
     def __init__(self, high, low, close):
         self.high, self.low, self.close = high, low, close
+        self.date = _BAR_DAY
 
 
 def test_candidate_inside_the_band_is_still_refused_outright():
@@ -77,6 +86,7 @@ def test_candidate_inside_the_band_is_still_refused_outright():
         current_price=100.0,
         current_stop=90.0,
         bars=bars,
+        entry_date=_ENTRY_DAY,
         atr=atr,
         qty=10,
         risk_per_share=abs(100.0 - 90.0),
