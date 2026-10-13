@@ -9,6 +9,7 @@ from ops.rehearsal.durable_outcomes import (
     compare_durable_outcomes,
 )
 from src.storage.db import Database
+from src.trading_calendar import sql_utc_stamp
 
 
 CAPTURE = "run-captured"
@@ -97,15 +98,19 @@ def _write_run(path, run_id, decision_id, broker_id, position_id):
         conn.execute("UPDATE positions SET current_price=101,market_value=101,unrealized_pnl=1 WHERE symbol='ZZZT'")
         conn.execute(
             "INSERT INTO order_attempts "
-            "(symbol,side,qty,outcome,broker_order_id,run_id,reason,limit_price) "
-            "VALUES ('ZZZT','BUY',1,'submitted',?,?,'broker accepted',101)",
-            (broker_id, run_id),
+            "(recorded_at,symbol,side,qty,outcome,broker_order_id,run_id,reason,limit_price) "
+            "VALUES (?,'ZZZT','BUY',1,'submitted',?,?,'broker accepted',101)",
+            (sql_utc_stamp(), broker_id, run_id),
         )
         conn.execute(
-            "INSERT INTO order_attempts (outcome,broker_order_id,reason) VALUES ('cancelled',?,'cancel_order_by_id')",
-            (broker_id,),
+            "INSERT INTO order_attempts (recorded_at,outcome,broker_order_id,reason) "
+            "VALUES (?,'cancelled',?,'cancel_order_by_id')",
+            (sql_utc_stamp(), broker_id),
         )
-        conn.execute("INSERT INTO reconciliation_runs (kind,agreed,detail) VALUES ('stop_coverage',1,'')")
+        conn.execute(
+            "INSERT INTO reconciliation_runs (ran_at,kind,agreed,detail) VALUES (?,'stop_coverage',1,'')",
+            (sql_utc_stamp(),),
+        )
 
 
 def _compare(paths):

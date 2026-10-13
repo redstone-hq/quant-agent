@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from src.trading_calendar import sql_utc_stamp
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,10 +43,21 @@ class OrderAttemptLog:
     ) -> int:
         """Append one attempt row; returns its rowid."""
         cur = self.conn.execute(
-            "INSERT INTO order_attempts (symbol, side, qty, outcome, client_order_id,"
+            "INSERT INTO order_attempts (recorded_at, symbol, side, qty, outcome, client_order_id,"
             " broker_order_id, run_id, reason, limit_price)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (symbol, side, qty, outcome, client_order_id, broker_order_id, run_id, reason, limit_price),
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                sql_utc_stamp(),
+                symbol,
+                side,
+                qty,
+                outcome,
+                client_order_id,
+                broker_order_id,
+                run_id,
+                reason,
+                limit_price,
+            ),
         )
         self.conn.commit()
         return int(cur.lastrowid)
