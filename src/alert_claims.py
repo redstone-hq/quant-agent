@@ -27,7 +27,7 @@ from typing import Any
 
 from src.coverage_watchdog_records import record_watchdog_pass
 from src.data_paths import alerting_dir
-from src.trading_calendar import ET
+from src.trading_calendar import ET, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ STATE_PATH = alerting_dir() / "coverage_heartbeat.json"
 
 def _utc_now() -> datetime:
     """Seam for tests — real code never patches `datetime` itself."""
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 def load_state(path: Path | None = None) -> dict[str, Any]:

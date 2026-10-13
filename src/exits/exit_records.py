@@ -192,7 +192,9 @@ class ExitRecords:
             return False
         from datetime import datetime as _dt, timedelta, timezone
 
-        cutoff = _dt.now(timezone.utc) - timedelta(days=calendar_days)
+        from src.trading_calendar import utc_now
+
+        cutoff = utc_now() - timedelta(days=calendar_days)
         for row in rows:
             if (row.get("action") or "").upper() != "TRAIL_STOP":
                 continue

@@ -97,7 +97,9 @@ class EvidenceFreshness:
         from datetime import datetime, timezone
 
         if stamped_at is None:
-            stamped_at = datetime.now(timezone.utc).isoformat()
+            from src.trading_calendar import utc_now
+
+            stamped_at = utc_now().isoformat()
         clean_prior: dict[str, dict] = {}
         if isinstance(prior_reads, dict):
             for seat, entry in prior_reads.items():
