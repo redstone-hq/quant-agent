@@ -17,7 +17,6 @@ import pytest
 from scripts import one_clock_guard as g
 from scripts.check_allowlist import load
 from src import trading_calendar
-from src.cost_circuit import clock as cc_clock
 from src.trading_calendar import sql_utc_stamp, sql_utc_stamp_ago, utc_now
 
 PLANTED = (
@@ -303,7 +302,7 @@ def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(mon
 
     pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
-    assert cc_clock._now_utc() == pinned and cc_clock.clock_replaced()
+    assert sql_utc_stamp() == "2026-10-13 16:00:00"
 
     path = str(tmp_path / "circuit.db")
     db = Database(path)

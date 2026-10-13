@@ -11,7 +11,8 @@ import json
 import os
 import uuid
 from typing import Any, Callable, TypeVar
-from src.cost_circuit.clock import _et_day_and_utc_bounds, _now_utc
+from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.trading_calendar import utc_now
 from src.cost_circuit.alert_ledger import UnavailableLLMCostCircuit, _file_lock
 
 logger = logging.getLogger(__name__)
@@ -200,7 +201,7 @@ class EmergencyLatch:
             payload = (
                 json.dumps(
                     {
-                        "recorded_at": _now_utc().isoformat(),
+                        "recorded_at": utc_now().isoformat(),
                         "error": f"{type(error).__name__}: {str(error)[:500]}",
                         "run_id": run_id,
                         "mode": mode,

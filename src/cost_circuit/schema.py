@@ -3,13 +3,11 @@
 from __future__ import annotations
 import sqlite3
 from src.cost_circuit.classification import _trigger_scope
-from src.cost_circuit.clock import _pinned_if_clock_replaced, _sql_stamp
+from src.cost_circuit.clock import _sql_stamp
 
 
 def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
     """Create the additive breaker schema on an existing SQLite connection."""
-    conn = _pinned_if_clock_replaced(conn)
-
     expected_breaker_tables = {
         "llm_budget_days",
         "llm_budget_sessions",
@@ -46,8 +44,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             -- `_auto_clear_transient_latch_locked`.
             failed_call_unknown_rows INTEGER NOT NULL DEFAULT 0,
             costs_exact INTEGER NOT NULL DEFAULT 1,
-            seeded_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            seeded_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS llm_budget_sessions (
@@ -60,8 +58,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             retry_attempts INTEGER NOT NULL DEFAULT 0,
             costs_exact INTEGER NOT NULL DEFAULT 1,
             status TEXT NOT NULL DEFAULT 'active',
-            started_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            started_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_llm_budget_sessions_day_mode
             ON llm_budget_sessions(day, mode);
@@ -85,7 +83,7 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             alert_state INTEGER NOT NULL DEFAULT 0,
             reset_at TEXT,
             reset_reason TEXT,
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS llm_circuit_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +103,7 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             -- `llm_quota_holds.recovery_alert_state` uses. They stay 0 (NULL on
             -- a legacy row -> treated as 0) for every non-`auto_reset` event.
             recovery_alert_state INTEGER NOT NULL DEFAULT 0,
-            recovery_alert_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            recovery_alert_updated_at TEXT NOT NULL,
             -- Item 174 pairing: the suspension's own `alert_state` as it stood
             -- the instant the auto-clear wiped it. 1 = the owner actually got
             -- the "SUSPENDED" note, -1 = a send was in flight and its outcome
@@ -115,7 +113,7 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             -- instead of sending. Defaults to 1 so non-`auto_reset` rows and
             -- legacy rows keep the pre-pairing behaviour.
             suspension_alert_state INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS llm_quota_holds (
@@ -137,10 +135,10 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
             daily_limit_usd REAL,
             active INTEGER NOT NULL DEFAULT 1,
             alert_state INTEGER NOT NULL DEFAULT 0,
-            alert_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            alert_updated_at TEXT NOT NULL,
             recovery_alert_state INTEGER NOT NULL DEFAULT 0,
-            recovery_alert_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            recovery_alert_updated_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
             released_at TEXT,
             release_reason TEXT
         );
@@ -151,7 +149,7 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
         """
     )
     if not existing_breaker_tables:
-        conn.execute("INSERT INTO llm_circuit_state(singleton) VALUES (1)")
+        conn.execute("INSERT INTO llm_circuit_state(singleton, updated_at) VALUES (1, ?)", (_sql_stamp(),))
     elif not state_table_existed:
         raise RuntimeError(
             "cost-circuit schema is partial: state table is missing while other budget tables already exist"
@@ -199,9 +197,9 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
         # SQLite forbids a non-constant default (e.g. datetime('now')) on
         # ALTER TABLE ADD COLUMN -- it raises "Cannot add a column with
         # non-constant default", which would abort the whole schema init and
-        # fail paid analysis closed. The CREATE TABLE path keeps the
-        # datetime('now') default; on the migration path a constant '' default
-        # is safe because this column is only ever read while a row is in the
+        # fail paid analysis closed. No cost-circuit column has a time default
+        # any more (every writer binds the desk clock); a constant '' default
+        # here is safe because this column is only ever read while a row is in the
         # in-flight retry state (recovery_alert_state=-1), and the code always
         # binds recovery_alert_updated_at from the desk clock (_sql_stamp) at
         # the 0 -> -1 transition before any comparison against it can run.
@@ -253,8 +251,9 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
                 "INSERT OR IGNORE INTO llm_quota_holds "
                 "(scope, scope_key, day, trigger_code, trigger_detail, run_id, mode, "
                 "agent_name, attempts, attempts_exact, costs_exact, session_cost_usd, "
-                "daily_cost_usd, session_limit_usd, daily_limit_usd, alert_state) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "daily_cost_usd, session_limit_usd, daily_limit_usd, alert_state, "
+                "alert_updated_at, recovery_alert_updated_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     scope,
                     scope_key,
@@ -272,6 +271,9 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
                     state["session_limit_usd"],
                     state["daily_limit_usd"],
                     int(state["alert_state"] or 0),
+                    _sql_stamp(),
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
             conn.execute(

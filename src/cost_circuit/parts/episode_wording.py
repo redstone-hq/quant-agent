@@ -142,8 +142,8 @@ class EpisodeWording:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('suspend_alert_deferred', ?, ?, ?, ?, 'episode_coalescing', ?, ?, ?)",
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('suspend_alert_deferred', ?, ?, ?, ?, 'episode_coalescing', ?, ?, ?, ?, ?)",
             (
                 state.get("trigger_code"),
                 detail,
@@ -152,6 +152,8 @@ class EpisodeWording:
                 int(state.get("session_attempts") or 0),
                 float(state.get("session_cost_usd") or 0.0),
                 float(state.get("daily_cost_usd") or 0.0),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
 

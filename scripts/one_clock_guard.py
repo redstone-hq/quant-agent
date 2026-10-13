@@ -74,8 +74,6 @@ CLOCK_MODULE = "src/trading_calendar.py"
 #: Modules allowed to be MIXED (rule B), by path, with the reason. Never a count.
 EXEMPT = {
     CLOCK_MODULE: "IS the clock",
-    "src/cost_circuit/clock.py": "holds the SQL-'now' rewriting pin that fakes SQLite's clock in "
-    "tests and converts a stored UTC stamp to its ET day; deleted once its sites are bound",
 }
 
 ALLOWLIST = ALLOWLIST_DIR / "one_clock.txt"

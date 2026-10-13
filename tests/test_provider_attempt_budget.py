@@ -32,6 +32,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from src.trading_calendar import sql_utc_stamp
 import yaml
 
 from src.agents.base import (
@@ -661,9 +663,11 @@ def test_an_inexact_day_still_refuses_to_rearm_a_cross_day_hold(tmp_path):
             "INSERT INTO llm_quota_holds "
             "(scope, scope_key, day, trigger_code, trigger_detail, run_id, mode, "
             " agent_name, attempts, attempts_exact, costs_exact, session_cost_usd, "
-            " daily_cost_usd, session_limit_usd, daily_limit_usd, active) "
+            " daily_cost_usd, session_limit_usd, daily_limit_usd, active, "
+            " alert_updated_at, recovery_alert_updated_at, created_at) "
             "VALUES ('mode_day','1999-01-01:morning','1999-01-01','daily_cost_limit',"
-            "'yesterday','run-old','morning','tech_analyst',0,1,1,0,0,0.9,2.75,1)"
+            "'yesterday','run-old','morning','tech_analyst',0,1,1,0,0,0.9,2.75,1,?,?,?)",
+            (sql_utc_stamp(), sql_utc_stamp(), sql_utc_stamp()),
         )
         conn.commit()
 

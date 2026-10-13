@@ -8,7 +8,6 @@ import uuid
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Callable, TypeVar
-from src.cost_circuit.clock import _ClockPinnedConnection, _now_utc, clock_replaced
 from src.cost_circuit.alert_ledger import UnavailableLLMCostCircuit, _durable_alert_surface_ok
 from src.cost_circuit.assembly import hold_parts
 from src.cost_circuit.parts.admission import Admission
@@ -266,12 +265,6 @@ class LLMCostCircuitBreaker:
         conn = sqlite3.connect(self.db_path, timeout=10.0, uri=self.db_path.startswith("file:qamc-cost-"))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
-        # Production takes this branch: the clock is the real one, so the
-        # bare connection is returned and SQLite's `'now'` is SQLite's own
-        # clock, unchanged. Only a caller that supplied a clock gets the
-        # wrapper, and then both clocks are that one instant.
-        if clock_replaced():
-            return _ClockPinnedConnection(conn, _now_utc().strftime("%Y-%m-%d %H:%M:%S"))
         return conn
 
 

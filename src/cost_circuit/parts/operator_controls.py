@@ -210,8 +210,8 @@ class OperatorControls:
                 conn.execute(
                     "INSERT INTO llm_circuit_events "
                     "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-                    "session_cost_usd, daily_cost_usd, suspension_alert_state) VALUES "
-                    "('reset', ?, ?, ?, ?, 'operator', ?, ?, ?, ?)",
+                    "session_cost_usd, daily_cost_usd, suspension_alert_state, recovery_alert_updated_at, created_at) VALUES "
+                    "('reset', ?, ?, ?, ?, 'operator', ?, ?, ?, ?, ?, ?)",
                     (
                         state.get("trigger_code"),
                         event_detail,
@@ -227,6 +227,8 @@ class OperatorControls:
                         # column DEFAULTs to 1 ("he was told"), which for a
                         # manual reset was a claim nothing had checked.
                         int(state.get("alert_state") or 0),
+                        _sql_stamp(),
+                        _sql_stamp(),
                     ),
                 )
                 updated_state = conn.execute(
