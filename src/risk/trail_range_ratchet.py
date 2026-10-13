@@ -33,26 +33,28 @@ def _range_breakeven_ratchet(
     ent: float,
     cur: float,
     stop: float,
-    initial_stop: float | None,
+    risk_per_share: float | None,
     is_short: bool,
     setup_type: str | None,
 ) -> TrailEvaluation:
     """Type A's +1R breakeven ratchet — see the module docstring's 2026-09-04
     fix #3 note.
 
-    Fails closed: with no `initial_stop` (the ENTRY stop, never the live one
-    a prior trail may have already moved), R cannot be measured, so this
-    proposes nothing rather than guessing at the risk that was taken.
+    `risk_per_share` is 1R per held share: per-lot entry risk (every open lot
+    against its OWN initial stop, `risk.metrics.held_position_risk_dollars`)
+    / held qty, so "price reached +1R" is exactly "unrealised P&L >= per-lot
+    dollar risk". Fails closed: with `risk_per_share` None (R unknown — any lot
+    lacks a usable stop) it proposes nothing (`TRAIL_CODE_RANGE_NO_INITIAL_STOP`)
+    rather than guessing at the risk that was taken.
     Deliberately skips the ordinary minimum-ratchet / noise-band invariants
     below — this move is not a structural ratchet being tuned to avoid
     churn, it is a one-time, always-worthwhile transition from "full initial
     risk" to "no risk", regardless of how small the percentage move to
     breakeven happens to be.
     """
-    init_stop = _finite(initial_stop) if initial_stop is not None else None
-    if init_stop is None or init_stop <= 0:
+    risk = _finite(risk_per_share) if risk_per_share is not None else None
+    if risk is None:
         return TrailEvaluation(None, TRAIL_CODE_RANGE_NO_INITIAL_STOP)
-    risk = abs(ent - init_stop)
     if risk <= 0:
         return TrailEvaluation(None, TRAIL_CODE_RANGE_ZERO_RISK)
 
@@ -103,7 +105,7 @@ def _range_second_ratchet(
     ent: float,
     cur: float,
     stop: float,
-    initial_stop: float | None,
+    risk_per_share: float | None,
     is_short: bool,
     setup_type: str | None,
 ) -> TrailEvaluation:
@@ -118,18 +120,17 @@ def _range_second_ratchet(
     and a reversal still gives back down to +1R.
 
     Mirrors `_range_breakeven_ratchet` exactly: fails closed with no
-    `initial_stop` (the ENTRY stop, never the live one a prior trail moved) so
-    R cannot be guessed; measures R the same way (`abs(entry - initial_stop)`);
+    `risk_per_share` (per-lot R per held share) so R cannot be guessed; measures
+    R the same way;
     and skips the ordinary minimum-ratchet / noise-band invariants because
     this is a one-time step-up in protection, not a structural trail being
     tuned against churn. The `stop < candidate < cur` guard (mirrored for a
     short) is what enforces NEVER LOOSEN A STOP: the +1R lock is proposed only
     when it beats the current stop and still sits below price.
     """
-    init_stop = _finite(initial_stop) if initial_stop is not None else None
-    if init_stop is None or init_stop <= 0:
+    risk = _finite(risk_per_share) if risk_per_share is not None else None
+    if risk is None:
         return TrailEvaluation(None, TRAIL_CODE_RANGE_NO_INITIAL_STOP)
-    risk = abs(ent - init_stop)
     if risk <= 0:
         return TrailEvaluation(None, TRAIL_CODE_RANGE_ZERO_RISK)
 

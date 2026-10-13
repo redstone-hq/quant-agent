@@ -251,7 +251,9 @@ def test_r_multiple_short_with_stop_below_entry_is_none():
 def test_position_risk_long_only_unchanged():
     """No-op proof, literal-for-literal. 100 shares, $100 entry, $95 stop →
     $500 budget risk; current $110 → $1,500 open risk; 3R."""
-    risk = position_risk(symbol="AAA", qty=100, entry=100.0, current_price=110.0, stop=95.0, initial_stop=95.0)
+    risk = position_risk(
+        symbol="AAA", qty=100, entry=100.0, current_price=110.0, stop=95.0, initial_stop=95.0, entry_risk_dollars=500.0
+    )
     assert risk.budget_risk_dollars == 500.0
     assert risk.open_risk_dollars == 1500.0
     assert risk.protected is True
@@ -262,7 +264,15 @@ def test_position_risk_long_only_unchanged():
 
 def test_position_risk_long_released_unchanged():
     """No-op proof for the release rule: stop at or above entry → zero budget."""
-    risk = position_risk(symbol="AAA", qty=100, entry=100.0, current_price=130.0, stop=105.0, initial_stop=90.0)
+    risk = position_risk(
+        symbol="AAA",
+        qty=100,
+        entry=100.0,
+        current_price=130.0,
+        stop=105.0,
+        initial_stop=90.0,
+        entry_risk_dollars=1000.0,
+    )
     assert risk.risk_released is True
     assert risk.budget_risk_dollars == 0.0
     assert risk.open_risk_dollars == 2500.0
@@ -280,7 +290,15 @@ def test_position_risk_short_measures_risk_above_entry():
     """Short 100 shares at $100, stop $105 (ABOVE entry) → $5/share of risk
     = $500 budget. Price at $90 → $15/share to the stop = $1,500 open risk.
     Pre-fix: budget 0.0, open 0.0 — a short reported as zero risk."""
-    risk = position_risk(symbol="SSS", qty=-100, entry=100.0, current_price=90.0, stop=105.0, initial_stop=105.0)
+    risk = position_risk(
+        symbol="SSS",
+        qty=-100,
+        entry=100.0,
+        current_price=90.0,
+        stop=105.0,
+        initial_stop=105.0,
+        entry_risk_dollars=500.0,
+    )
     assert risk.protected is True
     assert risk.budget_risk_dollars == 500.0
     assert risk.open_risk_dollars == 1500.0
@@ -290,7 +308,9 @@ def test_position_risk_short_measures_risk_above_entry():
 def test_position_risk_short_released_when_stop_falls_below_entry():
     """A short's risk is released when the trailed stop comes DOWN through
     entry — the mirror of a long's stop rising above it."""
-    risk = position_risk(symbol="SSS", qty=-100, entry=100.0, current_price=80.0, stop=95.0, initial_stop=105.0)
+    risk = position_risk(
+        symbol="SSS", qty=-100, entry=100.0, current_price=80.0, stop=95.0, initial_stop=105.0, entry_risk_dollars=500.0
+    )
     assert risk.risk_released is True
     assert risk.budget_risk_dollars == 0.0
     assert risk.open_risk_dollars == 1500.0  # 100 x (95 - 80)
@@ -307,7 +327,15 @@ def test_position_risk_short_unprotected_charges_absolute_notional():
 
 def test_position_risk_short_open_risk_floors_at_zero_past_the_stop():
     """Symmetry with the long floor: never a negative risk number."""
-    risk = position_risk(symbol="SSS", qty=-100, entry=100.0, current_price=120.0, stop=105.0, initial_stop=105.0)
+    risk = position_risk(
+        symbol="SSS",
+        qty=-100,
+        entry=100.0,
+        current_price=120.0,
+        stop=105.0,
+        initial_stop=105.0,
+        entry_risk_dollars=500.0,
+    )
     assert risk.open_risk_dollars == 0.0
 
 

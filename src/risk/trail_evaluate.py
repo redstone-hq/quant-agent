@@ -52,6 +52,7 @@ def compute_trailing_stop(
     qty: float = 1.0,
     initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
+    risk_per_share: float | None = None,
 ) -> TrailProposal | None:
     """Propose a tightened stop, or None when no move is warranted.
 
@@ -91,6 +92,7 @@ def compute_trailing_stop(
         qty=qty,
         initial_stop=initial_stop,
         structural_ceiling=structural_ceiling,
+        risk_per_share=risk_per_share,
     ).proposal
 
 
@@ -108,6 +110,7 @@ def evaluate_trailing_stop(
     qty: float | None = None,  # None reads as a long — see `is_short` below
     initial_stop: float | None = None,
     structural_ceiling: bool | None = None,
+    risk_per_share: float | None = None,
 ) -> TrailEvaluation:
     """`compute_trailing_stop`, plus the code naming why it ended where it
     did. Same arguments, same arithmetic, same proposal — this IS the body;
@@ -128,6 +131,13 @@ def evaluate_trailing_stop(
         return TrailEvaluation(None, TRAIL_CODE_NO_LIVE_STOP)
 
     is_short = (_finite(qty) or 1.0) < 0
+    if risk_per_share is None and initial_stop is not None:
+        # Single-lot adapter ONLY (backtest positions never scale in): one
+        # lot's |entry - initial stop| IS its per-lot R per share. A live,
+        # possibly multi-lot position passes `risk_per_share` from the per-lot
+        # function instead (`exits_parts.trails`).
+        init = _finite(initial_stop)
+        risk_per_share = abs(ent - init) if init is not None and init > 0 else None
 
     # Type A vs Type B is the SAME breakout verdict every other money-path
     # reader now uses: the analyst's label OR the constructor's MEASURED
@@ -165,7 +175,7 @@ def evaluate_trailing_stop(
             ent=ent,
             cur=cur,
             stop=stop,
-            initial_stop=initial_stop,
+            risk_per_share=risk_per_share,
             is_short=is_short,
             setup_type=setup_type,
         )
@@ -178,7 +188,7 @@ def evaluate_trailing_stop(
                     ent=ent,
                     cur=cur,
                     stop=stop,
-                    initial_stop=initial_stop,
+                    risk_per_share=risk_per_share,
                     is_short=is_short,
                     setup_type=setup_type,
                 )

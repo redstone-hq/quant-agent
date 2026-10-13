@@ -248,5 +248,6 @@ def test_trailing_pass_reads_the_open_not_the_add(db):
     assert kwargs["reference_target"] == pytest.approx(290.0), (
         "the add's target would sit above the original and re-open room the trade had already closed"
     )
-    assert kwargs["initial_stop"] == pytest.approx(218.0)
+    # 1R per share is PER LOT: each lot against its OWN entry stop, over held qty.
+    assert kwargs["risk_per_share"] == pytest.approx((10 * (242.07 - 218.0) + 5 * (258.60 - 244.0)) / 15)
     assert kwargs["setup_type"] == "breakout"

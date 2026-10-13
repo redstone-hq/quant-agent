@@ -32,7 +32,6 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
     here reads the record back to decide anything but whether to write.
     """
     from src.execution.stop_records import replace_stop_and_record
-    from src.quantities import recorded_initial_stop
     from src.execution.exit_path_records import (
         last_trail_states,
         record_trail_code_census,
@@ -278,11 +277,13 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
             # regardless — this is forward-compatible plumbing, not a
             # behaviour change on today's long-only book.
             qty=position.qty,
-            # Fix #3 (2026-09-04 audit): the ENTRY stop, never the live
-            # one. `initial_stop_loss` is frozen at insert / first
-            # write-back; `stop_loss` itself is the live recorded level
-            # after a trail. Powers the Type A +1R breakeven ratchet.
-            initial_stop=recorded_initial_stop(buy),
+            # 1R per held share from the PER-LOT risk: every open lot
+            # against its OWN frozen initial stop, never one lot's stop
+            # against the broker's blended average entry (which fired the
+            # +1R breakeven ratchet early after a scale-in). None = R
+            # unknown: the R ratchets propose nothing; the structural
+            # trail is unaffected.
+            risk_per_share=_risk_per_share(owner, buy, position.qty, symbol),
         )
         proposal = evaluation.proposal
         if proposal is None:
@@ -446,3 +447,20 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
         counts=dict(code_census),
     )
     return orders
+
+
+def _risk_per_share(owner, opening_row: dict | None, held_qty, symbol: str) -> float | None:
+    """Per-lot entry risk / held shares, or None when R is unknown."""
+    from src.risk.metrics import held_position_risk_dollars
+
+    try:
+        lots = owner.db.get_position_open_lots(opening_row)
+    except Exception as e:  # noqa: BLE001 — R unknown, never a guess
+        logger.warning("trail: open lots lookup failed for %s: %s — R ratchets skipped", symbol, e)
+        lots = None
+    try:
+        held = float(held_qty or 0)
+    except (TypeError, ValueError):
+        return None
+    risk = held_position_risk_dollars(opening_row, lots, held)
+    return risk / abs(held) if risk and held else None

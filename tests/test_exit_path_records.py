@@ -99,7 +99,14 @@ def _trail_pipeline(db, buy_row, stop):
 
 def test_a_stop_that_does_not_trail_leaves_its_reason_once_per_change(tmp_path):
     db = _db(tmp_path)
-    buy = {"setup_type": "range", "take_profit": 140.0, "stop_loss": 90.0, "timestamp": "2026-09-01 14:00:00"}
+    buy = {
+        "setup_type": "range",
+        "take_profit": 140.0,
+        "stop_loss": 90.0,
+        "qty": 10,
+        "price": 100.0,
+        "timestamp": "2026-09-01 14:00:00",
+    }
     p = _trail_pipeline(db, buy, 90.0)
     with patch("src.execution.scale_in.pending_protection_symbols", return_value=set()):
         for run in ("r1", "r2", "r3"):
@@ -131,7 +138,14 @@ def test_a_position_with_no_opening_row_is_recorded_not_skipped_silently(tmp_pat
 
 def test_a_rejected_replace_is_recorded(tmp_path):
     db = _db(tmp_path)
-    buy = {"setup_type": "range", "take_profit": 140.0, "stop_loss": 90.0, "timestamp": "2026-09-01 14:00:00"}
+    buy = {
+        "setup_type": "range",
+        "take_profit": 140.0,
+        "stop_loss": 90.0,
+        "qty": 10,
+        "price": 100.0,
+        "timestamp": "2026-09-01 14:00:00",
+    }
     p = _trail_pipeline(db, buy, 90.0)
     with (
         patch("src.execution.scale_in.pending_protection_symbols", return_value=set()),
