@@ -226,16 +226,16 @@ install_cockpit() {
 
 deploy() {
   echo "==> fetching origin/main into ${DEPLOY_ROOT}"
-  sudo -n git -C "${DEPLOY_ROOT}" fetch origin main
+  sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" fetch origin main
   local target
-  target="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse origin/main)"
+  target="$(sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" rev-parse origin/main)"
   # Before the live checkout is touched; never stops the deploy.
   build_cockpit "${target}"
   # The production checkout runs on a DETACHED HEAD on purpose — it is pinned
   # to an exact commit, not tracking a branch. `git pull` there fails with a
   # confusing "you are not currently on a branch", which is its own small trap.
   echo "==> checking out origin/main (detached, as production always runs)"
-  sudo -n git -C "${DEPLOY_ROOT}" checkout --detach origin/main
+  sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" checkout --detach origin/main
   install_cockpit
   # Units first, so the restart below picks up an API unit change too.
   install_units
@@ -243,7 +243,7 @@ deploy() {
   qamc_systemctl restart "${API_UNIT}"
 
   local deployed expected built
-  deployed="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
+  deployed="$(sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
   expected="$(git ls-remote origin refs/heads/main | cut -f1)"
   if [[ "${deployed}" != "${expected}" ]]; then
     echo "DEPLOY DID NOT LAND: box at ${deployed}, origin/main is ${expected}" >&2
@@ -316,9 +316,9 @@ deploy
 # now runs, so the closing line cannot claim a deploy of code that did not
 # reach it.
 merge_sha="$(gh pr view "${PR}" --json mergeCommit -q .mergeCommit.oid)"
-deployed_sha="$(sudo -n git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
-sudo -n git -C "${DEPLOY_ROOT}" fetch -q origin "${merge_sha}" 2>/dev/null || true
-if ! sudo -n git -C "${DEPLOY_ROOT}" merge-base --is-ancestor \
+deployed_sha="$(sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" rev-parse HEAD)"
+sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" fetch -q origin "${merge_sha}" 2>/dev/null || true
+if ! sudo -n -H -u qamc git -C "${DEPLOY_ROOT}" merge-base --is-ancestor \
        "${merge_sha}" "${deployed_sha}" 2>/dev/null; then
   echo "PR #${PR} merged as ${merge_sha}, but the box is on ${deployed_sha}," >&2
   echo "      which does not contain it. Re-run --deploy-only." >&2
