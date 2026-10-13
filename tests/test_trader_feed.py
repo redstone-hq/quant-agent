@@ -1,6 +1,7 @@
 import json
 import re
 import sqlite3
+from src.trading_calendar import sql_utc_stamp
 from src.storage.db import Database
 from datetime import datetime
 from pathlib import Path
@@ -1514,8 +1515,8 @@ def test_footer_never_claims_free_when_the_cost_circuit_marked_it_inexact(
     _agent_log(db, run, "tech_analyst", "free-tier pass", cost=0.0)
     with sqlite3.connect(db) as conn:
         conn.execute(
-            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact) VALUES (?, ?, ?, ?, ?)",
-            (run, "2026-09-29", "intra_check", 0.0, 0),
+            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run, "2026-09-29", "intra_check", 0.0, 0, sql_utc_stamp(), sql_utc_stamp()),
         )
     outer = {
         "status": "ok",

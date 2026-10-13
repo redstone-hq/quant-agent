@@ -39,6 +39,7 @@ import src.api.broker_reads as broker_reads
 import src.api.db_reads as db_reads
 import src.api.deps as deps
 import src.api.routes_live as routes_live
+from src.trading_calendar import sql_utc_stamp
 from src.api.server import app
 from src.storage.db import Database
 
@@ -569,8 +570,8 @@ def test_run_cost_prefers_exact_circuit_ledger_over_partial_agent_logs(
     db.close()
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact) VALUES (?, ?, ?, ?, ?)",
-            ("run-circuit01", "2026-08-26", "morning", 0.0382979, 1),
+            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("run-circuit01", "2026-08-26", "morning", 0.0382979, 1, sql_utc_stamp(), sql_utc_stamp()),
         )
     monkeypatch.setattr(db_reads, "get_db_path", lambda: str(db_path))
 
@@ -602,8 +603,8 @@ def test_run_cost_is_unknown_when_circuit_ledger_is_inexact(
     db.close()
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact) VALUES (?, ?, ?, ?, ?)",
-            ("run-inexact01", "2026-08-26", "morning", 0.04, 0),
+            "INSERT INTO llm_budget_sessions (run_id, day, mode, actual_cost_usd, costs_exact, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("run-inexact01", "2026-08-26", "morning", 0.04, 0, sql_utc_stamp(), sql_utc_stamp()),
         )
     monkeypatch.setattr(db_reads, "get_db_path", lambda: str(db_path))
 

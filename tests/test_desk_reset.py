@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.trading_calendar import sql_utc_stamp
 from src import alert_watchdog, llm_route_journal
 from src.storage import risk_budget_record
 from src.storage.db import Database
@@ -235,7 +236,11 @@ def db_path(tmp_path):
         )
     for i in range(50):
         conn.execute("INSERT INTO alert_channel_checks(checked_at,ok,stage) VALUES('2026-09-01T00:00:00',1,'send')")
-    conn.execute("INSERT INTO llm_budget_days(day,baseline_cost_usd) VALUES('2026-09-01', 1.5)")
+    stamp = sql_utc_stamp()
+    conn.execute(
+        "INSERT INTO llm_budget_days(day,baseline_cost_usd,seeded_at,updated_at) VALUES('2026-09-01', 1.5, ?, ?)",
+        (stamp, stamp),
+    )
     conn.commit()
     conn.close()
     return p
