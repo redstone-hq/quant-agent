@@ -45,7 +45,7 @@ condition, because a detector is not the fix.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -126,6 +126,11 @@ def sql_utc_stamp(when: datetime | None = None) -> str:
     elif when.tzinfo is None:
         when = when.replace(tzinfo=UTC)
     return when.astimezone(UTC).strftime(SQL_STAMP_FORMAT)
+
+
+def sql_utc_stamp_ago(*, days: float = 0.0, hours: float = 0.0, minutes: float = 0.0) -> str:
+    """A cutoff this far before now, in SQLite's stored format (replaces ``datetime('now', '-N days')``)."""
+    return sql_utc_stamp(utc_now() - timedelta(days=days, hours=hours, minutes=minutes))
 
 
 def et_today() -> date:

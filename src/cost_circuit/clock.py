@@ -6,6 +6,7 @@ from datetime import date, datetime, time as dt_time, timedelta, timezone
 from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo
 
+from src import trading_calendar as _desk_clock
 from src.trading_calendar import sql_utc_stamp
 
 
@@ -31,7 +32,8 @@ def _now_utc() -> datetime:
     """The one clock this module reads.
 
     PRODUCTION BEHAVIOUR IS UNCHANGED BY THIS INDIRECTION. Left alone, this
-    is `datetime.now(timezone.utc)` and `_connect` hands back the bare
+    reads the desk's one clock (`src.trading_calendar.utc_now`, looked up at
+    call time so freezing the desk clock freezes this module) and `_connect` hands back the bare
     sqlite3 connection, so every SQL `'now'` still reads SQLite's own clock
     exactly as it always has -- the same OS clock, the same instant.
 
@@ -45,7 +47,7 @@ def _now_utc() -> datetime:
     the single, caller-side way to pin BOTH at once: `_connect` notices it
     has been replaced and pins SQLite's `'now'` to the same instant.
     """
-    return datetime.now(timezone.utc)
+    return _desk_clock.utc_now()
 
 
 #: Identity of the unreplaced clock. `_connect` compares against this rather
