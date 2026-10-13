@@ -13,7 +13,7 @@ def ensure_sentinel_tables(*, conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS order_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+            recorded_at TEXT NOT NULL,
             symbol TEXT,
             side TEXT,
             qty REAL,
@@ -27,7 +27,7 @@ def ensure_sentinel_tables(*, conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_order_attempts_recorded_at ON order_attempts(recorded_at);
         CREATE TABLE IF NOT EXISTS reconciliation_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ran_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ran_at TEXT NOT NULL,
             kind TEXT NOT NULL,               -- stop_coverage | recorded_stop_levels | orphan_submits | stop_out_fills
             agreed INTEGER NOT NULL,          -- 1 broker and ledger agreed, 0 they did not
             detail TEXT,

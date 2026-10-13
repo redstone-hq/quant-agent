@@ -13,6 +13,8 @@ import json
 import logging
 import sqlite3
 
+from src.trading_calendar import sql_utc_stamp
+
 logger = logging.getLogger(__name__)
 
 AGREED = "agreed"
@@ -28,8 +30,8 @@ class ReconciliationLog:
 
     def record(self, *, kind: str, agreed: bool, detail: str = "", run_id: str | None = None) -> int:
         cur = self.conn.execute(
-            "INSERT INTO reconciliation_runs (kind, agreed, detail, run_id) VALUES (?, ?, ?, ?)",
-            (kind, 1 if agreed else 0, detail, run_id),
+            "INSERT INTO reconciliation_runs (ran_at, kind, agreed, detail, run_id) VALUES (?, ?, ?, ?, ?)",
+            (sql_utc_stamp(), kind, 1 if agreed else 0, detail, run_id),
         )
         self.conn.commit()
         return int(cur.lastrowid)

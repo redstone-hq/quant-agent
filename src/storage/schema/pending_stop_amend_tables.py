@@ -19,6 +19,6 @@ def ensure_pending_stop_amend_table(*, conn: sqlite3.Connection) -> None:
             is_short INTEGER NOT NULL DEFAULT 0,
             reason TEXT,
             run_id TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL
         );
     """)

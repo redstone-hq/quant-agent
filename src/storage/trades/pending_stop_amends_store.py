@@ -5,6 +5,8 @@ Functions take the `TradeLedger` (`db._trades()`), so the big ledger file does n
 
 from __future__ import annotations
 
+from src.trading_calendar import sql_utc_stamp
+
 
 def record(
     ledger,
@@ -25,8 +27,9 @@ def record(
     def _do():
         ledger.conn.execute("DELETE FROM pending_stop_amends WHERE symbol = ?", (symbol,))
         cur = ledger.conn.execute(
-            "INSERT INTO pending_stop_amends (symbol, intended_stop, is_short, reason, run_id) VALUES (?, ?, ?, ?, ?)",
-            (symbol, float(intended_stop), 1 if is_short else 0, reason, run_id),
+            "INSERT INTO pending_stop_amends (symbol, intended_stop, is_short, reason, run_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (symbol, float(intended_stop), 1 if is_short else 0, reason, run_id, sql_utc_stamp()),
         )
         ledger.conn.commit()
         return cur.lastrowid or 0
