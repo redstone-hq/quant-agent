@@ -22,13 +22,14 @@ run:
                gross of 1.41x equity is over it by exactly OVER dollars;
   the cut      biggest-loser-first (the ratified ordering with no fresh
                seat read): the one name with negative unrealised P&L is
-               sold, for the whole-share quantity that clears OVER, and
-               no other name is touched;
+               sold WHOLE (owner ruling 2026-10-09: never part of a
+               position), and no other name is touched;
   exposure     gross exposure after the sale is at or under the ceiling —
                and never above it again at any later point in the session;
   protection   the sold name's resting stop is cleared before the sale
                and exactly one new GTC stop rests behind the residual, at
-               the cleared stop's level; every untouched name keeps
+               the cleared stop's level only if a residual remains (a
+               whole sale leaves none, so none rests); every untouched name keeps
                exactly the one stop it started with; the broker-truth
                coverage audit reports no gap;
   the wall     no socket left the box and no order left the stand-in.
@@ -113,10 +114,10 @@ CEILING_USD = CEILING_X * EQUITY  # 8,500
 OVER = HELD_VALUE - CEILING_USD  # 3,500
 LOSER = min(BOOK, key=lambda s: BOOK[s][0] * (PRICE - BOOK[s][1]))  # XLF
 LOSER_QTY, _, LOSER_STOP = BOOK[LOSER]
-# The cut is OVER / the loser's value, rounded to a tenth of a percent,
-# then whole shares (the position is whole-share).
-EXPECTED_SELL_QTY = float(int(LOSER_QTY * round(OVER / (LOSER_QTY * PRICE) * 100, 1) / 100))
-RESIDUAL_QTY = LOSER_QTY - EXPECTED_SELL_QTY  # 5
+# The cut sells the loser WHOLE (owner ruling 2026-10-09), even though
+# OVER is smaller than its value: no residual is left to re-protect.
+EXPECTED_SELL_QTY = float(LOSER_QTY)
+RESIDUAL_QTY = LOSER_QTY - EXPECTED_SELL_QTY  # 0
 
 
 def _bars() -> list[OHLCV]:
@@ -369,7 +370,7 @@ def test_close_on_a_levered_book_in_drawdown_sells_the_loser_down_to_the_ladder(
     assert math.isclose(lev["drawdown_pct"], DRAWDOWN_PCT, abs_tol=0.01), lev
     assert lev["ceiling_x"] == CEILING_X, lev
 
-    # the cut: one sale, the loser, the whole-share quantity that clears OVER
+    # the cut: one sale, the loser, sold whole
     sells = [o for o in trading.submitted if o.side == "sell" and "stop" not in o.order_type]
     assert [(o.symbol, o.qty, o.status) for o in sells] == [(LOSER, EXPECTED_SELL_QTY, "filled")], [
         o.as_plain() for o in trading.submitted
@@ -392,10 +393,8 @@ def test_close_on_a_levered_book_in_drawdown_sells_the_loser_down_to_the_ladder(
     # stop behind the residual at the cleared level; the others untouched
     assert trading.cancelled == [f"pre-existing-stop-{LOSER}"], trading.cancelled
     loser_stops = _resting_sell_stops(trading, LOSER)
-    assert [(s.qty, s.stop_price, s.time_in_force.lower()) for s in loser_stops] == [
-        (RESIDUAL_QTY, LOSER_STOP, "gtc")
-    ], [s.as_plain() for s in loser_stops]
-    assert trading.submitted.index(loser_stops[0]) > trading.submitted.index(sale)
+    assert RESIDUAL_QTY == 0
+    assert loser_stops == [], [s.as_plain() for s in loser_stops]
     for symbol, (qty, _, stop) in BOOK.items():
         if symbol == LOSER:
             continue

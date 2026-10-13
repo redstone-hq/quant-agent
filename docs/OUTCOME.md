@@ -28,8 +28,12 @@ desk!!"*
   right only in a sideways one. ATR and the existing math decide which regime
   a name is in — not a fixed rule.
 - **Never sell part of a winner.** The whole position is sold and the desk
-  moves on; no free-ride remainder. Size-downs forced by a risk limit (the
-  gross-exposure cap) are not profit-taking and are not covered by this.
+  moves on; no free-ride remainder. This holds for cuts forced by the
+  drawdown leverage ladder too (owner, 9 Oct: *"You always sell losers first,
+  and you don't break the rule, sell part of a winner."*): it sells whole
+  losing positions, biggest loss first, and only when no loser is left the
+  weakest-rated winner, whole (owner, 12 Oct). Selling whole may take the
+  book below the new limit; that is accepted.
 - **No risk-tolerance number is asked of the owner.** *"I don't want to make
   up numbers."* Every risk number is derived from the two goals above plus
   each name's own volatility, or adopted from published practice; a limit that
