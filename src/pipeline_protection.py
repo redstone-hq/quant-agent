@@ -520,10 +520,8 @@ class ProtectionMixin:
             # The desk's protective stops now rest as stop-MARKET orders
             # (owner ratified 2026-09-25), which FILL when elected — so this
             # state should no longer arise for them. It CAN still arise for
-            # the stop-LIMIT fallback (taken only when the broker refuses a
-            # stop-market for an unsupported type/tif combo — see
-            # `_submit_stop_limit_order` / `STOP_LIMIT_BUFFER_PCT`): on a gap
-            # past that limit the stop is ELECTED and does not fill, the
+            # a stop-LIMIT still resting from before the stop-limit fallback
+            # was deleted (2026-10-13): on a gap past that limit the stop is ELECTED and does not fill, the
             # order stays `status=OPEN`, so `specs` above still counts its
             # shares as covered and this sweep — correctly by its own logic —
             # does nothing about it, indefinitely. The shares are not

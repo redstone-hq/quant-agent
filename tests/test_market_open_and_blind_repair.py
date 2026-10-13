@@ -44,7 +44,6 @@ def test_default_is_open_when_calendar_and_clock_both_fail():
 
 def _broker(**kw):
     b = MagicMock()
-    b.STOP_LIMIT_BUFFER_PCT = 0.01
     b._submit_protective_stop_retrying.return_value = {
         "id": "o1",
         "covered_qty": 5.0,

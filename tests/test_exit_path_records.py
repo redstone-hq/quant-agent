@@ -176,7 +176,6 @@ def _repair_broker(result, price=165.0):
     broker = MagicMock()
     broker.get_latest_price_stamped = None
     broker.get_latest_price.return_value = price
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = result
     return broker
 

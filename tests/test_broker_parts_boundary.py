@@ -19,7 +19,6 @@ from src.execution.broker_parts.stop_place import (
     StopPlacer,
     _STOP_PLACEMENT_MAX_ATTEMPTS,
     _is_held_for_orders_error,
-    _is_unsupported_stop_market_rejection,
     _split_protective_qty,
 )
 from tests.boundary_harness import check_boundary
@@ -87,7 +86,6 @@ def test_stop_place_helpers_still_resolve_on_the_broker_module():
 
     assert broker_module._STOP_PLACEMENT_MAX_ATTEMPTS is _STOP_PLACEMENT_MAX_ATTEMPTS
     assert broker_module._is_held_for_orders_error is _is_held_for_orders_error
-    assert broker_module._is_unsupported_stop_market_rejection is _is_unsupported_stop_market_rejection
     assert broker_module._split_protective_qty is _split_protective_qty
 
 

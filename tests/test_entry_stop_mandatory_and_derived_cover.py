@@ -81,8 +81,6 @@ class _Position:
 
 
 class _Broker:
-    STOP_LIMIT_BUFFER_PCT = 0.01
-
     def __init__(self):
         self.placed = []
 

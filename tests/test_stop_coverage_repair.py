@@ -42,7 +42,6 @@ def _pipeline(
         ([{"qty": covered, "stop_price": 158.0}] if covered else []),
     )
     p.broker.get_latest_price.return_value = price
-    p.broker.STOP_LIMIT_BUFFER_PCT = 0.03
     p.db.get_pending_protection_restores.return_value = []
     if last_buy is not None:
         p.db.get_symbol_last_buy.side_effect = last_buy
@@ -80,7 +79,7 @@ def test_naked_long_is_repaired_from_the_recorded_buy_stop():
     assert kwargs["symbol"] == "VST"
     assert kwargs["qty"] == 31.0  # the whole uncovered position
     assert kwargs["stop_price"] == 158.75  # the level PM/RM actually approved
-    assert abs(kwargs["limit_price"] - 158.75 * 0.97) < 0.01
+    assert kwargs.get("limit_price") is None  # stop-MARKET: no limit
     assert kwargs["side"] == "sell"
 
 
@@ -184,7 +183,7 @@ def test_naked_short_is_repaired_from_the_recorded_short_stop():
     assert kwargs["symbol"] == "TSLA"
     assert kwargs["qty"] == 40.0
     assert kwargs["stop_price"] == 220.0
-    assert abs(kwargs["limit_price"] - 220.0 * 1.03) < 0.01
+    assert kwargs.get("limit_price") is None  # stop-MARKET: no limit
     assert kwargs["side"] == "buy"
     p.broker.snapshot_protective_stops.assert_called_with("TSLA", side="buy")
     p.db.get_symbol_last_buy.assert_called()
@@ -363,7 +362,6 @@ def test_naked_short_repair_through_a_real_short_row(tmp_path):
     p.broker.get_positions.return_value = [MagicMock(symbol="TSLA", qty=-40.0)]
     p.broker.snapshot_protective_stops.return_value = (True, [])
     p.broker.get_latest_price.return_value = 200.0
-    p.broker.STOP_LIMIT_BUFFER_PCT = 0.03
     p.broker._submit_protective_stop_retrying.return_value = {"id": "buy-stop-1"}
     p.cash_sweeper = None
     gaps = p._reconcile_stop_coverage()
@@ -383,7 +381,6 @@ def test_one_arg_last_buy_cannot_repair_a_short_from_a_stale_long_stop():
 
     broker = MagicMock()
     broker.get_latest_price.return_value = 200.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
 
     def _one_arg(_symbol):
         return {"stop_loss": 270.0}

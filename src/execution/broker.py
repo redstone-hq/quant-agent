@@ -24,7 +24,6 @@ except ImportError:  # pragma: no cover - optional dependency surface
 from alpaca.trading.requests import (
     MarketOrderRequest,
     LimitOrderRequest,
-    StopLimitOrderRequest,
     StopOrderRequest,
     TakeProfitRequest,
     StopLossRequest,
@@ -55,7 +54,6 @@ from src.execution.broker_parts.stop_place import (  # noqa: F401 (re-exports ke
     _FRACTIONAL_QTY_EPSILON,
     PROTECTIVE_ORDER_ACTIVE_STATUSES,
     _is_held_for_orders_error,
-    _is_unsupported_stop_market_rejection,
     _split_protective_qty,
     _derive_stop_tif,
     _alpaca_symbol,
@@ -162,9 +160,6 @@ _ENTRY_FILL_TIMEOUT_S = 90.0
 
 
 # `_is_terminal_submission_rejection` moved to src/execution/broker_parts/order_desk.py (re-exported above).
-
-
-# `_is_unsupported_stop_market_rejection` moved to src/execution/broker_parts/stop_place.py (re-exported above).
 
 
 # `_split_protective_qty` moved to src/execution/broker_parts/stop_place.py (re-exported above).
@@ -793,31 +788,6 @@ class AlpacaBroker:
         """Thin shim: body moved to src/execution/broker_parts/order_desk.py."""
         return self._order_desk().submit_order(*args, **kwargs)
 
-    # SCOPE (owner ratified 2026-09-25): primary PROTECTIVE stops are now
-    # stop-MARKET (guaranteed exit), so this buffer NO LONGER governs the
-    # protective stop the desk normally places. It governs only (a) the
-    # stop-LIMIT FALLBACK taken when the broker refuses a stop-market for an
-    # unsupported type/tif combo, and (b) the force-de-lever must-fill SELL.
-    #
-    # 3% beyond the stop: a stop-MARKET fills at whatever the book has on a
-    # gap (10%+ worse than the stop); a stop-limit caps the worst-case fill.
-    # The buffer must be wide enough that routine volatility clears it
-    # ("prioritize fill over price"). Trade-off on those fallback/de-lever
-    # legs: on gaps beyond 3% the limit won't fill and the position stays
-    # open until a session can act — which is exactly why the primary
-    # protective stop is now market and not subject to this trade-off.
-    #
-    # "Beyond", not "below": a long's protective order is a SELL stop, so
-    # its limit sits 3% BELOW the trigger (a SELL needs its floor under the
-    # stop to have room to fill on the way down). A short's protective order
-    # is a BUY stop, so its limit must sit 3% ABOVE the trigger — a BUY
-    # needs headroom over the stop to fill on the way up. Getting this
-    # backwards for a short is silent: the order still submits, but the
-    # limit sits on the wrong side of the trigger, so it can never fill.
-    # The stop then "fires" and does nothing, and the position runs
-    # unprotected in the one direction that matters.
-    STOP_LIMIT_BUFFER_PCT = 0.03
-
     # Order states that mean "this order can never fill another share".
     _TERMINAL_ORDER_STATES = frozenset(
         {
@@ -903,7 +873,6 @@ class AlpacaBroker:
             kill_switch_path=self._kill_switch_path,
             wait_for_order_terminal=self.wait_for_order_terminal,
             protective_stop_block_recorder=self.protective_stop_block_recorder,
-            stop_limit_buffer_pct=self.STOP_LIMIT_BUFFER_PCT,
             window_log=self.__dict__.setdefault("_unprotected_windows", []),
             # Six collaborators below are themselves moved bodies, so the
             # placer already owns them. Passing this broker's same-named shim

@@ -194,7 +194,6 @@ def _gap_broker():
     broker.get_session_open.side_effect = _edge(9, 30)
     broker.get_session_close.side_effect = _edge(16, 0)
     broker.get_latest_price.return_value = 150.28
-    broker.STOP_LIMIT_BUFFER_PCT = 0.01
     broker._submit_protective_stop_retrying.return_value = {
         "id": "new-day-stop",
         "uncovered_qty": 0.0,

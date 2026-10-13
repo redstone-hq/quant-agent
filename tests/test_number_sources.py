@@ -553,9 +553,9 @@ def test_the_named_hidden_trade_numbers_are_now_sites() -> None:
     assert not any(i.startswith("src.pipeline_risk_gate.RiskGate._refuse_queued_earnings_buys") for i in ids)
     assert "src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)" in ids
     # (d) class attributes.
-    assert "src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT" in ids
-    # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09; the
-    # attribute above still proves rule (d).
+    assert "src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS" in ids
+    # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09 and
+    # `STOP_LIMIT_BUFFER_PCT` 2026-10-13; the attribute above proves rule (d).
     assert "src.pipeline.TradingPipeline._EMERGENCY_LIMIT_CUSHION_PCT" not in ids
     # (e) item 138: inline order-price factors. The de-lever ladder's own
     # SELL/COVER fill limits are no longer inline % literals — the emergency

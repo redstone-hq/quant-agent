@@ -25,7 +25,6 @@ def _pipeline(*, positions_side_effect=None, ledger=None):
         broker.get_positions.side_effect = positions_side_effect
     broker.snapshot_protective_stops.return_value = (True, [])
     broker.get_latest_price.return_value = 100.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     broker._submit_protective_stop_retrying.return_value = {"id": "s-1"}
     db = MagicMock()
     db.get_pending_protection_restores.return_value = []

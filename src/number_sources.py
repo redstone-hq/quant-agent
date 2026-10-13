@@ -73,7 +73,7 @@ Inside a scoped file the structural rules are:
   * (c) numeric defaults on function and method PARAMETERS
     (`max_pct: float = 5.0`), id `module.Qual.name(param)`;
   * (d) numeric attributes on ANY class, annotated or not
-    (`STOP_LIMIT_BUFFER_PCT = 0.03` inside the broker class), id
+    (`_MAX_REPLACEMENT_HOPS = 8` inside the broker class), id
     `module.Qual.attr`; and
   * (e) inline MULTIPLIER/DIVISOR literals in the band `FACTOR_BAND`
     ([0.5, 2.0), excluding +-1): `round(price * 0.995, 2)`,

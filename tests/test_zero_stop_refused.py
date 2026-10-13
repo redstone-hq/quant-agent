@@ -140,7 +140,6 @@ def _repair_broker():
     broker = MagicMock()
     del broker.get_latest_price_stamped
     broker.get_latest_price.return_value = 100.0
-    broker.STOP_LIMIT_BUFFER_PCT = 0.03
     return broker
 
 

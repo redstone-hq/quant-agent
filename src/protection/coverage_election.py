@@ -96,12 +96,11 @@ class CoverageElection:
         live price against its trigger therefore answers the whole question:
         price through the trigger + order still open = elected and unfilled.
 
-        This is the state `STOP_LIMIT_BUFFER_PCT`'s own comment describes
-        ("on gaps beyond 3% the limit won't fill and the position stays open
-        until a session can act") and which nothing could previously see.
-        Primary protective stops are now stop-MARKET and fill when elected,
-        so this only fires for the stop-limit fallback leg — kept as its
-        backstop.
+        This is the gap-past-the-limit state a stop-LIMIT can sit in, which
+        nothing could previously see. Protective stops are now stop-MARKET
+        and fill when elected (the stop-limit fallback was deleted
+        2026-10-13), so this only fires for a stop-limit still resting from
+        before then — kept as its backstop.
 
         DETECTS ONLY. Nothing here sells, cancels, replaces or re-prices
         anything — an exit decision on an unfilled stop is an owner-level
