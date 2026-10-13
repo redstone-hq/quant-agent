@@ -150,6 +150,51 @@ def honour_stop(db_path, broker_factory) -> bool:
         broker = broker_factory()
         result = broker.sweep_frozen_resting_orders(db_path)
         logger.warning("owner Stop in force: desk off; resting entries swept (%s)", result)
+        _mark_stop_swept(db_path)
     except Exception as exc:  # noqa: BLE001 - recorded; Stop still holds and the next pickup retries
         record_guarded_pass(broker or NO_LEDGER, "owner_intents.stop_sweep", exc, log=logger)
     return True
+
+
+def _swept_file(db_path) -> str:
+    return f"{db_path}.stop_swept"
+
+
+def _latest_stop_id(db_path):
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    try:
+        row = conn.execute("SELECT MAX(id) FROM owner_intents WHERE state='acted' AND action=?", (STOP,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def _mark_stop_swept(db_path) -> None:
+    """Remember which acted Stop the resting-entry sweep has been done for."""
+    try:
+        stop_id = _latest_stop_id(db_path)
+        with open(_swept_file(db_path), "w") as fh:
+            fh.write(str(stop_id))
+    except Exception as exc:  # noqa: BLE001 - recorded; the sweep is simply owed again
+        from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
+
+        record_guarded_pass(NO_LEDGER, "owner_intents.stop_swept_mark", exc, log=logger)
+
+
+def stop_sweep_owed(db_path) -> bool:
+    """True until a resting-entry sweep has succeeded for the latest acted Stop.
+
+    The owner Stop gate (src/owner_stop_gate.py) holds no broker credentials,
+    so it cannot sweep; it reads this to let one credentialed session unit
+    through to `honour_stop`, which sweeps, marks, and exits without work.
+    A missing or unreadable mark means owed: an extra sweep is harmless, a
+    missed one leaves entries resting at the broker.
+    """
+    stop_id = _latest_stop_id(db_path)
+    if stop_id is None:
+        return False
+    try:
+        with open(_swept_file(db_path)) as fh:
+            return fh.read().strip() != str(stop_id)
+    except OSError:
+        return True

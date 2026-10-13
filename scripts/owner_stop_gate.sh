@@ -8,17 +8,20 @@
 #   exit 1 -> owner Stop in force: the unit is skipped
 #   exit 0 -> no Stop: the unit runs
 #
-# The decision is main.py's own `_owner_stop_in_force` (PR #1671): owner-intent
-# pickup, the Stop read through src.owner_flags, and -- only when stopped -- the
-# Freeze sweep of resting UNFILLED entries (protective stops kept). It is
-# imported, never re-implemented, so the gate and a one-shot main.py run can
-# never disagree. Because the gate now skips the session units before main.py
-# starts, it is also where that sweep runs while Stopped.
+# The decision is src/owner_stop_gate.py: owner-intent pickup and the Stop read
+# from the database ALONE. It loads no broker credentials: systemd 255 does not
+# materialise CREDENTIALS_DIRECTORY for ExecCondition=, and the old call into
+# main._owner_stop_in_force (load_config + credentials) therefore raised on
+# every start and the gate never decided anything (10-13 Oct 2026). The
+# credentialed sweep of resting UNFILLED entries stays in ExecStart
+# (main._exit_if_owner_stopped); while that sweep is still owed for the Stop in
+# force, the session units are let through so it runs, then exit 75 unworked.
 #
-# Anything the gate cannot settle (python missing, import error, timeout) runs
-# the unit, matching src.owner_flags.stop_in_force: an UNKNOWN read is not a
-# Stop, so a broken gate can never silently switch the desk's exits off. The
-# session units still re-check Stop inside main.py.
+# Anything the gate cannot settle runs the unit, matching
+# src.owner_flags.stop_in_force: an UNKNOWN read is not a Stop, so a broken gate
+# can never silently switch the desk's exits off. It is no longer silent: the
+# Python side records owner_stop_gate.undecided (ERROR in quant_agent.log and a
+# counted reconciliation row) and a crash before that is logged here.
 #
 # Not set -e: every failure must fall through to "run".
 set -uo pipefail
@@ -29,36 +32,13 @@ PYTHON="${PYTHON_OVERRIDE:-${PROJECT_ROOT}/.venv/bin/python}"
 TIMEOUT="${TIMEOUT_OVERRIDE:-/usr/bin/timeout}"
 CONFIG="${OWNER_STOP_GATE_CONFIG:-config/settings.yaml}"
 UNIT="${1:-unit}"
-# The stopped branch makes one bounded broker call (the sweep); 60s is the
+# No broker call any more: one sqlite pickup and read. 60s is the
 # owner-visible delay ceiling on a unit start, not a tuned value.
 GATE_TIMEOUT_SEC="${OWNER_STOP_GATE_TIMEOUT_SEC:-60}"
 
 cd "$PROJECT_ROOT" || exit 0
 
-# Same environment the runners give main.py: .env first, then systemd-delivered
-# broker credentials win over it (see run_if_et_window.sh for why the order).
-if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${PROJECT_ROOT}/.env"
-    set +a
-fi
-if [[ -n "${CREDENTIALS_DIRECTORY:-}" ]]; then
-    if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_api_key" ]]; then
-        ALPACA_API_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_api_key")"
-        export ALPACA_API_KEY
-    fi
-    if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_secret_key" ]]; then
-        ALPACA_SECRET_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_secret_key")"
-        export ALPACA_SECRET_KEY
-    fi
-fi
-
-"$TIMEOUT" "$GATE_TIMEOUT_SEC" "$PYTHON" -c '
-import sys
-import main
-sys.exit(main.OWNER_STOP_EXIT if main._owner_stop_in_force(sys.argv[1]) else 0)
-' "$CONFIG" >/dev/null
+"$TIMEOUT" "$GATE_TIMEOUT_SEC" "$PYTHON" -m src.owner_stop_gate "$CONFIG" "$UNIT" >/dev/null
 STATUS=$?
 
 if [[ "$STATUS" -eq 75 ]]; then
@@ -66,6 +46,12 @@ if [[ "$STATUS" -eq 75 ]]; then
     exit 1
 fi
 if [[ "$STATUS" -ne 0 ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${UNIT}: owner Stop gate could not decide (status ${STATUS}); running the unit" >&2
+    MSG="owner Stop gate could not decide for ${UNIT} (status ${STATUS}); running the unit"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${MSG}" >&2
+    if [[ "$STATUS" -ne 3 ]]; then
+        # Python never reached its own recorder (missing, import error,
+        # timeout): put the ERROR line where the log health report reads.
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S'),000 [ERROR] src.owner_stop_gate: ${MSG}" >>"${OWNER_STOP_GATE_LOG:-${PROJECT_ROOT}/quant_agent.log}" 2>/dev/null || true
+    fi
 fi
 exit 0
