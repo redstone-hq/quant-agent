@@ -34,6 +34,7 @@ import json
 import logging
 import math
 from datetime import datetime
+from src.trading_calendar import utc_now
 
 from src.util.time import UTC, et_today
 
@@ -176,7 +177,7 @@ def record_realised_risk_budget(
                 "  rationed_names"
                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    datetime.now(UTC).isoformat(sep=" ", timespec="seconds"),
+                    utc_now().isoformat(sep=" ", timespec="seconds"),
                     run_id or None,
                     session_date or str(et_today()),
                     row["allocator_ran"],

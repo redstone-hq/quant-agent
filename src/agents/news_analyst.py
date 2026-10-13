@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from src.trading_calendar import utc_now
 import uuid
 from pathlib import Path
 from typing import get_args
@@ -77,7 +78,7 @@ def _persist_parse_failure(
     """
     try:
         PARSE_FAILURE_DIR.mkdir(parents=True, exist_ok=True)
-        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        ts = utc_now().strftime("%Y%m%dT%H%M%SZ")
         fname = f"{agent_name}_{session}_{ts}_{uuid.uuid4().hex[:8]}.json"
         path = PARSE_FAILURE_DIR / fname
         payload = {
