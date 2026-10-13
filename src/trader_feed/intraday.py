@@ -34,7 +34,7 @@ from src.notifier import (
     format_session_result as _base_format_session_result,
     TelegramNotifier,
 )
-from src.trading_calendar import SESSION_WINDOWS, et_now, in_session_window, to_et
+from src.trading_calendar import SESSION_WINDOWS, et_now, in_session_window, sql_utc_stamp_ago, to_et
 from src.trader_feed.common import (
     _DB_PATH,
     _INTRADAY_SILENT_STATUSES,
@@ -495,8 +495,8 @@ def _read_hour_evidence(hour_window_minutes: int = _HOUR_WINDOW_MINUTES) -> list
         for row in conn.execute(
             "SELECT symbol, evidence_json FROM specialist_evidence "
             "WHERE agent_name = 'tech_analyst' AND kind = 'analysis' "
-            "AND timestamp >= datetime('now', ?) ORDER BY timestamp",
-            (f"-{hour_window_minutes} minutes",),
+            "AND timestamp >= ? ORDER BY timestamp",
+            (sql_utc_stamp_ago(minutes=hour_window_minutes),),
         ).fetchall():
             try:
                 data = json.loads(row["evidence_json"] or "{}")
@@ -533,9 +533,9 @@ def _read_hour_trades(hour_window_minutes: int = _HOUR_WINDOW_MINUTES) -> list[d
         conn.execute("PRAGMA busy_timeout=1000")
         rows = conn.execute(
             "SELECT symbol, action, qty, price, fill_status, fill_qty, "
-            "fill_price FROM trades WHERE timestamp >= datetime('now', ?) "
+            "fill_price FROM trades WHERE timestamp >= ? "
             "AND UPPER(action) != 'HOLD' ORDER BY id",
-            (f"-{hour_window_minutes} minutes",),
+            (sql_utc_stamp_ago(minutes=hour_window_minutes),),
         ).fetchall()
         return [dict(row) for row in rows]
     except Exception as exc:  # noqa: BLE001

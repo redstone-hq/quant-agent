@@ -130,6 +130,7 @@ import sqlite3
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from src.trading_calendar import utc_now
 from pathlib import Path
 from typing import Any
 
@@ -185,7 +186,7 @@ LOOKBACK_DAYS = 21
 
 def _utc_now() -> datetime:
     """Seam for tests — real code never patches `datetime` itself."""
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 @dataclass(frozen=True)

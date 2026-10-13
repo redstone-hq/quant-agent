@@ -84,9 +84,11 @@ class IntradayGating:
         except Exception as exc:  # noqa: BLE001
             record_site(self, "cooldown_legacy_trades", exc, context={"symbol": symbol})
             return True
-        from datetime import datetime as _dt, timedelta, timezone
+        from datetime import timedelta
 
-        cutoff = _dt.now(timezone.utc) - timedelta(hours=cooldown_hours)
+        from src.trading_calendar import utc_now
+
+        cutoff = utc_now() - timedelta(hours=cooldown_hours)
         for row in legacy_rows if isinstance(legacy_rows, list) else []:
             if not str(row.get("run_id") or "").startswith("intra_check-"):
                 continue
@@ -115,7 +117,8 @@ class IntradayGating:
         already finished must not sleep the 09:30 scan until 10:00.
         """
         import os
-        import time as _time
+
+        from src.trading_calendar import utc_now
 
         owner_path = Path.home() / ".cache" / "quant-agent" / "active-session.lock" / "owner"
         if not owner_path.exists():
@@ -125,7 +128,7 @@ class IntradayGating:
             owner_mode = parts[0]
             owner_ts = int(parts[2])
             owner_pid = int(parts[3])
-            age = _time.time() - owner_ts
+            age = utc_now().timestamp() - owner_ts
             alive = True
             try:
                 os.kill(owner_pid, 0)
