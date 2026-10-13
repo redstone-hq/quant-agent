@@ -51,7 +51,7 @@ from src.storage.analytics.calibration import (  # re-export mirror: defined the
     _is_filled_trail_stop,
 )
 from src.util.time import ET, UTC, et_today
-from src.trading_calendar import sql_utc_stamp, sql_utc_stamp_ago
+from src.trading_calendar import sql_utc_stamp, sql_utc_stamp_ago, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -1306,7 +1306,7 @@ class Database:
 
                 try:
                     last_dt = datetime.fromisoformat(last_alert_at).replace(tzinfo=timezone.utc)
-                    cutoff = datetime.now(timezone.utc) - timedelta(
+                    cutoff = utc_now() - timedelta(
                         hours=self.INTRADAY_SNAPSHOT_ALERT_COOLDOWN_HOURS,
                     )
                     should_alert = last_dt <= cutoff

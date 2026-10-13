@@ -36,7 +36,7 @@ from src.storage.trades import trade_refusals_store as _refusals_store
 from src.storage.trades import backfills as _backfills
 from src.storage.trades import recovery_queues as _recovery_queues
 from src.storage.trades import excursions as _excursions
-from src.trading_calendar import sql_utc_stamp
+from src.trading_calendar import sql_utc_stamp, utc_now
 from src.util.time import UTC
 from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position  # noqa: F401  re-export
 from src.trade_actions import broker_fill_time
@@ -851,7 +851,7 @@ class TradeLedger:
                 return existing["id"], False
             # `timestamp` keeps the desk's one-second UTC stamp; `filled_at` keeps the broker's full precision.
             fill_utc = broker_fill_time(filled_at)
-            ts = fill_utc[:19] if fill_utc else filled_at or self._sqlite_utc_timestamp(datetime.now(UTC))
+            ts = fill_utc[:19] if fill_utc else filled_at or self._sqlite_utc_timestamp(utc_now())
             act_norm = (action or "").upper()
             if reasoning:
                 reasoning_final = reasoning

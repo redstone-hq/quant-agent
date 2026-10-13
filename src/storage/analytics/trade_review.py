@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from src.trading_calendar import utc_now
 
 from src.quantities import held_position_risk, live_position_lots, recorded_initial_stop, summarize_closed_position
 from src.storage.analytics.calibration import _opened_before_clean_record
@@ -320,7 +321,7 @@ def _et_date(ts: str | None):
 
 def build_trade_review(rows: list[dict], now: datetime | None = None) -> dict:
     """The whole Trade Review payload from raw `trades` rows. Pure; no I/O."""
-    now = now or datetime.now(UTC)
+    now = now or utc_now()
     today = now.astimezone(ET).date()
     week_start = today - timedelta(days=today.weekday())
     trades, excluded = closed_trades(rows)
@@ -358,7 +359,7 @@ def close_review_summary(rows: list[dict], now: datetime | None = None) -> dict:
     and worst trade by R with their symbols, which the window stats do not carry. Any R that
     is unreadable makes the R total and average None (unknown), never zero.
     """
-    now = now or datetime.now(UTC)
+    now = now or utc_now()
     today = now.astimezone(ET).date()
     trades, _excluded = closed_trades(rows)
     todays = [t for t in trades if _et_date(t["closed_at"]) == today]
