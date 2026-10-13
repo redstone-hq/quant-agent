@@ -241,8 +241,9 @@ def _today_order_price(pipeline, symbol) -> float | None:
             from src.execution.broker import LivePrice
 
             candidate = stamped_getter(symbol)
-            # isinstance, not truthiness — ~58 tests build the pipeline with
-            # a MagicMock broker whose auto-attributes answer every call. A
+            # isinstance, not truthiness — tests build the pipeline with a
+            # MagicMock broker whose auto-attributes answer every call (see
+            # tests/test_bounded_repeg.py). A
             # MagicMock must never read as "this price is from today", and
             # must not read as "no price" either, so it falls through to the
             # bare getter below unchanged.
@@ -286,8 +287,9 @@ def _repeg_settings(pipeline) -> tuple[float, float] | None:
 
     Returns None — feature disabled — for anything other than an explicit
     `repeg_enabled is True`. The isinstance guards are the same convention as
-    `_entry_slippage_bps`: ~58 tests build the pipeline with a MagicMock
-    config whose auto-attributes are truthy, and a MagicMock must never read
+    `_entry_slippage_bps`: tests build the pipeline with a MagicMock config
+    whose auto-attributes are truthy (see tests/test_bounded_repeg.py), and a
+    MagicMock must never read
     as "yes, replace live orders".
     """
     execution_cfg = getattr(pipeline.config, "execution", None)

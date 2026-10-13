@@ -228,9 +228,9 @@ def sweeper_or_none(cash_sweeper):
     """The cash sweeper, or None when absent/disabled.
 
     Former `TradingPipeline._sweeper` (conversion step 9). getattr-guarded
-    at the call site because ~58 tests build TradingPipeline via __new__()
-    without __init__ — for them (and for enabled=False configs) every sweep
-    hook must be a structural no-op.
+    at the call site because tests build TradingPipeline via __new__()
+    without __init__ (covered by tests/test_cash_sweep.py) — for them (and
+    for enabled=False configs) every sweep hook must be a structural no-op.
     """
     sweeper = cash_sweeper
     if not isinstance(sweeper, CashSweeper):
