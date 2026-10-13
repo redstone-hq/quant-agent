@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 import sqlite3
-from datetime import date, datetime, time as dt_time, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo
+
+from src import trading_calendar as _desk_clock
+from src.trading_calendar import sql_utc_stamp
 
 
 _ET = ZoneInfo("America/New_York")
@@ -20,7 +23,7 @@ def _pinned_if_clock_replaced(conn: Any) -> Any:
     circuit is dated by the caller's clock, and a dedup that compares the
     two never matches. Production never takes this branch.
     """
-    if _now_utc is _REAL_NOW_UTC or not isinstance(conn, sqlite3.Connection):
+    if not clock_replaced() or not isinstance(conn, sqlite3.Connection):
         return conn
     return _ClockPinnedConnection(conn, _now_utc().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -29,7 +32,8 @@ def _now_utc() -> datetime:
     """The one clock this module reads.
 
     PRODUCTION BEHAVIOUR IS UNCHANGED BY THIS INDIRECTION. Left alone, this
-    is `datetime.now(timezone.utc)` and `_connect` hands back the bare
+    reads the desk's one clock (`src.trading_calendar.utc_now`, looked up at
+    call time so freezing the desk clock freezes this module) and `_connect` hands back the bare
     sqlite3 connection, so every SQL `'now'` still reads SQLite's own clock
     exactly as it always has -- the same OS clock, the same instant.
 
@@ -43,13 +47,20 @@ def _now_utc() -> datetime:
     the single, caller-side way to pin BOTH at once: `_connect` notices it
     has been replaced and pins SQLite's `'now'` to the same instant.
     """
-    return datetime.now(timezone.utc)
+    return _desk_clock.utc_now()
 
 
 #: Identity of the unreplaced clock. `_connect` compares against this rather
 #: than against a flag, so there is no way to be in "pinned" mode without a
 #: caller having actually supplied a clock.
 _REAL_NOW_UTC = _now_utc
+#: Identity of the desk's unreplaced clock, for the same reason.
+_REAL_DESK_UTC_NOW = _desk_clock.utc_now
+
+
+def clock_replaced() -> bool:
+    """True when a test has frozen EITHER this module's clock or the desk clock it reads."""
+    return _now_utc is not _REAL_NOW_UTC or _desk_clock.utc_now is not _REAL_DESK_UTC_NOW
 
 
 class _ClockPinnedConnection:
@@ -96,6 +107,16 @@ class _ClockPinnedConnection:
 
     def __setattr__(self, name, value):
         setattr(self._conn, name, value)
+
+
+def _sql_stamp(*, minutes_ago: float = 0.0) -> str:
+    """This circuit's clock, ``minutes_ago`` back, as the text SQLite stores.
+
+    The parts bind this where their SQL used to read ``datetime('now')``, so a
+    test that freezes ``_now_utc`` freezes every stamp the circuit writes or
+    compares -- no SQL rewriting needed for those sites.
+    """
+    return sql_utc_stamp(_now_utc() - timedelta(minutes=minutes_ago))
 
 
 def _et_day_and_utc_bounds(now: datetime | None = None) -> tuple[str, str, str]:

@@ -27,6 +27,7 @@ to avoid producing itself.
 from __future__ import annotations
 
 import ast
+from src.storage.db import Database
 from pathlib import Path
 
 from ops.rehearsal.report import RehearsalReport, STATUS_PLAIN, _verdict
@@ -554,49 +555,9 @@ def test_collect_extracts_nested_intraday_no_trades_status():
         db_path = tmp.name
 
     try:
-        conn = sqlite3.connect(db_path)
-        # Create minimal schema that collect() expects
-        conn.execute("""
-            CREATE TABLE agent_logs (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                timestamp TEXT,
-                status TEXT,
-                cost_usd REAL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE specialist_evidence (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                kind TEXT,
-                symbol TEXT,
-                evidence_json TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE trades (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                symbol TEXT,
-                action TEXT,
-                qty INTEGER
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE llm_circuit_events (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                trigger_code TEXT,
-                detail TEXT,
-                agent_name TEXT,
-                event_type TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
+        _real = Database(db_path)
+        _real.initialize()  # the real schema, not a hand-built copy
+        _real.close()
 
         # Now test collect() with nested status
         from ops.rehearsal.report import collect
@@ -647,49 +608,9 @@ def test_collect_extracts_nested_intraday_executed_status():
         db_path = tmp.name
 
     try:
-        conn = sqlite3.connect(db_path)
-        # Create minimal schema
-        conn.execute("""
-            CREATE TABLE agent_logs (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                timestamp TEXT,
-                status TEXT,
-                cost_usd REAL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE specialist_evidence (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                kind TEXT,
-                symbol TEXT,
-                evidence_json TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE trades (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                symbol TEXT,
-                action TEXT,
-                qty INTEGER
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE llm_circuit_events (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                trigger_code TEXT,
-                detail TEXT,
-                agent_name TEXT,
-                event_type TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
+        _real = Database(db_path)
+        _real.initialize()  # the real schema, not a hand-built copy
+        _real.close()
 
         from ops.rehearsal.report import collect
 
@@ -741,49 +662,9 @@ def test_collect_ignores_nested_scan_for_non_intra_check_sessions():
         db_path = tmp.name
 
     try:
-        conn = sqlite3.connect(db_path)
-        # Create minimal schema
-        conn.execute("""
-            CREATE TABLE agent_logs (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                timestamp TEXT,
-                status TEXT,
-                cost_usd REAL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE specialist_evidence (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                kind TEXT,
-                symbol TEXT,
-                evidence_json TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE trades (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                symbol TEXT,
-                action TEXT,
-                qty INTEGER
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE llm_circuit_events (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                trigger_code TEXT,
-                detail TEXT,
-                agent_name TEXT,
-                event_type TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
+        _real = Database(db_path)
+        _real.initialize()  # the real schema, not a hand-built copy
+        _real.close()
 
         from ops.rehearsal.report import collect
 
@@ -833,49 +714,9 @@ def test_collect_handles_malformed_nested_intraday_scan():
     def make_db():
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name
-        conn = sqlite3.connect(db_path)
-        # Create minimal schema
-        conn.execute("""
-            CREATE TABLE agent_logs (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                timestamp TEXT,
-                status TEXT,
-                cost_usd REAL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE specialist_evidence (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                agent_name TEXT,
-                kind TEXT,
-                symbol TEXT,
-                evidence_json TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE trades (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                symbol TEXT,
-                action TEXT,
-                qty INTEGER
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE llm_circuit_events (
-                id INTEGER PRIMARY KEY,
-                run_id TEXT,
-                trigger_code TEXT,
-                detail TEXT,
-                agent_name TEXT,
-                event_type TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
+        _real = Database(db_path)
+        _real.initialize()  # the real schema, not a hand-built copy
+        _real.close()
         return db_path
 
     from ops.rehearsal.report import collect
@@ -1013,23 +854,13 @@ def _grounding_db(tmp_path, *, run_id, analysed=("AAPL", "MSFT")):
     import sqlite3
 
     path = tmp_path / "sandbox.db"
+    _real = Database(str(path))
+    _real.initialize()  # the real schema, not a hand-built copy
+    _real.close()
     conn = sqlite3.connect(str(path))
-    conn.execute(
-        "CREATE TABLE agent_logs (id INTEGER PRIMARY KEY, run_id TEXT, "
-        "agent_name TEXT, timestamp TEXT, status TEXT, cost_usd REAL)"
-    )
-    conn.execute(
-        "CREATE TABLE specialist_evidence (id INTEGER PRIMARY KEY, run_id TEXT, "
-        "agent_name TEXT, kind TEXT, symbol TEXT, evidence_json TEXT)"
-    )
-    conn.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, run_id TEXT, symbol TEXT, action TEXT, qty INTEGER)")
-    conn.execute(
-        "CREATE TABLE llm_circuit_events (id INTEGER PRIMARY KEY, run_id TEXT, "
-        "trigger_code TEXT, detail TEXT, agent_name TEXT, event_type TEXT)"
-    )
     conn.executemany(
-        "INSERT INTO specialist_evidence (run_id, agent_name, kind, symbol, "
-        "evidence_json) VALUES (?, 'tech_analyst', 'analysis', ?, '{}')",
+        "INSERT INTO specialist_evidence (run_id, agent_name, kind, scope, symbol, "
+        "evidence_json) VALUES (?, 'tech_analyst', 'analysis', 'symbol', ?, '{}')",
         [(run_id, symbol) for symbol in analysed],
     )
     conn.commit()
@@ -1057,8 +888,8 @@ def _grounding_report(
     # attribution rather than a guess at a capitalised word.
     conn = sqlite3.connect(db_path)
     conn.executemany(
-        "INSERT INTO specialist_evidence (run_id, agent_name, kind, symbol, "
-        "evidence_json) VALUES (?, 'tech_analyst', 'analysis', ?, '{}')",
+        "INSERT INTO specialist_evidence (run_id, agent_name, kind, scope, symbol, "
+        "evidence_json) VALUES (?, 'tech_analyst', 'analysis', 'symbol', ?, '{}')",
         [(pm_run, symbol) for symbol in source_run_symbols],
     )
     conn.commit()
@@ -1177,8 +1008,8 @@ def test_the_report_states_what_it_replayed_and_how_much_it_covered(tmp_path):
 
     conn = sqlite3.connect(db_path)
     conn.executemany(
-        "INSERT INTO specialist_evidence (run_id, agent_name, kind, symbol, "
-        "evidence_json) VALUES (?, 'pipeline', 'pipeline_event', ?, ?)",
+        "INSERT INTO specialist_evidence (run_id, agent_name, kind, scope, symbol, "
+        "evidence_json) VALUES (?, 'pipeline', 'pipeline_event', 'symbol', ?, ?)",
         [
             (
                 run_id,

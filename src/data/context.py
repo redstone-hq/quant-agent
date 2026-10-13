@@ -31,15 +31,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import pandas as pd
 
 from src.data.technical import ATR_PERIOD, atr_series
 from src.models import OHLCV
 from src.quantities import avg_dollar_volume
 
-# Completed-session approximations for calendar horizons. Holidays and month
-# lengths vary, so item 90 routes these to real calendar boundaries without
-# choosing counts from later returns.
-_W_1W, _W_1M, _W_3M, _W_6M, _W_12M = 5, 21, 63, 126, 252
+# Return horizons. DEFINITION, not tunable numbers: the 1w/1m/3m/6m/12m return
+# is by definition the change over 7 calendar days / 1 / 3 / 6 / 12 calendar
+# months back from the latest bar's date, resolved against the series' own date
+# index by `_anchor_index` (last bar on or before that date), so holidays are
+# handled by the data itself. These are calendar periods, not lookback windows.
+_HORIZON_1W = pd.DateOffset(days=7)
+_HORIZON_1M = pd.DateOffset(months=1)
+_HORIZON_3M = pd.DateOffset(months=3)
+_HORIZON_6M = pd.DateOffset(months=6)
+_HORIZON_12M = pd.DateOffset(months=12)
+
+# Session-count windows for the 52-week range / ATR percentile (_W_12M) and the
+# up/down volume window (_W_1M). Unchanged bar counts; see number_ledger.yaml.
+_W_1M, _W_12M = 21, 252
 
 # Sessions used to measure whether a moving average is rising or falling.
 _SLOPE_LOOKBACK = 10
@@ -143,13 +154,28 @@ class MarketContext:
     unfilled_gaps: list[Gap] = field(default_factory=list)
 
 
-def _pct_change(series: np.ndarray, window: int) -> float | None:
-    if len(series) <= window:
+def _anchor_index(bars: list[OHLCV], horizon: pd.DateOffset) -> int | None:
+    """Index of the last bar on or before (latest bar date - `horizon`).
+
+    None when the series starts after that calendar date (too short).
+    """
+    if not bars:
         return None
-    past = float(series[-1 - window])
+    target = (pd.Timestamp(bars[-1].date) - horizon).date()
+    for i in range(len(bars) - 1, -1, -1):
+        if bars[i].date <= target:
+            return i
+    return None
+
+
+def _pct_change(bars: list[OHLCV], horizon: pd.DateOffset) -> float | None:
+    idx = _anchor_index(bars, horizon)
+    if idx is None or idx >= len(bars) - 1:
+        return None
+    past = float(bars[idx].close)
     if past <= 0:
         return None
-    return round((float(series[-1]) - past) / past * 100.0, 2)
+    return round((float(bars[-1].close) - past) / past * 100.0, 2)
 
 
 def _ma_slope(closes: np.ndarray, period: int, lookback: int) -> float | None:
@@ -283,13 +309,12 @@ def compute_market_context(
     if last_close <= 0:
         return None
 
-    returns = {w: _pct_change(closes, w) for w in (_W_1W, _W_1M, _W_3M, _W_6M, _W_12M)}
+    returns = {h: _pct_change(bars, h) for h in (_HORIZON_1W, _HORIZON_1M, _HORIZON_3M, _HORIZON_6M, _HORIZON_12M)}
 
     rel_1m = rel_3m = None
     if benchmark_bars and len(benchmark_bars) >= 2:
-        bench_closes = np.array([b.close for b in benchmark_bars], dtype=float)
-        for window, key in ((_W_1M, "1m"), (_W_3M, "3m")):
-            mine, theirs = returns[window], _pct_change(bench_closes, window)
+        for window, key in ((_HORIZON_1M, "1m"), (_HORIZON_3M, "3m")):
+            mine, theirs = returns[window], _pct_change(benchmark_bars, window)
             if mine is not None and theirs is not None:
                 value = round(mine - theirs, 2)
                 if key == "1m":
@@ -419,11 +444,11 @@ def compute_market_context(
 
     return MarketContext(
         last_close=round(last_close, 2),
-        return_1w=returns[_W_1W],
-        return_1m=returns[_W_1M],
-        return_3m=returns[_W_3M],
-        return_6m=returns[_W_6M],
-        return_12m=returns[_W_12M],
+        return_1w=returns[_HORIZON_1W],
+        return_1m=returns[_HORIZON_1M],
+        return_3m=returns[_HORIZON_3M],
+        return_6m=returns[_HORIZON_6M],
+        return_12m=returns[_HORIZON_12M],
         rel_strength_1m=rel_1m,
         rel_strength_3m=rel_3m,
         benchmark_symbol=benchmark_symbol if (rel_1m is not None or rel_3m is not None) else None,

@@ -46,7 +46,7 @@ def _ramp(n: int, start: float, end: float) -> list[float]:
 
 class TestReturns:
     def test_returns_measured_over_session_windows(self):
-        ctx = compute_market_context(_bars(_ramp(300, 100.0, 200.0)))
+        ctx = compute_market_context(_bars(_ramp(400, 100.0, 200.0)))
         assert ctx is not None
         assert ctx.return_1m is not None and ctx.return_1m > 0
         assert ctx.return_12m is not None
@@ -117,7 +117,7 @@ class TestVolatility:
 
 class TestMovingAverageSlopes:
     def test_rising_market_has_positive_slopes(self):
-        ctx = compute_market_context(_bars(_ramp(300, 100.0, 200.0)))
+        ctx = compute_market_context(_bars(_ramp(400, 100.0, 200.0)))
         assert ctx is not None
         assert ctx.ma20_slope_pct is not None and ctx.ma20_slope_pct > 0
         assert ctx.ma50_slope_pct is not None and ctx.ma50_slope_pct > 0

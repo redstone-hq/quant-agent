@@ -199,8 +199,9 @@ class PromptPMFacts:
         # R-multiple. None on failure; PMFacts.render() then says "unknown"
         # rather than implying the book is risk-free.
         f.heat = self._build_portfolio_heat(positions, total_value)
-        # getattr-guarded for the ~58 tests that build TradingPipeline via
-        # __new__() without __init__ — same convention as `_sweeper`.
+        # getattr-guarded for the tests that build TradingPipeline via
+        # __new__() without __init__ (see tests/test_bounded_repeg.py) — same
+        # convention as `_sweeper`.
         risk_cfg = getattr(getattr(self, "config", None), "risk", None)
         ceiling = getattr(risk_cfg, "max_portfolio_risk_pct", None)
         if isinstance(ceiling, (int, float)) and ceiling > 0:

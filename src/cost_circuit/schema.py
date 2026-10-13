@@ -3,7 +3,7 @@
 from __future__ import annotations
 import sqlite3
 from src.cost_circuit.classification import _trigger_scope
-from src.cost_circuit.clock import _pinned_if_clock_replaced
+from src.cost_circuit.clock import _pinned_if_clock_replaced, _sql_stamp
 
 
 def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
@@ -203,8 +203,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
         # datetime('now') default; on the migration path a constant '' default
         # is safe because this column is only ever read while a row is in the
         # in-flight retry state (recovery_alert_state=-1), and the code always
-        # writes recovery_alert_updated_at=datetime('now') at the 0 -> -1
-        # transition before any comparison against it can run.
+        # binds recovery_alert_updated_at from the desk clock (_sql_stamp) at
+        # the 0 -> -1 transition before any comparison against it can run.
         conn.execute("ALTER TABLE llm_circuit_events ADD COLUMN recovery_alert_updated_at TEXT NOT NULL DEFAULT ''")
     if "suspension_alert_state" not in event_columns:
         # Item 174 pairing. Default 1 ("the owner was told about the
@@ -279,7 +279,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
                 "trigger_detail=NULL, run_id=NULL, mode=NULL, agent_name=NULL, "
                 "session_attempts=0, session_cost_usd=0, daily_cost_usd=0, "
                 "attempts_exact=1, costs_exact=1, suspended_at=NULL, alert_state=0, "
-                "updated_at=datetime('now') WHERE singleton=1"
+                "updated_at=? WHERE singleton=1",
+                (_sql_stamp(),),
             )
     # Schema creation and legacy-latch migration are one self-contained
     # initialization unit.  Callers intentionally start their operational

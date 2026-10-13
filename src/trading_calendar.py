@@ -45,7 +45,7 @@ condition, because a detector is not the fix.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -95,8 +95,42 @@ REGULAR_SESSION_CLOSE_MIN = 960  # 16:00 ET
 
 
 def et_now() -> datetime:
-    """Current instant as a timezone-aware datetime in US/Eastern."""
-    return datetime.now(ET)
+    """Current instant in US/Eastern: ``utc_now`` converted, never a second read."""
+    return utc_now().astimezone(ET)
+
+
+def utc_now() -> datetime:
+    """Current instant as a timezone-aware datetime in UTC: the same clock as ``et_now``.
+
+    THE desk clock -- the ONE OS read. ``et_now`` converts it. Every row stamp, prune cutoff and day boundary is read
+    from here (or ``et_now``), never from SQLite's ``datetime('now')`` and
+    never from a bare ``datetime.now`` elsewhere -- ``scripts/one_clock_guard.py``
+    refuses both outside this module.
+    """
+    return datetime.now(UTC)
+
+
+SQL_STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def sql_utc_stamp(when: datetime | None = None) -> str:
+    """``when`` (default: now) in the exact text SQLite's ``datetime('now')`` stores.
+
+    Naive-UTC, second precision, ``'YYYY-MM-DD HH:MM:SS'``. Bind it as a
+    parameter wherever SQL used to read its own clock, so a row written and a
+    row compared are dated by the one Python clock -- the one a test can freeze.
+    A naive ``when`` is taken as UTC, the way stored stamps are read back.
+    """
+    if when is None:
+        when = utc_now()
+    elif when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when.astimezone(UTC).strftime(SQL_STAMP_FORMAT)
+
+
+def sql_utc_stamp_ago(*, days: float = 0.0, hours: float = 0.0, minutes: float = 0.0) -> str:
+    """A cutoff this far before now, in SQLite's stored format (replaces ``datetime('now', '-N days')``)."""
+    return sql_utc_stamp(utc_now() - timedelta(days=days, hours=hours, minutes=minutes))
 
 
 def et_today() -> date:
