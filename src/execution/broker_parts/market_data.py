@@ -14,6 +14,7 @@ import logging
 
 from src.execution.broker_parts.trade_stream import _OnState
 from src.sentinel.counted import record_swallowed
+from src.trading_calendar import utc_now
 from src.execution.price_read import read_price_with_retry
 from src.execution.broker_parts.http_timeout import (  # noqa: F401 (re-export)
     _BROKER_HTTP_TIMEOUT,
@@ -32,9 +33,9 @@ _SIP_DELAY_MINUTES = 16
 
 def _sip_safe_end(now=None):
     """Latest `end` a free-plan SIP history request may carry: now - 16 min (UTC)."""
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import timedelta as _td
 
-    return (now or _dt.now(_tz.utc)) - _td(minutes=_SIP_DELAY_MINUTES)
+    return (now or utc_now()) - _td(minutes=_SIP_DELAY_MINUTES)
 
 
 # Same log channel as before the move: operators and tests filter on the
@@ -317,7 +318,7 @@ class MarketData:
             if timeframe_value is None:
                 return []
 
-            now = _dt.now(_tz.utc)
+            now = utc_now()
             start = now - _td(days=lookback_days)
             alpaca_symbol = _alpaca_symbol(symbol)
 

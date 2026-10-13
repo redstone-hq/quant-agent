@@ -42,7 +42,9 @@ class ReprotectRecords:
         try:
             from datetime import datetime, timezone
 
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            from src.trading_calendar import utc_now
+
+            stamp = utc_now().strftime("%Y%m%dT%H%M%S%fZ")
             self._record_exit_refusal(
                 symbol=symbol,
                 run_id=f"reprotect-{str(symbol).strip().upper()}-{stamp}",

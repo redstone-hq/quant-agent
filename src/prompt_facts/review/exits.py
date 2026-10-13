@@ -44,12 +44,14 @@ class ReviewExits:
         """
         from datetime import datetime as _dt, timedelta, timezone
 
+        from src.trading_calendar import utc_now
+
         try:
             rows = self.db.get_trades(limit=120)
         except Exception as e:  # noqa: BLE001
             logger.warning("post_exit_reality: trades fetch failed: %s", e)
             return None
-        now = _dt.now(timezone.utc)
+        now = utc_now()
         window_start = now - timedelta(days=lookback_days)
         age_cutoff = now - timedelta(days=min_age_days)
         sweeper = self._sweeper()

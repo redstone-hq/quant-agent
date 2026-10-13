@@ -293,7 +293,9 @@ class FillReconciler:
         resolved = 0
         # Generous lookback — Alpaca submitted_at vs our insert timestamp
         # plus any clock skew. A day covers every realistic crash-restart.
-        after = datetime.now(timezone.utc) - timedelta(hours=24)
+        from src.trading_calendar import utc_now
+
+        after = utc_now() - timedelta(hours=24)
         for row in rows:
             row_id = row["id"]
             symbol = row["symbol"]
@@ -547,7 +549,9 @@ class FillReconciler:
 
         from datetime import datetime, timedelta, timezone
 
-        after = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        from src.trading_calendar import utc_now
+
+        after = utc_now() - timedelta(days=lookback_days)
 
         results: list[dict] = []
         for symbol, ledger_open in ledger_qty.items():
