@@ -1,4 +1,5 @@
-"""The daily universe screen is scheduled Mon-Fri before the US open."""
+"""The daily universe screen is scheduled Mon-Fri at 03:00 ET (owner ruling 2026-10-13):
+after the previous close, five hours before the desk's day starts at 08:00 ET."""
 
 from __future__ import annotations
 
@@ -12,10 +13,10 @@ def _text(name: str) -> str:
     return (UNITS / name).read_text()
 
 
-def test_timer_fires_weekdays_before_open_in_new_york_time():
+def test_timer_fires_weekdays_at_three_am_new_york_time():
     m = re.search(r"^OnCalendar=(.+)$", _text("quant-agent-universe-daily.timer"), re.M)
     assert m is not None
-    assert m.group(1) == "Mon..Fri 08:30 America/New_York"
+    assert m.group(1) == "Mon..Fri 03:00 America/New_York"
 
 
 def test_timer_is_persistent():
@@ -36,4 +37,4 @@ def test_no_other_timer_shares_the_fire_time():
         if t.name == "quant-agent-universe-daily.timer":
             continue
         for line in t.read_text().splitlines():
-            assert not (line.startswith("OnCalendar=") and "08:30" in line), t.name
+            assert not (line.startswith("OnCalendar=") and "03:00" in line), t.name

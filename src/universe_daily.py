@@ -30,25 +30,38 @@ Data and call budget:
                or "Miscellaneous" sector (BRK-B, FERG). If the download fails
                every name is inconclusive `profile_unavailable` and the day
                is NOT marked recorded, so the next wake-up retries.
-  Yahoo gap    A second, bounded pass (owner ruling 2026-10-10: wrongly
-               dropped names go back in). ONLY a name that passed every
-               other check and is (a) a fund with no category or (b) a stock
+  Yahoo gap    A second pass (owner ruling 2026-10-10: wrongly dropped
+               names go back in). ONLY a name that passed every other check
+               and is (a) a fund with no stored category, or one stored
+               longer ago than `fund_category_refresh_days`, or (b) a stock
                whose Nasdaq sector is Unknown gets one yfinance `.info` read
                (`category` for a fund, `sector` for a stock), one after
-               another with yfinance's own timeout. The FIRST rate limit
-               (HTTP 429) stops Yahoo for the rest of the run: every name not
-               yet read is recorded unreached (never admitted), and the
-               ISO-week cache (the SEC filings rule) fills across runs. It
-               runs after every other read, so it never eats their time
-               budget. A
-               fund category goes through `check_fund` (leveraged, inverse,
-               bond, T-bill and money-market words refuse); a stock sector is
-               used as is (Yahoo's names ARE the desk's). An error, rate
-               limit or blank answer records the name inconclusive
+               another with yfinance's own timeout. A fund's category is
+               KEPT in the desk database (`src/data/fund_category.py`,
+               table `fund_category`): read once, then served to this pass
+               and to the side door (`src/pipeline_admission.py`) without
+               Yahoo. A stock's sector fills the ISO-week cache (the SEC
+               filings rule). A rate limit (HTTP 429 or yfinance's own
+               error) is a slow-down, not a stop (owner ruling 2026-10-13):
+               the pass honours Retry-After when Yahoo sends one, otherwise
+               backs off exponentially (`yahoo_backoff_s` doubling up to
+               `yahoo_backoff_max_s`), then carries on in the same run. It
+               stops only at `YahooFill.until` — the start of the desk's day,
+               08:00 ET = the `earnings_preprocess` phase start
+               (`src/session_calendar.py`), ~5 h after the 03:00 wake-up;
+               every name not yet read is recorded unreached (never
+               admitted) and is read the next night. It runs after every
+               other read, so it never eats their time budget. A fund
+               category goes through `check_fund` (leveraged, inverse, bond,
+               T-bill and money-market words refuse) and the refuse-only
+               name backstop (`is_leveraged_fund_name`) runs before it; a
+               stock sector is used as is (Yahoo's names ARE the desk's). An
+               error or blank answer records the name inconclusive
                `profile_unavailable` ("could not read"): never admitted,
-               never dropped. The 9 Oct record had 2,780 such funds and 37
-               such stocks; the full per-name pass removed in #1661 read all
-               ~14,000 names.
+               never dropped; a stale stored category keeps its record when
+               the refresh cannot be read. The 9 Oct record had 2,780 such
+               funds and 37 such stocks; the full per-name pass removed in
+               #1661 read all ~14,000 names.
   takeover     SEC issuer filing history, cached per ISO week. Calls counted.
 
 Records: `<universe_screen.data_dir>/daily/<YYYY-MM-DD>.jsonl` (one line per
@@ -56,9 +69,10 @@ listed name: passed, dropped with its failing check(s), inconclusive on a
 data outage, or "unreached: time limit") and `<YYYY-MM-DD>.summary.json`
 (names listed, passed, dropped per reason, calls made, seconds taken).
 
-Run: `python -m src.universe_daily` — a no-op unless today is a trading day
-on the broker's calendar, the session has closed, and today has no record
-yet, so any wake-up tick may call it.
+Run: `python -m src.universe_daily` — screens the LAST COMPLETED session
+(owner ruling 2026-10-13: the timer fires 03:00 ET, so that is the previous
+trading day's close); a no-op when that day already has a record, so any
+wake-up tick may call it.
 """
 
 from __future__ import annotations
@@ -69,10 +83,12 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from src.trading_calendar import utc_now
+from src.data.fund_category import FundCategoryStore
 from src.universe_screen import (
     INCONCLUSIVE,
     ScreenSources,
@@ -91,7 +107,7 @@ logger = logging.getLogger(__name__)
 UNREACHED = "unreached_time_limit"
 UNREACHED_TEXT = "unreached: time limit"
 YAHOO_LIMITED = "unreached_yahoo_rate_limit"
-YAHOO_LIMITED_TEXT = "unreached: Yahoo rate limit earlier this run"
+YAHOO_LIMITED_TEXT = "unreached: Yahoo rate limit, no night left to back off; read next night"
 _READ_FAILED = object()  # a raised Yahoo read, already recorded for the name
 
 #: Stand-in sector while a stock with no Nasdaq sector runs its remaining
@@ -161,7 +177,9 @@ class DailyRun:
     )
     #: Second-pass Yahoo reads: names due one, calls made (retries count),
     #: failures (error, rate limit or blank) and cache hits.
-    yahoo: dict[str, int] = field(default_factory=lambda: {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0})
+    yahoo: dict[str, int] = field(
+        default_factory=lambda: {"names": 0, "calls": 0, "failures": 0, "cache_hits": 0, "backoffs": 0}
+    )
     seconds: float = 0.0
     deadline_hit: bool = False
     listing_unavailable: bool = False
@@ -208,6 +226,25 @@ def _status(failures: list[str]) -> str:
     return "dropped"
 
 
+@dataclass
+class YahooFill:
+    """How the Yahoo pass fills and keeps what it reads.
+
+    `store` keeps fund categories across runs (None: nothing is kept);
+    `until` is the monotonic instant the pass must stop at (None: the run's
+    own deadline); `refresh_days` re-reads a stored category older than
+    this (None: never); `backoff_s` doubles per consecutive rate limit up to
+    `backoff_max_s`, unless Yahoo sends Retry-After. A zero backoff stops
+    at the first rate limit."""
+
+    store: FundCategoryStore | None = None
+    until: float | None = None
+    refresh_days: int | None = None
+    backoff_s: float = 0.0
+    backoff_max_s: float = 0.0
+    sleep: Callable[[float], None] = time.sleep
+
+
 def run_daily_record(
     assets: list,
     *,
@@ -222,12 +259,18 @@ def run_daily_record(
     clock: Callable[[], float] = time.monotonic,
     get_yahoo: Callable[[str], dict] | None = None,
     get_role: Callable[[Any], str] | None = None,
+    yahoo_fill: YahooFill | None = None,
 ) -> DailyRun:
     """Screen every listed name once; record each. Never mutates admission state.
 
     `get_yahoo(symbol) -> yfinance .info dict` fills the Yahoo gap (module
-    docstring); None leaves those names as the listing alone records them."""
+    docstring); None leaves those names as the listing alone records them.
+    `yahoo_fill` says where a fund category is kept and how long the pass
+    may run (default: nothing kept, the run's own deadline)."""
     started = clock()
+    fill = yahoo_fill or YahooFill()
+    if fill.until is None:
+        fill.until = deadline
     screen = _DailyScreen(
         run=DailyRun(today=today),
         th=th,
@@ -238,6 +281,7 @@ def run_daily_record(
         get_filings=get_filings,
         get_yahoo=get_yahoo,
         get_role=get_role,
+        fill=fill,
     )
     by_symbol: dict[str, Any] = {}
     for asset in assets:
@@ -263,11 +307,14 @@ class _DailyScreen:
     get_filings: Callable[[str], Any]
     get_yahoo: Callable[[str], dict] | None = None
     get_role: Callable[[Any], str] | None = None
+    fill: YahooFill = field(default_factory=YahooFill)
     # The time limit is checked when a name STARTS: a name begun in time
     # finishes its reads; one begun late uses only what is cached.
     late: bool = False
     # Names that passed every other check and wait for a Yahoo read:
-    # (symbol, "fund" | "stock", measured, extra record fields).
+    # (symbol, "fund" | "fund_refresh" | "stock", measured, extra record
+    # fields). A "fund_refresh" already has a (stale) stored category and a
+    # passed record; the read only replaces both when it succeeds.
     yahoo_due: list = field(default_factory=list)
     yahoo_blocked: bool = False
 
@@ -356,10 +403,8 @@ class _DailyScreen:
                     symbol, sources, self.th, asset=by_symbol[symbol], bars=bars[symbol], today=self.run.today
                 )
                 failures, measured = result.failures, result.measured
-                kind = None
-                if self.get_yahoo is not None and failures == ["fund_category_not_listed"]:
-                    kind = "fund"  # a fund's category is its last check
-                elif self.get_yahoo is not None and failures == ["unresolved_sector"]:
+                kind = self._fund_kind(failures, seen.get("profile"))
+                if self.get_yahoo is not None and failures == ["unresolved_sector"]:
                     # Run the remaining (takeover) check with a stand-in
                     # sector, so Yahoo is read only for a name that passed it.
                     held = {**seen["profile"], "sector": _SECTOR_PENDING}
@@ -383,79 +428,150 @@ class _DailyScreen:
     # Yahoo gap: second pass, bounded to names that passed every other check
     # ----------------------------------------------------------------------
 
+    def _fund_kind(self, failures: list, profile) -> str | None:
+        """Which Yahoo read a fund is due: "fund" when its category is its last
+        failing check, "fund_refresh" when it passed on a stored category older
+        than the refresh horizon, else None."""
+        if self.get_yahoo is None:
+            return None
+        if failures == ["fund_category_not_listed"]:
+            return "fund"
+        if failures or self.fill.refresh_days is None or not isinstance(profile, dict):
+            return None
+        fetched = profile.get("fund_category_fetched_on")
+        if not fetched:
+            return None
+        stale = date.fromisoformat(str(fetched)) + timedelta(days=int(self.fill.refresh_days)) <= self.run.today
+        return "fund_refresh" if stale else None
+
+    def _not_reached(self, symbol: str, measured: dict, keep: bool) -> None:
+        """Record a name the pass could not get to (a refresh keeps its record)."""
+        if keep:
+            return
+        if self.yahoo_blocked:
+            self.run.record(symbol, "unreached", [YAHOO_LIMITED], measured, reason=YAHOO_LIMITED_TEXT)
+        else:
+            self.run.record(symbol, "unreached", [UNREACHED], measured)
+
     def yahoo_phase(self) -> None:
         """Fill a fund's category / a stock's sector from Yahoo; fail closed."""
         from src.models import _ALLOWED_SECTORS
 
         self.run.yahoo["names"] = len(self.yahoo_due)
         for symbol, kind, measured, read_on in sorted(self.yahoo_due, key=lambda d: self._age(d[0], "yahoo")):
-            late = self.clock() >= self.deadline
+            keep = kind == "fund_refresh"  # the stored category's record stands unless the read succeeds
+            late = self.clock() >= self.fill.until
             if late:
                 self.run.deadline_hit = True
-            entry = self.cache.get("yahoo", symbol)
+            # A fund category lives in the store (served by the profile reader);
+            # only a stock's sector goes through the ISO-week cache.
+            entry = self.cache.get("yahoo", symbol) if kind == "stock" else None
             if entry is not None and (entry.get("week") == iso_week(self.run.today) or late):
                 self.run.yahoo["cache_hits"] += 1
                 value, read_on_day = entry["value"], entry.get("on")
-            elif late:
-                self.run.record(symbol, "unreached", [UNREACHED])
+            elif late or self.yahoo_blocked:
+                self._not_reached(symbol, measured, keep)
                 continue
             else:
-                value, read_on_day = self._yahoo_read(symbol, kind, measured, read_on), self.run.today.isoformat()
+                value = self._yahoo_read(symbol, kind, measured, read_on, keep=keep)
+                read_on_day = self.run.today.isoformat()
                 if self.yahoo_blocked:
-                    self.run.record(symbol, "unreached", [YAHOO_LIMITED], measured, reason=YAHOO_LIMITED_TEXT)
+                    self._not_reached(symbol, measured, keep)
                     continue
-                if value is _READ_FAILED:
+                if value is _READ_FAILED or (keep and not value):
                     continue
             extra = {**read_on, "yahoo_read_on": read_on_day if value else None}
-            text = str((value or {}).get(kind) or "").strip() if isinstance(value, dict) else ""
-            if kind == "fund" and text:
+            key = "fund" if keep else kind
+            text = str((value or {}).get(key) or "").strip() if isinstance(value, dict) else ""
+            if key == "fund" and text:
                 failures, got = check_fund(text)
                 self.run.record(symbol, _status(failures), failures, {**measured, **got}, **extra)
             elif kind == "stock" and text in _ALLOWED_SECTORS:
                 self.run.record(symbol, "passed", [], {**measured, "sector": text}, **extra)
             else:
-                # Error, rate limit, blank or an unknown sector name: could not read.
+                # Error, blank or an unknown sector name: could not read.
                 self.run.record(symbol, "inconclusive", ["profile_unavailable"], measured, **extra)
 
-    def _yahoo_read(self, symbol: str, kind: str, measured: dict, read_on: dict):
-        """One `.info` read -> {kind: text}, cached when not blank; None when blank.
-        A raised read is recorded for the name, with Yahoo's own error text, and
-        returns `_READ_FAILED`. The first rate limit sets `yahoo_blocked`: no
-        further read this run."""
-        if self.yahoo_blocked:
+    def _yahoo_read(self, symbol: str, kind: str, measured: dict, read_on: dict, *, keep: bool = False):
+        """One `.info` read -> {kind: text}, kept when not blank; None when blank.
+        A raised read is recorded for the name (unless `keep`), with Yahoo's own
+        error text, and returns `_READ_FAILED`. A rate limit backs off and
+        retries the same name; when no night is left to wait, `yahoo_blocked`
+        is set and nothing more is read this run."""
+        attempt = 0
+        while not self.yahoo_blocked:
+            self.run.yahoo["calls"] += 1
+            try:
+                info = self.get_yahoo(symbol) or {}
+                break
+            except Exception as exc:  # noqa: BLE001 -- recorded per name as could-not-read
+                self.run.yahoo["failures"] += 1
+                if not _is_rate_limit(exc):
+                    logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
+                    if not keep:
+                        self.run.record(
+                            symbol,
+                            "inconclusive",
+                            ["profile_unavailable"],
+                            measured,
+                            reason=f"Yahoo read failed: {type(exc).__name__}: {exc}",
+                            **{**read_on, "yahoo_read_on": None},
+                        )
+                    return _READ_FAILED
+                self._back_off(symbol, exc, attempt)
+                attempt += 1
+        else:
             return None
-        self.run.yahoo["calls"] += 1
-        try:
-            info = self.get_yahoo(symbol) or {}
-        except Exception as exc:  # noqa: BLE001 -- recorded per name as could-not-read
-            self.run.yahoo["failures"] += 1
-            if _is_rate_limit(exc):
-                logger.warning("universe daily: Yahoo rate limit on %s; no more Yahoo reads this run", symbol)
-                self.yahoo_blocked = True
-            else:
-                logger.warning("universe daily: Yahoo read failed for %s: %s", symbol, exc)
-            self.run.record(
-                symbol,
-                "inconclusive",
-                ["profile_unavailable"],
-                measured,
-                reason=f"Yahoo read failed: {type(exc).__name__}: {exc}",
-                **{**read_on, "yahoo_read_on": None},
-            )
-            return _READ_FAILED
-        key = "category" if kind == "fund" else "sector"
+        key = "category" if kind in ("fund", "fund_refresh") else "sector"
         text = str(info.get(key) or "").strip() if isinstance(info, dict) else ""
         if not text:
             self.run.yahoo["failures"] += 1
             return None
+        if key == "category":
+            if self.fill.store is not None:
+                self.fill.store.put(symbol, text, self.run.today)
+            return {"fund": text}
         value = {kind: text}
         self.cache.put("yahoo", symbol, value, self.run.today)
         return value
+
+    def _back_off(self, symbol: str, exc: BaseException, attempt: int) -> None:
+        """Honour Retry-After, else wait `backoff_s` doubled per attempt up to
+        `backoff_max_s`; when the wait would outlast the night, close Yahoo."""
+        wait = _retry_after(exc)
+        if wait is None:
+            wait = min(float(self.fill.backoff_max_s), float(self.fill.backoff_s) * (2**attempt))
+        if wait <= 0 or self.clock() + wait >= self.fill.until:
+            logger.warning("universe daily: Yahoo rate limit on %s; no night left to back off, Yahoo closed", symbol)
+            self.yahoo_blocked = True
+            return
+        logger.warning("universe daily: Yahoo rate limit on %s; backing off %.0f s", symbol, wait)
+        self.run.yahoo["backoffs"] += 1
+        self.fill.sleep(wait)
 
 
 def _is_rate_limit(exc: BaseException) -> bool:
     text = str(exc).lower()
     return type(exc).__name__ == "YFRateLimitError" or "429" in text or "too many requests" in text
+
+
+def _retry_after(exc: BaseException) -> float | None:
+    """Seconds Yahoo asked us to wait (RFC 9110 Retry-After, delay-seconds or
+    HTTP-date) when the raised error carries its response; else None."""
+    from email.utils import parsedate_to_datetime
+
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    raw = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text.isdigit():
+        return float(text)
+    try:
+        when = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, (when - utc_now()).total_seconds())
 
 
 # --------------------------------------------------------------------------
@@ -481,7 +597,7 @@ def write_record(data_dir: str | Path, run: DailyRun) -> dict:
     if run.listing_unavailable:
         logger.warning("universe daily: %s listing unavailable; day not marked recorded, next run retries", stamp)
         return summary
-    summary["written_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    summary["written_at"] = utc_now().isoformat(timespec="seconds")
     _atomic_write(folder / f"{stamp}.summary.json", json.dumps(summary, indent=1, sort_keys=True))
     logger.info(
         "UNIVERSE_DAILY %s %s",
@@ -502,24 +618,52 @@ def write_record(data_dir: str | Path, run: DailyRun) -> dict:
 # --------------------------------------------------------------------------
 
 
-def _due_today(broker, data_dir, today: date) -> bool:
-    """A trading day on the broker's calendar, after its close, not yet recorded."""
-    if already_recorded(data_dir, today):
-        logger.info("universe daily: %s already recorded", today)
-        return False
-    if not broker.is_trading_day(today):
-        logger.info("universe daily: %s is not a trading day", today)
-        return False
-    close = broker.get_session_close(today)
-    if close is None or datetime.now(timezone.utc) < close:
-        logger.info("universe daily: session not closed yet (close=%s)", close)
-        return False
-    return True
+def _screen_day(broker, today: date, now: datetime) -> date | None:
+    """The last completed session on or before `today`: the day whose close
+    has passed. At the 03:00 ET wake-up that is the previous trading day;
+    after the close it is today. None when the calendar names none in the
+    past fortnight (a calendar outage: nothing to screen)."""
+    day = today
+    for _ in range(14):
+        if broker.is_trading_day(day):
+            close = broker.get_session_close(day)
+            if close is not None and now >= close:
+                return day
+        day -= timedelta(days=1)
+    return None
 
 
-def _profile_reader(listing, canonicalize):
+def _due(broker, data_dir, today: date, now: datetime) -> date | None:
+    """The session to screen now, or None when it is already recorded."""
+    day = _screen_day(broker, today, now)
+    if day is None:
+        logger.info("universe daily: no completed session found before %s", today)
+        return None
+    if already_recorded(data_dir, day):
+        logger.info("universe daily: %s already recorded", day)
+        return None
+    return day
+
+
+def _yahoo_until(broker, today: date, now: datetime, fallback: float) -> float:
+    """Monotonic instant the Yahoo pass must stop at: the start of the desk's
+    day, `earnings_preprocess` on `today` (08:00 ET on a full day). When
+    `today` has no session (holiday, calendar outage) the run's own deadline."""
+    from src.session_calendar import SessionCalendarUnavailable, phase_window
+
+    try:
+        start, _ = phase_window(broker, today, "earnings_preprocess")
+    except SessionCalendarUnavailable as exc:
+        logger.warning("universe daily: no session edges for %s (%s); Yahoo pass keeps the run deadline", today, exc)
+        return fallback
+    return time.monotonic() + max(0.0, (start - now).total_seconds())
+
+
+def _profile_reader(listing, canonicalize, store: FundCategoryStore | None = None):
     """Profile in the shape `check_profile` reads, from one Nasdaq listing
-    (None when the download failed: every name is then unavailable)."""
+    (None when the download failed: every name is then unavailable). A
+    fund's category comes from `store` (the desk database); with none on
+    record it is `fund_category_not_listed` (inconclusive, never admitted)."""
 
     def _profile(symbol: str):
         if listing is None:
@@ -528,8 +672,17 @@ def _profile_reader(listing, canonicalize):
         if rec is None:
             return None
         if rec.is_fund:
-            # Nasdaq has no fund category; never let a placeholder reach check_fund.
-            return {"quote_type": "ETF", "fund_category_not_listed": True}
+            kept = store.get(symbol) if store is not None else None
+            if kept is None:
+                # Nasdaq has no fund category; never let a placeholder reach check_fund.
+                return {"quote_type": "ETF", "fund_category_not_listed": True, "name": rec.name}
+            return {
+                "quote_type": "ETF",
+                "category": kept.category,
+                "name": rec.name,
+                "fund_category_fetched_on": kept.fetched_at.isoformat(),
+                "fund_category_source": kept.source,
+            }
         return {
             "market_cap_usd": float(rec.market_cap) if rec.market_cap is not None else None,
             "sector": canonicalize(rec.sector_recorded),
@@ -615,9 +768,11 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = load_config(Path(parser.parse_args(argv).config))
     cfg = config.universe_screen
-    today = et_today()
+    now = utc_now()
+    wake_day = et_today()
     broker = _get_broker()
-    if not _due_today(broker, cfg.data_dir, today):
+    today = _due(broker, cfg.data_dir, wake_day, now)
+    if today is None:
         return 0
     deadline = time.monotonic() + float(cfg.screen_deadline_s)
     try:
@@ -627,11 +782,19 @@ def main(argv: list[str] | None = None) -> int:
         listing = None
     bars = _CountedBatches(broker, HISTORY_FETCH_DAYS)
     cache = ReadCache(cfg.data_dir)
+    store = FundCategoryStore(config.storage.db_path)
     get_filings, get_role = _filings_reader(config, deadline)
+    fill = YahooFill(
+        store=store,
+        until=_yahoo_until(broker, wake_day, now, deadline),
+        refresh_days=int(cfg.fund_category_refresh_days),
+        backoff_s=float(cfg.yahoo_backoff_s),
+        backoff_max_s=float(cfg.yahoo_backoff_max_s),
+    )
     run = run_daily_record(
         broker.list_assets(),
         get_bars_batch=bars,
-        get_profile=_profile_reader(listing, _canonicalize_sector),
+        get_profile=_profile_reader(listing, _canonicalize_sector, store),
         get_filings=get_filings,
         get_role=get_role,
         th=ScreenThresholds.from_config(config),
@@ -640,12 +803,14 @@ def main(argv: list[str] | None = None) -> int:
         batch_size=int(cfg.bars_batch_size),
         cache=cache,
         get_yahoo=_yahoo_reader(),
+        yahoo_fill=fill,
     )
     run.calls["alpaca_assets"] = 1
     run.calls["nasdaq_listing"] = 2
     run.listing_unavailable = listing is None
     run.calls["bar_batches"] = bars.calls
     cache.save()
+    store.close()
     write_record(cfg.data_dir, run)
     return 0
 

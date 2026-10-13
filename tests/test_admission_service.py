@@ -76,6 +76,7 @@ def _config(tmp_path, *, enabled):
             request_timeout_s=15,
         ),
         universe_screen=UniverseScreenConfig(enabled=enabled, data_dir=str(tmp_path)),
+        storage=SimpleNamespace(db_path=str(tmp_path / "desk.db")),
         execution=SimpleNamespace(max_entry_slippage_bps=40.0),
         risk=SimpleNamespace(min_stop_atr_multiple=2.5, max_target_horizon_sessions=60),
         nominations=SimpleNamespace(max_per_seat_per_run=3),
@@ -153,6 +154,40 @@ def test_a_failing_journal_never_interrupts_the_screen(tmp_path, monkeypatch):
     svc, journal = _service(tmp_path, enabled=True, journal=InMemoryEventJournal(fail=True))
     summary = svc._run_universe_screen("evening-x")
     assert summary["passed"] == 1 and journal.rows == [] and len(journal.failures) == 2
+
+
+def _fund_listing(name="SPDR S&P 500 ETF Trust"):
+    from src.data.nasdaq_listing import ListingRecord
+
+    return _fake_listing(ACME=ListingRecord("ACME", name, None, True, None))
+
+
+def test_side_door_admits_a_fund_with_a_stored_plain_category(tmp_path, monkeypatch):
+    """Owner ruling 2026-10-13: SPY-like funds come in on the category the
+    nightly pass kept in the desk database; the side door never reads Yahoo."""
+    from datetime import date
+
+    from src.data.fund_category import FundCategoryStore
+
+    monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fund_listing())
+    svc, _ = _service(tmp_path, enabled=True)
+    ok, reason, _ = svc._evaluate_external_admission_gates("ACME")
+    assert (ok, reason) == (False, "fund_category_not_listed")  # nothing on record: inconclusive
+    FundCategoryStore(tmp_path / "desk.db").put("ACME", "Large Blend", date(2026, 10, 13))
+    ok, reason, details = svc._evaluate_external_admission_gates("ACME")
+    assert ok is True and reason is None and details["sector"] == "Large Blend"
+    FundCategoryStore(tmp_path / "desk.db").put("ACME", "Trading--Leveraged Equity", date(2026, 10, 13))
+    ok, reason, _ = svc._evaluate_external_admission_gates("ACME")
+    assert (ok, reason) == (False, "leveraged_or_inverse_fund")
+
+
+def test_side_door_refuses_a_leveraged_name_with_no_category(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "src.data.nasdaq_listing.load_listing", lambda *, fetch: _fund_listing("ProShares UltraPro QQQ")
+    )
+    svc, _ = _service(tmp_path, enabled=True)
+    ok, reason, _ = svc._evaluate_external_admission_gates("ACME")
+    assert (ok, reason) == (False, "leveraged_or_inverse_fund")
 
 
 def test_admission_is_reachable_without_importing_the_pipeline():
