@@ -176,3 +176,26 @@ def test_trade_review_endpoint_and_trades_r_column(tmp_path, monkeypatch):
     assert body["last_trades"][0]["r"] == 2.0
     trades = client.get("/trades").json()["trades"]
     assert sorted(t["r_multiple"] is not None for t in trades) == [False, True]
+
+
+def test_pnl_sums_recorded_realized_pnl_ignoring_resting_stop_moves():
+    """ETN shape (prod 2026-10-13): stop moves are not exits, so every real exit
+    carries a realized_pnl and the trade's P&L is their sum."""
+    from src.storage.analytics.trade_review import closed_trades
+
+    def stop_move(qty, price, ts):
+        row = _row("S", "ETN", "TRAIL_STOP", qty, price, ts)
+        row.update(fill_qty=None, fill_price=None, fill_status=None)
+        return row
+
+    rows = [
+        _row("S", "ETN", "BUY", 10, 100.0, "2026-10-13 14:00:00", stop=95.0),
+        _row("S", "ETN", "BUY", 5, 102.0, "2026-10-13 14:30:00", stop=97.0),
+        _row("S", "ETN", "PARTIAL_SELL(33%)", 5, 99.0, "2026-10-13 15:00:00", pnl=-7.33),
+        stop_move(10, 96.0, "2026-10-13 15:05:00"),
+        stop_move(10, 97.5, "2026-10-13 15:30:00"),
+        _row("S", "ETN", "SELL", 10, 98.0, "2026-10-13 16:00:00", pnl=-24.67),
+    ]
+    trades, excluded = closed_trades(rows)
+    assert excluded == 0
+    assert [t["pnl"] for t in trades] == [pytest.approx(-32.0)]
