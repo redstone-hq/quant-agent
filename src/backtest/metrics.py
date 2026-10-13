@@ -148,10 +148,9 @@ WHAT THIS MEASURES — read before trusting the numbers above
   - DATA COVERAGE: {skipped} symbol-day(s) were skipped for insufficient
     price history (fewer than {min_bars} trading days of history available)
     rather than silently dropped.{missing_line}
-  - EXIT ORDERING: on a day a position's stop AND target could both have
-    been touched, this engine assumes the STOP was hit first — a
-    conservative, worst-case reading, since daily OHLC data cannot resolve
-    the true intrabar sequence.
+  - EXITS: there is no target exit (live never sells at a target); positions
+    leave by stop or trailed stop, the hold horizon, or end of data. A bar
+    opening through the stop fills at the open.
   - Max drawdown is computed on the closed-trade equity curve (see this
     module's docstring), not a daily mark-to-market curve."""
 

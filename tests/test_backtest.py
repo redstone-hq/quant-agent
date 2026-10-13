@@ -126,7 +126,8 @@ def _build_long_win_series() -> list[OHLCV]:
     * Bar 210 (signal + 1) opens at exactly $105.00 — the entry fill.
     * Bar 211 opens $106, and its HIGH ($126) breaches the $125.00 target
       while its LOW ($110) stays well clear of the $95.00 stop, so the
-      exit is unambiguously a target hit, one session after entry.
+      position is NOT exited at the target (live has no target exit); it
+      is held and closed at the last close because the data ends.
 
     By hand: entry $105.00, stop $95.00 (structural; $10 away vs a padding
     ATR far too small for `min_stop_atr_multiple=2.5` to push it any
@@ -240,13 +241,16 @@ def test_hand_computed_long_trade():
     assert t.stop_price == 95.0  # the structural support, unwidened
     assert t.target_price == 125.0  # the structural resistance
     assert t.exit_date == BASE_DATE + timedelta(days=211)
-    assert t.exit_price == 125.0
-    assert t.exit_reason == "target"
+    # No target exit: bar 211 breached the $125 target but the position
+    # stays open (live never sells at a target) and is closed at the last
+    # close because the data ends.
+    assert t.exit_price == 125.5
+    assert t.exit_reason == "end_of_data"
     assert t.shares == 500
     assert t.hold_days == 1
-    assert t.pnl == 10000.0
-    assert t.r_multiple == 2.0
-    assert result.final_equity == 110_000.0
+    assert t.pnl == 10250.0
+    assert t.r_multiple == 2.05
+    assert result.final_equity == 110_250.0
 
     # Insufficient-history accounting: exactly the 209 days below the
     # MIN_BARS_FOR_SIGNAL threshold were skipped, not silently dropped.
@@ -283,11 +287,11 @@ def test_hand_computed_short_trade():
     )
     bar = OHLCV(date=date(2021, 2, 3), open=49.0, high=48.0, low=39.0, close=40.5, volume=1000)
 
-    reason, raw_exit = _check_exit(pos, bar, idx=21, max_hold_days=20)
-    assert reason == "target"
-    assert raw_exit == 40.0
+    # The target is breached but is not an exit: the short stays open.
+    assert _check_exit(pos, bar, idx=21, max_hold_days=20) == (None, None)
 
-    trade = _close_trade(pos, exit_idx=21, exit_date_=bar.date, raw_exit=raw_exit, exit_reason=reason, slippage_bps=0.0)
+    # P&L sign/R maths for a short, closed at $40.00 (exit reason is a label here).
+    trade = _close_trade(pos, exit_idx=21, exit_date_=bar.date, raw_exit=40.0, exit_reason="horizon", slippage_bps=0.0)
     assert trade.direction == "short"
     assert trade.entry_price == 50.0
     assert trade.stop_price == 55.0
@@ -397,7 +401,7 @@ def _literal_trade(pnl: float, r_multiple: float, hold_days: int, exit_day: int)
         target_price=110.0,
         exit_date=date(2022, 1, 1) + timedelta(days=exit_day),
         exit_price=100.0 + pnl / 10.0,
-        exit_reason="target",
+        exit_reason="horizon",
         shares=10,
         risk_pct=5.0,
         setup_type="range",
@@ -490,22 +494,22 @@ def test_determinism_same_inputs_same_output():
 def test_ab_two_configs_one_parameter_produce_different_labelled_results():
     """Configs A and B are identical except `max_position_risk_pct`
     (5.0 vs 2.5). Half the requested risk halves the position: 500 shares
-    -> 250, $10,000 P&L -> $5,000 — exactly proportional, and each result
+    -> 250, $10,250 P&L -> $5,125 — exactly proportional, and each result
     stays correctly attributed to its own config."""
     bars = _build_long_win_series()
     _, _, result_a = _run(bars, max_position_risk_pct=5.0)
     _, _, result_b = _run(bars, max_position_risk_pct=2.5)
 
     assert result_a.trades[0].shares == 500
-    assert result_a.trades[0].pnl == 10000.0
+    assert result_a.trades[0].pnl == 10250.0
     assert result_b.trades[0].shares == 250
-    assert result_b.trades[0].pnl == 5000.0
+    assert result_b.trades[0].pnl == 5125.0
     assert result_a.trades != result_b.trades
 
     metrics_a = compute_metrics(result_a.trades, 100_000.0)
     metrics_b = compute_metrics(result_b.trades, 100_000.0)
-    assert metrics_a.expectancy_dollars == 10000.0
-    assert metrics_b.expectancy_dollars == 5000.0
+    assert metrics_a.expectancy_dollars == 10250.0
+    assert metrics_b.expectancy_dollars == 5125.0
 
     table = format_ab_table(
         "A (risk 5.0)",
@@ -519,9 +523,9 @@ def test_ab_two_configs_one_parameter_produce_different_labelled_results():
     )
     assert "A (risk 5.0)" in table
     assert "B (risk 2.5)" in table
-    assert "$10,000.00" in table
-    assert "$5,000.00" in table
-    assert "$-5,000.00" in table  # the delta column
+    assert "$10,250.00" in table
+    assert "$5,125.00" in table
+    assert "$-5,125.00" in table  # the delta column
     assert "Binding-budget days" in table
     assert "ticker spelling" in table
 
