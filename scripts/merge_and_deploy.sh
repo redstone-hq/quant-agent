@@ -22,6 +22,18 @@
 # has to REMEMBER.
 set -euo pipefail
 
+# ONE DEPLOY AT A TIME. On 2026-10-13 two deploys started within a minute of
+# each other: the second rebuilt the dashboard's work folder while the first
+# was mid-build, so the first reported "npm run build failed" and "DEPLOY DID
+# NOT LAND". A second caller now waits for the first to finish (each deploy is
+# idempotent, so the waiter then re-deploys whatever trunk holds by then).
+DEPLOY_LOCK="${QAMC_DEPLOY_LOCK:-/tmp/qamc-deploy.lock}"
+exec 9>>"${DEPLOY_LOCK}"
+if ! flock -n 9; then
+  echo "==> another deploy is running; waiting for it to finish" >&2
+  flock 9
+fi
+
 DEPLOY_ROOT=/home/qamc/quant-agent
 API_UNIT=quant-agent-api.service
 QAMC_UID="$(id -u qamc)"
