@@ -397,8 +397,8 @@ class Settlement:
             conn.execute(
                 "INSERT INTO llm_circuit_events "
                 "(event_type, detail, run_id, mode, agent_name, attempts, "
-                "session_cost_usd, daily_cost_usd) VALUES "
-                "('call_failed', ?, ?, ?, ?, ?, ?, ?)",
+                "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+                "('call_failed', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     type(error).__name__,
                     reservation.run_id,
@@ -407,6 +407,8 @@ class Settlement:
                     attempts,
                     session_cost,
                     daily,
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
             if ambiguous:

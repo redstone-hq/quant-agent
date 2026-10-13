@@ -144,8 +144,8 @@ class QuotaHolds:
             conn.execute(
                 "INSERT INTO llm_circuit_events "
                 "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-                "session_cost_usd, daily_cost_usd) VALUES "
-                "('quota_rearmed', ?, ?, ?, ?, 'budget_rollover', ?, ?, ?)",
+                "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+                "('quota_rearmed', ?, ?, ?, ?, 'budget_rollover', ?, ?, ?, ?, ?)",
                 (
                     hold["trigger_code"],
                     reason,
@@ -154,6 +154,8 @@ class QuotaHolds:
                     hold["attempts"],
                     hold["session_cost_usd"],
                     hold["daily_cost_usd"],
+                    _sql_stamp(),
+                    _sql_stamp(),
                 ),
             )
 
@@ -190,8 +192,9 @@ class QuotaHolds:
             "INSERT INTO llm_quota_holds "
             "(scope, scope_key, day, trigger_code, trigger_detail, run_id, mode, "
             "agent_name, attempts, attempts_exact, costs_exact, session_cost_usd, "
-            "daily_cost_usd, session_limit_usd, daily_limit_usd) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "daily_cost_usd, session_limit_usd, daily_limit_usd, "
+            "alert_updated_at, recovery_alert_updated_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 scope,
                 scope_key,
@@ -208,14 +211,17 @@ class QuotaHolds:
                 daily_cost,
                 float(self.config.session_cost_limit_usd),
                 float(self.config.daily_cost_limit_usd),
+                _sql_stamp(),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('quota_held', ?, ?, ?, ?, ?, ?, ?, ?)",
-            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('quota_held', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost, _sql_stamp(), _sql_stamp()),
         )
         updated_session = conn.execute(
             "UPDATE llm_budget_sessions SET status='quota_held', updated_at=? WHERE run_id=?",
@@ -340,9 +346,9 @@ class QuotaHolds:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd) VALUES "
-            "('suspended', ?, ?, ?, ?, ?, ?, ?, ?)",
-            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost),
+            "session_cost_usd, daily_cost_usd, recovery_alert_updated_at, created_at) VALUES "
+            "('suspended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, detail, run_id, mode, agent_name, attempts, session_cost, daily_cost, _sql_stamp(), _sql_stamp()),
         )
         updated_session = conn.execute(
             "UPDATE llm_budget_sessions SET status='suspended', updated_at=? WHERE run_id=?", (_sql_stamp(), run_id)

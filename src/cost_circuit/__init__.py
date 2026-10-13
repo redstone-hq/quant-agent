@@ -98,14 +98,10 @@ from src.cost_circuit.refusal import (  # noqa: F401
     is_payment_refusal,
 )
 from src.cost_circuit.clock import (  # noqa: F401
-    _ClockPinnedConnection,
     _ET,
-    _REAL_NOW_UTC,
     _et_day_and_utc_bounds,
     _et_day_from_sqlite_utc,
     _legacy_mode,
-    _now_utc,
-    _pinned_if_clock_replaced,
 )
 from src.cost_circuit.schema import (  # noqa: F401
     ensure_cost_circuit_schema,
@@ -157,7 +153,7 @@ _SUBMODULES = (
 
 # --- Patch mirroring. Every definition moved verbatim into one of the
 # submodules, each of which holds its own binding of the shared names it
-# imports (`_now_utc`, `_et_day_and_utc_bounds`, ...). Tests patch those
+# imports (`_et_day_and_utc_bounds`, `_sql_stamp`, ...). Tests patch those
 # names on `src.cost_circuit` and expect the moved code to see the patched
 # object, so an assignment here is written through to every submodule that
 # already holds the name. Undo (mock.patch / monkeypatch setting the

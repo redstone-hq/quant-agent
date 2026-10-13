@@ -293,8 +293,8 @@ class CircuitState:
         conn.execute(
             "INSERT INTO llm_circuit_events "
             "(event_type, trigger_code, detail, run_id, mode, agent_name, attempts, "
-            "session_cost_usd, daily_cost_usd, suspension_alert_state) VALUES "
-            "('auto_reset', ?, ?, ?, ?, 'transient_latch_expiry', ?, ?, ?, ?)",
+            "session_cost_usd, daily_cost_usd, suspension_alert_state, recovery_alert_updated_at, created_at) VALUES "
+            "('auto_reset', ?, ?, ?, ?, 'transient_latch_expiry', ?, ?, ?, ?, ?, ?)",
             (
                 code,
                 reason,
@@ -310,6 +310,8 @@ class CircuitState:
                 # requires suspended=1), so this is the last moment it is
                 # knowable.
                 int(state.get("alert_state") or 0),
+                _sql_stamp(),
+                _sql_stamp(),
             ),
         )
         updated_state = conn.execute(

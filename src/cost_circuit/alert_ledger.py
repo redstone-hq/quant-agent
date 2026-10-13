@@ -14,7 +14,7 @@ from datetime import date, datetime, time as dt_time, timezone
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 from src.cost_circuit.refusal import CallReservation, PaidAnalysisSuspended, _fmt_settled
-from src.cost_circuit.clock import _now_utc
+from src.trading_calendar import utc_now
 from src.cost_circuit.alert_outcome import _send_alert_outcome
 
 logger = logging.getLogger(__name__)
@@ -123,7 +123,7 @@ def _record_alert_attempt(
             payload["alert_delivered"] = bool(payload.get("alert_delivered")) or bool(delivered)
             # Third state, never folded into delivered: a dropped message was not told.
             payload["alert_suppressed"] = bool(payload.get("alert_suppressed")) or bool(suppressed)
-            payload["last_alert_attempt_at"] = (now or _now_utc()).isoformat()
+            payload["last_alert_attempt_at"] = (now or utc_now()).isoformat()
             tmp = latch_path.with_name(f".{latch_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
