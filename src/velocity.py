@@ -101,10 +101,10 @@ def reach_chance(target_distance: float | None, atr: float | None, horizon_sessi
     is exactly `touch_probability` at a width of ``t / ATR``.
     """
     distance = _finite(target_distance)
-    true_range = _positive(atr)
-    if distance is None or distance < 0 or true_range is None:
+    atr_value = _positive(atr)
+    if distance is None or distance < 0 or atr_value is None:
         return None
-    return touch_probability(distance / true_range, horizon_sessions)
+    return touch_probability(distance / atr_value, horizon_sessions)
 
 
 def median_sessions_to_reach(target_distance: float | None, sigma: float | None) -> float | None:
