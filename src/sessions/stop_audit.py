@@ -26,6 +26,7 @@ STOP_COVERAGE_KEY = "stop_coverage_gaps"
 MODE_SESSION: dict[str, str | None] = {
     "live": None,  # the scheduler loop itself; its jobs run the modes below
     "daily": None,  # src/pipeline_daily_export.py: a CSV, no broker stop audit
+    "honour_stop": None,  # main._honour_stop_only: owner Stop pickup + cancel, never a session
     "once": "MorningSession",
     "morning": "MorningSession",
     "midday": "PositionReviewSession",

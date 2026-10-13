@@ -21,6 +21,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # in force (EX_TEMPFAIL). scripts/run_if_et_window.sh reads it: no last-run
 # marker (a Start later the same day may still run the session), no ping.
 OWNER_STOP_EXIT = os.EX_TEMPFAIL  # 75 on Linux; run_if_et_window.sh matches it
+# `--mode honour_stop` only: Stop is in force but cancelling resting unfilled
+# entries faulted (or the config/broker could not be reached). The owner switch
+# alerts on it. 0 from that mode means Stop is not in force (e.g. Start won).
+OWNER_STOP_CANCEL_FAULT_EXIT = os.EX_UNAVAILABLE  # 69 on Linux
 
 # Result statuses that mean "this session did NOT do its job for a
 # transient/recoverable reason" — a broker-API blip at snapshot time,
@@ -39,7 +43,8 @@ OWNER_STOP_EXIT = os.EX_TEMPFAIL  # 75 on Linux; run_if_et_window.sh matches it
 # here — those are successful completions and must exit 0. (audit F2)
 _RETRYABLE_RESULT_STATUSES = frozenset(
     {
-        "broker_error", "fetch_error",
+        "broker_error",
+        "fetch_error",
     }
 )
 # `buys_unfunded` is deliberately terminal for the slot.  Re-running it used
@@ -74,18 +79,25 @@ def _owner_stop_in_force(config_arg) -> bool:
     normal path reports it loudly; `--mode live` checks per job instead
     (TradingScheduler._run_safe).
     """
+    from src.owner_intents import NOT_STOPPED
+
+    return _owner_stop_outcome(config_arg, alert=True) not in (NOT_STOPPED, None)
+
+
+def _owner_stop_outcome(config_arg, *, alert):
+    """owner_intents.stop_outcome with the desk's credentialed broker; None when config cannot load."""
     config_path = Path(config_arg)
     if not config_path.is_absolute():
         config_path = PROJECT_ROOT / config_path
     if not config_path.exists():
-        return False
+        return None
     try:
         config = load_config(config_path)
     except Exception as exc:  # noqa: BLE001 - recorded; the normal path below reloads and pushes the failure
         from src.sentinel.guarded import NO_LEDGER, record_guarded_pass
 
         record_guarded_pass(NO_LEDGER, "main.owner_stop_config", exc, log=logger)
-        return False
+        return None
     db_path = getattr(getattr(config, "storage", None), "db_path", None)
 
     def _broker():
@@ -95,16 +107,37 @@ def _owner_stop_in_force(config_arg) -> bool:
             api_key=config.api_keys.alpaca_key, secret_key=config.api_keys.alpaca_secret, paper=config.alpaca.paper
         )
 
-    from src.owner_intents import honour_stop
+    from src.owner_intents import NOT_STOPPED, stop_outcome
 
-    if not honour_stop(db_path, _broker):
-        return False
-    logger.warning("owner Stop in force: the desk is off; nothing run")
-    return True
+    outcome = stop_outcome(db_path, _broker, alert=alert)
+    if outcome != NOT_STOPPED:
+        logger.warning("owner Stop in force: the desk is off; nothing run")
+    return outcome
+
+
+def _honour_stop_only(config_arg) -> int:
+    """`--mode honour_stop`: the owner switch's Stop path and nothing else.
+
+    Picks up owner intents and, when Stop is in force, cancels resting
+    unfilled entries. Builds no notifier, pricing, AI or session and sends
+    nothing: the owner switch alerts on the exit code. 75 = swept clean,
+    OWNER_STOP_CANCEL_FAULT_EXIT = Stop in force but the cancel faulted or the
+    config could not load, 0 = Stop not in force.
+    """
+    from src.owner_intents import NOT_STOPPED, SWEPT
+
+    outcome = _owner_stop_outcome(config_arg, alert=False)
+    if outcome == SWEPT:
+        return OWNER_STOP_EXIT
+    if outcome == NOT_STOPPED:
+        return 0
+    return OWNER_STOP_CANCEL_FAULT_EXIT
 
 
 def _exit_if_owner_stopped(args) -> None:
     """One-shot modes exit with OWNER_STOP_EXIT while the owner's Stop is in force."""
+    if args.mode == "honour_stop":
+        sys.exit(_honour_stop_only(args.config))
     if args.mode != "live" and _owner_stop_in_force(args.config):
         sys.exit(OWNER_STOP_EXIT)
 
@@ -115,11 +148,21 @@ def main():
     parser.add_argument(
         "--mode",
         choices=[
-            "live", "once", "morning", "midday", "close", "evening",
-            "intra_check", "intra_safety", "earnings_preprocess", "meta",
+            "live",
+            "once",
+            "morning",
+            "midday",
+            "close",
+            "evening",
+            "intra_check",
+            "intra_safety",
+            "earnings_preprocess",
+            "meta",
             "daily",
+            "honour_stop",
         ],
-        default="once", help="Run mode",
+        default="once",
+        help="Run mode",
     )
     parser.add_argument(
         "--force",
@@ -257,7 +300,9 @@ def main():
             # finally block below now also catches it (previously silent).
             send_owner_alert_with_outcome(
                 "🟢 quant-agent live scheduler starting",
-                notifier=notifier, kind="scheduler_startup", pnl_header=False,
+                notifier=notifier,
+                kind="scheduler_startup",
+                pnl_header=False,
             )
             scheduler = TradingScheduler(config)
             scheduler.pipeline.pickup_owner_intents()
@@ -335,10 +380,15 @@ def main():
 
             before = alert_watchdog.read_health(watchdog_db_path)
             verdict = alert_watchdog.verify_alert_channel(
-                notifier, source=args.mode, db_path=watchdog_db_path,
+                notifier,
+                source=args.mode,
+                db_path=watchdog_db_path,
             )
             message = alert_watchdog.annotate_session_message(
-                message, mode=args.mode, before=before, result=verdict,
+                message,
+                mode=args.mode,
+                before=before,
+                result=verdict,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("alert watchdog failed in finally: %s", exc)
@@ -364,7 +414,8 @@ def main():
             from src.notifier import maybe_alert_data_quality
 
             maybe_alert_data_quality(
-                evidence_gate.data_quality_page_input(result), mode=args.mode,
+                evidence_gate.data_quality_page_input(result),
+                mode=args.mode,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("data-quality alert failed in finally: %s", exc)
@@ -373,7 +424,8 @@ def main():
             from src.trader_feed import send_naked_position_alert
 
             send_naked_position_alert(
-                notifier, result if isinstance(result, dict) else None,
+                notifier,
+                result if isinstance(result, dict) else None,
                 mode=args.mode,
             )
         except Exception as exc:  # noqa: BLE001
@@ -396,9 +448,13 @@ def main():
                 # which embeds literal <b>/<blockquote expandable> tags on
                 # purpose — see TelegramNotifier.send()'s docstring.
                 send_owner_alert_with_outcome(
-                    message, notifier=notifier, symbols=symbols,
-                    preserve_structural_markup=True, kind=args.mode,
-                    run_id=run_id, pnl_header=False,
+                    message,
+                    notifier=notifier,
+                    symbols=symbols,
+                    preserve_structural_markup=True,
+                    kind=args.mode,
+                    run_id=run_id,
+                    pnl_header=False,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("notifier crashed in finally: %s", exc)
@@ -414,7 +470,8 @@ def main():
         logger.warning(
             "Session %s ended with retryable status %r — exiting non-zero "
             "so the OS-timer wrapper retries this slot on the next tick.",
-            args.mode, status,
+            args.mode,
+            status,
         )
         sys.exit(1)
 

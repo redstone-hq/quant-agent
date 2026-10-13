@@ -17,6 +17,9 @@ import logging
 import os
 import sqlite3
 import stat
+import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,6 +143,43 @@ def _parse_action(body: bytes) -> str | None:
     return word if isinstance(word, str) and word in ACTIONS else None
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+#: main.py's exit codes for `--mode honour_stop` (main.OWNER_STOP_EXIT and
+#: main.OWNER_STOP_CANCEL_FAULT_EXIT); main.py is not imported here because it
+#: pulls in the whole desk. tests/test_owner_intents.py pins the two together.
+STOP_SWEPT_EXIT = os.EX_TEMPFAIL
+STOP_NOT_IN_FORCE_EXIT = os.EX_OK
+
+
+def _stop_path_command() -> list:
+    """main.py's Stop-only entry: intent pickup and the credentialed cancel, nothing else."""
+    return [sys.executable, str(REPO_ROOT / "main.py"), "--mode", "honour_stop"]
+
+
+def _run_stop_path() -> None:
+    """Run the Stop path now; a fault or any unexpected exit tells the owner to cancel by hand.
+
+    Exit 0 means Stop was no longer in force when the desk picked it up (a
+    Start pressed straight after): nothing to cancel, no alert.
+    """
+    from src.owner_intents import record_stop_cancel_failure
+
+    try:
+        rc = subprocess.run(_stop_path_command(), cwd=REPO_ROOT, capture_output=True, check=False).returncode
+    except Exception as exc:  # noqa: BLE001 - recorded and alerted; the Stop itself is recorded
+        record_stop_cancel_failure(exc, None)
+        return
+    if rc not in (STOP_SWEPT_EXIT, STOP_NOT_IN_FORCE_EXIT):
+        record_stop_cancel_failure(RuntimeError(f"desk Stop path exited {rc}"), None)
+
+
+def start_stop_path() -> None:
+    """Cancel resting entries for a just-recorded Stop without holding the phone's request open."""
+    threading.Thread(target=_run_stop_path, name="owner-stop-cancel", daemon=False).start()
+
+
 def _record(db_path: str, stored_action: str) -> int:
     conn = sqlite3.connect(db_path, timeout=30)
     try:
@@ -182,4 +222,9 @@ def handle_post(settings: Settings, path: str, headers, body: bytes) -> Response
         logger.error("owner switch FAILED action=%s reason=database error: %s", word, exc)
         return _json(503, ok=False, error="could not record; nothing changed, try again")
     logger.warning("owner switch ACCEPTED action=%s intent=%s", word, intent_id)
+    if ACTIONS[word] == STOP:
+        # Cancel resting UNFILLED entries now, by the process that recorded the
+        # Stop: the Stop gate holds no broker credentials and skips every unit
+        # while stopped. Any failure alerts the owner (src/owner_intents.py).
+        start_stop_path()
     return _json(200, ok=True, action=word, intent=intent_id, note="recorded; the desk acts on it at its next pickup")
