@@ -181,10 +181,10 @@ PIVOT_WINDOW = 3
 #: The fewest bars SINCE ENTRY the STRUCTURE leg needs for a reading. Not a
 #: chosen number: `_swing_lows` needs `window` bars on both sides of a low
 #: before it will confirm one, so this is exactly that window. It gates the
-#: structure leg ONLY. The chandelier is not gated (2026-10-13): its extreme
-#: is the fill price plus every COMPLETED daily bar since entry, so with no
-#: completed bar it reads `fill - 3 x ATR`, below the 2.5-ATR initial stop,
-#: and cannot move the stop. Gating it at 7 meant it first read in session 8.
+#: structure leg ONLY. The chandelier is not held to it (2026-10-13): it needs
+#: ONE completed daily bar since entry and reads the highest completed high
+#: (never the fill or a forming bar) - 3 x ATR. Gating it at 7 meant it first
+#: read in session 8.
 MIN_BARS_FOR_A_READING = PIVOT_WINDOW * 2 + 1
 
 #: How many initial-risk-units (R) of profit a Type A / range trade must

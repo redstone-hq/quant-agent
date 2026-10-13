@@ -1,7 +1,8 @@
 """The chandelier trail is not gated by the structure leg's 7-bar pivot span.
 
 LeBeau's chandelier: highest high since entry - k x ATR (k = 3.0). Its high is
-the fill price and every COMPLETED daily bar since entry, never a forming bar.
+read from COMPLETED daily bars since entry only — never the fill price, never a
+forming bar — and it needs at least ONE such bar.
 The structure leg keeps its 7-bar gate. Shorts mirror.
 
 Numbers: entry 100, ATR 2, initial stop 2.5 ATR away (95 long / 105 short).
@@ -55,19 +56,44 @@ def test_k_is_three():
     assert MIN_BARS_FOR_A_READING == 7
 
 
-# --- 0 completed bars: fill - 3 ATR sits below the 2.5-ATR stop -----------
+# --- 0 completed bars: no reading at all, even under a wide stop ---------
 
 
-def test_long_zero_bars_does_not_move_or_loosen():
-    ev = _eval(cur=101.0, stop=LONG_STOP, bars=[])
-    assert ENTRY - 3 * ATR < LONG_STOP
+def test_long_zero_bars_gives_no_reading_even_for_wide_stop():
+    # 5-ATR stop: a fill-based reading (100 - 6 = 94) would tighten it. It must not.
+    ev = _eval(cur=110.0, stop=90.0, bars=[])
     assert ev.proposal is None
+    assert ev.code == TRAIL_CODE_TOO_FEW_BARS
 
 
-def test_short_zero_bars_does_not_move_or_loosen():
-    ev = _eval(cur=99.0, stop=SHORT_STOP, bars=[], qty=-1.0)
-    assert ENTRY + 3 * ATR > SHORT_STOP
+def test_short_zero_bars_gives_no_reading_even_for_wide_stop():
+    ev = _eval(cur=90.0, stop=110.0, bars=[], qty=-1.0)
     assert ev.proposal is None
+    assert ev.code == TRAIL_CODE_TOO_FEW_BARS
+
+
+def test_only_a_forming_bar_gives_no_reading():
+    bars = [_bar(date(2026, 10, 13), 104.0, 110.0)]  # today, still forming
+    assert _eval(cur=110.0, stop=90.0, bars=bars, as_of=MID_SESSION).proposal is None
+    bars = [_bar(date(2026, 10, 13), 90.0, 96.0)]
+    assert _eval(cur=90.0, stop=110.0, bars=bars, qty=-1.0, as_of=MID_SESSION).proposal is None
+
+
+# --- 1 completed bar: the textbook chandelier may tighten a wide stop ----
+
+
+def test_long_one_bar_tightens_wide_stop():
+    bars = [_bar(date(2026, 10, 6), 99.0, 101.0)]
+    ev = _eval(cur=110.0, stop=90.0, bars=bars)
+    assert ev.proposal is not None, ev.code
+    assert ev.proposal.new_stop == 101.0 - 3 * ATR  # 95: the bar high, not the fill
+
+
+def test_short_one_bar_tightens_wide_stop():
+    bars = [_bar(date(2026, 10, 6), 99.0, 101.0)]
+    ev = _eval(cur=90.0, stop=110.0, bars=bars, qty=-1.0)
+    assert ev.proposal is not None, ev.code
+    assert ev.proposal.new_stop == 99.0 + 3 * ATR  # 105: the bar low, not the fill
 
 
 # --- 2 completed bars with a new extreme: the stop moves -----------------

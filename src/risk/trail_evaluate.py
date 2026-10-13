@@ -303,26 +303,27 @@ def evaluate_trailing_stop(
                 candidates.append((pivot, "structure"))
 
     if atr_f is not None and atr_f > 0:
-        # The chandelier's extreme is the FILL price and every COMPLETED daily
-        # bar since entry — never today's print and never a still-forming
-        # bar. With no completed bar it reads `fill - 3 x ATR`, which sits
-        # below a 2.5-ATR initial stop, so it cannot move (let alone loosen)
-        # an entry-day stop; it is not a price-follower. A bar dated after
-        # the last completed session is dropped here even though the live
-        # feed already drops it, so no caller can leak one in.
+        # The chandelier's extreme is every COMPLETED daily bar since entry —
+        # never the fill, today's print or a still-forming bar. It needs at
+        # least ONE completed bar: with none there is no information since
+        # entry, and a reading would only overrule the entry stop the desk
+        # just chose. A bar dated after the last completed session is
+        # dropped here even though the live feed already drops it.
         _completed = _completed_bars(bars, as_of)
         if is_short:
             lows = [_finite(getattr(b, "low", None)) for b in _completed]
-            lowest = min([ent] + [l for l in lows if l is not None])
-            chandelier = lowest + CHANDELIER_ATR_MULTIPLE * atr_f
-            if cur < chandelier < stop:
-                candidates.append((chandelier, "chandelier"))
+            lows = [l for l in lows if l is not None]
+            if lows:
+                chandelier = min(lows) + CHANDELIER_ATR_MULTIPLE * atr_f
+                if cur < chandelier < stop:
+                    candidates.append((chandelier, "chandelier"))
         else:
             highs = [_finite(getattr(b, "high", None)) for b in _completed]
-            highest = max([ent] + [h for h in highs if h is not None])
-            chandelier = highest - CHANDELIER_ATR_MULTIPLE * atr_f
-            if stop < chandelier < cur:
-                candidates.append((chandelier, "chandelier"))
+            highs = [h for h in highs if h is not None]
+            if highs:
+                chandelier = max(highs) - CHANDELIER_ATR_MULTIPLE * atr_f
+                if stop < chandelier < cur:
+                    candidates.append((chandelier, "chandelier"))
 
     if not candidates and not structure_readable:
         return _or_range(TrailEvaluation(None, TRAIL_CODE_TOO_FEW_BARS))
