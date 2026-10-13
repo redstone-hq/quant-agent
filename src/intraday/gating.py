@@ -84,7 +84,7 @@ class IntradayGating:
         except Exception as exc:  # noqa: BLE001
             record_site(self, "cooldown_legacy_trades", exc, context={"symbol": symbol})
             return True
-        from datetime import timedelta
+        from datetime import datetime as _dt, timedelta, timezone
 
         from src.trading_calendar import utc_now
 
