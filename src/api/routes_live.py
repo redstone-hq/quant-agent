@@ -31,6 +31,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from src.api.db_reads import get_open_position_rows
 from src.api.loud_reads import record_dashboard_fault
+from src.trading_calendar import utc_now
 from src.storage.analytics.trade_review import open_position_r
 from src.api.drift_state import deploy_drift_state as _deploy_drift_state
 from src.api.margin_interest_view import _compute_margin_interest
@@ -334,7 +335,7 @@ def get_health() -> HealthResponse:
             alert_channel=alert_channel,
             deploy_drift=deploy_drift,
             llm_balance=llm_balance,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=utc_now().isoformat(),
         )
     except Exception:
         record_dashboard_fault("get_health.3")
@@ -354,7 +355,7 @@ def get_health() -> HealthResponse:
             llm_circuit=None,
             alert_channel={"status": "unknown", "error": "health read failed"},
             deploy_drift={"status": "unknown", "error": "health read failed"},
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=utc_now().isoformat(),
         )
 
 
@@ -680,7 +681,7 @@ def get_quotes(symbols: str = Query(..., description="Comma-separated symbols, e
     `/prices`' historical daily bars; lets a chart/candidate view label a
     true current price instead of implying a historical bar is "now."
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = utc_now().isoformat()
     try:
         syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
         syms = syms[:_MAX_QUOTE_SYMBOLS]

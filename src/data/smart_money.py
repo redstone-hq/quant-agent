@@ -44,7 +44,7 @@ from src.data.smart_money_edgar_coverage import (
 )
 from src.data.smart_money_stores import build_smart_money_stores
 from src.models import SmartMoneyObservation
-from src.util.time import et_today
+from src.util.time import et_now, et_today
 
 logger = logging.getLogger(__name__)
 
@@ -1563,7 +1563,7 @@ class SECForm4Provider:
             self.stores.save_manifest(
                 {
                     "processed_accessions": sorted(processed),
-                    "last_refresh_at": datetime.now(tz=_ET).isoformat(),
+                    "last_refresh_at": et_now().isoformat(),
                     # Durable record of the backlog, so successive mornings can
                     # be compared without re-crawling EDGAR.
                     "pending_filings": pending_filings,

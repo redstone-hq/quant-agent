@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from src.session_calendar import SessionCalendarUnavailable, session_for
-from src.trading_calendar import ET
+from src.trading_calendar import ET, et_now
 
 
 def session_has_ended(broker: Any, now: datetime | None = None) -> bool:
@@ -16,7 +16,7 @@ def session_has_ended(broker: Any, now: datetime | None = None) -> bool:
     day), never a fixed 16:00. An unreadable calendar or a non-trading day
     answers False: this gate only ever stops work the calendar proves is late.
     """
-    now = now or datetime.now(ET)
+    now = now or et_now()
     try:
         close_at = session_for(broker, now.astimezone(ET).date()).close_at
     except SessionCalendarUnavailable:

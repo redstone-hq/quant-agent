@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Callable
 
 from src.sentinel.counted import record_swallowed
+from src.trading_calendar import utc_now
 from src.util.time import et_now
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ def build_sec_client(
     http_error: type[Exception],
     url_error: type[Exception],
     sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.time,
+    clock: Callable[[], float] = lambda: utc_now().timestamp(),
     now: Callable = et_now,
     lookback_days: int = 45,
 ) -> SecClient:

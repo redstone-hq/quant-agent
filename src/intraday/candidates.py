@@ -144,13 +144,15 @@ class IntradayCandidates:
         """Hours since this name's newest evaluation row; None when unreadable."""
         from datetime import UTC, datetime
 
+        from src.trading_calendar import utc_now
+
         try:
             rows = self.db.get_recent_intraday_evaluations(symbol, cooldown_hours=cooldown_hours)
             if not isinstance(rows, list) or not rows:
                 return None
             raw = str(rows[0]["timestamp"]).replace("T", " ")[:19]
             then = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-            return round((datetime.now(UTC) - then).total_seconds() / 3600.0, 3)
+            return round((utc_now() - then).total_seconds() / 3600.0, 3)
         except Exception as exc:  # noqa: BLE001 - the reason is still recorded without the age
             _site(self, "cooldown_age_read", exc, context={"symbol": symbol}, log=logger)
             return None

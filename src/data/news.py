@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 import feedparser
 
 from src.data.news_dedup import NewsCluster, cluster_news, normalize_link
-from src.trading_calendar import et_now
+from src.trading_calendar import et_now, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -451,7 +451,7 @@ class NewsDataProvider:
                 )
             else:
                 effective_lookback = self.lookback_hours
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=effective_lookback)
+        cutoff = utc_now() - timedelta(hours=effective_lookback)
         all_items: list[NewsItem] = []
         succeeded = 0
         failures: list[FeedFailure] = []
