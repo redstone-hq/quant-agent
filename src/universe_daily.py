@@ -87,6 +87,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from src.trading_calendar import utc_now
 from src.data.fund_category import FundCategoryStore
 from src.universe_screen import (
     INCONCLUSIVE,
@@ -570,7 +571,7 @@ def _retry_after(exc: BaseException) -> float | None:
         when = parsedate_to_datetime(text)
     except (TypeError, ValueError):
         return None
-    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+    return max(0.0, (when - utc_now()).total_seconds())
 
 
 # --------------------------------------------------------------------------
@@ -596,7 +597,7 @@ def write_record(data_dir: str | Path, run: DailyRun) -> dict:
     if run.listing_unavailable:
         logger.warning("universe daily: %s listing unavailable; day not marked recorded, next run retries", stamp)
         return summary
-    summary["written_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    summary["written_at"] = utc_now().isoformat(timespec="seconds")
     _atomic_write(folder / f"{stamp}.summary.json", json.dumps(summary, indent=1, sort_keys=True))
     logger.info(
         "UNIVERSE_DAILY %s %s",
@@ -767,7 +768,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = load_config(Path(parser.parse_args(argv).config))
     cfg = config.universe_screen
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     wake_day = et_today()
     broker = _get_broker()
     today = _due(broker, cfg.data_dir, wake_day, now)

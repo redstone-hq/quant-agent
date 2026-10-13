@@ -7733,7 +7733,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.fund_category_refresh_days
     value: 365
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Age at which the nightly pass re-reads a fund's stored Yahoo category
       (src/data/fund_category.py). Decides WHEN a category is read again,
@@ -7742,7 +7742,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.yahoo_backoff_s
     value: 30
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       First wait after a Yahoo rate limit when no Retry-After header is
       sent, doubled per consecutive throttle (owner ruling 2026-10-13: slow
@@ -7751,7 +7751,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.yahoo_backoff_max_s
     value: 900
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Cap on one backoff wait (a quarter hour, the screen_deadline_s default)
       so a throttle that lifts is noticed well inside the 03:00-08:00 night.
