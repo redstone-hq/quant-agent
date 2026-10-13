@@ -728,6 +728,33 @@ def test_side_door_reads_company_size_from_the_listing_not_yahoo(tmp_path, monke
     pipeline.market.get_company_profile.assert_not_called()
 
 
+def test_fund_name_backstop_refuses_and_never_admits():
+    """A leveraged or inverse NAME is refused before its category is known;
+    a plain name decides nothing (no category stays inconclusive)."""
+    missing = {"quote_type": "ETF", "fund_category_not_listed": True}
+    for name in (
+        "ProShares UltraPro QQQ",
+        "ProShares UltraShort S&P500",
+        "Direxion Daily Semiconductor Bull 3X Shares",
+        "Direxion Daily S&P 500 Bear 1X Shares",
+        "ProShares Short QQQ -1X",
+        "MicroSectors FANG+ 2X Leveraged ETN",
+        "AXS 1.5X PYPL Bull Daily ETF",
+        "Tuttle Capital Daily Inverse Cramer",
+        "Daily Leveraged Equity Shares",
+    ):
+        failures, measured = us.check_profile(missing, TH, name)
+        assert failures == ["leveraged_or_inverse_fund"], name
+        assert measured["leveraged_by_name"] is True
+    for name in ("SPDR S&P 500 ETF Trust", "Invesco QQQ Trust", "iShares Russell 2000 ETF", "Daily Journal Corp"):
+        assert us.check_profile(missing, TH, name) == (["fund_category_not_listed"], {}), name
+    # The listing's own name is checked too (the broker name may be terse).
+    assert us.check_profile({**missing, "name": "Bull 3X Shares"}, TH, "TQQQ")[0] == ["leveraged_or_inverse_fund"]
+    # A stored plain category passes a plain-named fund.
+    failures, measured = us.check_profile({"quote_type": "ETF", "category": "Large Blend"}, TH, "SPDR S&P 500 ETF")
+    assert failures == [] and measured["sector"] == "Large Blend"
+
+
 def test_side_door_keeps_the_fund_flag(tmp_path, monkeypatch):
     """A fund reaching the side door is judged as a fund, never dropped as a
     stock of unknown size."""

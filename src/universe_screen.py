@@ -131,6 +131,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from src.data.fund_category import is_leveraged_fund_name
 from src.quantities import sp_traded_value
 
 logger = logging.getLogger(__name__)
@@ -315,7 +316,7 @@ PLAIN_REASON = {
     "not_us_equity": "not a US stock",
     "unsupported_exchange": "not on a main US exchange",
     "not_common_stock": "a warrant, unit, right, preferred, receipt or non-ETF fund",
-    "fund_category_not_listed": "a fund whose category the daily source does not list (re-read next run)",
+    "fund_category_not_listed": "a fund with no category on record yet (the nightly pass reads it from Yahoo)",
     "fund_category_unknown": "a fund with no category on record",
     "leveraged_or_inverse_fund": "a leveraged or inverse fund",
     "not_equity_fund": "a bond, cash or other non-stock fund",
@@ -651,6 +652,17 @@ def check_profile(profile, th: ScreenThresholds, name: str = "") -> tuple[list[s
         profile = {}
     quote_type = str(profile.get("quote_type") or "").strip().upper()
     if quote_type == ETF_QUOTE_TYPE:
+        # Refuse-only name backstop (src/data/fund_category.py): a "3X",
+        # "Ultra" or "Bear" name is refused before its category is looked at.
+        # It never admits: a plain name decides nothing.
+        if is_leveraged_fund_name(name) or is_leveraged_fund_name(profile.get("name")):
+            return ["leveraged_or_inverse_fund"], {
+                "fund": True,
+                "fund_category": profile.get("category"),
+                "leveraged_by_name": True,
+                "company_size": NOT_APPLICABLE_FUND,
+                "takeover": NOT_APPLICABLE_FUND,
+            }
         if profile.get("fund_category_not_listed"):
             return ["fund_category_not_listed"], {}
         return check_fund(profile.get("category"))

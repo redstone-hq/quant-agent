@@ -1,14 +1,17 @@
-# Fires the daily universe screen Mon-Fri at 08:30 ET, before the US open.
+# Fires the daily universe screen Mon-Fri at 03:00 ET (owner ruling
+# 2026-10-13): it screens the PREVIOUS trading day's close, and its Yahoo
+# fund-category fill then has until 08:00 ET (the earnings_preprocess start)
+# to back off through Yahoo's rate limit without touching the desk's day.
 [Unit]
-Description=quant-agent daily universe screen — Mon-Fri 08:30 ET
+Description=quant-agent daily universe screen — Mon-Fri 03:00 ET
 
 [Timer]
-# 08:30 ET is clear of the other fixed-time units (06:15, 06:30, 08:45,
-# 08:50, 08:55, 09:00, 09:05). systemd resolves the IANA zone, so this stays
-# 08:30 New York across DST. Market holidays: the program decides for itself
-# whether a record is due.
-OnCalendar=Mon..Fri 08:30 America/New_York
-# Run a missed firing on boot (server was down at 08:30).
+# 03:00 ET is clear of every other fixed-time unit (06:15, 06:30, 08:45,
+# 08:50, 08:55, 09:00, 09:05) and of the evening report. systemd resolves
+# the IANA zone, so this stays 03:00 New York across DST. Market holidays:
+# the program decides for itself whether a record is due.
+OnCalendar=Mon..Fri 03:00 America/New_York
+# Run a missed firing on boot (server was down at 03:00).
 Persistent=true
 
 [Install]
