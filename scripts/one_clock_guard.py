@@ -23,13 +23,16 @@ A. CLOCK SITES -- outside the clock module, ``src/`` may hold neither
             the same attribute referenced without a call (``fn = datetime.now``),
             ``time.time()`` / ``time.time_ns()``, ``time.strftime(fmt)`` with
             no explicit instant, ``pd.Timestamp('now')`` / ``Timestamp.now()``,
-            ``time.localtime()`` / ``time.gmtime()`` / ``time.ctime()`` with
+            ``pd.to_datetime('now')`` / ``np.datetime64('today')``,
+            ``clock_gettime`` / ``clock_gettime_ns`` with ``CLOCK_REALTIME``,
+            ``time.localtime()`` / ``time.gmtime()`` / ``time.ctime()`` / ``time.asctime()`` with
             no argument (also when imported bare), ``fromtimestamp(...)`` /
             ``utcfromtimestamp(...)`` whose argument is computed inline rather
             (not a name, field, index or literal, even through ``int()`` / ``float()``),
             and ``getattr(<x>, "now")`` for any
             of those names. Receivers include every alias the module binds
-            (``import time as T``, ``from datetime import datetime as D``).
+            (``import time as T``, ``from datetime import datetime as D``,
+            ``from time import time as wall``).
    The limit is FIXED and written in the repo: ``config/check_allowlists/one_clock.txt``
    lists every site identity (path, kind, enclosing scope, the WHOLE
    whitespace-normalised text) that existed on the day the rule was tightened.
@@ -84,11 +87,14 @@ _SQL_NOW = re.compile(
 )
 _NOW_ATTRS = {"now", "utcnow", "today"}
 _TIME_MODULE_ATTRS = {"time", "time_ns"}
-_NO_ARG_ATTRS = {"localtime", "gmtime", "ctime"}
+_NO_ARG_ATTRS = {"localtime", "gmtime", "ctime", "asctime"}
+#: Constructors whose 'now'/'today' string argument is a clock read: pd.Timestamp, pd.to_datetime, np.datetime64.
+_STRING_CTORS = {"Timestamp", "to_datetime", "datetime64"}
+_REALTIME = {"clock_gettime", "clock_gettime_ns"}  # with CLOCK_REALTIME
 _FROM_STAMP_ATTRS = {"fromtimestamp", "utcfromtimestamp"}
-_ALL_CLOCK_ATTRS = _NOW_ATTRS | _TIME_MODULE_ATTRS | _NO_ARG_ATTRS | _FROM_STAMP_ATTRS | {"strftime"}
+_ALL_CLOCK_ATTRS = _NOW_ATTRS | _TIME_MODULE_ATTRS | _NO_ARG_ATTRS | _FROM_STAMP_ATTRS | _REALTIME | {"strftime"}
 _CLOCK_RECEIVERS = {"datetime", "date", "time", "dt", "_dt", "_datetime", "_time", "pd", "pandas", "Timestamp"}
-_CLOCK_MODULES = {"time", "datetime", "pandas"}
+_CLOCK_MODULES = {"time", "datetime", "pandas", "numpy"}
 _CLOCK_CLASSES = {"datetime", "date", "Timestamp"}
 _DAY_READERS = {"et_today", "todays_session_stamp", "todays_session_bar_stamp", "todays_session_snapshot_stamps"}
 _STORED = (ast.Name, ast.Attribute, ast.Subscript, ast.Constant)
@@ -162,25 +168,43 @@ def _receivers(tree: ast.AST) -> set[str]:
     return names
 
 
-def _py_now_plain_call(call: ast.Call, fn: ast.Name) -> bool:
-    """``getattr(x, "now")``, and bare ``time()`` / ``gmtime()`` / ``ctime()`` after a from-import."""
+def _bare_names(tree: ast.AST) -> dict[str, str]:
+    """Bare name -> clock function, for ``from time import time as wall`` and friends."""
+    funcs = _TIME_MODULE_ATTRS | _NO_ARG_ATTRS | _STRING_CTORS | _REALTIME
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in _CLOCK_MODULES:
+            out.update({(a.asname or a.name): a.name for a in node.names if a.name in funcs})
+    return out
+
+
+def _reads_clock_by_name(name: str, call: ast.Call) -> bool:
+    """A call to clock function ``name`` whose arguments make it an OS-clock read."""
+    first = call.args[0] if call.args else None
+    if name in _STRING_CTORS:
+        return isinstance(first, ast.Constant) and first.value in ("now", "today")
+    if name in _REALTIME:
+        return first is not None and _terminal_name(first) == "CLOCK_REALTIME"
+    return name in _TIME_MODULE_ATTRS | _NO_ARG_ATTRS and not call.args and not call.keywords
+
+
+def _py_now_plain_call(call: ast.Call, fn: ast.Name, bare: dict[str, str]) -> bool:
+    """``getattr(x, "now")``, and bare ``time()`` / ``wall()`` / ``Timestamp('now')`` after a from-import."""
     if fn.id == "getattr" and len(call.args) >= 2:
         name = call.args[1]
         return isinstance(name, ast.Constant) and name.value in _ALL_CLOCK_ATTRS
-    return fn.id in _TIME_MODULE_ATTRS | _NO_ARG_ATTRS and not call.args and not call.keywords
+    return _reads_clock_by_name(bare.get(fn.id, fn.id), call)
 
 
-def _py_now_call(call: ast.Call, receivers: set[str]) -> bool:
+def _py_now_call(call: ast.Call, receivers: set[str], bare: dict[str, str]) -> bool:
     fn = call.func
     nargs = len(call.args) + len(call.keywords)
-    if _terminal_name(fn) == "Timestamp" and call.args:
-        first = call.args[0]
-        if isinstance(first, ast.Constant) and first.value in ("now", "today"):
-            return True  # pd.Timestamp('now')
     if isinstance(fn, ast.Name):
-        return _py_now_plain_call(call, fn)
+        return _py_now_plain_call(call, fn, bare)
     if not isinstance(fn, ast.Attribute) or not isinstance(fn.value, (ast.Name, ast.Attribute)):
         return False
+    if fn.attr in _STRING_CTORS | _REALTIME:
+        return _reads_clock_by_name(fn.attr, call)
     receiver = _terminal_name(fn.value)
     if fn.attr in _NOW_ATTRS:
         return True
@@ -218,10 +242,11 @@ def _classify(path: str, text: str) -> tuple[list[tuple[str, int, str, str]], li
     days: list[tuple[str, int, str, str]] = []
     called: set[int] = set()
     receivers = _receivers(tree)
+    bare = _bare_names(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             called.add(id(node.func))
-            if _py_now_call(node, receivers):
+            if _py_now_call(node, receivers, bare):
                 clock.append(("py_now", node.lineno, *site_identity(node, scopes)))
             if _py_day(node):
                 days.append(("py_day", node.lineno, *site_identity(node, scopes)))

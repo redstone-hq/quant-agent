@@ -175,6 +175,15 @@ def test_sql_probe_is_caught(text):
         "import pandas as pd\nx = pd.Timestamp.now(tz='UTC')\n",
         "import pandas as pd\nx = pd.Timestamp.today()\n",
         "import time\nx = time.ctime()\n",
+        "from time import time as wall\nx = wall()\n",
+        "from time import asctime as stamp\nx = stamp()\n",
+        "import time\nx = time.asctime()\n",
+        "import pandas as pd\nx = pd.to_datetime('now')\n",
+        "from pandas import to_datetime as parse\nx = parse('today')\n",
+        "import numpy as np\nx = np.datetime64('now')\n",
+        "import numpy as np\nx = np.datetime64('today', 'D')\n",
+        "import time\nx = time.clock_gettime(time.CLOCK_REALTIME)\n",
+        "from time import clock_gettime_ns, CLOCK_REALTIME\nx = clock_gettime_ns(CLOCK_REALTIME)\n",
     ],
     ids=[
         "time.time",
@@ -196,6 +205,15 @@ def test_sql_probe_is_caught(text):
         "Timestamp.now",
         "Timestamp.today",
         "time.ctime",
+        "from-import-alias",
+        "from-import-alias-asctime",
+        "time.asctime",
+        "to_datetime-now",
+        "to_datetime-alias-today",
+        "datetime64-now",
+        "datetime64-today",
+        "clock_gettime-realtime",
+        "clock_gettime_ns-realtime-bare",
     ],
 )
 def test_py_probe_is_caught(text):
@@ -217,6 +235,10 @@ def test_py_probe_is_caught(text):
         "q = \"SELECT strftime('%s', ts)\"\n",
         "import pandas as pd\nx = pd.Timestamp(row['ts'])\n",
         "time.ctime(ts)\n",
+        "import time\nx = time.asctime(t)\n",
+        "import pandas as pd\nx = pd.to_datetime(row['ts'])\n",
+        "import numpy as np\nx = np.datetime64(row['ts'])\n",
+        "import time\nx = time.clock_gettime(time.CLOCK_MONOTONIC)\n",
     ],
     ids=[
         "call-result-date",
@@ -231,6 +253,10 @@ def test_py_probe_is_caught(text):
         "strftime-of-column",
         "Timestamp-of-value",
         "ctime-of-value",
+        "asctime-of-value",
+        "to_datetime-of-value",
+        "datetime64-of-value",
+        "clock_gettime-monotonic",
     ],
 )
 def test_what_is_not_a_clock_read(text):
@@ -298,15 +324,23 @@ def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(mon
         agent_name="tech_analyst", model="m", system_prompt="s", user_message="u", max_output_tokens=10
     )
     circuit.before_provider_attempt(reservation, model=reservation.model)
-    circuit.complete_call(reservation, 0.01)
+    circuit.complete_call(reservation, 0.01)  # a settled payment
+    over = circuit.begin_call(
+        agent_name="tech_analyst", model="m", system_prompt="s", user_message="u", max_output_tokens=10
+    )
+    circuit.before_provider_attempt(over, model=over.model)
+    circuit.complete_call(over, 50.0)  # settles over the session limit: trips the circuit, writes an event
+    assert circuit.status()["suspended"] is True
 
     stamps: dict[str, str] = {}
     with sqlite3.connect(path) as conn:
-        for table in ("llm_budget_sessions", "llm_budget_days", "llm_circuit_state"):
+        assert conn.execute("SELECT COUNT(*) FROM llm_circuit_events").fetchone()[0] >= 1
+        for table in ("llm_budget_sessions", "llm_budget_days", "llm_circuit_state", "llm_circuit_events"):
             columns = [r[1] for r in conn.execute(f"PRAGMA table_info({table})") if r[1].endswith("_at")]
             for row in conn.execute(f"SELECT {', '.join(columns)} FROM {table}"):
                 for column, value in zip(columns, row):
                     if value is not None:
                         stamps[f"{table}.{column}"] = value
-    assert len(stamps) >= 5, stamps
+    assert len(stamps) >= 7, stamps  # every *_at column of the four tables, keyed by column
+    assert any(k.startswith("llm_circuit_events.") for k in stamps), stamps
     assert set(stamps.values()) == {"2026-10-13 16:00:00"}, stamps

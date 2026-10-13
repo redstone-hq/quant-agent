@@ -203,8 +203,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
         # datetime('now') default; on the migration path a constant '' default
         # is safe because this column is only ever read while a row is in the
         # in-flight retry state (recovery_alert_state=-1), and the code always
-        # writes recovery_alert_updated_at=datetime('now') at the 0 -> -1
-        # transition before any comparison against it can run.
+        # binds recovery_alert_updated_at from the desk clock (_sql_stamp) at
+        # the 0 -> -1 transition before any comparison against it can run.
         conn.execute("ALTER TABLE llm_circuit_events ADD COLUMN recovery_alert_updated_at TEXT NOT NULL DEFAULT ''")
     if "suspension_alert_state" not in event_columns:
         # Item 174 pairing. Default 1 ("the owner was told about the
