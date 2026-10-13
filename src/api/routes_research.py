@@ -21,7 +21,7 @@ from src.api.schemas import (
     RunSummary,
     TradeItem,
 )
-from src.trading_calendar import et_today
+from src.trading_calendar import et_today, utc_now
 
 router = APIRouter()
 
@@ -57,7 +57,7 @@ def _freshness(date_str: str, timestamps: list[str]) -> ResearchFreshness:
         return ResearchFreshness(latest_recorded_at=latest, label="historical")
     try:
         recorded = datetime.strptime(latest, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-        age = max(0.0, (datetime.now(UTC) - recorded).total_seconds() / 60)
+        age = max(0.0, (utc_now() - recorded).total_seconds() / 60)
     except (TypeError, ValueError):
         return ResearchFreshness(latest_recorded_at=latest)
     label = "current" if age <= 90 else "aging" if age <= 360 else "stale"
@@ -69,7 +69,7 @@ def get_research_daily(date: str) -> ResearchDailyResponse:
     raw = db_reads.get_research_day(date)
     if raw.get("invalid_date"):
         raise HTTPException(422, "date must be ISO YYYY-MM-DD")
-    as_of = datetime.now(UTC).isoformat()
+    as_of = utc_now().isoformat()
     if raw.get("read_error"):
         return ResearchDailyResponse(
             date=date,

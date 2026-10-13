@@ -35,7 +35,7 @@ from src.api.deps import (
 from src.api.broker_reads_record import record_read_fault
 from src.data.live_price import resolve_live_price
 from src.execution.broker import AlpacaBroker, _internal_symbol
-from src.trading_calendar import live_price_is_today
+from src.trading_calendar import live_price_is_today, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ def _position_direction(symbol: str, sweep_symbol: str, qty: float | None) -> st
 
 def _utc_now() -> datetime:
     """Seam for tests — real code never patches `datetime` itself."""
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 def _iso_or_none(value) -> str | None:

@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from pathlib import Path
+
+from src.trading_calendar import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,9 @@ class SmartMoneyStores:
 
     def tickers_stale(self) -> bool:
         try:
-            return not self.tickers_path.exists() or time.time() - self.tickers_path.stat().st_mtime > 24 * 3600
+            return (
+                not self.tickers_path.exists() or utc_now().timestamp() - self.tickers_path.stat().st_mtime > 24 * 3600
+            )
         except OSError:
             return True
 

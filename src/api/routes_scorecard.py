@@ -53,6 +53,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Query
 
 from src.api import db_reads
+from src.trading_calendar import utc_now
 from src.api.schemas import (
     AnalystScorecardItem,
     AnalystScorecardResponse,
@@ -305,7 +306,7 @@ def build_scorecard(ledger: dict, idea_limit: int = DEFAULT_IDEA_LIMIT) -> Analy
     ASGI client, the same way `funnelShared`/`buildResearchDesk` are on the
     frontend side.
     """
-    as_of = datetime.now(UTC).isoformat()
+    as_of = utc_now().isoformat()
     if ledger.get("read_error"):
         return AnalystScorecardResponse(
             as_of=as_of,
