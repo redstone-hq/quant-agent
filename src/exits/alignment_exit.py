@@ -168,7 +168,7 @@ class AlignmentExit:
                 )
                 if not verdict.exit_cleared:
                     continue
-                if self._position_opened_today(symbol):
+                if self._position_opened_today(symbol, is_short=is_short):
                     logger.info(
                         "Alignment scan: %s was opened in today's session — no same-session close is raised for it",
                         symbol,
@@ -318,17 +318,48 @@ class AlignmentExit:
             )
             return None, None, f"target read failed: {type(e).__name__}: {e}"
 
-    def _position_opened_today(self, symbol: str) -> bool:
-        """Was this position bought in TODAY's session? DATE EQUALITY ONLY.
+    def _position_open_date(self, symbol: str, *, is_short: bool) -> tuple[str | None, str]:
+        """The date this POSITION opened — its first opening fill since flat — or (None, why).
 
-        No recorded buy at all means the position predates the desk's own
-        record (or was opened outside it), which cannot be evidence that it
-        was bought today, so it stays eligible. A FAILED read is different:
-        the age is unknown, and an unknown age holds rather than sells,
-        which is the same fail-closed posture the rest of this path takes.
+        The same lookup `_target_for_holding` reads (`db.get_position_open_timestamp`
+        on the latest opening row), WITHOUT its fallback to that row's own
+        timestamp: the latest row may be an add, and an add is not when the
+        position opened. Unknown is returned as None with the reason, never a
+        guessed date. Never raises.
         """
+        opening = "SHORT" if is_short else "BUY"
         try:
-            row = self.db.get_symbol_last_buy(symbol) or {}
+            row = self.db.get_symbol_last_buy(symbol, action=opening) or {}
+            if not row:
+                return None, f"no executed {opening} row on record for {symbol}"
+            opened = self.db.get_position_open_timestamp(row)
+        except Exception as e:  # noqa: BLE001 — unknown open is None, never a guess
+            return None, f"position-open read failed: {type(e).__name__}: {e}"
+        # Only a stored timestamp string counts; anything else is "unknown".
+        stamp = (opened if isinstance(opened, str) else "").replace("T", " ")[:10]
+        if not stamp:
+            return None, f"the latest {opening} row carries no position id, so the position's open is unknown"
+        return stamp, f"position opened {stamp}"
+
+    def _position_opened_today(self, symbol: str, *, is_short: bool = False) -> bool:
+        """Was this POSITION opened in TODAY's session? DATE EQUALITY ONLY.
+
+        Reads the position's OPEN (first opening fill since flat), not the
+        latest buy: an add today must not shield a weeks-old position from
+        today's check, and a position opened today is not checked today.
+        When the open is unknown the latest opening row's date stands in —
+        it can only be on or after the open, so "not today" stays true and
+        "today" holds rather than sells.
+
+        No recorded opening row at all means the position predates the desk's
+        own record (or was opened outside it), which cannot be evidence that
+        it was opened today, so it stays eligible. A FAILED read is different:
+        the age is unknown, and an unknown age holds rather than sells, which
+        is the same fail-closed posture the rest of this path takes.
+        """
+        opening = "SHORT" if is_short else "BUY"
+        try:
+            row = self.db.get_symbol_last_buy(symbol, action=opening) or {}
         except Exception as e:  # noqa: BLE001 — unknown age HOLDS
             logger.warning(
                 "alignment scan: could not read %s's entry date (%s) — it is "
@@ -337,7 +368,15 @@ class AlignmentExit:
                 e,
             )
             return True
-        ts = ((row or {}).get("timestamp") or "")[:10]
+        if not row:
+            return False
+        try:
+            opened = self.db.get_position_open_timestamp(row)
+        except Exception:  # noqa: BLE001 — the latest row's date stands in
+            opened = None
+        if not isinstance(opened, str):  # only a stored timestamp string counts
+            opened = None
+        ts = str(opened or row.get("timestamp") or "").replace("T", " ")[:10]
         if not ts:
             return False
         return ts == str(et_today())
@@ -388,6 +427,9 @@ class AlignmentExit:
             # is asked, and a hold-only review must buy no entry-context
             # reads (`tests/test_holding_discipline_intraday.py`).
             target, effective, version = None, None, "no completed closes to date a target"
+            # THE POSITION'S OPEN, not the latest add: a lower low only ends
+            # this position's trend if it printed while the position was on.
+            opened_on = None
             if sorted_bars:
                 from src.data.technical import compute_indicators
 
@@ -395,6 +437,13 @@ class AlignmentExit:
                     symbol=symbol,
                     is_short=is_short,
                 )
+                opened_on, opened_why = self._position_open_date(symbol, is_short=is_short)
+                if opened_on is None:
+                    logger.warning(
+                        "alignment exit: %s — the lower-%s test is not evaluated this session",
+                        opened_why,
+                        "high" if is_short else "low",
+                    )
                 atr = compute_indicators(symbol, bars).atr_14
                 protection = self._structural_protection_for_holding(
                     symbol=symbol,
@@ -427,6 +476,7 @@ class AlignmentExit:
                 target_version=version,
                 bar_dates=[getattr(b, "date", None) for b in sorted_bars],
                 bars=sorted_bars,
+                position_open_date=opened_on,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

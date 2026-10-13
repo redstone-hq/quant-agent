@@ -28,6 +28,19 @@ its existing `src.risk.trailing.PIVOT_WINDOW` (3 bars each side). No new
 number is introduced. When no swing is confirmed yet the rule does not
 fire and says so ("no swing reference"); the trailing stop still protects.
 
+THE LOWER LOW MUST BELONG TO THIS POSITION (2026-10-13). The bars run over
+the whole lookback, so the two most recent swings can both predate the
+entry: VLO's lower low (364.96 on 23 Sep, under 375.10 on 14 Sep) printed
+the day before the first buy on 24 Sep, and with price at ~436 the desk
+read EXIT on its first check. A trend the position never rode cannot break
+on it. So the lower-low (higher-high) test fires only when the NEWER swing's
+BAR DATE — the session it printed, not the one that confirmed it — is on or
+after the position's OPEN date (first opening fill since flat, never the
+latest add). The close-through-the-last-swing test is unchanged and still
+reads the full history, so it works from day one. An unknown open date, or
+an undated swing, does not fire the lower-low test and the reason says so:
+the stop and the close-through test still protect.
+
 The marks (structure and trend) are still read and recorded, because they
 are what the review and the owner report show; they no longer decide.
 
@@ -52,13 +65,14 @@ only its made-up trigger was replaced by the structure test above.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Literal
 
 from src.risk.chart_averages import _finite, exponential_moving_average
 from src.risk.chart_averages import moving_average, simple_moving_average
 from src.risk.exit_guard import _MA_REF_RE
 from src.risk.target_vote import target_vote
-from src.risk.trail_structure import _swing_highs, _swing_lows
+from src.risk.trail_structure import _swing_highs_dated, _swing_lows_dated
 from src.risk.trailing import PIVOT_WINDOW
 
 __all__ = [
@@ -235,6 +249,7 @@ def check_alignment_exit(
     target_version: str = "",
     bar_dates: list | None = None,
     bars: list | None = None,
+    position_open_date=None,
 ) -> AlignmentExitCheck:
     """Read one position's chart and say whether its move is over.
 
@@ -257,6 +272,11 @@ def check_alignment_exit(
     `bars` are the same sessions as `closes`, as OHLCV objects; only their
     `low` / `high` are read, to find confirmed swings. None or too few bars
     means no swing reference and no exit on this rule.
+
+    `position_open_date` is when the POSITION opened (first opening fill
+    since flat — a date, datetime or ISO string). The lower-low / higher-high
+    test fires only on a newer swing that printed on or after it; None means
+    unknown, and an unknown open never fires that test (see module docstring).
     """
     a = _finite(atr)
     ref = thesis_ma_ref(thesis_invalid_if)
@@ -362,7 +382,73 @@ def check_alignment_exit(
         target_vote_applied=bool(reached),
         target_vote=vote,
     )
-    return _structure_verdict(series, bars, a, tuple(marks), common, is_short=is_short, vote=vote)
+    return _structure_verdict(
+        series,
+        bars,
+        a,
+        tuple(marks),
+        common,
+        is_short=is_short,
+        vote=vote,
+        position_open_date=position_open_date,
+    )
+
+
+def _as_date(value) -> date | None:
+    """A calendar date from a date, datetime, pandas Timestamp or ISO string; None if unreadable."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    to_date = getattr(value, "date", None)
+    if callable(to_date):
+        try:
+            got = to_date()
+        except Exception:  # noqa: BLE001 — unreadable is None, never a guess
+            return None
+        return got if isinstance(got, date) else None
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except ValueError:
+        return None
+
+
+def _lower_swing_since_open(
+    dated: list[tuple[object, float]],
+    position_open_date,
+    *,
+    is_short: bool,
+) -> tuple[bool, str]:
+    """Did the position live through a confirmed lower low (higher high)?
+
+    Returns (fires, note). It fires only when the newer of the two latest
+    swings is beyond the older AND printed on or after the position's open.
+    The note explains every case where the test was not allowed to fire.
+    """
+    if len(dated) < 2:
+        return False, ""
+    (newer_on, newer), (_, older) = dated[-1], dated[-2]
+    name = "higher high" if is_short else "lower low"
+    opened = _as_date(position_open_date)
+    if opened is None:
+        return False, (
+            f"the {name} test was not evaluated: the position's open date is unknown, so it "
+            f"cannot be told whether the position lived through that swing"
+        )
+    beyond = newer > older if is_short else newer < older
+    if not beyond:
+        return False, ""
+    printed = _as_date(newer_on)
+    if printed is None:
+        return False, f"the {name} test was not evaluated: the newer swing's bar carries no date"
+    if printed < opened:
+        return False, (
+            f"the {name} {newer:.4f} ({'over' if is_short else 'under'} {older:.4f}) printed "
+            f"{printed}, before the position opened {opened}, so it is not this position's trend break"
+        )
+    return True, ""
 
 
 def _structure_verdict(
@@ -374,12 +460,14 @@ def _structure_verdict(
     *,
     is_short: bool,
     vote: str,
+    position_open_date=None,
 ) -> AlignmentExitCheck:
     """The structure test on its own: EXIT on a confirmed swing break, HOLD
     otherwise, and HOLD with `CODE_NO_SWING` when nothing is confirmed."""
     last = series[-1]
     side = "high" if is_short else "low"
-    pivots = (_swing_highs if is_short else _swing_lows)(bars or [])
+    dated = (_swing_highs_dated if is_short else _swing_lows_dated)(bars or [])
+    pivots = [price for _, price in dated]
     if not pivots:
         return AlignmentExitCheck(
             "HOLD",
@@ -396,10 +484,12 @@ def _structure_verdict(
 
     # THE STRUCTURE TEST. The most recent confirmed swing is the reference;
     # the trend is broken when it printed beyond the one before it (a lower
-    # low / higher high), or when the latest close has gone through it.
+    # low / higher high) ON OR AFTER THE POSITION OPENED, or when the latest
+    # close has gone through it (full history — that test needs no date).
     latest = pivots[-1]
     previous = pivots[-2] if len(pivots) > 1 else None
-    swing_broken = previous is not None and (latest > previous if is_short else latest < previous)
+    swing_broken, note = _lower_swing_since_open(dated, position_open_date, is_short=is_short)
+    vote = f"{note}; {vote}" if note else vote
     closed_through = (last > latest) if is_short else (last < latest)
     ref = ChartMark(latest, f"last confirmed swing {side}")
     breach = (last - latest) if is_short else (latest - last)
@@ -415,7 +505,7 @@ def _structure_verdict(
             f"structure intact — close {last:.4f} is still "
             f"{'below' if is_short else 'above'} the last confirmed swing {side} "
             f"{latest:.4f} and no {'higher high' if is_short else 'lower low'} is "
-            f"confirmed; {vote}",
+            f"confirmed since the position opened; {vote}",
             **common,
         )
     if swing_broken:

@@ -9,15 +9,18 @@ mirrors both. Swings are the trailing stop's own (`_swing_lows` /
 main, where `check_alignment_exit` takes no `bars`.
 """
 
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from src.risk.alignment_exit import CODE_EXIT, CODE_HOLD, CODE_NO_SWING, check_alignment_exit
 
 ATR = 1.0
+OPENED = date(2026, 1, 2)
 
 
 def _bars(closes: list[float]) -> list[SimpleNamespace]:
-    return [SimpleNamespace(low=c - 0.5, high=c + 0.5) for c in closes]
+    # Dated from OPENED: every swing here printed while the position was on.
+    return [SimpleNamespace(date=OPENED + timedelta(days=i), low=c - 0.5, high=c + 0.5) for i, c in enumerate(closes)]
 
 
 def _read(closes: list[float], *, is_short: bool = False, bars=None):
@@ -27,6 +30,7 @@ def _read(closes: list[float], *, is_short: bool = False, bars=None):
         atr=ATR,
         is_short=is_short,
         bars=_bars(closes) if bars is None else bars,
+        position_open_date=OPENED,
     )
 
 
