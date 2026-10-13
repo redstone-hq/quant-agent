@@ -10,6 +10,7 @@ import json
 import logging
 import math
 from datetime import datetime
+from src.trading_calendar import utc_now
 
 from src.util.time import UTC, et_today
 
@@ -115,7 +116,7 @@ def record_realised_sector_weights(
                 "  reducing_orders_built, unknown_sector_orders"
                 ") VALUES (?,?,?,?,?,?,?,?,?)",
                 (
-                    self._sqlite_utc_timestamp(datetime.now(UTC)),
+                    self._sqlite_utc_timestamp(utc_now()),
                     run_id or None,
                     session_date or str(et_today()),
                     payload,

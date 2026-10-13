@@ -124,7 +124,7 @@ numbers:
   - id: src.config.INTRA_CHECK_TICK_MINUTES
     value: 30
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/llm_cost.py
     source: >-
       src/scheduler.py::TradingScheduler._build_intra_check_trigger (`for tick_min in range(lo_min, hi_min + 1, 30)` in
       `_build_intra_check_trigger`, the authority for how often the intraday
@@ -138,7 +138,7 @@ numbers:
   - id: src.config.CashReserveConfig.pct
     value: 1
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/risk_adjuncts.py
     note: >-
       RE-FILED from `arbitrary` 2026-10-04. The percent of equity the
       /account liquidity view reports as held back (`reserve_usd`) and the cash
@@ -170,7 +170,7 @@ numbers:
         to be smaller than the reporting resolution of the invested share
     value: 1
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/operations.py
     note: >-
       Tolerance band, in percentage points under 100% invested, for the
       `deployment_gap` advisory (PM facts block and pre-trade advisory).
@@ -275,7 +275,7 @@ numbers:
         sizing or gating input, if no pre-event elevation is measurable at any horizon
     value: 10
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/risk_adjuncts.py
     note: >-
       How far ahead the macro release calendar looks. The definition site says
       10 calendar days "covers the next few sessions the event_risk field asks
@@ -293,7 +293,7 @@ numbers:
   - id: src.config.ExecutionConfig.fractional_share_decimals
     value: 4
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/execution.py
     source: >-
       src/config/execution.py::ExecutionConfig.fractional_share_decimals (the derivation at the definition site: the quantity
       is FLOORED, never rounded up, so the only exposure is under-spending the
@@ -326,7 +326,7 @@ numbers:
         separates
     value: 40
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/execution.py
     note: >-
       The entry-slippage belt: executed geometry worse than this rejects the
       fill. docs/INCIDENT_HISTORY.md records the belt comparing every range
@@ -402,7 +402,7 @@ numbers:
   - id: src.config.ExecutionConfig.repeg_poll_seconds
     value: 5
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/execution.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -422,7 +422,7 @@ numbers:
         if repeat crossings turn out to carry independent information
     value: 3
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       The intraday scan trigger, its cooldown and its per-scan cap. THE SCAN
       IS ON -- the 2026-09-14 verification corrected a stale settings comment
@@ -497,7 +497,7 @@ numbers:
         it, if it binds
     value: 3
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -540,7 +540,7 @@ numbers:
         it, if it binds
     value: 6
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -642,7 +642,7 @@ numbers:
   - id: src.agents.llm_retry._INSUFFICIENT_CREDIT_STATUS
     value: 402
     status: instrument
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     source: >-
       RFC 9110 section 15.5.3, "402 Payment Required": the HTTP status code
       reserved for a request that cannot be served until payment is made.
@@ -1423,7 +1423,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.cluster_window_days
     value: 2
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1459,7 +1459,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.congress_assumed_max_disclosure_lag_days
     value: 45
     status: instrument
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     source: >-
       The STOCK Act's statutory backstop: a periodic transaction report is due
       no later than 30 days after notification of a transaction and IN NO CASE
@@ -1473,7 +1473,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.congress_lookback_days
     value: 180
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1508,7 +1508,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.congress_max_trades_per_source
     value: 10000
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -1517,7 +1517,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.congress_refresh_deadline_s
     value: 60
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -1526,7 +1526,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.congress_request_timeout_s
     value: 15
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -1535,7 +1535,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_cadence_max_gap_dispersion
     value: 0.25
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1571,7 +1571,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_cadence_max_mean_gap_days
     value: 120
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1606,7 +1606,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_cadence_min_mean_gap_days
     value: 20
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1641,7 +1641,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_calendar_routine_years
     value: 3
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     source: >-
       Cohen, Malloy & Pomorski (2012), "Decoding Inside Information", Journal of Finance 67(3):1009-1043;
       NBER Working Paper 16454 (https://www.nber.org/papers/w16454), page 11: "we define a routine trader
@@ -1657,7 +1657,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_history_retention_days
     value: 1830
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       How long fetched insider-filing history is kept on disk, written as `5 *
       366` at src/config/smart_money.py::SmartMoneyConfig - constant arithmetic, which the first
@@ -1667,7 +1667,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.insider_min_cadence_trades
     value: 3
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1702,7 +1702,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.lookback_days
     value: 365
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1737,7 +1737,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.max_external_candidates
     value: 3
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -1781,7 +1781,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.max_filings_per_refresh
     value: 1000
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       CORRECTION 2026-09-18. This entry read `not-trade-governing`, with the
       note "it decides how long the desk waits or how much it fetches, never
@@ -1907,7 +1907,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.max_observations
     value: 40
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Windows and thresholds that decide whether an insider or congressional
       buy becomes a signal at all -- what counts as a cluster, how far back to
@@ -1942,7 +1942,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.min_cluster_owners
     value: 2
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     source: >-
       src/config/smart_money.py::SmartMoneyConfig -- the field is declared
       `min_cluster_owners: int = Field(default=2, ge=2, le=10)`, so 2 is the
@@ -1969,7 +1969,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.min_external_avg_dollar_volume_usd
     value: 10000000
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       The insider-signal admission screen: 2 owners, a $5 minimum price,
       $10M average daily dollar volume, 20 days of history. The $100k/$250k
@@ -2005,7 +2005,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.min_external_history_days
     value: 20
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       The insider-signal admission screen: 2 owners, a $5 minimum price,
       $10M average daily dollar volume, 20 days of history. The $100k/$250k
@@ -2041,7 +2041,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.min_external_price_usd
     value: 5
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     source: >-
       17 CFR 240.3a51-1(d), the SEC's definition of "penny stock": a security
       is a penny stock unless, among the listed exclusions, it has a price of
@@ -2074,7 +2074,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.refresh_deadline_s
     value: 180
     status: arbitrary
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       CORRECTION 2026-09-18. This entry read `not-trade-governing`, with the
       note "it decides how long the desk waits or how much it fetches, never
@@ -2144,7 +2144,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.watched_drain_deadline_s
     value: 859
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     source: >-
       Derivation at src/config/smart_money.py::SmartMoneyConfig.watched_drain_deadline_s (the field default and the comment above it), from a
       read-only measurement against SEC on 2026-09-19 with the desk's own
@@ -2165,7 +2165,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.request_timeout_s
     value: 15
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -2174,7 +2174,7 @@ numbers:
   - id: src.config.SmartMoneyConfig.requests_per_second
     value: 8
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/smart_money.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. It decides
       how long the desk waits or how much it fetches, never whether or how
@@ -2861,7 +2861,7 @@ numbers:
   - id: src.pipeline_sizing._DEFAULT_RISK_BUDGET_PCT
     value: 5
     status: derived
-    site: src/pipeline_stages.py
+    site: src/pipeline_sizing.py
     derived_from: src.portfolio_constructor.config.ConstructorConfig.risk_budget_pct
     base_value: 5
     note: >-
@@ -2875,7 +2875,7 @@ numbers:
   - id: src.pipeline_earnings_quality._EARNINGS_XBRL_DOLLAR_FLOOR
     value: 10000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       Absolute floor stopping that same post-hoc percentage test from
       exploding on a near-zero true value (src/pipeline_earnings_quality.py@`# Floors stop the percentage test from exploding`).
@@ -2884,7 +2884,7 @@ numbers:
   - id: src.pipeline_earnings_quality._EARNINGS_XBRL_EPS_FLOOR
     value: 0.02
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The same floor for EPS - one cent above ordinary EPS reporting precision
       (src/pipeline_earnings_quality.py::_EARNINGS_XBRL_EPS_FLOOR). Same boundary: it grades a stored
@@ -2892,7 +2892,7 @@ numbers:
   - id: src.pipeline_earnings_quality._EARNINGS_XBRL_TOLERANCE_PCT
     value: 0.05
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       Tolerance for a POST-HOC data-quality comparison between an earnings
       analysis's numeric fields and the filer's own XBRL figures
@@ -2904,7 +2904,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['b']
     value: 1000000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "b" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2913,7 +2913,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['billion']
     value: 1000000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "billion" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2922,7 +2922,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['bn']
     value: 1000000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "bn" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2931,7 +2931,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['k']
     value: 1000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "k" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2940,7 +2940,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['m']
     value: 1000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "m" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2949,7 +2949,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['million']
     value: 1000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "million" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2958,7 +2958,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['mm']
     value: 1000000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "mm" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -2967,7 +2967,7 @@ numbers:
   - id: src.pipeline_earnings_quality._UNIT_MULTIPLIERS['thousand']
     value: 1000
     status: not-trade-governing
-    site: src/pipeline_stages.py
+    site: src/pipeline_earnings_quality.py
     note: >-
       The numeric value of the word "thousand" when parsing a magnitude out of
       analyst prose (src/pipeline_earnings_quality.py::_UNIT_MULTIPLIERS). Definitional: it is
@@ -5067,49 +5067,49 @@ numbers:
   - id: src.agents.llm_providers._DEEPSEEK_MAX_OUTPUT['deepseek-v4-flash']
     value: 384000
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_providers.py
     note: >-
       LLM plumbing: provider-declared maximum output-token ceiling used to
       size a request, not a trading decision.
   - id: src.agents.llm_providers._DEEPSEEK_MAX_OUTPUT['deepseek-v4-pro']
     value: 384000
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_providers.py
     note: >-
       LLM plumbing: provider-declared maximum output-token ceiling used to
       size a request, not a trading decision.
   - id: src.agents.llm_providers._DEEPSEEK_MAX_OUTPUT['deepseek-chat']
     value: 384000
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_providers.py
     note: >-
       LLM plumbing: provider-declared maximum output-token ceiling used to
       size a request, not a trading decision.
   - id: src.agents.llm_providers._DEEPSEEK_MAX_OUTPUT['deepseek-reasoner']
     value: 384000
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_providers.py
     note: >-
       LLM plumbing: provider-declared maximum output-token ceiling used to
       size a request, not a trading decision.
   - id: src.agents.llm_providers._DEEPSEEK_DEFAULT_CEILING
     value: 8192
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_providers.py
     note: >-
       LLM plumbing: fallback output-token ceiling for a DeepSeek model not
       named in _DEEPSEEK_MAX_OUTPUT, not a trading decision.
   - id: src.agents.llm_retry._DEFAULT_MAX_RETRIES
     value: 2
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     note: >-
       LLM plumbing: default retry count for a failed LLM call, not a
       trading decision.
   - id: src.agents.llm_retry._LLM_HTTP_TIMEOUT
     value: 300.0
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap for LLM
       HTTP calls. It decides how long the desk waits, never whether or how
@@ -5117,21 +5117,21 @@ numbers:
   - id: src.agents.llm_retry._DEFAULT_RETRY_DEADLINE_S
     value: 480.0
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap for the
       LLM retry loop, not a trading decision.
   - id: src.agents.llm_retry._RETRY_AFTER_CAP_S
     value: 120.0
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     note: >-
       LLM plumbing: ceiling applied to a provider-returned Retry-After
       value, not a trading decision.
   - id: src.agents.llm_retry._BACKOFF_CAP_S
     value: 60.0
     status: sourced
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     source: >-
       https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
       -- the "cap" term of the published Full Jitter formula
@@ -5148,7 +5148,7 @@ numbers:
   - id: src.agents.llm_retry._MIN_CAPACITY_BACKOFF_S
     value: 1.0
     status: sourced
-    site: src/agents/base.py
+    site: src/agents/llm_retry.py
     source: >-
       https://ai.google.dev/gemini-api/docs/troubleshooting (verified
       2026-09-23) -- for 429 RESOURCE_EXHAUSTED and 503 UNAVAILABLE: "Wait a
@@ -5164,14 +5164,14 @@ numbers:
   - id: src.agents.llm_concurrency._ANTHROPIC_MAX_CONCURRENT
     value: 4
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_concurrency.py
     note: >-
       LLM plumbing: concurrency cap on outstanding Anthropic calls, not a
       trading decision.
   - id: src.agents.llm_concurrency._GOVERNOR_CHARS_PER_TOKEN
     value: 1.5
     status: not-trade-governing
-    site: src/agents/base.py
+    site: src/agents/llm_concurrency.py
     note: >-
       LLM plumbing: characters-per-token estimate used to govern request
       size against a provider rate limit, not a trading decision.
@@ -6541,7 +6541,7 @@ numbers:
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(max_portfolio_risk_pct)
     value: 25
     status: derived
-    site: src/agents/portfolio_manager/ranking.py
+    site: src/agents/portfolio_manager/__init__.py
     derived_from: src.config.RiskConfig.max_portfolio_risk_pct
     base_value: 25
     note: >-
@@ -6564,7 +6564,7 @@ numbers:
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(starter_risk_pct)
     value: 0.5
     status: derived
-    site: src/agents/portfolio_manager/ranking.py
+    site: src/agents/portfolio_manager/__init__.py
     derived_from: src.risk.constants.STARTER_POSITION_RISK_PCT
     base_value: 0.5
     note: >-
@@ -7694,7 +7694,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.min_price_usd
     value: 5
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/research.py
     source: >-
       SEC Rule 3a51-1(d), 17 CFR 240.3a51-1: a security that "has a price of
       five dollars or more" is excluded from the definition of penny stock.
@@ -7705,7 +7705,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.min_market_cap_usd
     value: 30000000
     status: sourced
-    site: src/config/__init__.py
+    site: src/config/research.py
     source: >-
       FTSE Russell US indexes methodology overview, ineligible securities:
       "Companies under $30 Million in total market capitalization".
@@ -7716,7 +7716,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.screen_deadline_s
     value: 900
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Wall-clock budget for one incremental screening pass at the end of
       the evening session. Decides how many symbols are screened TONIGHT,
@@ -7726,7 +7726,7 @@ numbers:
   - id: src.config.UniverseScreenConfig.bars_batch_size
     value: 50
     status: not-trade-governing
-    site: src/config/__init__.py
+    site: src/config/research.py
     note: >-
       Symbols per multi-ticker daily-bar download. A fetch batch size: it
       changes how many requests a pass makes, never a screen verdict.

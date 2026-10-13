@@ -19,6 +19,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
+from src.trading_calendar import utc_now
 
 from src.storage.analytics.agent_log_reads import recent_agent_outputs
 from src.trade_actions import POSITION_OPEN_ACTIONS as _POSITION_OPEN_ACTIONS
@@ -137,7 +138,7 @@ def conviction_positions(rows, lookback_days: int) -> list[dict]:
             open_dt = datetime.fromisoformat(pos["open_ts"].replace(" ", "T"))
             close_dt = datetime.fromisoformat(row["timestamp"].replace(" ", "T"))
             hold_days = max(0, (close_dt - open_dt).days)
-            if (datetime.utcnow() - close_dt).days > lookback_days:
+            if (utc_now().replace(tzinfo=None) - close_dt).days > lookback_days:
                 continue
         except (ValueError, TypeError, AttributeError):
             hold_days = 0
@@ -780,7 +781,7 @@ class TradeAnalytics:
                     # advances, but only exits inside the lookback count as
                     # "recent closed trades".
                     try:
-                        sell_age_days = (datetime.utcnow() - sell_dt).days
+                        sell_age_days = (utc_now().replace(tzinfo=None) - sell_dt).days
                     except (TypeError, ValueError, UnboundLocalError):
                         sell_age_days = 0
                     if sell_age_days > lookback_days:
@@ -830,7 +831,7 @@ class TradeAnalytics:
                     ret_pct = (lot["price"] - price) / lot["price"] * 100 if lot["price"] > 0 else 0
                     entry_usd = closed_qty * lot["price"]
                     try:
-                        cover_age_days = (datetime.utcnow() - cover_dt).days
+                        cover_age_days = (utc_now().replace(tzinfo=None) - cover_dt).days
                     except (TypeError, ValueError, UnboundLocalError):
                         cover_age_days = 0
                     if cover_age_days > lookback_days:

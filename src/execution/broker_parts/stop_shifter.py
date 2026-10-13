@@ -122,7 +122,7 @@ class StopShifter:
             {
                 **spec,
                 "stop_price": _quantize_price(spec["stop_price"] - amount),
-                "limit_price": (_quantize_price(spec["limit_price"] - amount) if spec.get("limit_price") else None),
+                "limit_price": None,
             }
             for spec in specs
         ]

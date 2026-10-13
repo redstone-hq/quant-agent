@@ -1252,7 +1252,6 @@ def test_reprotect_residual_submits_when_existing_stop_has_different_price():
         symbol="NVDA",
         qty=10.0,
         stop_price=90.0,
-        limit_price=None,
         side="sell",
     )
 
@@ -1275,7 +1274,6 @@ def test_reprotect_residual_picks_highest_stop_price_among_specs():
         symbol="AMZN",
         qty=41.0,
         stop_price=248.5,
-        limit_price=None,
         side="sell",
     )
 
@@ -1502,7 +1500,6 @@ def test_partial_trim_reprotects_residual_after_partial_trim_fills(tmp_path):
         symbol="NVDA",
         qty=85.0,
         stop_price=95.0,
-        limit_price=None,
         side="sell",
     )
     db.close()

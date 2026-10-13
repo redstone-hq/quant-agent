@@ -266,7 +266,6 @@ def test_stop_leg_retry_does_not_return_dead_readback(_d, dead):
             symbol="AAPL",
             qty=10,
             stop_price=95.0,
-            limit_price=None,
             side="sell",
             leg="GTC",
         )
@@ -360,7 +359,6 @@ def test_stop_leg_retry_does_not_retry_over_an_executing_stop(_d, status):
             symbol="AAPL",
             qty=10,
             stop_price=95.0,
-            limit_price=None,
             side="sell",
             leg="GTC",
         )

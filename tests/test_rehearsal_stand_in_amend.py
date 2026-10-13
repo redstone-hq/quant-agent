@@ -87,7 +87,7 @@ def test_rehearsal_moves_a_stop_by_in_place_amend(_sector, _tc):
     assert out is not None and out["amend_status"] == "accepted"
     assert len(after) == 1, "exactly one open stop at every instant"
     assert after[0].stop_price == 105.0 and after[0].id != old_id
-    assert after[0].qty == 10.0 and after[0].order_type == "stop_limit"
+    assert after[0].qty == 10.0 and after[0].order_type == "stop"
     assert trading.cancelled == [], "an amend never cancels"
     assert trading.get_order_by_id(old_id).status == "replaced"
     assert [a[:2] for a in trading.amended] == [(old_id, after[0].id)]
