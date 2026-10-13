@@ -14,7 +14,7 @@ from src.cost_circuit.refusal import (
     PaidAnalysisSuspended,
     _fmt_settled,
 )
-from src.cost_circuit.clock import _et_day_and_utc_bounds
+from src.cost_circuit.clock import _et_day_and_utc_bounds, _sql_stamp
 from src.cost_circuit.free_route import admit_free_route_locked
 
 
@@ -393,9 +393,9 @@ class Admission:
 
             updated_session = conn.execute(
                 "UPDATE llm_budget_sessions SET logical_calls=logical_calls+1, "
-                "retry_attempts=retry_attempts+?, updated_at=datetime('now') "
+                "retry_attempts=retry_attempts+?, updated_at=? "
                 "WHERE run_id=?",
-                (1 if retry_kind else 0, run_id),
+                (1 if retry_kind else 0, _sql_stamp(), run_id),
             )
             if updated_session.rowcount != 1:
                 raise RuntimeError(f"cost-circuit session row disappeared while authorizing call for {run_id}")

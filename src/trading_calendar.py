@@ -95,14 +95,14 @@ REGULAR_SESSION_CLOSE_MIN = 960  # 16:00 ET
 
 
 def et_now() -> datetime:
-    """Current instant as a timezone-aware datetime in US/Eastern."""
-    return datetime.now(ET)
+    """Current instant in US/Eastern: ``utc_now`` converted, never a second read."""
+    return utc_now().astimezone(ET)
 
 
 def utc_now() -> datetime:
     """Current instant as a timezone-aware datetime in UTC: the same clock as ``et_now``.
 
-    THE desk clock. Every row stamp, prune cutoff and day boundary is read
+    THE desk clock -- the ONE OS read. ``et_now`` converts it. Every row stamp, prune cutoff and day boundary is read
     from here (or ``et_now``), never from SQLite's ``datetime('now')`` and
     never from a bare ``datetime.now`` elsewhere -- ``scripts/one_clock_guard.py``
     refuses both outside this module.

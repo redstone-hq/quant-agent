@@ -14,19 +14,22 @@ A. CLOCK SITES -- outside the clock module, ``src/`` may hold neither
             or the literal parts of an f-string) that reads SQLite's clock:
             ``'now'`` / ``"now"``, ``CURRENT_TIMESTAMP`` / ``CURRENT_DATE`` /
             ``CURRENT_TIME``, or ``datetime()`` / ``date()`` / ``time()`` /
-            ``julianday()`` / ``unixepoch()`` with no argument. This covers
+            ``julianday()`` / ``unixepoch()`` with no argument, and
+            ``strftime(fmt)`` with no time argument. This covers
             ``datetime('now', '-2 minutes')``, ``date('now')`` and table
             DEFAULTs. Docstrings are excluded.
    py_now   a Python read of the OS clock: ``<x>.now()`` / ``.utcnow()`` /
             ``.today()`` on a module or class (``datetime.now``, ``dt.date.today``),
             the same attribute referenced without a call (``fn = datetime.now``),
             ``time.time()`` / ``time.time_ns()``, ``time.strftime(fmt)`` with
-            no explicit instant, ``time.localtime()`` / ``time.gmtime()`` with
+            no explicit instant, ``pd.Timestamp('now')`` / ``Timestamp.now()``,
+            ``time.localtime()`` / ``time.gmtime()`` / ``time.ctime()`` with
             no argument (also when imported bare), ``fromtimestamp(...)`` /
             ``utcfromtimestamp(...)`` whose argument is computed inline rather
             (not a name, field, index or literal, even through ``int()`` / ``float()``),
             and ``getattr(<x>, "now")`` for any
-            of those names.
+            of those names. Receivers include every alias the module binds
+            (``import time as T``, ``from datetime import datetime as D``).
    The limit is FIXED and written in the repo: ``config/check_allowlists/one_clock.txt``
    lists every site identity (path, kind, enclosing scope, the WHOLE
    whitespace-normalised text) that existed on the day the rule was tightened.
@@ -75,15 +78,18 @@ EXEMPT = {
 ALLOWLIST = ALLOWLIST_DIR / "one_clock.txt"
 
 _SQL_NOW = re.compile(
-    r"""['"]now['"]|\bCURRENT_(?:TIMESTAMP|DATE|TIME)\b|\b(?:datetime|date|time|julianday|unixepoch)\s*\(\s*\)""",
+    r"""['"]now['"]|\bCURRENT_(?:TIMESTAMP|DATE|TIME)\b|\b(?:datetime|date|time|julianday|unixepoch)\s*\(\s*\)"""
+    r"""|\bstrftime\s*\(\s*(['"])[^'"]*\1\s*\)""",
     re.IGNORECASE,
 )
 _NOW_ATTRS = {"now", "utcnow", "today"}
 _TIME_MODULE_ATTRS = {"time", "time_ns"}
-_NO_ARG_ATTRS = {"localtime", "gmtime"}
+_NO_ARG_ATTRS = {"localtime", "gmtime", "ctime"}
 _FROM_STAMP_ATTRS = {"fromtimestamp", "utcfromtimestamp"}
 _ALL_CLOCK_ATTRS = _NOW_ATTRS | _TIME_MODULE_ATTRS | _NO_ARG_ATTRS | _FROM_STAMP_ATTRS | {"strftime"}
-_CLOCK_RECEIVERS = {"datetime", "date", "time", "dt", "_dt", "_datetime", "_time"}
+_CLOCK_RECEIVERS = {"datetime", "date", "time", "dt", "_dt", "_datetime", "_time", "pd", "pandas", "Timestamp"}
+_CLOCK_MODULES = {"time", "datetime", "pandas"}
+_CLOCK_CLASSES = {"datetime", "date", "Timestamp"}
 _DAY_READERS = {"et_today", "todays_session_stamp", "todays_session_bar_stamp", "todays_session_snapshot_stamps"}
 _STORED = (ast.Name, ast.Attribute, ast.Subscript, ast.Constant)
 _CONVERSIONS = {"int", "float", "round", "str"}
@@ -145,33 +151,53 @@ def _sql_strings(tree: ast.AST, skip: set[int]) -> list[tuple[ast.AST, str]]:
     return out
 
 
-def _py_now_call(call: ast.Call) -> bool:
+def _receivers(tree: ast.AST) -> set[str]:
+    """The usual clock names plus every alias this module binds to a clock module or class."""
+    names = set(_CLOCK_RECEIVERS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(a.asname for a in node.names if a.name in _CLOCK_MODULES and a.asname)
+        elif isinstance(node, ast.ImportFrom) and node.module in _CLOCK_MODULES:
+            names.update(a.asname for a in node.names if a.name in _CLOCK_CLASSES and a.asname)
+    return names
+
+
+def _py_now_plain_call(call: ast.Call, fn: ast.Name) -> bool:
+    """``getattr(x, "now")``, and bare ``time()`` / ``gmtime()`` / ``ctime()`` after a from-import."""
+    if fn.id == "getattr" and len(call.args) >= 2:
+        name = call.args[1]
+        return isinstance(name, ast.Constant) and name.value in _ALL_CLOCK_ATTRS
+    return fn.id in _TIME_MODULE_ATTRS | _NO_ARG_ATTRS and not call.args and not call.keywords
+
+
+def _py_now_call(call: ast.Call, receivers: set[str]) -> bool:
     fn = call.func
     nargs = len(call.args) + len(call.keywords)
+    if _terminal_name(fn) == "Timestamp" and call.args:
+        first = call.args[0]
+        if isinstance(first, ast.Constant) and first.value in ("now", "today"):
+            return True  # pd.Timestamp('now')
     if isinstance(fn, ast.Name):
-        if fn.id == "getattr" and len(call.args) >= 2:
-            name = call.args[1]
-            return isinstance(name, ast.Constant) and name.value in _ALL_CLOCK_ATTRS
-        return fn.id in _TIME_MODULE_ATTRS | _NO_ARG_ATTRS and nargs == 0
+        return _py_now_plain_call(call, fn)
     if not isinstance(fn, ast.Attribute) or not isinstance(fn.value, (ast.Name, ast.Attribute)):
         return False
     receiver = _terminal_name(fn.value)
     if fn.attr in _NOW_ATTRS:
         return True
     if fn.attr in _TIME_MODULE_ATTRS:
-        return receiver in _CLOCK_RECEIVERS
+        return receiver in receivers
     if fn.attr in _NO_ARG_ATTRS:
         return nargs == 0
     if fn.attr == "strftime":
-        return receiver in _CLOCK_RECEIVERS and nargs == 1
+        return receiver in receivers and nargs == 1
     if fn.attr in _FROM_STAMP_ATTRS:
         return bool(call.args) and not _stored(call.args[0])
     return False
 
 
-def _py_now_reference(attr: ast.Attribute) -> bool:
+def _py_now_reference(attr: ast.Attribute, receivers: set[str]) -> bool:
     """``datetime.now`` named without being called (bound to a variable, passed along)."""
-    return attr.attr in _ALL_CLOCK_ATTRS and _terminal_name(attr.value) in _CLOCK_RECEIVERS
+    return attr.attr in _ALL_CLOCK_ATTRS and _terminal_name(attr.value) in receivers
 
 
 def _py_day(call: ast.Call) -> bool:
@@ -191,14 +217,15 @@ def _classify(path: str, text: str) -> tuple[list[tuple[str, int, str, str]], li
     clock: list[tuple[str, int, str, str]] = []
     days: list[tuple[str, int, str, str]] = []
     called: set[int] = set()
+    receivers = _receivers(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             called.add(id(node.func))
-            if _py_now_call(node):
+            if _py_now_call(node, receivers):
                 clock.append(("py_now", node.lineno, *site_identity(node, scopes)))
             if _py_day(node):
                 days.append(("py_day", node.lineno, *site_identity(node, scopes)))
-        elif isinstance(node, ast.Attribute) and id(node) not in called and _py_now_reference(node):
+        elif isinstance(node, ast.Attribute) and id(node) not in called and _py_now_reference(node, receivers):
             clock.append(("py_now", node.lineno, *site_identity(node, scopes)))
     for node, text_ in _sql_strings(tree, skip):
         if _SQL_NOW.search(text_):

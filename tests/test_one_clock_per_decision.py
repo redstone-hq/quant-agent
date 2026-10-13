@@ -132,6 +132,7 @@ def test_mixed_module_is_refused_even_when_allowlisted(tmp_path):
         'q = "SELECT datetime(" + "\'now\'" + ")"\n',
         "q = f\"SELECT datetime('now') FROM {table}\"\n",
         "q = \"WHERE a < datetime(\\n  'now', '-2 minutes')\"\n",
+        "q = \"SELECT strftime('%s')\"\n",
     ],
     ids=[
         "datetime()",
@@ -145,6 +146,7 @@ def test_mixed_module_is_refused_even_when_allowlisted(tmp_path):
         "plus-chain",
         "f-string",
         "multiline",
+        "strftime-no-time",
     ],
 )
 def test_sql_probe_is_caught(text):
@@ -167,6 +169,12 @@ def test_sql_probe_is_caught(text):
         "from datetime import datetime\nfn = datetime.now\n",
         "from datetime import datetime\nx = datetime.utcnow()\n",
         "import datetime as dt\nx = dt.date.today()\n",
+        "import time as T\nx = T.time()\n",
+        "from datetime import datetime as D\nfn = D.now\n",
+        "import pandas as pd\nx = pd.Timestamp('now')\n",
+        "import pandas as pd\nx = pd.Timestamp.now(tz='UTC')\n",
+        "import pandas as pd\nx = pd.Timestamp.today()\n",
+        "import time\nx = time.ctime()\n",
     ],
     ids=[
         "time.time",
@@ -182,6 +190,12 @@ def test_sql_probe_is_caught(text):
         "uncalled-reference",
         "utcnow",
         "date.today",
+        "time-alias",
+        "datetime-alias-reference",
+        "Timestamp-now-string",
+        "Timestamp.now",
+        "Timestamp.today",
+        "time.ctime",
     ],
 )
 def test_py_probe_is_caught(text):
@@ -200,6 +214,9 @@ def test_py_probe_is_caught(text):
         "datetime.fromtimestamp(int(ts), tz=UTC)\n",
         '"""docs say datetime(\'now\')"""\n',
         "q = 'SELECT datetime(ts)'\n",
+        "q = \"SELECT strftime('%s', ts)\"\n",
+        "import pandas as pd\nx = pd.Timestamp(row['ts'])\n",
+        "time.ctime(ts)\n",
     ],
     ids=[
         "call-result-date",
@@ -211,6 +228,9 @@ def test_py_probe_is_caught(text):
         "fromtimestamp-converted",
         "docstring",
         "datetime-of-column",
+        "strftime-of-column",
+        "Timestamp-of-value",
+        "ctime-of-value",
     ],
 )
 def test_what_is_not_a_clock_read(text):
@@ -239,11 +259,54 @@ def test_utc_now_is_aware_utc():
     assert now.tzinfo is not None and now.utcoffset() == timedelta(0)
 
 
-def test_freezing_the_desk_clock_freezes_every_stamp(monkeypatch):
+def test_et_now_is_utc_now_converted_not_a_second_read(monkeypatch):
     pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    assert trading_calendar.et_now() == pinned
+    assert trading_calendar.et_now().utcoffset() == timedelta(hours=-4)
+    assert trading_calendar.et_today() == pinned.date()
     assert sql_utc_stamp() == "2026-10-13 16:00:00"
     assert sql_utc_stamp_ago(days=1, minutes=30) == "2026-10-12 15:30:00"
-    assert cc_clock._now_utc() == pinned  # the cost circuit reads the same clock
-    assert cc_clock._sql_stamp() == "2026-10-13 16:00:00"
-    assert cc_clock._sql_stamp(minutes_ago=2) == "2026-10-13 15:58:00"
+
+
+def test_freezing_the_desk_clock_freezes_every_stamp_the_cost_circuit_writes(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from src.cost_circuit import LLMCostCircuitBreaker
+    from src.storage.db import Database
+
+    pinned = datetime(2026, 10, 13, 16, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(trading_calendar, "utc_now", lambda: pinned)
+    assert cc_clock._now_utc() == pinned and cc_clock.clock_replaced()
+
+    path = str(tmp_path / "circuit.db")
+    db = Database(path)
+    db.initialize()
+    db.conn.close()
+    config = SimpleNamespace(
+        enabled=True,
+        session_cost_limit_usd=10.0,
+        daily_cost_limit_usd=20.0,
+        max_calls_per_session=1000,
+        max_provider_attempts_per_call=2,
+        input_chars_per_token=3.5,
+    )
+    notifier = SimpleNamespace(send=lambda *a, **k: True)
+    circuit = LLMCostCircuitBreaker(path, config, notifier)
+    circuit.activate_session("run-frozen", "morning")
+    reservation = circuit.begin_call(
+        agent_name="tech_analyst", model="m", system_prompt="s", user_message="u", max_output_tokens=10
+    )
+    circuit.before_provider_attempt(reservation, model=reservation.model)
+    circuit.complete_call(reservation, 0.01)
+
+    stamps: dict[str, str] = {}
+    with sqlite3.connect(path) as conn:
+        for table in ("llm_budget_sessions", "llm_budget_days", "llm_circuit_state"):
+            columns = [r[1] for r in conn.execute(f"PRAGMA table_info({table})") if r[1].endswith("_at")]
+            for row in conn.execute(f"SELECT {', '.join(columns)} FROM {table}"):
+                for column, value in zip(columns, row):
+                    if value is not None:
+                        stamps[f"{table}.{column}"] = value
+    assert len(stamps) >= 5, stamps
+    assert set(stamps.values()) == {"2026-10-13 16:00:00"}, stamps

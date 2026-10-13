@@ -3,7 +3,7 @@
 from __future__ import annotations
 import sqlite3
 from src.cost_circuit.classification import _trigger_scope
-from src.cost_circuit.clock import _pinned_if_clock_replaced
+from src.cost_circuit.clock import _pinned_if_clock_replaced, _sql_stamp
 
 
 def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
@@ -279,7 +279,8 @@ def ensure_cost_circuit_schema(conn: sqlite3.Connection) -> None:
                 "trigger_detail=NULL, run_id=NULL, mode=NULL, agent_name=NULL, "
                 "session_attempts=0, session_cost_usd=0, daily_cost_usd=0, "
                 "attempts_exact=1, costs_exact=1, suspended_at=NULL, alert_state=0, "
-                "updated_at=datetime('now') WHERE singleton=1"
+                "updated_at=? WHERE singleton=1",
+                (_sql_stamp(),),
             )
     # Schema creation and legacy-latch migration are one self-contained
     # initialization unit.  Callers intentionally start their operational

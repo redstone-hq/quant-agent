@@ -23,7 +23,7 @@ def _pinned_if_clock_replaced(conn: Any) -> Any:
     circuit is dated by the caller's clock, and a dedup that compares the
     two never matches. Production never takes this branch.
     """
-    if _now_utc is _REAL_NOW_UTC or not isinstance(conn, sqlite3.Connection):
+    if not clock_replaced() or not isinstance(conn, sqlite3.Connection):
         return conn
     return _ClockPinnedConnection(conn, _now_utc().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -54,6 +54,13 @@ def _now_utc() -> datetime:
 #: than against a flag, so there is no way to be in "pinned" mode without a
 #: caller having actually supplied a clock.
 _REAL_NOW_UTC = _now_utc
+#: Identity of the desk's unreplaced clock, for the same reason.
+_REAL_DESK_UTC_NOW = _desk_clock.utc_now
+
+
+def clock_replaced() -> bool:
+    """True when a test has frozen EITHER this module's clock or the desk clock it reads."""
+    return _now_utc is not _REAL_NOW_UTC or _desk_clock.utc_now is not _REAL_DESK_UTC_NOW
 
 
 class _ClockPinnedConnection:
