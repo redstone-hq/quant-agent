@@ -48,14 +48,16 @@ def _check_exit(
     """
     if pos.direction == "long":
         if bar.low <= pos.stop:
-            return "stop", pos.stop
+            # Gap through the stop: nothing trades at the stop, so fill at the open.
+            return "stop", min(bar.open, pos.stop)
         if pos.target is not None and bar.high >= pos.target:
-            return "target", pos.target
+            # Favourable gap through the target fills at the (better) open.
+            return "target", max(bar.open, pos.target)
     else:
         if bar.high >= pos.stop:
-            return "stop", pos.stop
+            return "stop", max(bar.open, pos.stop)
         if pos.target is not None and bar.low <= pos.target:
-            return "target", pos.target
+            return "target", min(bar.open, pos.target)
 
     hold_days = idx - pos.entry_index
     if hold_days >= max_hold_days:
