@@ -38,6 +38,7 @@ from src.storage.trades import recovery_queues as _recovery_queues
 from src.storage.trades import excursions as _excursions
 from src.util.time import UTC
 from src.trade_actions import trail_stop_reduced_position as _trail_stop_reduced_position  # noqa: F401  re-export
+from src.trade_actions import broker_fill_time
 from src.storage.trades.position_chain import (  # noqa: F401  re-export; vocabulary defined in src/trade_actions.py
     _new_position_id,
     _LONG_EXIT_ACTIONS,
@@ -52,6 +53,7 @@ from src.storage.trades.position_chain import (  # noqa: F401  re-export; vocabu
     _row_counts_as_executed,
     _assign_position_ids,
     _event_order,
+    _event_split,
     _share_change,
 )
 from src.storage.trades.exit_reasons import (  # noqa: F401  re-export: defined there
@@ -410,8 +412,9 @@ class TradeLedger:
         position's stop-out fill was known carried the old id, and moves to its
         own position here. Positions whose membership changed have their
         conviction credit voided, so the evening scorer re-scores them from the
-        derived grouping. Returns those position ids, or None when the fill
-        order is unknown (ids left as they are).
+        derived grouping. Rows before the last flat point the walk can order keep
+        their ids. Returns those position ids, or None when the live position's
+        fill order is unknown (ids left as they are).
         """
         rows = [
             dict(r)
@@ -421,11 +424,13 @@ class TradeLedger:
                 (symbol,),
             ).fetchall()
         ]
-        ordered = _event_order(rows)
-        if ordered is None:
+        split = _event_split(rows)
+        if split is None:
             return None
-        derived = _assign_position_ids(ordered)
-        changed = [(derived.get(r["id"]), r["id"], r.get("position_id")) for r in rows]
+        earlier, ordered = split
+        # Rows before the last flat point the walk can order keep their ids; no later position reuses one.
+        derived = _assign_position_ids(ordered, reserved={r["position_id"] for r in earlier if r.get("position_id")})
+        changed = [(derived.get(r["id"]), r["id"], r.get("position_id")) for r in ordered]
         changed = [c for c in changed if c[0] != c[2]]
         if not changed:
             return set()
@@ -445,6 +450,28 @@ class TradeLedger:
             return affected
 
         return self._locked_write(_do, label="regroup_position_ids")
+
+    def backfill_fill_times(self, updates: list[tuple[int, str, str]]) -> set[str]:
+        """Write broker fill times onto fills that have none, then re-derive the touched
+        symbols' position ids, in ONE transaction through the desk's own write path.
+
+        `_locked_write` is how every desk process serialises a write: the process lock,
+        plus a bounded retry on SQLite's cross-process lock. A fill time already on a
+        row is never overwritten. `updates` are `(row id, symbol, filled_at)`.
+        """
+
+        def _do():
+            self.conn.executemany(
+                "UPDATE trades SET filled_at = ? WHERE id = ? AND filled_at IS NULL",
+                [(filled_at, row_id) for row_id, _, filled_at in updates],
+            )
+            affected: set[str] = set()
+            for symbol in sorted({symbol for _, symbol, _ in updates}):
+                affected |= self._regroup_position_ids_locked(symbol) or set()
+            self.conn.commit()
+            return affected
+
+        return self._locked_write(_do, label="backfill_fill_times")
 
     def confirm_trade_submitted(
         self,
@@ -821,7 +848,9 @@ class TradeLedger:
             ).fetchone()
             if existing is not None:
                 return existing["id"], False
-            ts = filled_at or self._sqlite_utc_timestamp(datetime.now(UTC))
+            # `timestamp` keeps the desk's one-second UTC stamp; `filled_at` keeps the broker's full precision.
+            fill_utc = broker_fill_time(filled_at)
+            ts = fill_utc[:19] if fill_utc else filled_at or self._sqlite_utc_timestamp(datetime.now(UTC))
             act_norm = (action or "").upper()
             if reasoning:
                 reasoning_final = reasoning

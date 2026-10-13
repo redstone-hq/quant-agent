@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from src.protection.fill_reconciler import FillReconciler
 from src.quantities import held_position_risk
 from src.storage.db import Database
+from src.trade_actions import broker_fill_time
 
 _SPEC = importlib.util.spec_from_file_location(
     "backfill_fill_times", Path(__file__).resolve().parent.parent / "scripts" / "backfill_fill_times.py"
@@ -90,7 +90,7 @@ def test_a_write_without_both_flags_is_refused(db_path, flags):
 def test_execute_owner_approved_writes_the_brokers_fill_times_and_r_becomes_known(db_path):
     assert backfill.main(["--db-path", str(db_path), "--execute", "--owner-approved"], broker=FakeBroker()) == 0
     rows = _rows(db_path)
-    parse = FillReconciler._parse_broker_fill_timestamp
+    parse = broker_fill_time
     assert {r["broker_order_id"]: r["filled_at"] for r in rows} == {
         "a-buy": parse(BROKER_FILL_TIMES["a-buy"]),
         "a-sell": parse(BROKER_FILL_TIMES["a-sell"]),
@@ -100,3 +100,25 @@ def test_execute_owner_approved_writes_the_brokers_fill_times_and_r_becomes_know
     risk, _ = held_position_risk([r for r in rows if r["symbol"] == "AAA"], 60)
     assert risk == pytest.approx(300.0)  # 60 held x $5
     assert held_position_risk([r for r in rows if r["symbol"] == "BBB"], 60) == (None, "fill_time_missing")
+
+
+class FailingBroker(FakeBroker):
+    """One read raises; one returns None, as the desk's own read does when it fails."""
+
+    def get_order_fill_info(self, order_id):
+        self.asked.append(order_id)
+        if order_id == "a-sell":
+            raise ConnectionError("broker unreachable")
+        if order_id == "b-sell":
+            return None
+        return super().get_order_fill_info(order_id)
+
+
+def test_a_failed_broker_read_is_counted_apart_and_never_written(db_path, capsys):
+    before = _rows(db_path)
+    assert backfill.main(["--db-path", str(db_path)], broker=FailingBroker()) == 0
+    out = capsys.readouterr().out
+    assert "broker read failed (counted apart, never written): 2" in out
+    assert "broker returned no fill time: 0" in out
+    assert backfill.main(["--db-path", str(db_path), "--execute", "--owner-approved"], broker=FailingBroker()) == 1
+    assert _rows(db_path) == before  # refused: nothing written while any read failed

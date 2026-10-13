@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Backfill `trades.filled_at` - the broker's own fill time - on fills recorded before it existed.
 
-The lot walk orders fills by `filled_at` alone (src/trade_actions.py). A symbol with an
-exit on record and any fill without a fill time has an unknown fill order: its open R is
-unknown (no R ratchets) and its stored position ids are not re-derived. This asks the
-broker (Alpaca PAPER, hard-coded) for each such fill's `filled_at` by its order id, the
-same read and parse the fill reconciler uses, then re-derives the touched symbols'
-position ids from the walk.
+The lot walk orders fills by `filled_at` alone (src/trade_actions.py). A symbol whose LIVE
+position holds a fill without a fill time has an unknown fill order: its open R is unknown
+(no R ratchets). This asks the broker (Alpaca PAPER, hard-coded) for each such fill's
+`filled_at` by its order id, the same read and full-precision parse the fill reconciler
+uses, then re-derives the touched symbols' position ids from the walk - all in one write
+through the desk's own write path (`Database.backfill_fill_times`). A failed broker read
+is counted apart from "no fill time" and never written; --execute refuses if any failed.
 
 Dry-run by default: opens the database READ-ONLY and prints how many executed fills
 lack a fill time, how many of those lack a broker order id (cannot be backfilled), how
@@ -69,8 +70,8 @@ def _read_rows(db_path: Path) -> list[dict]:
 def _r_unknown_open(rows: list[dict]) -> list[str]:
     """Symbols the ledger holds shares of whose fill order is unknown (R unknown, no R ratchets)."""
     from src.execution.order_gates import ORDER_QTY_DECIMALS
-    from src.storage.trades.position_chain import _event_order, _executed_row
-    from src.trade_actions import executed_qty, share_change
+    from src.storage.trades.position_chain import _executed_row
+    from src.trade_actions import executed_qty, live_lot_rows, share_change
 
     by_symbol: dict[str, list[dict]] = {}
     for row in rows:
@@ -79,25 +80,31 @@ def _r_unknown_open(rows: list[dict]) -> list[str]:
     for symbol, symbol_rows in sorted(by_symbol.items()):
         moving = [r for r in symbol_rows if share_change(r) is not None and _executed_row(r)]
         net = sum(executed_qty(r) * (1 if share_change(r) == "in" else -1) for r in moving)
-        if round(net, ORDER_QTY_DECIMALS) > 0 and _event_order(symbol_rows) is None:
+        if round(net, ORDER_QTY_DECIMALS) > 0 and live_lot_rows(moving, decimals=ORDER_QTY_DECIMALS) is None:
             out.append(symbol)
     return out
 
 
 def plan(rows: list[dict], fetch_fill_info) -> dict:
     """What the backfill would write. `fetch_fill_info(order_id)` is the broker's order read."""
-    from src.protection.fill_reconciler import FillReconciler
     from src.storage.trades.position_chain import _executed_row
-    from src.trade_actions import fill_time, share_change
+    from src.trade_actions import broker_fill_time, fill_time, share_change
 
     missing = [r for r in rows if share_change(r) is not None and _executed_row(r) and fill_time(r) is None]
     updates: list[tuple[int, str, str]] = []
     broker_none = 0
+    read_errors = 0
     for row in missing:
         if not row.get("broker_order_id"):
             continue
-        info = fetch_fill_info(row["broker_order_id"]) or {}
-        filled_at = FillReconciler._parse_broker_fill_timestamp(info.get("filled_at"))
+        try:
+            info = fetch_fill_info(row["broker_order_id"])
+        except Exception:  # noqa: BLE001 - a failed read is counted, never written
+            info = None
+        if not isinstance(info, dict):  # the desk's read returns None when it fails
+            read_errors += 1
+            continue
+        filled_at = broker_fill_time(info.get("filled_at"))
         if filled_at:
             updates.append((row["id"], row["symbol"], filled_at))
         else:
@@ -108,6 +115,7 @@ def plan(rows: list[dict], fetch_fill_info) -> dict:
         "missing": len(missing),
         "no_order_id": sum(1 for r in missing if not r.get("broker_order_id")),
         "broker_none": broker_none,
+        "read_errors": read_errors,
         "updates": updates,
         "r_unknown_open": _r_unknown_open(after),
     }
@@ -121,6 +129,7 @@ def _report(result: dict, db_path: Path, execute: bool) -> None:
     print(f"  without a broker order id (cannot be backfilled): {result['no_order_id']}")
     print(f"  broker returned a fill time (would be written): {len(result['updates'])}")
     print(f"  broker returned no fill time: {result['broker_none']}")
+    print(f"  broker read failed (counted apart, never written): {result['read_errors']}")
     print(f"Symbols open in the ledger that would still have R unknown: {len(result['r_unknown_open'])}")
     if result["r_unknown_open"]:
         print(f"  {', '.join(result['r_unknown_open'])}")
@@ -132,16 +141,10 @@ def _apply(db_path: Path, updates: list[tuple[int, str, str]]) -> int:
     db = Database(str(db_path))
     db.initialize()  # adds trades.filled_at to a database that predates it
     try:
-        db.conn.executemany(
-            "UPDATE trades SET filled_at = ? WHERE id = ? AND filled_at IS NULL",
-            [(filled_at, row_id) for row_id, _, filled_at in updates],
-        )
-        db.conn.commit()
-        symbols = sorted({symbol for _, symbol, _ in updates})
-        for symbol in symbols:
-            db.regroup_position_ids(symbol)
+        db.backfill_fill_times(updates)  # the desk's own locked write path, one transaction
     finally:
         db.close()
+    symbols = sorted({symbol for _, symbol, _ in updates})
     print(f"Wrote {len(updates)} fill time(s); re-derived position ids for {len(symbols)} symbol(s).")
     return 0
 
@@ -171,6 +174,12 @@ def main(argv=None, broker=None) -> int:
         return 2
     result = plan(_read_rows(db_path), broker.get_order_fill_info)
     _report(result, db_path, args.execute)
+    if args.execute and result["read_errors"]:
+        print(
+            f"REFUSED: {result['read_errors']} broker read(s) failed. Nothing written; re-run when reads succeed.",
+            file=sys.stderr,
+        )
+        return 1
     return _apply(db_path, result["updates"]) if args.execute else 0
 
 

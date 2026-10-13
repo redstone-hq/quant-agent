@@ -1817,6 +1817,10 @@ class Database:
         """Re-derive one symbol's stored position ids from the fill walk (TradeLedger.regroup_position_ids)."""
         return self._trades().regroup_position_ids(symbol)
 
+    def backfill_fill_times(self, updates: list[tuple[int, str, str]]) -> set[str]:
+        """Broker fill times plus the regroup, one locked write (TradeLedger.backfill_fill_times)."""
+        return self._trades().backfill_fill_times(updates)
+
     def _realized_pnl_through_trade(self, symbol: str, through_id: int) -> float | None:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
         return self._trades()._realized_pnl_through_trade(symbol, through_id)

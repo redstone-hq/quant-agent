@@ -17,7 +17,7 @@ import pytest
 from src.execution.order_gates import ORDER_QTY_DECIMALS
 from src.quantities import held_position_risk
 from src.storage.db import Database
-from src.trade_actions import FILL_ORDER_UNKNOWN, live_lot_rows
+from src.trade_actions import FILL_ORDER_UNKNOWN, broker_fill_time, live_lot_rows
 from tests.test_open_r_per_lot import _pos, _r_ratchet_fired, _trail
 
 DAY = "2026-10-12"
@@ -245,7 +245,12 @@ def test_the_reconciler_writes_the_brokers_fill_time_never_now(db):
         fill_status="submitted",
         broker_order_id="rec-1",
     )
-    info = {"status": "filled", "filled_qty": 10, "filled_avg_price": 20.0, "filled_at": "2026-01-05T15:00:00+00:00"}
+    info = {
+        "status": "filled",
+        "filled_qty": 10,
+        "filled_avg_price": 20.0,
+        "filled_at": "2026-01-05T15:00:00.123456+00:00",
+    }
     FillReconciler(
         broker=SimpleNamespace(get_order_fill_info=lambda _oid: info),
         db=db,
@@ -255,7 +260,7 @@ def test_the_reconciler_writes_the_brokers_fill_time_never_now(db):
         parse_broker_fill_timestamp=FillReconciler._parse_broker_fill_timestamp,
     )._reconcile_fills()
     (filled_at,) = db.conn.execute("SELECT filled_at FROM trades WHERE broker_order_id = 'rec-1'").fetchone()
-    assert filled_at == FillReconciler._parse_broker_fill_timestamp(info["filled_at"])
+    assert filled_at == "2026-01-05 15:00:00.123456"  # the broker's microseconds, never truncated
     assert filled_at.startswith("2026-01-05 15:00")
 
 
@@ -286,3 +291,35 @@ def test_stored_ids_are_the_walk_every_reader_agrees_and_a_regroup_voids_credit(
     # Credit scored while the fresh lot sat inside the old position is void; the scorer re-scores it.
     count = db.conn.execute("SELECT COUNT(*) FROM specialist_evidence WHERE kind = ?", (CONVICTION_CREDIT_KIND,))
     assert count.fetchone()[0] == 0
+
+
+def test_an_add_and_a_stop_out_in_the_same_second_go_in_microsecond_order():
+    """The stop took the old 100 out at 14:00:00.2; the resting add, written first (lower row
+    id), filled at 14:00:00.7. Cut to the second the two tie and the row id puts the add
+    first - one merged position; at full precision the book was flat before the add filled."""
+    stop_out_at = broker_fill_time(f"{DAY}T14:00:00.200000+00:00")
+    add_at = broker_fill_time(f"{DAY}T14:00:00.700000+00:00")
+    assert (stop_out_at, add_at) == (f"{DAY} 14:00:00.200000", f"{DAY} 14:00:00.700000")
+    rows = [
+        _row(1, "BUY", 100, 50.0, 45.0, written=f"{DAY} 10:00:00", filled_at=f"{DAY} 10:00:00.000000"),
+        _row(2, "BUY", 100, 60.0, 55.0, written=f"{DAY} 13:00:00", filled_at=add_at),
+        _row(3, "SELL", 100, 45.0, written=f"{DAY} 14:00:00", filled_at=stop_out_at),
+    ]
+    assert [r["id"] for r in live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS)] == [2]
+    assert held_position_risk(rows, 100) == (pytest.approx(500.0), "ok")  # the add's own 1R: 100 x $5
+
+
+def test_an_old_untimed_position_no_longer_makes_the_live_positions_r_unknown():
+    """An old position bought and sold before fill times were recorded - its buy has no broker
+    order id, so it can never be backfilled - then a new position with every fill timed. Only
+    the live position's rows matter, so R is known; a fill with no time INSIDE it is not."""
+    old_buy = _row(1, "BUY", 100, 40.0, 35.0, written="2025-12-01 10:00:00", filled_at=None)
+    old_buy["broker_order_id"] = None
+    old_sell = _row(2, "SELL", 100, 44.0, written="2025-12-01 15:00:00", filled_at=None)
+    new_buy = _row(3, "BUY", 50, 60.0, 55.0, written=f"{DAY} 10:00:00", filled_at=f"{DAY} 10:00:00.250000")
+    rows = [old_buy, old_sell, new_buy]
+    assert [r["id"] for r in live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS, held=50)] == [3]
+    assert held_position_risk(rows, 50) == (pytest.approx(250.0), "ok")  # 50 x $5
+    add = _row(4, "BUY", 50, 62.0, 57.0, written=f"{DAY} 11:00:00", filled_at=None)
+    trim = _row(5, "SELL", 20, 63.0, written=f"{DAY} 12:00:00", filled_at=f"{DAY} 12:00:00.000000")
+    assert held_position_risk([*rows, add, trim], 80) == (None, FILL_ORDER_UNKNOWN)

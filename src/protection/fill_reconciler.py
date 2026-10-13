@@ -11,6 +11,7 @@ import logging
 from src.sentinel.reconciliation import record_reconciliation
 from src.protection.fill_reconciler_records import record_fill_pass
 from src.storage.db import Database
+from src.trade_actions import broker_fill_time
 from src.pipeline_context import RunContext
 import json as _json
 
@@ -170,7 +171,7 @@ class FillReconciler:
             fill_price = info.get("filled_avg_price") or None
             # The broker's own fill time, never the time we noticed: the clock
             # the lot walk orders fills by (None when the broker reported none).
-            filled_at = self._parse_broker_fill_timestamp(info.get("filled_at"))
+            filled_at = broker_fill_time(info.get("filled_at"))  # full precision
             if status in terminal_ok:
                 self.db.update_trade_fill(
                     broker_order_id=order_id,
@@ -650,7 +651,7 @@ class FillReconciler:
                         qty=fill["qty"],
                         price=fill["price"],
                         broker_order_id=fill["id"],
-                        filled_at=self._parse_broker_fill_timestamp(fill.get("filled_at")),
+                        filled_at=broker_fill_time(fill.get("filled_at")),
                         run_id=run_id,
                         action=action,
                     )

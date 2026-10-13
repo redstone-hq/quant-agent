@@ -453,9 +453,10 @@ def held_position_risk(
     `open_position_risk_dollars` over the live opening lots, each against its
     OWN initial stop. R is unknown (None) — never a smaller number — when:
       - `position_chain_unresolved`: no rows and no opening row to stand in;
-      - `fill_time_missing`: a share-reducing fill is on record and some
-        share-changing row has no broker fill time (`trades.filled_at`), so
-        the fills cannot be put in order (with no exit, order cannot matter);
+      - `fill_time_missing`: a fill with no broker fill time (`trades.filled_at`)
+        sits inside the live position, or the timed fills do not walk back to
+        flat from the held quantity (`trade_actions.fill_time_split`); fills
+        before that flat point cannot matter, nor can order with no exit;
       - `lots_do_not_reconcile`: live executed entries minus live executed
         share-reducing fills (`share_change`; an unfilled TRAIL_STOP stop-move
         row is NOT an exit) do not equal the held quantity at the broker's
@@ -477,7 +478,7 @@ def held_position_risk(
 
     if not rows:
         return None, "position_chain_unresolved"
-    live = live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS)
+    live = live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS, held=held)
     if live is None:
         return None, FILL_ORDER_UNKNOWN
     opens = [r for r in live if share_change(r) == "in"]

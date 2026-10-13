@@ -50,10 +50,11 @@ def _fill_walk_chains(rows) -> tuple[dict[str, list[dict]], set[str]]:
 
     Stored ids ARE the walk's grouping: they are re-derived on every fill confirmation
     (`TradeLedger._regroup_position_ids_locked`, which voids the credit of any position it
-    changes). A symbol whose fill order is unknown has no walk to agree with, so none of
-    its positions is scored; their ids come back in the second value.
+    changes). A symbol whose live position's fill order is unknown has no walk to agree
+    with, so none of its positions is scored; nor is a position before the last flat
+    point the walk can order. Their ids come back in the second value.
     """
-    from src.storage.trades.position_chain import _event_order
+    from src.storage.trades.position_chain import _event_split
 
     by_symbol: dict[str, list[dict]] = {}
     for row in rows:
@@ -61,12 +62,14 @@ def _fill_walk_chains(rows) -> tuple[dict[str, list[dict]], set[str]]:
     chains: dict[str, list[dict]] = {}
     unordered: set[str] = set()
     for symbol_rows in by_symbol.values():
-        ordered = _event_order(symbol_rows)
-        if ordered is None:
+        split = _event_split(symbol_rows)
+        if split is None:
             unordered.update(r["position_id"] for r in symbol_rows if r["position_id"])
             continue
-        for row in ordered:
-            if row["position_id"]:
+        early_ids = {r["position_id"] for r in split[0] if r["position_id"]}
+        unordered.update(early_ids)
+        for row in split[1]:
+            if row["position_id"] and row["position_id"] not in early_ids:
                 chains.setdefault(row["position_id"], []).append(row)
     return chains, unordered
 

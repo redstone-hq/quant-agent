@@ -18,7 +18,7 @@ from src.trade_actions import SHORT_EXIT_PREFIXES as _SHORT_EXIT_PREFIXES
 from src.trade_actions import exit_action_side as _exit_action_side
 from src.trade_actions import executed_qty as _executed_qty
 from src.trade_actions import is_position_exit_action as _is_position_exit_action
-from src.trade_actions import fill_order as _fill_order
+from src.trade_actions import fill_time_split as _fill_time_split
 from src.trade_actions import fill_sort_key as _fill_sort_key
 from src.trade_actions import share_change as _share_change
 from src.trade_actions import walk_positions as _walk_positions
@@ -52,21 +52,44 @@ def _executed_row(row: dict) -> bool:
     return _row_counts_as_executed(row.get("action"), row.get("fill_status"), row.get("fill_qty"))
 
 
-def _event_order(rows: list[dict]) -> list[dict] | None:
-    """One symbol's rows in the order the position walk takes them, or None when unknown.
+def _event_split(rows: list[dict]) -> tuple[list[dict], list[dict]] | None:
+    """`(earlier, ordered)`: one symbol's rows split at the oldest flat point the fill walk
+    can order from (`trade_actions.fill_time_split`, against the ledger's own net).
 
-    A fill goes by its broker fill time, anything else by when it was written
-    (`trade_actions.fill_sort_key`). None when the executed share-changing rows
-    cannot be put in fill order (`trade_actions.fill_order`: an exit is on record
-    and some fill has no broker fill time) - the same rows make open R unknown.
+    `ordered` is in the order the position walk takes it: a fill by its broker fill
+    time, anything else by when it was written (`trade_actions.fill_sort_key`). With
+    every fill timed nothing is earlier. None when a fill with no broker fill time sits
+    inside the live position - the same rows make open R unknown.
     """
+    from src.execution.order_gates import ORDER_QTY_DECIMALS
+
     moving = [r for r in rows if _share_change(r) is not None and _executed_row(r)]
-    if _fill_order(moving) is None:
+    split = _fill_time_split(moving, held=None, decimals=ORDER_QTY_DECIMALS)
+    if split is None:
         return None
-    return sorted(rows, key=_fill_sort_key)
+    ordered = sorted(rows, key=_fill_sort_key)
+    if not split[0]:
+        return [], ordered
+    if split[1]:
+        start = _fill_sort_key(split[1][0])
+        cut = next((i for i, r in enumerate(ordered) if _fill_sort_key(r) >= start), len(ordered))
+    else:
+        last = max(_fill_sort_key(r) for r in moving)
+        cut = next((i for i, r in enumerate(ordered) if _fill_sort_key(r) > last), len(ordered))
+    return ordered[:cut], ordered[cut:]
 
 
-def _assign_position_ids(rows: list[dict]) -> dict:
+def _event_order(rows: list[dict]) -> list[dict] | None:
+    """One symbol's rows in walk order, or None unless EVERY fill can be ordered.
+
+    The regroup and the conviction scorer use `_event_split` instead, so an old fill
+    with no fill time no longer blocks the positions after the last flat point.
+    """
+    split = _event_split(rows)
+    return None if split is None or split[0] else split[1]
+
+
+def _assign_position_ids(rows: list[dict], *, reserved=()) -> dict:
     """Derive position_id for every row of ONE symbol, walked in the order given.
 
     `rows` must already be in event order (`_event_order`); each needs at least
@@ -85,13 +108,14 @@ def _assign_position_ids(rows: list[dict]) -> dict:
     to no position (an exit with nothing open, a wrong-side exit, an other-side entry
     while a position is open) keeps its id only if no position kept it, so it never
     joins a position the walk says it is not part of; rows that are neither entries
-    nor exits (HOLD, SWEEP_*) keep theirs.
+    nor exits (HOLD, SWEEP_*) keep theirs. A `reserved` id (carried by rows before
+    the last flat point the walk can order) is never kept by a walked position.
     """
     from src.execution.order_gates import ORDER_QTY_DECIMALS
 
     groups, unattached, _ = _walk_positions(rows, decimals=ORDER_QTY_DECIMALS, executed=_executed_row)
     assignments: dict = {}
-    claimed: set[str] = set()
+    claimed: set[str] = set(reserved)
     for group in groups:
         kept = next((pid for r in group if (pid := r.get("position_id")) and pid not in claimed), None)
         resolved = kept or _new_position_id()

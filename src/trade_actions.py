@@ -217,6 +217,43 @@ def fill_time(row) -> str | None:
     return text or None
 
 
+def _instant(text: str) -> str | None:
+    """`text` as fixed-width UTC `YYYY-MM-DD HH:MM:SS.ffffff` (text order is time order), or None."""
+    from datetime import datetime, timezone
+
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if when.tzinfo is not None:
+        when = when.astimezone(timezone.utc).replace(tzinfo=None)
+    return when.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _full_precision(text: str) -> str:
+    return _instant(text) or text
+
+
+def broker_fill_time(raw) -> str | None:
+    """The broker's fill time as `trades.filled_at` stores it, or None when there is none.
+
+    Full precision - UTC, microseconds, fixed width - never truncated to the second:
+    Alpaca reports microseconds, and at one-second precision an add and a stop-out in
+    the same second tied and sorted by row id, add first, which merged the positions.
+    Takes the broker's ISO-8601 text or a datetime; a naive time is taken as UTC.
+    """
+    if raw is None:
+        return None
+    stamp = raw.isoformat() if hasattr(raw, "isoformat") else str(raw).strip()
+    return _instant(stamp) if stamp else None
+
+
+def fill_instant(row) -> str | None:
+    """`fill_time(row)` at full precision, so two fills tie only on identical stamps."""
+    stamp = fill_time(row)
+    return None if stamp is None else _full_precision(stamp)
+
+
 def fill_order(moving: list) -> list | None:
     """Share-changing rows in fill order, or None when that order is unknown.
 
@@ -228,14 +265,52 @@ def fill_order(moving: list) -> list | None:
     """
     if any(fill_time(r) is None for r in moving):
         return None if any(share_change(r) == "out" for r in moving) else list(moving)
-    return sorted(moving, key=lambda r: (fill_time(r), _row_id(r)))
+    return sorted(moving, key=lambda r: (fill_instant(r), _row_id(r)))
 
 
 def fill_sort_key(row) -> tuple[str, float]:
     """Event order for one symbol's rows: a fill by its broker fill time; anything else
     (a pending order, a stop placement, HOLD - or a legacy fill with no fill time) by
-    `timestamp`, when it was written, which for those rows IS the event."""
-    return (fill_time(row) or str(row.get("timestamp") or ""), _row_id(row))
+    `timestamp`, when it was written, which for those rows IS the event. Both compare
+    at full precision, so two rows tie (and fall back to row id) only on identical stamps."""
+    return (fill_instant(row) or _full_precision(str(row.get("timestamp") or "")), _row_id(row))
+
+
+def fill_time_split(moving: list, *, held: float | None, decimals: int) -> tuple[list, list] | None:
+    """`(earlier, known)`: one symbol's share-changing rows, split so only the LIVE history needs fill times.
+
+    With every row fill-timed, or no share-reducing row on record, nothing is
+    earlier and `known` is `fill_order(moving)`. Otherwise walk back from the
+    newest fill-timed row, undoing each fill from the shares held now (`held`:
+    the broker's count; None takes the ledger's own net), and split at the
+    OLDEST point where the count is back to zero and every fill without a fill
+    time was written before the fill that opened from there. Rows before a flat
+    point cannot change the lots after it, so one old fill with no time no
+    longer makes today's R unknown. None - R unknown - when there is no such
+    point: a fill without a fill time sits inside the live position, or the
+    timed fills do not walk back to flat.
+    """
+    ordered = fill_order(moving)
+    if ordered is not None:
+        return [], ordered
+
+    def signed(row) -> float:
+        return executed_qty(row) if share_change(row) == "in" else -executed_qty(row)
+
+    timed = sorted((r for r in moving if fill_time(r) is not None), key=lambda r: (fill_instant(r), _row_id(r)))
+    untimed = [r for r in moving if fill_time(r) is None]
+    written_last = max(_full_precision(str(r.get("timestamp") or "")) for r in untimed)
+    count = round(abs(held) if held is not None else sum(signed(r) for r in moving), decimals)
+    split_at = len(timed) if count == 0 else None
+    for i in range(len(timed) - 1, -1, -1):
+        count = round(count - signed(timed[i]), decimals)
+        if count < 0:
+            break
+        if count == 0 and (fill_instant(timed[i]) or "") > written_last:
+            split_at = i
+    if split_at is None:
+        return None
+    return untimed + timed[:split_at], timed[split_at:]
 
 
 def walk_positions(rows: list, *, decimals: int, executed=None) -> tuple[list[list], list, bool]:
@@ -287,18 +362,19 @@ def walk_positions(rows: list, *, decimals: int, executed=None) -> tuple[list[li
     return groups, unattached, current is not None and round(net, decimals) > 0
 
 
-def live_lot_rows(rows: list, *, decimals: int) -> list | None:
+def live_lot_rows(rows: list, *, decimals: int, held: float | None = None) -> list | None:
     """The share-changing rows of the position LIVE NOW, from the fill sequence alone.
 
-    `rows` are one symbol's EXECUTED rows. Their share-changing ones go in fill
-    order (`fill_order`) through `walk_positions`; returns the open group, [] when
-    the book is flat, None when the fill order is unknown (R unknown). Never reads
-    a stored `position_id`.
+    `rows` are one symbol's EXECUTED rows. Their share-changing ones since the last
+    flat point the fills can be ordered from (`fill_time_split`, against `held`, the
+    broker's share count when the caller has it) go in fill order through
+    `walk_positions`; returns the open group, [] when the book is flat, None when the
+    live position's fill order is unknown (R unknown). Never reads a stored `position_id`.
     """
-    moving = fill_order([r for r in rows if share_change(r) is not None])
-    if moving is None:
+    split = fill_time_split([r for r in rows if share_change(r) is not None], held=held, decimals=decimals)
+    if split is None:
         return None
-    groups, _, last_open = walk_positions(moving, decimals=decimals)
+    groups, _, last_open = walk_positions(split[1], decimals=decimals)
     return list(groups[-1]) if last_open else []
 
 
