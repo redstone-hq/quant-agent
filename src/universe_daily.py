@@ -39,8 +39,10 @@ Data and call budget:
                another with yfinance's own timeout. A fund's category is
                KEPT in the desk database (`src/data/fund_category.py`,
                table `fund_category`): read once, then served to this pass
-               and to the side door (`src/pipeline_admission.py`) without
-               Yahoo. A stock's sector fills the ISO-week cache (the SEC
+               and to the weekly scan and side doors
+               (`src/pipeline_admission.py`), which read Yahoo themselves
+               only for a fund with none kept (`fund_category_reader`,
+               2026-10-14). A stock's sector fills the ISO-week cache (the SEC
                filings rule). A rate limit (HTTP 429 or yfinance's own
                error) is a slow-down, not a stop (owner ruling 2026-10-13):
                the pass honours Retry-After when Yahoo sends one, otherwise
@@ -87,7 +89,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from src.trading_calendar import utc_now
+from src.trading_calendar import et_today, utc_now
 from src.data.fund_category import FundCategoryStore
 from src.universe_screen import (
     INCONCLUSIVE,
@@ -702,6 +704,22 @@ def _yahoo_reader():
         return yf.Ticker(symbol.replace(".", "-")).info or {}
 
     return _info
+
+
+def fund_category_reader(store: FundCategoryStore | None):
+    """`ScreenSources.get_fund_category` for the weekly scan and the side
+    doors: one Yahoo `.info` read of a fund's category, kept in `store` so it
+    is read once. A raised read propagates (the screen leaves the fund
+    undecided); a blank answer is None."""
+    read_info = _yahoo_reader()
+
+    def _category(symbol: str) -> str | None:
+        text = str((read_info(symbol) or {}).get("category") or "").strip()
+        if text and store is not None:
+            store.put(symbol, text, et_today())
+        return text or None
+
+    return _category
 
 
 def _filings_reader(config, deadline: float):
