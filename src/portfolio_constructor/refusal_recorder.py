@@ -16,10 +16,10 @@ from src.portfolio_constructor.config import (
     _SUBFLOOR_RISK_STAGE,
 )
 
-#: One row per computed-vs-analyst target comparison (ledger row
-#: `target_divergence_warn_pct`). An OBSERVATION, never a refusal: it carries
-#: stage `_SUBFLOOR_RISK_STAGE`, the signed gap in `observed_gap_pct` and the
-#: warn threshold in `threshold`.
+#: One row per computed-vs-analyst target comparison. An OBSERVATION, never a
+#: refusal: it carries stage `_SUBFLOOR_RISK_STAGE` and the signed gap in
+#: `observed_gap_pct`. `threshold` is NULL: no warn threshold exists (the
+#: chosen 25% was deleted 2026-10-13).
 TARGET_DIVERGENCE_OBSERVED = "target_divergence_observed"
 
 # The constructor's own logger, so log capture and filters keep matching.
@@ -63,7 +63,6 @@ class TradeRefusalRecorder:
         self,
         symbol: str,
         gap_pct: float,
-        threshold_pct: float,
     ) -> None:
         """Record ONE computed-vs-analyst target comparison. Never raises."""
         db = self.db
@@ -76,7 +75,7 @@ class TradeRefusalRecorder:
                 refusal=TARGET_DIVERGENCE_OBSERVED,
                 stage=_SUBFLOOR_RISK_STAGE,
                 observed_gap_pct=float(gap_pct),
-                threshold=float(threshold_pct),
+                threshold=None,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

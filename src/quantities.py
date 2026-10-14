@@ -588,25 +588,26 @@ def _executed_price(row: dict) -> float:
 #: side the position was, so a profitable short comes back as a positive R.
 
 
-def _split_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:
-    """(opening rows, exit rows, direction) of one position chain. Split out of
-    `summarize_closed_position` unchanged, only to keep each function simple."""
+def split_position_chain(rows: list[dict]) -> tuple[list[dict], list[dict], str | None]:
+    """(opening rows, exit rows, direction) of one position chain.
+
+    Each row is classified by `trade_actions.share_change` — the same rule the
+    position grouper and the open-R lot check use: "in" is an opening lot,
+    "out" a share-reducing exit, None moves no shares and is ignored. So a
+    TRAIL_STOP stop-move row (written for the full position at every move, with
+    no fill) is NOT an exit; a filled one, or one that filled partially and was
+    then canceled, is. Direction is the first opening row's side.
+    """
     opens: list[dict] = []
     exits: list[dict] = []
     direction: str | None = None
     for row in rows:
-        action = str(row.get("action") or "").upper()
-        if action in POSITION_OPEN_ACTIONS:
+        change = share_change(row)
+        if change == "in":
             if direction is None:
-                direction = POSITION_OPEN_ACTIONS[action]
+                direction = POSITION_OPEN_ACTIONS[str(row.get("action") or "").upper()]
             opens.append(row)
-        elif action == "TRAIL_STOP":
-            # Only a FILLED trail stop closed anything.
-            status = str(row.get("fill_status") or "").lower()
-            filled = status == "filled" or (status == "" and executed_qty(row) > 0)
-            if filled and executed_qty(row) > 0:
-                exits.append(row)
-        elif action:
+        elif change == "out":
             exits.append(row)
     return opens, exits, direction
 
@@ -623,8 +624,8 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
       - it is still open (executed exit quantity has not retired the entries),
       - entry or exit price is missing or non-positive,
       - or the exit rows moved no shares (a placed-but-never-filled
-        TRAIL_STOP is protection sitting there, not an exit — the same
-        distinction `_is_filled_trail_stop` already draws).
+        TRAIL_STOP is protection sitting there, not an exit — see
+        `split_position_chain`).
 
     R RULE (scale-ins): a position's risk is the sum over its entry lots of
     (lot filled qty x |lot fill price - that lot's own initial stop|), and
@@ -639,7 +640,7 @@ def summarize_closed_position(rows: list[dict]) -> ClosedPosition | None:
     denominator, and the distinction is worth preserving for the caller's
     own reporting.
     """
-    opens, exits, direction = _split_chain(rows)
+    opens, exits, direction = split_position_chain(rows)
     if not opens or direction is None or not exits:
         return None
 

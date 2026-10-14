@@ -22,7 +22,13 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from src.trading_calendar import utc_now
 
-from src.quantities import held_position_risk, live_position_lots, recorded_initial_stop, summarize_closed_position
+from src.quantities import (
+    held_position_risk,
+    live_position_lots,
+    recorded_initial_stop,
+    split_position_chain,
+    summarize_closed_position,
+)
 from src.storage.analytics.calibration import _opened_before_clean_record
 from src.trade_actions import fill_sort_key
 from src.util.time import ET
@@ -64,8 +70,12 @@ def _parse_utc(text: str | None) -> datetime | None:
 
 
 def _position_pnl(position, rows: list[dict]) -> float:
-    """Realised $ for one closed position: the recorded exit P&L, else price difference x qty."""
-    exits = [r for r in rows if str(r.get("action") or "").upper() not in _OPEN_ACTIONS]
+    """Realised $ for one closed position: the recorded exit P&L, else price difference x qty.
+
+    Exit rows are the same split `summarize_closed_position` prices from
+    (`split_position_chain`): a TRAIL_STOP stop-move that never filled is not an exit.
+    """
+    _, exits, _ = split_position_chain(rows)
     recorded = [r.get("realized_pnl") for r in exits if r.get("realized_pnl") is not None]
     if exits and len(recorded) == len(exits):
         return float(sum(float(v) for v in recorded))

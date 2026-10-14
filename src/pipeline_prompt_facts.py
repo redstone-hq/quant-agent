@@ -64,6 +64,32 @@ def _held_risk(db, opening_row, held_qty) -> float | None:
     return held_position_risk(lots, held, opening_row)[0]
 
 
+def _position_open_row(db, row: dict | None, sym: str, opening: str) -> dict | None:
+    """The row that OPENED the held position, so no entry field is read off an add.
+
+    A scale-in writes a second opening row on the same `position_id`, and
+    both `get_symbol_last_buy` and today's morning row return the NEWEST one.
+    Measured 13 Oct 2026: AAPL opened 12 Oct, added 13 Oct 10:26 ET, and the
+    1 pm and 3:31 pm reviewer prompts showed days_held=0, sessions_held=0 and
+    the add's target — a day-old trade at -6% presented as a fresh entry.
+    Age, initial stop, initial target, setup and thesis all belong to the
+    open; average cost stays the broker's blended `avg_entry`.
+
+    A morning row may be an in-memory dict without a `position_id`, so the
+    chain is anchored on the newest DB row when it has none. Any miss (legacy
+    row, unchainable, lookup error) FAILS CLOSED onto `row` — today's
+    behaviour — never a guessed chain boundary. Same lookup as the trail
+    (`src/exits_parts/trails.py`) and the alignment exit.
+    """
+    try:
+        anchor = row if (row or {}).get("position_id") else db.get_symbol_last_buy(sym, action=opening)
+        open_row = db.get_position_open_row(anchor or row)
+    except Exception as e:  # noqa: BLE001 — falls back to the newest opening row
+        logger.warning("open-row lookup failed for %s: %s — using newest opening row", sym, e)
+        return row
+    return open_row if isinstance(open_row, dict) else row
+
+
 class PromptExposure:
     """The correlation matrix and the live stop map; standalone, built from explicit collaborators."""
 
@@ -220,6 +246,8 @@ class PromptHistory:
                     qty = 0.0
                 opening = "SHORT" if qty < 0 else "BUY"
                 entry = self.db.get_symbol_last_buy(sym, action=opening)
+                # Entry date, price, thesis and stop belong to the OPEN, not the last add.
+                entry = _position_open_row(self.db, entry, sym, opening) if entry else entry
             except Exception as e:
                 logger.warning("position_history: last_buy lookup failed for %s: %s", sym, e)
 
@@ -413,12 +441,19 @@ class PromptPositionFacts:
                     except Exception:
                         buy = None
 
+            # Every ENTRY field below — age, initial stop, initial and live
+            # target, setup verdict, per-lot R fallback — is read off the row
+            # that OPENED the position, never the newest add (13 Oct AAPL; see
+            # `_position_open_row`). `buy` (the newest opening row) is kept
+            # only for the live stop fallback and the pinned-horizon line.
+            open_row = _position_open_row(self.db, buy, sym, "SHORT" if p.qty < 0 else "BUY") if buy else buy
+
             stop_loss = float((buy or {}).get("stop_loss") or 0)
             # The LIVE target — re-derived if a structural event has since
             # triggered `src.risk.target_revision`. Used for
             # `distance_to_target_pct` and for display, and NEVER as the
             # denominator of progress; see `progress_target` below.
-            take_profit = float((buy or {}).get("take_profit") or 0)
+            take_profit = float((open_row or {}).get("take_profit") or 0)
             # The ENTRY target, frozen as `initial_take_profit` at insert.
             #
             # THIS, not `take_profit`, is the denominator of
@@ -447,14 +482,14 @@ class PromptPositionFacts:
             # existed (see the `initial_take_profit` migration in
             # `src/storage/db.py`), and a row with no revision has nothing
             # to diverge from.
-            progress_target = float((buy or {}).get("initial_take_profit") or take_profit or 0)
+            progress_target = float((open_row or {}).get("initial_take_profit") or take_profit or 0)
             # The ENTRY stop, frozen as `initial_stop_loss` on first
             # write-back. R-multiple's denominator is the bet that was
             # actually made, not the level a trail later ratcheted it to
             # (audit §1.4).
             from src.quantities import recorded_initial_stop
 
-            initial_stop = recorded_initial_stop(buy)
+            initial_stop = recorded_initial_stop(open_row)
 
             # RC1: after any TRAIL_STOP the BUY row's stop is stale-WIDE —
             # the reviewer would see a fat distance_to_stop and keep
@@ -463,7 +498,7 @@ class PromptPositionFacts:
             if _ls_read.found:
                 stop_loss = _ls_read.price
 
-            # days_held — from BUY timestamp; fall back to None.
+            # days_held — from the position's OPEN timestamp; fall back to None.
             #
             # sessions_held is the holiday-aware companion count (item 165:
             # the broker's real market calendar via `broker.trading_sessions_held`,
@@ -474,7 +509,7 @@ class PromptPositionFacts:
             # the 2026-09-04 audit follow-up.
             days_held = None
             sessions_held = None
-            buy_ts = (buy or {}).get("timestamp")
+            buy_ts = (open_row or {}).get("timestamp")
             if buy_ts:
                 try:
                     from src.trading_calendar import to_et
@@ -503,7 +538,7 @@ class PromptPositionFacts:
                 pinned_horizon = int(pinned_horizon) if pinned_horizon else None
             except (TypeError, ValueError):
                 pinned_horizon = None
-            setup_type = (buy or {}).get("setup_type") or None
+            setup_type = (open_row or {}).get("setup_type") or None
             # Item 82: the MEASURED half of the SAME verdict, pinned at entry
             # alongside `setup_type` (stored 0/1/NULL). Present → this path
             # reaches construction's OWN breakout verdict, not a label-only
@@ -511,7 +546,7 @@ class PromptPositionFacts:
             # → `is_trend_trade` falls back to the label alone, exactly as
             # this code did before the column existed. See
             # `src.risk.constants.is_trend_trade`.
-            _sc_raw = (buy or {}).get("structural_ceiling")
+            _sc_raw = (open_row or {}).get("structural_ceiling")
             structural_ceiling = None if _sc_raw is None else bool(_sc_raw)
 
             # Progress: 0 at entry, 100 at target, >100 beyond target.
@@ -672,7 +707,7 @@ class PromptPositionFacts:
                 initial_stop=initial_stop or None,
                 # Per-lot denominator: each open lot against its OWN initial
                 # stop, never `initial_stop` (one lot) against the average entry.
-                entry_risk_dollars=_held_risk(self.db, buy, p.qty),
+                entry_risk_dollars=_held_risk(self.db, open_row, p.qty),
             )
 
             facts[sym] = {

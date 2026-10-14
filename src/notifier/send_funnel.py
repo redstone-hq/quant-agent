@@ -22,7 +22,6 @@ from src.notifier.base import (
     _DB_PATH,
     _REHEARSAL_MODE,
     _clip_text,
-    _redact_malformed_numbers,
     logger,
 )
 from src.notifier.sections import (
@@ -167,19 +166,16 @@ def send_once(
         symbols=symbols,
     ):
         return SUPPRESSED
-    # Single chokepoint for every owner-facing message this notifier
-    # sends, regardless of which of the ~20 upstream formatters (PM
-    # rationale, risk-manager reasoning, evening outlook, key thesis,
-    # ...) produced the free-text prose it came from — see
-    # `_redact_malformed_numbers`'s docstring for why here rather than
-    # at each of those call sites, and for the deliberate distinction
-    # from the REJECTED prompt-text scanner (board item 99).
-    text = _redact_malformed_numbers(text)
+    # No garbled-number guard here: this chokepoint cannot tell text the
+    # desk formatted itself from model-written prose, and running the guard
+    # on desk text garbled real figures ("stop covers 3, $164.61" lost its
+    # "3,"). The guard runs where model prose enters an owner message —
+    # see `_redact_malformed_numbers`'s docstring for the list.
     # Board item 89 defect 5: a genuine raw exception/internal-error
     # string (e.g. a `reason=f"... raised: {exc}"` built upstream) must
     # never reach the owner verbatim, even though internal STATUS CODES
-    # are already plain English. Same chokepoint as the guard above —
-    # see `_redact_raw_exception_text`'s docstring.
+    # are already plain English. Single chokepoint — see
+    # `_redact_raw_exception_text`'s docstring.
     text = _redact_raw_exception_text(text)
     if _REHEARSAL_MODE:
         # A rehearsal replays a real session, so it raises real alerts —
