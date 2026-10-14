@@ -32,14 +32,15 @@ from src.notifier import (
     format_session_result as _base_format_session_result,
     TelegramNotifier,
 )
+from src.status_plain_extra import owner_words, plain_prose, words_for
 from src.trading_calendar import SESSION_WINDOWS, et_now, in_session_window, to_et
 from src.trader_feed.common import (
     _SWEEP_SYMBOLS,
     _b,
     _blocked_rows,
     _budgeted_sections,
-    _clip,
-    _first_sentence,
+    _clip as _clip_raw,
+    _first_sentence as _first_sentence_raw,
     _done_rows,
     _empty_snapshot,
     _execution_rows,
@@ -59,6 +60,16 @@ from src.trader_feed.common import (
     _ticker_co,
     logger,
 )
+
+
+def _clip(value: Any, limit: int = 140, *, model_prose: bool = True) -> str:
+    """`common._clip`, with any raw field name in the AI prose put into plain words."""
+    return plain_prose(_clip_raw(value, limit, model_prose=model_prose))
+
+
+def _first_sentence(value: Any) -> str:
+    """`common._first_sentence`, with any raw field name in the AI prose put into plain words."""
+    return plain_prose(_first_sentence_raw(value))
 
 
 def extract_alert_symbols(run_id: str | None, result: dict | None) -> list[str]:
@@ -292,18 +303,9 @@ def _append_pm(lines: list[str], snap: dict[str, Any]) -> None:
 # `models.RiskReasonCategory`, each value in the words a person would use
 # (board item 89: internal status codes shown as-is). An unmapped value is
 # described, with the raw token kept for the record, never guessed at.
-_RISK_CATEGORY_WORDS: dict[str, str] = {
-    "clean": "no changes asked for",
-    "oversized": "sizing too aggressive for the conviction",
-    "rr_fail": "reward too thin for the risk",
-    "concentration": "too much in one sector or one name",
-    "correlation_risk": "too many positions moving together",
-    "event_risk": "an event (earnings, Fed, macro) too close",
-    "macro_misalign": "plan runs against the market backdrop",
-    "data_degraded": "several research inputs failed",
-    "signal_fidelity": "PM contradicted the chart research without saying why",
-    "other": "a reason outside the usual categories",
-}
+#
+# The words live in the one owner-wording table (`src/status_plain_extra.py`).
+_RISK_CATEGORY_WORDS: dict[str, str] = words_for("risk_category")
 
 
 def _risk_category_words(category: Any) -> str:
@@ -329,8 +331,8 @@ def _append_risk(lines: list[str], snap: dict[str, Any]) -> None:
     # longer happens; a value of 1.0 (no concern) shows nothing.
     scale_text = (
         f" · risk seat flagged a portfolio-wide exposure concern "
-        f"(scale_all_buys {scale * 100:.0f}%) — advisory only, entries were "
-        f"NOT resized"
+        f"({owner_words('risk_field', 'scale_all_buys')} at {scale * 100:.0f}% of plan)"
+        f" — advisory only, entries were NOT resized"
         if isinstance(scale, (int, float)) and scale < 1.0
         else ""
     )
@@ -931,7 +933,9 @@ def _format_decision_session(mode: str, result: dict, elapsed: float) -> str:
     )
 
     _new_block(lines, _append_footer, snap, elapsed, mode)
-    return "\n".join(lines)
+    # Last net: lines other modules built (common.py rows, guard notes) can quote a
+    # field name too; the owner never sees one.
+    return plain_prose("\n".join(lines))
 
 
 def _held_symbols(snap: dict[str, Any]) -> list[str]:
