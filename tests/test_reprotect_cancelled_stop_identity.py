@@ -310,9 +310,10 @@ def test_fractional_sliver_is_submitted_before_the_whole_share_gtc():
     assert order[0] < 1 < order[1], f"sliver must be placed before the whole-share GTC leg, got {order}"
 
 
-def test_a_transient_refusal_is_retried_not_reported_naked():
-    """DEFECT 4, second half: the raw call had no retry burst, so one
-    transient refusal ended as a naked residual."""
+def test_a_refusal_is_not_retried_by_the_desk_and_is_reported_naked():
+    """2026-10-14: the desk's retry burst is deleted (alpaca-py retries
+    429/504 itself). One refusal is reported as a failed re-protect at once,
+    for the owner alert and the coverage sweep to take over."""
     specs = [{"id": "ord-A", "qty": 3.0, "stop_price": 323.74}]
     p = _pipeline([])
     p._alert_owner_no_stop = MagicMock()
@@ -326,6 +327,5 @@ def test_a_transient_refusal_is_retried_not_reported_naked():
 
     p.broker._submit_stop_limit_order = _submit
 
-    assert p._reprotect_residual_after_partial_sell("AAPL", 3.0, specs) is True
-    assert len(attempts) == 2
-    assert not p._alert_owner_no_stop.called
+    assert p._reprotect_residual_after_partial_sell("AAPL", 3.0, specs) is False
+    assert len(attempts) == 1

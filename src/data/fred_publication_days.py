@@ -38,9 +38,9 @@ BLS, BEA, Census, Department of Labor). Those publishers observe:
   falling on a Sunday is observed on the following Monday.
 
 The holiday set is rule-based law, not a tuned parameter and not a table that
-rots: every date below is computed from the statute's own description of the
-day (`January 1`, `the third Monday in January`, ...), so this module needs no
-network, no data file and no yearly maintenance.
+rots: pandas' `USFederalHolidayCalendar` computes it from the statute's own
+description of each day, so this module needs no network, no data file and no
+yearly maintenance.
 
 WHAT THIS IS NOT
 ----------------
@@ -62,6 +62,8 @@ the part the measured defect needed.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 from src.trading_calendar import ET
 
@@ -103,59 +105,14 @@ PUBLICATION_BOUNDARIES_ET: tuple[time, ...] = (
 )
 
 
-def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
-    """The n-th `weekday` (Mon=0) of `month` in `year`, 1-indexed."""
-    first = date(year, month, 1)
-    offset = (weekday - first.weekday()) % 7
-    return first + timedelta(days=offset + 7 * (n - 1))
-
-
-def _last_weekday(year: int, month: int, weekday: int) -> date:
-    """The final `weekday` (Mon=0) of `month` in `year`."""
-    if month == 12:
-        following = date(year + 1, 1, 1)
-    else:
-        following = date(year, month + 1, 1)
-    last = following - timedelta(days=1)
-    return last - timedelta(days=(last.weekday() - weekday) % 7)
-
-
-def _observed(day: date) -> date:
-    """The weekend-observance rule for a fixed-date federal holiday.
-
-    5 U.S.C. § 6103(b) and Executive Order 11582: a holiday falling on a
-    Saturday is observed the preceding Friday; one falling on a Sunday is
-    observed the following Monday.
-    """
-    if day.weekday() == 5:  # Saturday
-        return day - timedelta(days=1)
-    if day.weekday() == 6:  # Sunday
-        return day + timedelta(days=1)
-    return day
-
-
 def federal_holidays(year: int) -> frozenset[date]:
-    """The observed US federal holidays in `year`, per 5 U.S.C. § 6103(a).
+    """The observed US federal holidays in `year`, from pandas' federal calendar.
 
-    Returned as the dates actually observed, so a fixed-date holiday that
-    falls on a weekend appears on its observed weekday and NOT on the
-    weekend date itself (which is already a non-publication day anyway).
+    Uses `pandas.tseries.holiday.USFederalHolidayCalendar`, which files a
+    weekend-observed holiday under the date it is observed (1 Jan on a
+    Saturday is Friday 31 Dec of the prior year, and is returned for that year).
     """
-    return frozenset(
-        {
-            _observed(date(year, 1, 1)),  # New Year's Day
-            _nth_weekday(year, 1, 0, 3),  # Birthday of Martin Luther King, Jr.
-            _nth_weekday(year, 2, 0, 3),  # Washington's Birthday
-            _last_weekday(year, 5, 0),  # Memorial Day
-            _observed(date(year, 6, 19)),  # Juneteenth National Independence Day
-            _observed(date(year, 7, 4)),  # Independence Day
-            _nth_weekday(year, 9, 0, 1),  # Labor Day
-            _nth_weekday(year, 10, 0, 2),  # Columbus Day
-            _observed(date(year, 11, 11)),  # Veterans Day
-            _nth_weekday(year, 11, 3, 4),  # Thanksgiving Day
-            _observed(date(year, 12, 25)),  # Christmas Day
-        }
-    )
+    return frozenset(d.date() for d in USFederalHolidayCalendar().holidays(f"{year}-01-01", f"{year}-12-31"))
 
 
 def is_publication_day(day: date) -> bool:

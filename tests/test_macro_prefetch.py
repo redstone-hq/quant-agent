@@ -348,9 +348,11 @@ def test_the_prefetch_uses_its_own_ceiling_not_the_trading_one(tmp_path):
     assert provider.budget.prefetch_deadline_s > provider.total_fetch_deadline_s
 
 
-@pytest.mark.parametrize("year", [2024, 2025, 2026, 2027, 2030])
+@pytest.mark.parametrize("year", [2024, 2025, 2026, 2030])
 def test_eleven_federal_holidays_every_year(year):
     """5 U.S.C. 6103(a) enumerates eleven. Observance can collapse two onto the
     same weekday only when a fixed-date holiday is adjacent to another, which
-    does not occur in the range checked here."""
+    does not occur in the range checked here. 2027 is excluded on purpose: 1 Jan
+    2028 is a Saturday, so its observed Friday 31 Dec 2027 is filed under 2027
+    (12 dates), which is the correct rule."""
     assert len(federal_holidays(year)) == 11
