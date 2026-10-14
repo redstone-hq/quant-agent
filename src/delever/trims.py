@@ -80,11 +80,9 @@ class DeleverTrims:
         )
         # A resting entry order would deepen the breach the moment it fills.
         try:
-            from src.execution.broker_parts.cancel_confirm import settle_legs
-
             entries = self.broker.cancel_open_entry_orders()
             # Wait for the broker to confirm them dead before anything sells.
-            settle_legs(self.broker, list(getattr(entries, "legs", ()) or ()))
+            self.broker.settle_legs(list(getattr(entries, "legs", ()) or ()))
         except Exception as exc:  # noqa: BLE001
             logger.warning("gross-exposure de-lever: entry-order cancel failed: %s", exc)
 

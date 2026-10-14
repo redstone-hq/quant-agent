@@ -20,8 +20,9 @@ PATH = "protected_sell.trim_amend"
 
 
 def trim_book_call(owner, name: str, *args, **kwargs):
-    """Call broker-side trim method `name` for `owner` (a ProtectedSell or
-    SellFinalization). The host pipeline injects the broker CLASS as
+    """Call broker-side method `name` (the trim book, leg settlement, cover to
+    held) for `owner` (a ProtectedSell or SellFinalization): src.protection
+    reaches the broker seam only this way. The host pipeline injects the broker CLASS as
     `owner._trim_book`, so its real body runs against whatever broker object
     the owner holds; with nothing injected the broker's own bound method runs."""
     book = getattr(owner, "_trim_book", None)

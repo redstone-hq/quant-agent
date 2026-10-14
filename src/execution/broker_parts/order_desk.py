@@ -55,12 +55,8 @@ logger = logging.getLogger("src.execution.broker")
 
 from src.execution.broker_parts.submission_rejection import _is_terminal_submission_rejection  # noqa: F401 (re-export)
 
-#: The one ceiling on waiting for an order to reach a terminal state. Every
-#: cancel-then-act site waits on this (no per-site literal). A cancel not
-#: confirmed inside it puts the sale off: nothing is sent into a stop still
-#: holding the shares, and the deciding run re-checks it before it ends
-#: (src/protection/put_off_sales.py; the trend tick defers it to its next tick).
-ORDER_TERMINAL_CEILING_S = 15.0
+# The one order-terminal ceiling lives with the cancel confirmation (the lower module) so neither imports the other back.
+from src.execution.broker_parts.cancel_confirm import ORDER_TERMINAL_CEILING_S  # noqa: E402,F401 (re-export)
 
 
 class OrderDesk:

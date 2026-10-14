@@ -17,7 +17,7 @@ from src.pipeline_stages import (
     _record_pipeline_event,
     logger,
 )
-from src.stage_execution_parts.state import SKIP
+from src.stage_execution_parts.state import SKIP, SellLeg
 
 
 def await_sell_and_finalize(pipeline, prot, sell_status_by_id, ctx=None) -> None:
@@ -68,6 +68,46 @@ def await_sell_and_finalize(pipeline, prot, sell_status_by_id, ctx=None) -> None
     )
     if ctx is not None:
         alert_rotation_close_outcome(pipeline, ctx, prot, status)
+
+
+def book_exit(
+    pipeline, ctx, orders, decision, action_label, price, exit_quote, side, rotation_reason, order, qty
+) -> None:
+    """The record of one decided SELL or COVER the broker accepted.
+
+    Written when the sale is sent: at once, or later by the deciding run's
+    re-check of a sale put off on an unconfirmed stop cancel
+    (src/protection/put_off_sales.py), so both carry the same decision id,
+    pipeline event and rotation-close record. `qty` is what was sent."""
+    orders.append(order)
+    pipeline.db.insert_trade(
+        symbol=decision.symbol,
+        action=action_label,
+        qty=qty,
+        price=price,
+        reasoning=decision.reasoning,
+        run_id=ctx.run_id,
+        broker_order_id=order.get("id"),
+        fill_status="submitted",
+        decision_id=ctx.decision_id,
+    )
+    _record_pipeline_event(
+        pipeline,
+        ctx,
+        decision.symbol,
+        "order",
+        "submitted",
+        "broker_accepted",
+        broker_order_id=order.get("id"),
+        qty=qty,
+        limit_price=None,
+        side=side,
+        quote_bid=exit_quote["bid"],
+        quote_ask=exit_quote["ask"],
+    )
+    if side == "sell":
+        record_rotation_close(pipeline, ctx, SellLeg(decision, qty, price, rotation_reason), order)
+    logger.info("Executed: %s %s %s @ %s", action_label.lower(), pipeline._format_qty(qty), decision.symbol, "market")
 
 
 def record_rotation_close(pipeline, ctx, leg, order) -> None:

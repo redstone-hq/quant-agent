@@ -106,11 +106,9 @@ class DeleverForced:
         # A resting entry BUY would deepen the very deficit this sweep exists
         # to clear the moment it fills — cancel entries before selling.
         try:
-            from src.execution.broker_parts.cancel_confirm import settle_legs
-
             entries = self.broker.cancel_open_entry_orders()
             # Wait for the broker to confirm them dead before anything sells.
-            settle_legs(self.broker, list(getattr(entries, "legs", ()) or ()))
+            self.broker.settle_legs(list(getattr(entries, "legs", ()) or ()))
         except Exception as exc:  # noqa: BLE001
             logger.warning("force de-lever: entry-order cancel failed: %s", exc)
 
@@ -176,6 +174,7 @@ class DeleverForced:
         orders: list[dict] = []
         projected_proceeds = 0.0
         failed_symbols: list[str] = []
+        put_off_symbols: list[str] = []
         for p in targets:
             if projected_proceeds >= deficit:
                 break
@@ -268,6 +267,14 @@ class DeleverForced:
                 escalate_to_market_on_reject=True,
             )
             if sale is None:
+                from src.protection.put_off_sales import claim_put_offs
+
+                if claim_put_offs([p.symbol]):
+                    # Put off (its stop's cancel unconfirmed). This loop re-decides
+                    # on the spot: the next name covers the deficit, and the run's
+                    # re-check never sells this one on top of it.
+                    put_off_symbols.append(p.symbol)
+                    continue
                 # Even the MARKET escalation could not place (stop-clear failed,
                 # or the market order itself was rejected). This name is a real
                 # residual miss — record it so the sweep is reported incomplete
@@ -375,6 +382,8 @@ class DeleverForced:
         # enough to cover the deficit (projected proceeds fell short) or a name
         # could not be sold even at market, the account is still on margin and
         # the owner must hear it — never a silent skip.
+        if projected_proceeds < deficit:
+            failed_symbols += put_off_symbols  # put off and never covered: part of the miss
         if failed_symbols or projected_proceeds < deficit:
             self._alert_owner_force_delever_incomplete(
                 deficit=deficit,

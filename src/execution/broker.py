@@ -115,6 +115,13 @@ from src.execution.broker_parts import entry_protection as _entry_protection
 from src.execution.broker_parts.entry_protection import _ENTRY_SIDES  # noqa: F401 (re-export keeps the name importable)
 from src.execution.broker_parts import stop_cancel as _stop_cancel
 from src.execution.broker_parts import trim_book as _trim_book
+from src.execution.broker_parts import stop_invariant as _stop_invariant
+from src.execution.broker_parts import cancel_confirm as _cancel_confirm
+from src.execution.broker_parts.cancel_confirm import (  # noqa: F401 (re-exports: callers outside src.execution reach them here)
+    ORDER_TERMINAL_CEILING_S,
+    now_iso,
+    settle_legs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -573,6 +580,22 @@ class AlpacaBroker:
     def settle_trim_book(self, symbol: str, side: str = "sell") -> str:
         """Settle both stop legs after a trim. Thin shim: body in broker_parts/trim_book.py."""
         return _trim_book.settle_book(self, symbol, side)
+
+    def settle_legs(self, specs: list[dict] | None, *, started: float | None = None):
+        """Wait until every cancelled leg is terminal at the broker (one shared deadline).
+
+        Thin shim (src.protection and src.delever reach it here): body in broker_parts/cancel_confirm.py."""
+        return _cancel_confirm.settle_legs(self, specs, started=started)
+
+    def cover_to_held(self, symbol: str, specs: list[dict], *, side: str = "sell") -> bool:
+        """Put protective cover back up to what is held now, never above it.
+
+        Thin shim (src.protection reaches it here): body in broker_parts/stop_invariant.py."""
+        return _stop_invariant.cover_to_held(self, symbol, specs, side=side)
+
+    def order_terminal_ceiling_s(self) -> float:
+        """The one order-terminal ceiling, for a caller outside src.execution that budgets its waits on it."""
+        return ORDER_TERMINAL_CEILING_S
 
     def cancel_snapshotted_stops(
         self,

@@ -8,17 +8,28 @@ the cancel is terminal, and the put-off is kept in memory for the current run.
 
 ONE seam, `run_owning_put_offs`, is where every session run ends -- the
 scheduler's `_run_safe` and the one-shot `main.py` both run each session
-through it, never a session file. Before the run returns it re-checks each
-put-off: wait for the legs to be terminal, re-read the position, and send the
-sale sized to what is held now through the same protected tail. Its bound is
-the run's own existing deadline: the session's window end
-(`SESSION_WINDOWS`) or the unit's hard kill (`SESSION_DEADLINE_ENV`, written
-by scripts/run_if_et_window.sh), whichever is earlier. No new number: a
-re-check is admitted only while a whole wait still fits before that bound.
-Past it, nothing is sold and one alert names the stock.
+through it, never a session file. Before the run returns it re-checks its
+put-offs in rounds, all names together, so one stuck cancel never holds up
+another: once a name's legs are terminal, its protection is put back up to
+what is held (idempotent: a stop the restore drain already put back is not
+placed twice) and its row discharged, then the WHOLE protected sale runs again
+under the caller's own record (`book`). Re-running the whole sale, never a
+send under the old row, is what makes the restore drain harmless: whether or
+not it put the stop back first, the sale re-lists the live stops, cancels them
+write-ahead and waits again. Put off again, it joins the next round.
 
-The trend tick claims its own put-offs (`claim_put_offs`) and marks them
-deferred, so they are retried next tick instead.
+The bound is the run's own existing deadline: the session's window end
+(`SESSION_WINDOWS`) or the unit's hard kill (`SESSION_DEADLINE_ENV`, written
+by scripts/run_if_et_window.sh), whichever is earlier. No new number: a name's
+attempt starts only while the two order-terminal waits it can make (the sale's
+own leg wait, then the wait for its fill) still fit before that bound. Past it,
+nothing is sold and one alert names the stock.
+
+Deciders that run again on fresh data take their put-offs back instead
+(`claim_put_offs`): the trend tick marks them deferred for its next tick, and
+the forced de-lever moves to its next name. A claimed sale is never sent
+again here, but its protection still goes back in this run once its legs
+settle, so it is not left to the restore drain.
 """
 
 import contextvars
@@ -46,6 +57,8 @@ class PutOff:
     legs: list
     reason: str
     seller: object
+    book: object = None  # the caller's own record of a sent sale: book(order, qty)
+    resell: bool = True  # False once its decider claimed it back: put the protection back only
 
     @property
     def symbol(self) -> str:
@@ -79,13 +92,16 @@ def note_run_id(run_id: str | None) -> None:
 
 
 def claim_put_offs(symbols) -> set:
-    """Take the current run's put-offs for `symbols` away from its re-check; returns the symbols claimed."""
+    """Hand the current run's put-offs for `symbols` back to their decider; returns the symbols claimed.
+
+    The re-check never sends a claimed sale, but still puts its protection back."""
     run = _RUN.get()
     if run is None:
         return set()
     want = {str(s).strip().upper() for s in symbols}
-    mine = [p for p in run.put_offs if p.symbol.strip().upper() in want]
-    run.put_offs = [p for p in run.put_offs if p not in mine]
+    mine = [p for p in run.put_offs if p.resell and p.symbol.strip().upper() in want]
+    for record in mine:
+        record.resell = False
     return {p.symbol for p in mine}
 
 
@@ -130,8 +146,7 @@ def run_owning_put_offs(pipeline, func, session: str):
     _RUN.reset(token)
     if not run.put_offs:
         return result
-    deadline = run_deadline(run.session)
-    outcomes = [_recheck_safely(pipeline, run, record, deadline) for record in run.put_offs]
+    outcomes = _recheck_all(pipeline, run, run_deadline(run.session))
     if isinstance(result, dict):
         result["put_off_sales"] = outcomes
     return result
@@ -164,9 +179,76 @@ def _not_sold(run: _Run, record: PutOff, reason: str) -> dict:
     return {"symbol": record.symbol, "label": sale["label"], "outcome": "not_sold", "why": why}
 
 
-def _recheck_safely(pipeline, run: _Run, record: PutOff, deadline: float | None) -> dict:
+def _room(deadline: float | None, need: float) -> bool:
+    return deadline is not None and deadline - _now() >= need
+
+
+def _recheck_all(pipeline, run: _Run, deadline: float | None) -> list:
+    """Rounds over every put-off until each is sold or refused, or the bound passes; outcomes in put-off order."""
+    from src.protection.trim_amend import trim_book_call
+
+    first = list(run.put_offs)
+    outcomes: dict[int, dict] = {}
     try:
-        return _recheck(pipeline, run, record, deadline)
+        ceiling = float(trim_book_call(first[0].seller, "order_terminal_ceiling_s"))
+    except Exception as exc:  # noqa: BLE001
+        return [_not_sold(run, record, f"the re-check failed: {exc}") for record in first]
+    waiting = list(enumerate(first))
+    while waiting and _room(deadline, ceiling):
+        round_start = time.monotonic()
+        still = []
+        for i, record in waiting:
+            # One deadline per round across every name: a stuck leg costs one wait, then the rest are read.
+            outcome = _step(pipeline, run, record, round_start, deadline, ceiling)
+            if isinstance(outcome, PutOff):
+                still.append((i, outcome))
+            else:
+                outcomes[i] = outcome
+        waiting = still
+        if waiting:
+            _pause(max(0.0, round_start + ceiling - time.monotonic()))
+    for i, record in waiting:
+        bound = "the run's bound passed first" if deadline is not None else "no run deadline is known"
+        outcomes[i] = _not_sold(run, record, f"{record.reason}; {bound}")
+    return [outcomes[i] for i in range(len(first))]
+
+
+def _step(pipeline, run: _Run, record: PutOff, round_start: float, deadline: float | None, ceiling: float):
+    """One name's turn in a round: its outcome, or the PutOff still waiting."""
+    from src.protection.trim_amend import trim_book_call
+
+    try:
+        settlement = trim_book_call(record.seller, "settle_legs", record.legs, started=round_start)
+    except Exception as exc:  # noqa: BLE001
+        return _not_sold(run, record, f"the re-check failed: {exc}")
+    if not settlement.settled:
+        record.reason = settlement.reason
+        return record
+    if not record.resell:
+        return _put_back_only(run, record)
+    if not _room(deadline, 2 * ceiling):
+        # The sale's own leg wait and its fill wait no longer fit; time only shrinks.
+        return _not_sold(run, record, f"{record.reason}; too little of the run was left to sell")
+    return _attempt_safely(pipeline, run, record, settlement, deadline, ceiling)
+
+
+def _put_back_only(run: _Run, record: PutOff) -> dict:
+    """A claimed sale's legs settled: its protection goes back now; its decider decides again."""
+    seller, sale = record.seller, record.sale
+    try:
+        ok = seller._put_back(sale)
+    except Exception as exc:  # noqa: BLE001
+        return _not_sold(run, record, f"its stop could not be put back ({exc}); the restore drain retries it")
+    if not ok:
+        return _not_sold(run, record, "its stop could not be put back; the restore drain retries it")
+    seller._discharge_wal(record.symbol, sale["wal_row_id"])
+    why = "handed back to its decider, which decides again on fresh data; its stop is back"
+    return {"symbol": record.symbol, "label": sale["label"], "outcome": "put_back", "why": why}
+
+
+def _attempt_safely(pipeline, run: _Run, record: PutOff, settlement, deadline: float | None, ceiling: float):
+    try:
+        return _attempt(pipeline, run, record, settlement, deadline, ceiling)
     except Exception as exc:  # noqa: BLE001
         record_guarded_pass(
             getattr(record.seller, "db", None), "put_off_sales.recheck", exc, context={"symbol": record.symbol}
@@ -174,56 +256,57 @@ def _recheck_safely(pipeline, run: _Run, record: PutOff, deadline: float | None)
         return _not_sold(run, record, f"the re-check failed: {exc}")
 
 
-def _settled_in_time(record: PutOff, deadline: float | None):
-    """The legs' settlement once terminal inside the bound, else (None, why)."""
-    from src.execution.broker_parts.cancel_confirm import settle_legs
-    from src.execution.broker_parts.order_desk import ORDER_TERMINAL_CEILING_S
+def _attempt(pipeline, run: _Run, record: PutOff, settlement, deadline: float | None, ceiling: float):
+    """The legs are terminal: put the protection back, then run the whole protected sale again.
 
-    reason = record.reason
-    while deadline is not None and deadline - _now() >= ORDER_TERMINAL_CEILING_S:
-        started = _now()
-        settlement = settle_legs(record.seller.broker, record.legs)
-        if settlement.settled:
-            return settlement, ""
-        reason = settlement.reason
-        _pause(max(0.0, started + ORDER_TERMINAL_CEILING_S - _now()))
-    return (
-        None,
-        f"{reason}; the run's bound passed first" if deadline is not None else f"{reason}; no run deadline is known",
-    )
-
-
-def _row_pending(db, wal_row_id) -> bool:
-    """The put-off's write-ahead row is still waiting (its stop not yet put back by the restore drain)."""
-    from src.protection.sell_finalization import _WAL_SELL_SENTINEL
-
-    if wal_row_id is None:
-        return True  # nothing was cancelled into a row (an entry-order leg alone)
-    rows = db.get_pending_protection_restores() or []
-    return any(r.get("id") == wal_row_id and r.get("sell_order_id") == _WAL_SELL_SENTINEL for r in rows)
-
-
-def _recheck(pipeline, run: _Run, record: PutOff, deadline: float | None) -> dict:
-    settlement, why = _settled_in_time(record, deadline)
-    if settlement is None:
-        return _not_sold(run, record, why)
+    The re-sale is sized on what the legs' fills left held (a stop can fill
+    while its cancel is pending), not on the pass's snapshot.
+    Returns the outcome, or a new PutOff when the sale was put off again."""
     seller, sale = record.seller, record.sale
-    if not _row_pending(seller.db, sale["wal_row_id"]):
-        return _not_sold(run, record, "its stop was already put back before the re-check")
-    seller._state.set("_leg_settlement", settlement)
-    reference = _reference_now(seller.broker, sale)
+    qty, held, refused = seller._resale_size(sale, settlement)
+    if not seller._put_back(sale):
+        # The cover is short of held: leave the row, so the restore drain keeps retrying the stop.
+        return _not_sold(run, record, "its stop could not be put back first; the restore drain retries it")
+    seller._discharge_wal(record.symbol, sale["wal_row_id"])
+    if refused:
+        logger.warning("put-off %s for %s not sent: %s", sale["label"], record.symbol, refused)
+        seller._alert_owner_exit_declined(record.symbol, side=sale["side"], why=refused)
+        return {"symbol": record.symbol, "label": sale["label"], "outcome": "not_sold", "why": refused}
     # A DAY MARKET order priced now, as the plain exit path prices; the pass's limit is stale.
-    result = seller._send_cleared(**dict(sale, limit_price=None, reference_price=reference))
+    reference = _reference_now(seller.broker, sale)
+    again = _Run(session=run.session, run_id=run.run_id)
+    token = _RUN.set(again)
+    try:
+        result = seller._submit_protected_sell(
+            symbol=sale["symbol"],
+            qty=qty,
+            limit_price=None,
+            reference_price=reference,
+            position_qty_before_sell=held,
+            label=sale["label"],
+            side=sale["side"],
+            escalate_to_market_on_reject=sale["escalate_to_market_on_reject"],
+            book=record.book,
+        )
+    finally:
+        _RUN.reset(token)
+    if again.put_offs:
+        return again.put_offs[0]
     if result is None:
-        # The tail logged and alerted its own per-symbol reason and put the stops back.
+        # The protected sale logged and alerted its own per-symbol reason and put the stops back.
         why = seller._last_stop_clear_refusal or "refused"
         return {"symbol": record.symbol, "label": sale["label"], "outcome": "not_sold", "why": why}
     order, prot = result
-    _record_trade(seller.db, run, record, order, prot["submitted_qty"], reference)
-    from src.execution.broker_parts.order_desk import ORDER_TERMINAL_CEILING_S
-
-    wait = deadline is not None and deadline - _now() >= ORDER_TERMINAL_CEILING_S
-    pipeline._finalize_pending_protections([prot], context="Put-off sale", wait=wait)
+    # The order is live: a failed record must not stop its protection being finalized below.
+    if record.book is not None:
+        try:
+            record.book(order, prot["submitted_qty"])
+            record_guarded_pass(seller.db, "put_off_sales.book", context={"symbol": record.symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_guarded_pass(seller.db, "put_off_sales.book", exc, context={"symbol": record.symbol})
+    else:
+        _record_trade(seller.db, run, record, order, prot["submitted_qty"], reference)
+    pipeline._finalize_pending_protections([prot], context="Put-off sale", wait=_room(deadline, ceiling))
     logger.warning(
         "put-off %s for %s SENT: %s once its stop cancel confirmed", sale["label"], record.symbol, prot["submitted_qty"]
     )
@@ -248,6 +331,7 @@ def _reference_now(broker, sale: dict):
 
 
 def _record_trade(db, run: _Run, record: PutOff, order: dict, qty: float, price) -> None:
+    """The plain trade row for a caller that handed no record of its own (`book`)."""
     sale = record.sale
     try:
         db.insert_trade(

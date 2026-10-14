@@ -31,6 +31,7 @@ is GONE (2026-10-05): the deleted admission shell was its only caller.
 Nothing here may import `src.pipeline`: this module is one of its bases.
 """
 
+import functools
 import json as _json
 import logging
 from datetime import datetime, timedelta
@@ -1057,6 +1058,12 @@ class ExitEngineMixin:
                 # Measure what the market order costs; never blocks the exit.
                 read_exit_quote(self.broker, symbol)
                 # audit F1 review #1: snapshot -> persist WAL -> cancel.
+                # One record, written when the cut is sent: now, or by the run's
+                # re-check if the stop's cancel is unconfirmed (put off).
+                book = functools.partial(
+                    _book_midday_exit, self, symbol, act, existing[0].current_price, action_item, run_id, acted_today,
+                    orders,
+                )  # fmt: skip
                 sale = self._submit_protected_sell(
                     symbol=symbol,
                     qty=qty,
@@ -1065,64 +1072,12 @@ class ExitEngineMixin:
                     position_qty_before_sell=position_qty,
                     label=act,
                     side=close_side,
+                    book=book,
                 )
                 if sale is None:
                     continue
                 order, prot = sale
-                orders.append(order)
-                self.db.insert_trade(
-                    symbol=symbol,
-                    action=act,
-                    qty=qty,
-                    price=existing[0].current_price,
-                    reasoning=action_item.get("reason", "midday review"),
-                    run_id=run_id,
-                    broker_order_id=order.get("id"),
-                    fill_status="submitted",
-                )
-                # Board item 74 — record what authorised this cut. Written
-                # at SUBMIT, the only moment the trigger and its evidence
-                # are in hand; it does not by itself spend the trigger. The
-                # reader believes this row only once the order is known to
-                # have executed (see `keep_executed_acted_triggers`), so a
-                # rejected or unfilled cut spends nothing. The in-process
-                # list is appended too: a later action in THIS same pass
-                # sees it without a second DB read, and inside one pass the
-                # order is as live as it will get.
-                _acted = acted_trigger_payload(
-                    symbol=symbol,
-                    trigger=action_item.get("exit_trigger"),
-                    evidence=action_item.get("trigger_evidence"),
-                    action=act,
-                    run_id=run_id,
-                    broker_order_id=str(order.get("id") or ""),
-                )
-                if _acted is not None:
-                    try:
-                        self.db.record_acted_exit_trigger(
-                            run_id=run_id,
-                            payload_json=_acted.to_json(),
-                            symbol=_acted.symbol,
-                        )
-                        record_exit_guard(self, "spent_trigger.record_acted")
-                    except Exception as e:  # noqa: BLE001
-                        record_exit_guard(
-                            self,
-                            "spent_trigger.record_acted",
-                            e,
-                            logger,
-                            symbol=symbol,
-                            effect="a second cut today would not be caught",
-                        )
-                    if acted_today is not None:
-                        acted_today.append(_acted)
-                logger.info(
-                    "Midday action: %s %s %s — %s",
-                    act,
-                    self._format_qty(qty),
-                    symbol,
-                    action_item.get("reason"),
-                )
+                book(order, qty)
                 record_exit_guard(self, "midday.order")
             except Exception as e:
                 record_exit_guard(
@@ -1147,3 +1102,67 @@ class ExitEngineMixin:
                     context="Midday reviewer",
                 )
         return orders
+
+
+def _book_midday_exit(host, symbol, act, price, action_item, run_id, acted_today, orders, order, qty) -> None:
+    """The record of one midday cut the broker accepted: its trade row and what authorised it.
+
+    Written when the cut is sent: at once, or later by the deciding run's
+    re-check of a cut put off on an unconfirmed stop cancel
+    (src/protection/put_off_sales.py). `qty` is what was sent."""
+    from src.risk.spent_trigger import acted_trigger_payload
+
+    orders.append(order)
+    host.db.insert_trade(
+        symbol=symbol,
+        action=act,
+        qty=qty,
+        price=price,
+        reasoning=action_item.get("reason", "midday review"),
+        run_id=run_id,
+        broker_order_id=order.get("id"),
+        fill_status="submitted",
+    )
+    # Board item 74 — record what authorised this cut. Written
+    # at SUBMIT, the only moment the trigger and its evidence
+    # are in hand; it does not by itself spend the trigger. The
+    # reader believes this row only once the order is known to
+    # have executed (see `keep_executed_acted_triggers`), so a
+    # rejected or unfilled cut spends nothing. The in-process
+    # list is appended too: a later action in THIS same pass
+    # sees it without a second DB read, and inside one pass the
+    # order is as live as it will get.
+    _acted = acted_trigger_payload(
+        symbol=symbol,
+        trigger=action_item.get("exit_trigger"),
+        evidence=action_item.get("trigger_evidence"),
+        action=act,
+        run_id=run_id,
+        broker_order_id=str(order.get("id") or ""),
+    )
+    if _acted is not None:
+        try:
+            host.db.record_acted_exit_trigger(
+                run_id=run_id,
+                payload_json=_acted.to_json(),
+                symbol=_acted.symbol,
+            )
+            record_exit_guard(host, "spent_trigger.record_acted")
+        except Exception as e:  # noqa: BLE001
+            record_exit_guard(
+                host,
+                "spent_trigger.record_acted",
+                e,
+                logger,
+                symbol=symbol,
+                effect="a second cut today would not be caught",
+            )
+        if acted_today is not None:
+            acted_today.append(_acted)
+    logger.info(
+        "Midday action: %s %s %s — %s",
+        act,
+        host._format_qty(qty),
+        symbol,
+        action_item.get("reason"),
+    )

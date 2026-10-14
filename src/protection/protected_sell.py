@@ -10,8 +10,6 @@ Host attributes a body reads with a defaulted getattr or ASSIGNS go through `sta
 
 import logging
 
-from src.execution.broker_parts.cancel_confirm import settle_legs
-from src.execution.broker_parts.stop_invariant import cover_to_held
 from src.protection.trim_amend import refusal_reason, trim_book_call
 from src.quantities import ORDER_QTY_DECIMALS
 from src.sentinel.guarded import record_guarded_pass
@@ -65,6 +63,7 @@ class ProtectedSell:
         label: str,
         side: str = "sell",
         escalate_to_market_on_reject: bool = False,
+        book=None,
     ) -> tuple[dict, dict] | None:
         """Head half of the SELL/COVER discipline: clear protective stops
         (write-ahead) → submit the order → guarantee stops are restored if
@@ -74,7 +73,9 @@ class ProtectedSell:
         ``None`` when the symbol must be skipped (including a sale PUT OFF
         because a cancelled leg was not confirmed dead in the wait: then
         ``_last_stop_clear_refusal`` names it and the deciding run's seam,
-        src/protection/put_off_sales.py, re-checks it) — stop-clear failed, the
+        src/protection/put_off_sales.py, re-checks it; ``book(order, qty)``, when
+        given, is the caller's own record of a sent sale, which that re-check
+        writes if it sends the sale later) — stop-clear failed, the
         submit raised, or the broker rejected. In every skip case the
         protective stops are already restored (or were never cancelled), so
         the caller just ``continue``s with no naked-position window.
@@ -183,9 +184,38 @@ class ProtectedSell:
             "wal_row_id": wal_row_id,
             "kept_leg": kept_leg,
         }
-        if self._put_off_if_unconfirmed(sale):
+        if self._put_off_if_unconfirmed(sale, book):
             return None
         return self._send_cleared(**sale)
+
+    def _put_back(self, sale: dict) -> bool:
+        """Put a sale's cleared protection back: cancelled legs up to what is held now, a trim's shrunk stop grown back.
+
+        False when the cover is short of held (the broker part logs it for the health report),
+        or a trim's book did not settle covered (a kept leg gone, or not grown back)."""
+        ok = True
+        if sale["stop_specs"]:
+            covered = trim_book_call(self, "cover_to_held", sale["symbol"], sale["stop_specs"], side=sale["side"])
+            ok = covered is not False
+        if sale["kept_leg"] is not None:
+            status = trim_book_call(self, "settle_trim_book", sale["symbol"], sale["side"])
+            ok = ok and status in ("accepted", "flat")
+        return ok
+
+    def _resale_size(self, sale: dict, settlement) -> tuple[float, float, str]:
+        """A put-off sale's ``(qty, position_qty_before_sell, refusal)`` once its legs settled.
+
+        The pass's snapshot plus every leg's fill during the cancel is what is
+        held now, so the re-sale is decided on that, by the pass's own rules
+        (`sale_refusal`): a full exit sells all of it, a trim keeps its size,
+        and a trim whose stop filled in part is refused. ``refusal`` is the
+        owner wording, empty when the sale may go."""
+        held = _q(abs(float(sale["position_qty_before_sell"])) + settlement.closable_change(sale["side"]))
+        if held <= 0:
+            return 0.0, 0.0, _OWN_REASONS["stop_fired"]
+        if not sale["full_exit"] and _q(settlement.filled_qty) > 0:
+            return 0.0, held, _OWN_REASONS["stop_filled_in_part"]
+        return (held if sale["full_exit"] else abs(float(sale["qty"]))), held, ""
 
     def _send_cleared(
         self,
@@ -211,10 +241,7 @@ class ProtectedSell:
         def _put_back_protection() -> None:
             # Cancelled legs are restored; a stop shrunk in place for a trim
             # is grown back by the quantity invariant (nothing was sold).
-            if stop_specs:
-                cover_to_held(self.broker, symbol, stop_specs, side=side)
-            if kept_leg is not None:
-                trim_book_call(self, "settle_trim_book", symbol, side)
+            self._put_back({"symbol": symbol, "side": side, "stop_specs": stop_specs, "kept_leg": kept_leg})
 
         # The caller sized `qty` from a position read taken BEFORE the stops
         # were cleared. A resting stop can fill (fully or partly) in between,
@@ -453,7 +480,7 @@ class ProtectedSell:
         # these stops and the entry / leftover orders, one shared deadline.
         legs = [dict(x, side=side, kind="stop") for x in specs if x.get("id")]
         legs += self._held_legs("_entry_legs") or []
-        self._state.set("_leg_settlement", settle_legs(self.broker, legs))
+        self._state.set("_leg_settlement", trim_book_call(self, "settle_legs", legs))
         return True, specs, wal_row_id
 
     def _held_legs(self, name: str):
@@ -469,7 +496,7 @@ class ProtectedSell:
         self._state.set("_entry_legs", [])
         return _q(abs(float(qty))) >= _q(abs(float(position_qty_before_sell)))
 
-    def _put_off_if_unconfirmed(self, sale: dict) -> bool:
+    def _put_off_if_unconfirmed(self, sale: dict, book=None) -> bool:
         """True when a cancelled leg is not confirmed dead inside the pass's wait: the sale is PUT OFF.
 
         The shares may still be held by a dying stop: a SELL now is refused
@@ -483,7 +510,7 @@ class ProtectedSell:
         settlement = self._held_legs("_leg_settlement")
         if settlement is None and self._held_legs("_entry_legs"):
             # No stop was cancelled: the entry / leftover order cancels alone.
-            settlement = settle_legs(self.broker, self._held_legs("_entry_legs"))
+            settlement = trim_book_call(self, "settle_legs", self._held_legs("_entry_legs"))
             self._state.set("_leg_settlement", settlement)
         if settlement is None or settlement.settled:
             return False
@@ -494,7 +521,7 @@ class ProtectedSell:
         self._last_stop_clear_refusal = settlement.reason
         why = _OWN_REASONS[settlement.reason]
         logger.warning("%s: no order for %s this pass — %s", sale["label"], sale["symbol"], why)
-        record = put_off_sales.PutOff(sale=dict(sale), legs=legs, reason=settlement.reason, seller=self)
+        record = put_off_sales.PutOff(sale=dict(sale), legs=legs, reason=settlement.reason, seller=self, book=book)
         if not put_off_sales.put_off(record):
             # No run owns it (no seam is open): nothing will re-check it, so say so now.
             why = put_off_sales.not_sold_why(None, settlement.reason)

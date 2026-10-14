@@ -6658,10 +6658,10 @@ numbers:
       (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). Same class as
       src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk
       waits for the broker to report, never whether or how much to trade.
-  - id: src.execution.broker_parts.order_desk.ORDER_TERMINAL_CEILING_S
+  - id: src.execution.broker_parts.cancel_confirm.ORDER_TERMINAL_CEILING_S
     value: 15
     status: not-trade-governing
-    site: src/execution/broker_parts/order_desk.py
+    site: src/execution/broker_parts/cancel_confirm.py
     note: >-
       Wait ceiling on an order reaching a terminal state
       (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal's default; value
@@ -6678,6 +6678,17 @@ numbers:
       whichever is earlier); it admits a step only while one whole wait still fits. This number
       never decides whether the sale happens or its size: the re-check decides that, after the
       legs are dead and the position re-reads.
+  - id: src.execution.broker_parts.order_desk.OrderDesk.wait_for_order_terminal(timeout_seconds)
+    value: 15
+    status: derived
+    site: src/execution/broker_parts/order_desk.py
+    derived_from: src.execution.broker_parts.cancel_confirm.ORDER_TERMINAL_CEILING_S
+    base_value: 15
+    note: >-
+      Parameter default bound to the imported ORDER_TERMINAL_CEILING_S
+      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). The constant
+      moved to cancel_confirm on 14 Oct so cancel_confirm no longer imports order_desk back (the
+      import cycle the layering test refuses); the default is that one ceiling, not a second number.
   - id: src.execution.broker_parts.trade_stream._TradeUpdatesHub.wait(poll_interval)
     value: 1
     status: not-trade-governing

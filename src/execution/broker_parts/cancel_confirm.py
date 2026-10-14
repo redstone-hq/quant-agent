@@ -20,6 +20,14 @@ from typing import Any
 from src.execution.scale_in_loud import record_scale_in
 from src.sentinel.guarded_reach import RECON_DB_ATTR
 
+#: The one ceiling on waiting for an order to reach a terminal state. Every
+#: cancel-then-act site waits on this (no per-site literal), and
+#: OrderDesk.wait_for_order_terminal defaults to it. A cancel not confirmed
+#: inside it puts the sale off: nothing is sent into a stop still holding the
+#: shares, and the deciding run re-checks it before it ends
+#: (src/protection/put_off_sales.py; the trend tick defers it to its next tick).
+ORDER_TERMINAL_CEILING_S = 15.0
+
 logger = logging.getLogger(__name__)
 
 #: Terminal statuses that mean the protective sell is gone and did not
@@ -217,8 +225,6 @@ def settle_legs(broker: Any, specs: list[dict] | None, *, started: float | None 
     it by id every poll interval until the shared deadline. Each leg seen
     terminal writes its broker-clock cancel latency.
     """
-    from src.execution.broker_parts.order_desk import ORDER_TERMINAL_CEILING_S
-
     t0 = time.monotonic() if started is None else started
     deadline = t0 + ORDER_TERMINAL_CEILING_S
     legs: list[LegResult] = []
