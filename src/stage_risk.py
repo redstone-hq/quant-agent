@@ -895,6 +895,7 @@ class RiskStage:
 
             hd_surviving: list = []
             hd_blocked: list[tuple[str, str]] = []
+            hd_claim_cache: dict = {}
             for decision in portfolio_decision.decisions:
                 if not is_judgement_sale(decision.action):
                     hd_surviving.append(decision)
@@ -944,6 +945,18 @@ class RiskStage:
                     f"same_rules_gate_{gate_verdict.basis}",
                     f"{decision.action} {symbol_u}: {gate_verdict.detail}",
                 )
+                if protection is not None:
+                    _record_claim_evidence(
+                        pipeline,
+                        ctx,
+                        decision,
+                        symbol_u,
+                        protection,
+                        gate_verdict=gate_verdict,
+                        macro_analysis=macro_analysis,
+                        data_status=data_status,
+                        cache=hd_claim_cache,
+                    )
                 if gate_verdict.sell_allowed:
                     hd_surviving.append(decision)
                     continue
@@ -1102,3 +1115,52 @@ class RiskStage:
                 "post_risk_checks_passed",
             )
         return None
+
+
+def _record_claim_evidence(
+    pipeline, ctx, decision, symbol_u, protection, *, gate_verdict, macro_analysis, data_status, cache
+) -> None:
+    """The morning false-claim check, kept as EVIDENCE under the 2026-10-13
+    same-rules ruling: the gate decides the sale; a proven-false reason is
+    recorded and the owner is told what actually happened to the sale. The
+    midday path applies the same check under the one rule
+    (`src/exits_parts/midday_holding_discipline.py`)."""
+    from src.exits.pm_claim_check import holding_discipline_claim_check
+    from src.exits.same_rules_gate import alert_false_claim
+
+    try:
+        if "state_changes" not in cache:
+            try:
+                cache["state_changes"] = pipeline._build_active_state_changes()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Holding discipline: active state changes unavailable (%s)", e)
+                cache["state_changes"] = None
+        check = holding_discipline_claim_check(
+            action=decision.action,
+            reason=decision.reasoning,
+            symbol=decision.symbol,
+            protected=protection.protected,
+            macro_regime_today=_macro_regime(macro_analysis),
+            macro_status=data_status.get("macro") if data_status else None,
+            active_state_changes=cache["state_changes"],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Holding discipline check failed for %s (evidence only): %s", symbol_u, e)
+        return
+    if check.blocks:
+        logger.warning("Holding discipline: claim PROVEN FALSE (evidence only): %s", check.finding)
+        _record_pipeline_event(
+            pipeline, ctx, decision.symbol, "risk", "holding_discipline_claim_false_evidence_only", check.finding
+        )
+        verb = "allowed" if gate_verdict.sell_allowed else "refused"
+        alert_false_claim(
+            symbol_u,
+            decision.action,
+            check.finding,
+            outcome=f"the same-rules gate {verb} the sale: {gate_verdict.detail}",
+        )
+    elif check.verdict == "unverifiable":
+        logger.warning("Holding discipline: %s", check.finding)
+        _record_pipeline_event(
+            pipeline, ctx, decision.symbol, "risk", "holding_discipline_claim_unverified", check.finding
+        )

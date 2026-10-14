@@ -468,3 +468,21 @@ def gate_review_actions(review, views_by_symbol: dict[str, HoldingViews]):
             )
         )
     return review.model_copy(update={"actions": out}), verdicts
+
+
+def alert_false_claim(symbol, action, finding, *, outcome: str) -> None:
+    """Tell the owner a sale gave a reason proven false, on the morning and
+    the midday/close paths alike. `outcome` says what actually happened to the
+    sale, so the alert never claims a block that did not occur. Best effort:
+    a failed send is logged, never raised."""
+    body = (
+        f"\u26a0\ufe0f A SALE GAVE A REASON THAT IS NOT TRUE \u2014 {action} {symbol}\n"
+        f"The check found: {str(finding or '').strip()[:400]}\n"
+        f"What happened: {outcome}"
+    )
+    try:
+        from src import notifier
+
+        notifier.send_owner_alert(body, symbols=[str(symbol)])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("same-rules gate: false-claim alert for %s not sent (%s)", symbol, exc)

@@ -371,7 +371,7 @@ class CandidateRanking:
 
             if earnings_filing_is_stale(
                 str(item.get("filing_date") or raw.get("filing_date") or "").strip(),
-                asof,  # the session being decided; None = today (ET)
+                asof,  # the caller's decided day; the PM's own call passes none, so today (ET)
             ):
                 logger.info("Phase 13: earnings stance for %s is stale — not a view", wrapper_symbol)
                 continue

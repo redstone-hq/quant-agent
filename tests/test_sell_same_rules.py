@@ -109,7 +109,11 @@ def test_a_pm_sale_path_is_decided_by_the_gate_not_the_claim_check():
         for c in gate_calls
         for a in c.args
     )
-    assert "holding_discipline_claim_check" not in src
+    # Coordinator 14 Oct defect 3: the false-claim check stays as EVIDENCE
+    # (with the owner alert); nothing drops a sale on it any more.
+    assert "_record_claim_evidence(" in src
+    assert "holding_discipline_claim_check(" in src
+    assert "reject_false_claim" not in src
     assert "veto_contradicted_exit" not in src
 
 
@@ -669,3 +673,40 @@ def test_t14_failed_bar_fetch_reads_chart_unreadable_not_no_chart_level():
     assert check.protected is False and check.basis == "chart_unreadable"
     assert not _g.is_protective(check.basis)
     assert _g.is_protective("no_chart_level")
+
+
+# (t16) SAFETY, coordinator 14 Oct defect 1: the reviewer's gate reads
+# protection the way the morning path does, so an UNPROTECTED holding's sale
+# is never blocked for missing evidence; a failed bar fetch is not protective.
+def test_t16_reviewer_never_blocks_an_unprotected_holdings_sale():
+    from src.sessions.position_review_session import PositionReviewSession
+
+    calls = []
+
+    def _read(**kw):
+        calls.append(kw)
+        return SimpleNamespace(protected=False, basis="thesis_level_broken", detail="closed below the level twice")
+
+    def _run(read, history):
+        db = _DB()
+        fake = SimpleNamespace(_db=db, _structural_protection_for_holding=read, _build_position_history=history)
+        return PositionReviewSession._gate_reviewer_sales(
+            fake,
+            _review("AAPL", "SELL", "the level broke"),
+            [SimpleNamespace(symbol="AAPL", qty=10)],
+            run_id="r1",
+            news_intel=None,
+            news_ok=False,  # evidence missing: the bar cannot be read
+            macro_analysis=None,
+            earnings_analyses=[],
+        )
+
+    gated = _run(_read, lambda positions: {"AAPL": {"stop_loss": 90.0, "entry_price": 100.0}})
+    assert gated.actions[0].action == "SELL"
+    assert calls and calls[0]["symbol"] == "AAPL" and calls[0]["stop_loss"] == 90.0
+
+    unreadable = _run(
+        lambda **kw: SimpleNamespace(protected=False, basis="chart_unreadable", detail="no bars"),
+        lambda positions: {},
+    )
+    assert unreadable.actions[0].action == "HOLD"

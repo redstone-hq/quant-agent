@@ -773,6 +773,10 @@ class DecisionStage:
         # THESE verdicts, built with positions so both sides see one macro
         # sector view.
         try:
+            from datetime import date as _date
+
+            from src.trading_calendar import session_date_key as _session_key
+
             ctx.seat_verdicts = PortfolioManagerAgent._collect_seat_verdicts(
                 analyses=analyses,
                 news_intel=news_intel,
@@ -781,6 +785,7 @@ class DecisionStage:
                 smart_money_findings=ctx.smart_money_findings,
                 symbol_sectors=dict(ctx.symbol_sectors or {}),
                 positions=list(positions or []),
+                asof=_date.fromisoformat(_session_key()),  # the session being decided
             )
         except Exception as exc:  # noqa: BLE001
             # Best-effort like the collector itself: no verdicts means the cut
