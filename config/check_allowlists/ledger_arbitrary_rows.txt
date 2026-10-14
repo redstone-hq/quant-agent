@@ -34,7 +34,6 @@ src.agents.tech_analyst._BARS_PER_SYMBOL
 src.config.DeploymentGapConfig.band_pct
 src.config.EventRiskConfig.horizon_days
 src.config.ExecutionConfig.max_entry_slippage_bps
-src.config.IntradayScanConfig.cooldown_hours
 src.config.NominationConfig.max_per_seat_per_run
 src.config.NominationConfig.max_total_per_run
 src.config.RiskConfig.max_target_horizon_sessions

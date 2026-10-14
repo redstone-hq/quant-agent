@@ -120,7 +120,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 3 shapes which names reach the seats.** Signal-classification windows, candidate caps and scan cadence; settled from filing-date and screen-demand recordings. They shape which names reach the seats, not size or stops.
 
-- `config.IntradayScanConfig.cooldown_hours` = 3
+- ~~`config.IntradayScanConfig.cooldown_hours` = 3~~ -- DELETED 2026-10-13: the 3-hour lock between two looks at the same name is gone. A name the desk already looked at this session now ranks by its move since that look (the price recorded with the look), in its own ATR, in the same single ranking as every fresh mover.
 - `config.NominationConfig.max_per_seat_per_run` = 3
 - `config.NominationConfig.max_total_per_run` = 6
 - `config.SmartMoneyConfig.cluster_window_days` = 2
