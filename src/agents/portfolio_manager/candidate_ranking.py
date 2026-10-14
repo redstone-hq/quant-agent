@@ -23,6 +23,12 @@ from src.verdicts import RankedCandidate, rank_verdicts
 # Same logger object the monolith used, so log capture by name is unchanged.
 logger = logging.getLogger("src.agents.portfolio_manager")
 
+#: R2 for a neutral rating on a name the desk HOLDS (owner Option A, 14 Oct
+#: 2026). It still refuses the name as a NEW buy, but R3-R6 are then read in
+#: the holding's own direction, so the same-rules gate judges a sale on every
+#: buy rule except timing (`src/exits/same_rules_gate.py`).
+HELD_NEUTRAL_R2 = "R2 neutral rating — held, so R3-R6 are read in the holding's direction"
+
 
 class _HostState:
     """Live view of the host attributes the ranking bodies read and ASSIGN.
@@ -90,6 +96,7 @@ class CandidateRanking:
         asof: date | None = None,
         real_reward_risk_by_symbol: dict[str, float | None] | None = None,
         constructor_refusals_by_symbol: dict[str, dict[str, str]] | None = None,
+        held_directions: dict[str, str] | None = None,
     ) -> dict[str, list[str]]:
         """Which analysed names the desk's own rules ADMIT, before the PM
         decides — `{SYMBOL: [reasons it is blocked]}`, empty list = eligible.
@@ -99,7 +106,10 @@ class CandidateRanking:
         can order the survivors (item 18b, `ops/model_policy/
         deterministic_selection.py::evaluate`, now in production code):
 
-          R2  rating actionable (neutral is not a candidate)
+          R2  rating actionable (neutral is not a candidate). For a name
+              in `held_directions` a neutral rating reads `HELD_NEUTRAL_R2`
+              — still blocked as a buy — and R3-R6 are read in the
+              holding's direction (owner Option A, 14 Oct 2026)
           R3  a long must be in the BUY-eligible set — the same set
               `validate_grounding` refuses increases outside of
           R4  **retired 2026-09-17.** Used to read "R/R ≥ `rr_floor`", then
@@ -164,11 +174,16 @@ class CandidateRanking:
         for analysis in analyses:
             symbol = analysis.symbol.upper()
             blocked: list[str] = []
-            if analysis.rating == "neutral":
+            held_direction = (held_directions or {}).get(symbol)
+            if analysis.rating == "neutral" and held_direction is None:
                 blocked.append("R2 neutral rating")
                 verdicts[symbol] = blocked
                 continue
-            direction = "short" if analysis.rating in ("sell", "strong_sell") else "long"
+            if analysis.rating == "neutral":
+                blocked.append(HELD_NEUTRAL_R2)
+                direction = held_direction
+            else:
+                direction = "short" if analysis.rating in ("sell", "strong_sell") else "long"
             if direction == "long" and symbol not in allowed:
                 blocked.append("R3 not BUY-eligible")
             # R4 is retired. Reward:risk — computed, thin, or unmeasurable —
@@ -214,6 +229,7 @@ class CandidateRanking:
         smart_money_findings: list[SmartMoneyFinding] | None,
         symbol_sectors: dict[str, str] | None = None,
         positions: list[Position] | None = None,
+        asof: date | None = None,
     ) -> list[AnalystVerdict]:
         """Every seat's Phase 13 verdict, best-effort, one bad entry never
         drops another's or the run's.
@@ -328,7 +344,14 @@ class CandidateRanking:
                     list(positions or []),
                     symbol_sectors,
                 )
-                symbols = {a.symbol.upper() for a in analyses}
+                # Analysed names PLUS every holding (owner 2026-10-13, same
+                # rules): a held name the scan did not read still gets this
+                # run's macro view, from the same sector resolution.
+                symbols = {a.symbol.upper() for a in analyses} | {
+                    str(getattr(p, "symbol", "") or "").strip().upper()
+                    for p in positions or []
+                    if str(getattr(p, "symbol", "") or "").strip()
+                }
                 for symbol in symbols:
                     try:
                         verdicts.append(
@@ -355,6 +378,17 @@ class CandidateRanking:
                 # review 2026-09-03: the mismatch check below only fires
                 # when BOTH sides are present, which silently let an
                 # unverified symbol through when the wrapper's was blank.
+                continue
+            # §9.4 freshness, the same rule the tally uses: a stance with no,
+            # or an over-age, filing date is dropped HERE, before any rule
+            # reads it — buys and judgement sales alike.
+            from src.agents.portfolio_manager.evidence_prompting import earnings_filing_is_stale
+
+            if earnings_filing_is_stale(
+                str(item.get("filing_date") or raw.get("filing_date") or "").strip(),
+                asof,  # the caller's decided day; the PM's own call passes none, so today (ET)
+            ):
+                logger.info("Phase 13: earnings stance for %s is stale — not a view", wrapper_symbol)
                 continue
             try:
                 earnings = EarningsAnalysis.model_validate(raw)
@@ -449,6 +483,11 @@ class CandidateRanking:
             real_reward_risk_by_symbol=real_reward_risk_by_symbol,
             constructor_refusals_by_symbol=constructor_refusals_by_symbol,
             asof=asof,
+            held_directions={
+                str(p.symbol).strip().upper(): ("short" if p.qty < 0 else "long")
+                for p in positions or []
+                if str(getattr(p, "symbol", "") or "").strip() and getattr(p, "qty", 0)
+            },
         )
         all_verdicts = self._collect_seat_verdicts(
             analyses=analyses,
@@ -458,6 +497,7 @@ class CandidateRanking:
             smart_money_findings=smart_money_findings,
             symbol_sectors=symbol_sectors,
             positions=positions,
+            asof=asof,
         )
         eligible_verdicts = [v for v in all_verdicts if not eligibility.get(v.symbol.upper(), ["no eligibility row"])]
         # The desk's own real, structure-derived ratio and each candidate's

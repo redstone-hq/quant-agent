@@ -533,3 +533,22 @@ def test_regime_only_snapshot_is_trusted_for_exits_not_passed_to_pm():
     assert carried.status == "carried_from_morning"
     assert carried.payload["regime"] == "risk-on"
     assert _macro_analysis_as_dict(carried.payload) is None
+
+
+def test_a_sale_the_same_rules_gate_decided_keeps_a_false_claim_as_evidence_only():
+    """One rule (owner ruling 2026-10-13, coordinator 14 Oct defect 4): the
+    checks above drop a sale the same-rules gate did NOT decide (every test
+    above passes no `same_rules_allowed`); a gate-decided sale keeps the
+    proven-false finding as evidence only, never a drop."""
+    pipeline = _pipeline(macro_state=_macro_today("risk-on"), protected=True)
+
+    pipeline._midday_execute_llm_actions(
+        positions=[_position("AAA")],
+        review=_review(),
+        run_id="midday-2026-10-14",
+        same_rules_allowed={"AAA"},
+    )
+
+    statuses = _statuses(pipeline)
+    assert "exit_blocked_holding_discipline_claim_false" not in statuses
+    assert "holding_discipline_claim_false_evidence_only" in statuses

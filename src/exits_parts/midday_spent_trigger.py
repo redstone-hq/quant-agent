@@ -98,11 +98,12 @@ def midday_spent_trigger(loop: MiddayLoop, action_item: dict, act, symbol):
             run_id=run_id,
             action=act,
             code=spent.code,
-            dropped=True,
+            dropped=not loop.gate_decided(symbol, act),
             detail=spent.detail[:400],
             layer=SPENT_LAYER,
         )
-        return SKIP
+        if not loop.gate_decided(symbol, act):
+            return SKIP  # a gate-decided sale keeps this as evidence only
     elif spent.verdict in ("new_evidence", "unidentifiable"):
         # Allowed, NOT silent. `new_evidence` is the "genuinely worse
         # reading" this item preserves; `unidentifiable` is a second

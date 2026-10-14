@@ -140,6 +140,13 @@ def _ctx(decisions) -> RunContext:
         decisions=decisions,
         portfolio_view="test",
     )
+    # Owner ruling 2026-10-13: a judgement sale survives RiskStage only when
+    # the holding FAILS the entry bar (src/exits/same_rules_gate.py). These
+    # tests are about the AI Risk seat, so every proposed sale is given an
+    # opposed news seat and the gate lets it through.
+    from tests.test_sell_same_rules import opposed_for_exits
+
+    ctx.seat_verdicts = opposed_for_exits(decisions)
     return ctx
 
 

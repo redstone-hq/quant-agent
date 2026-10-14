@@ -9,7 +9,9 @@ pipeline instance (`loop.owner`) so every line reads as before. The
 position-history map is built at most once per pass, so it comes back to
 the caller on every return (a refused symbol included) and is handed to the
 next symbol, exactly as the loop-local variable was. Sell-side code:
-behaviour is identical.
+one rule since 2026-10-13: a sale the same-rules gate
+(`src/exits/same_rules_gate.py`) decided keeps a false claim as evidence
+only; any other sale is dropped as before. The owner is alerted either way.
 """
 
 import logging
@@ -29,7 +31,7 @@ def midday_holding_discipline(
     reason_text,
     hd_position_history: dict | None,
 ):
-    """Fact-check one exit's named trigger; `(SKIP, history)` drops it."""
+    """Fact-check one exit's named trigger; `(SKIP, history)` drops a sale the gate did not decide."""
     self = loop.owner
     positions = loop.positions
     run_id = loop.run_id
@@ -47,8 +49,8 @@ def midday_holding_discipline(
     # `pipeline_stages.RiskStage`. Same function here, same
     # semantics, assembled by `_holding_discipline_check_for_exit`.
     #
-    # PROVABLY FALSE drops the exit (the morning path's own
-    # response, mirroring the existing gates on this loop).
+    # PROVABLY FALSE drops an exit the same-rules gate did not
+    # decide; a gate-decided one keeps it as evidence (the one rule).
     # UNVERIFIABLE is recorded and ALLOWED THROUGH, unchanged from
     # the morning path and deliberately: absence of proof is not
     # proof, and refusing an exit on a claim we merely cannot check
@@ -98,17 +100,23 @@ def midday_holding_discipline(
             )
             hd_check = None
         if hd_check is not None and hd_check.blocks:
+            gate_decided = loop.gate_decided(symbol, act)
             logger.warning(
-                "Position reviewer: blocking %s %s — holding-discipline claim PROVEN FALSE. %s",
+                "Position reviewer: %s %s states a holding-discipline claim PROVEN FALSE (%s). %s",
                 act,
                 symbol,
+                "evidence only; the same-rules gate decided the sale" if gate_decided else "exit blocked",
                 hd_check.finding,
             )
             try:
                 self.db.record_intraday_evaluation(
                     symbol=symbol,
                     run_id=run_id,
-                    status="exit_blocked_holding_discipline_claim_false",
+                    status=(
+                        "holding_discipline_claim_false_evidence_only"
+                        if gate_decided
+                        else "exit_blocked_holding_discipline_claim_false"
+                    ),
                     detail=(hd_check.finding or "")[:500],
                 )
                 record_exit_guard(self, "holding_discipline.audit_write_blocked")
@@ -121,18 +129,34 @@ def midday_holding_discipline(
                     symbol=symbol,
                     effect="audit row not written",
                 )
-            from src.risk.exit_refusal import CODE_HOLDING_DISCIPLINE_FALSE
+            from src.exits.same_rules_gate import alert_false_claim
 
-            self._record_exit_refusal(
-                symbol=symbol,
-                run_id=run_id,
-                action=act,
-                code=CODE_HOLDING_DISCIPLINE_FALSE,
-                dropped=True,
-                detail=(hd_check.finding or "")[:400],
-                layer="holding_discipline",
+            alert_false_claim(
+                symbol,
+                act,
+                hd_check.finding,
+                outcome=(
+                    "the same-rules gate had already allowed the sale; the false reason is recorded as evidence"
+                    if gate_decided
+                    else "the sale was blocked; the holding and its stop stay"
+                ),
             )
-            return SKIP, hd_position_history
+            # ONE RULE with the alignment, keyword and spent-trigger checks
+            # (2026-10-13 same-rules ruling): a sale the gate decided keeps
+            # the finding as evidence only; any other sale is dropped.
+            if not gate_decided:
+                from src.risk.exit_refusal import CODE_HOLDING_DISCIPLINE_FALSE
+
+                self._record_exit_refusal(
+                    symbol=symbol,
+                    run_id=run_id,
+                    action=act,
+                    code=CODE_HOLDING_DISCIPLINE_FALSE,
+                    dropped=True,
+                    detail=(hd_check.finding or "")[:400],
+                    layer="holding_discipline",
+                )
+                return SKIP, hd_position_history
         if hd_check is not None and hd_check.verdict == "unverifiable":
             # Audit trail only. NOT a block — see above.
             logger.warning("Holding discipline: %s", hd_check.finding)

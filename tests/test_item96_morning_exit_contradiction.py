@@ -9,7 +9,11 @@ unchecked, because the only wiring for that gate lived in
 the real morning path — `RiskStage._run_review`, reached through
 `RiskStage.run` — and pins the four behaviours that make the fix safe:
 
-  1. a false stall claim contradicted by net-improved numbers is BLOCKED;
+  1. a false stall claim contradicted by net-improved numbers NO LONGER
+     decides the sale (owner 13 Oct 2026, "same rules as buying"): the
+     same-rules gate does (`src/exits/same_rules_gate.py`) — an UNPROTECTED
+     holding's sale is protective and passes; a protected one with no bar
+     evidence is refused, the stop stays;
   2. a genuinely-deteriorating position (numbers agree with the stall claim)
      PASSES — the gate only fires on a contradiction, never on a real cut;
   3. an exit on NEW INFORMATION (news/earnings/regime/invalidation) PASSES
@@ -222,9 +226,11 @@ def _exit_refusals(pipeline) -> list[dict]:
 # --- the four pinned behaviours ---------------------------------------------
 
 
-def test_false_stall_claim_contradicted_by_the_numbers_is_blocked():
-    """The headline. A SELL saying the position is "stalling" while every
-    metric that moved improved since the last review must not reach orders."""
+def test_false_stall_claim_no_longer_decides_an_unprotected_holdings_sale():
+    """Owner 13 Oct 2026: the same-rules gate decides every judgement sale; a
+    false claim is evidence, never the decider. This holding's structure read
+    is UNPROTECTED (no qualifying chart level), so the gate passes the SELL as
+    a protective sale — never gated — and the unrelated BUY stands too."""
     decisions = [_sell("ACME", "Cutting ACME — it is stalling, no progress."), _buy("CHPX")]
     pipeline = _stage_pipeline(
         decisions=decisions,
@@ -235,18 +241,12 @@ def test_false_stall_claim_contradicted_by_the_numbers_is_blocked():
     with patch("src.notifier.send_owner_alert"):
         result = RiskStage(pipeline=pipeline).run(ctx)
 
-    assert result is None, "the unrelated BUY still stands, so not terminal"
-    assert _symbols(ctx) == ["CHPX"], "the false-stall SELL was dropped"
-
+    assert result is None
+    assert _symbols(ctx) == ["ACME", "CHPX"], "an unprotected holding's sale is protective"
     outcomes = [e[2] for e in _events(pipeline) if e[0] == "ACME"]
-    assert "rejected" in outcomes, "reuse the shared per-symbol rejection event"
-    assert "exit_vetoed_contradicts_own_metrics" in outcomes
-
-    refusals = _exit_refusals(pipeline)
-    assert any(
-        r["code"] == "contradicts_own_metrics" and r["dropped"] is True and r["layer"] == "metric_contradiction"
-        for r in refusals
-    ), "the durable exit-refusal row the reader writes must be written here too"
+    assert "same_rules_gate_protective_structure_broken" in outcomes
+    assert "exit_vetoed_contradicts_own_metrics" not in outcomes, "the false claim no longer decides"
+    assert _exit_refusals(pipeline) == []
 
 
 def test_a_genuinely_deteriorating_position_exit_passes():
@@ -315,12 +315,18 @@ def test_no_prior_snapshot_means_no_veto():
 
 
 def test_blocking_the_only_leg_returns_the_terminal_rejected_status():
-    """When the false-stall SELL is the only decision, the shared hd tail
-    returns the same terminal rejected status a per-symbol refusal does."""
+    """The same-rules gate refusing the only leg returns the same terminal
+    rejected status a per-symbol refusal does. The holding is PROTECTED here
+    (its chart level holds), so the gate judges the entry bar; this run holds
+    no seat view and no entry-rule record for it, so the bar cannot be
+    evaluated — unknown never sells: the SELL is refused and the stop stays."""
     decisions = [_sell("ACME", "Cutting ACME — it is stalling, no progress.")]
     pipeline = _stage_pipeline(
         decisions=decisions,
         metric_deltas={"ACME": _improved_deltas()},
+    )
+    pipeline._structural_protection_for_holding = MagicMock(
+        return_value=StructuralProtectionCheck(protected=True, basis="structural_level_intact", detail="intact")
     )
     ctx = _ctx(decisions)
 
@@ -330,3 +336,6 @@ def test_blocking_the_only_leg_returns_the_terminal_rejected_status():
     assert result is not None
     assert result["status"] == "rejected"
     assert result["orders"] == []
+    outcomes = [e[2] for e in _events(pipeline) if e[0] == "ACME"]
+    assert "same_rules_gate_evidence_missing" in outcomes
+    assert "rejected" in outcomes

@@ -91,6 +91,8 @@ def _run_position_review_body(pipeline, session_type: str) -> dict:
         release_retired_cash_park=pipeline._collab("_release_retired_cash_park"),
         require_paid_analysis=pipeline._collab("_require_paid_analysis"),
         risk_review_exits=pipeline._collab("_risk_review_exits"),
+        structural_protection_for_holding=pipeline._collab("_structural_protection_for_holding"),
+        build_position_history=pipeline._collab("_build_position_history"),
         run_news_update=pipeline._collab("_run_news_update"),
         substantiate_exit_triggers=pipeline._collab("_substantiate_exit_triggers"),
         surface_reconcile_outcomes=pipeline._collab("_surface_reconcile_outcomes"),

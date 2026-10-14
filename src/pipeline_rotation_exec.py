@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from src.sentinel.guarded import record_guarded_pass
 from src.exit_quote import read_exit_quote
+from src.exits.evidence_seats import failed_evidence_seats
 from src.sizing_refusal import sizing_price_or_refusal
 from src.stage_execution_parts.entry_order_pricing import no_price_detail, quote_side_paid
 from src.stage_execution_parts.entry_order_type import entry_orders_are_market
@@ -86,34 +87,6 @@ def _rotation_ranked_margin_enabled(pipeline) -> bool:
     return getattr(execution_cfg, "rotation_ranked_margin_enabled", None) is True
 
 
-#: A research seat that returned NO usable reading this run (provider
-#: outage, unparseable answer, a carry-forward that could not be read). Every
-#: holding's evidence from such a seat is unknown.
-_SEAT_NO_READING_STATUSES = frozenset(
-    {
-        "failed",
-        "provider_error",
-        "parse_error",
-        "carry_forward_failed",
-    }
-)
-
-#: A seat whose answer WAS read but is incomplete (some sources or symbols
-#: missing, an answer cut off mid-generation, external coverage blind). News
-#: is `partial` on most runs (one source of eleven down, measured 12 Oct), so
-#: this counts against a holding ONLY when that holding has no evidence from
-#: the seat this run; otherwise the holding's own reading is complete.
-_SEAT_INCOMPLETE_READING_STATUSES = frozenset(
-    {
-        "partial",
-        "truncated",
-        "degraded",
-        "symbol_dropped",
-        "field_unreadable",
-        "market_wide_blind",
-    }
-)
-
 #: The one entry-bar reason that is a SUM over seat evidence (R5, net
 #: independent source score). A seat that failed contributes nothing to that
 #: sum, so a failure can push a sound holding to "net <= 0". R2 (neutral
@@ -121,31 +94,6 @@ _SEAT_INCOMPLETE_READING_STATUSES = frozenset(
 #: actively opposed) are each a positive reading that a missing seat cannot
 #: manufacture.
 _NET_EVIDENCE_REASON_PREFIX = "R5 "
-
-
-def failed_evidence_seats(ctx, symbol: str | None = None) -> tuple[str, ...]:
-    """The non-technical seats whose reading for `symbol` is unknown this run.
-
-    A seat with no reading at all counts for every holding. A seat whose
-    answer was read but is incomplete counts only when `symbol` has no
-    evidence from it in this run's evidence registry. Technical is per name:
-    a holding whose own technical read failed is never judged at all.
-    """
-    status = getattr(ctx, "data_status", None) or {}
-    if not isinstance(status, dict):
-        return ()
-    registry = getattr(ctx, "evidence_registry", None) or {}
-    own = registry.get(str(symbol or "").upper(), {}) if isinstance(registry, dict) else {}
-    failed = []
-    for seat, value in status.items():
-        seat, value = str(seat), str(value)
-        if seat == "tech":
-            continue
-        if value in _SEAT_NO_READING_STATUSES:
-            failed.append(seat)
-        elif value in _SEAT_INCOMPLETE_READING_STATUSES and own.get(seat) is None:
-            failed.append(seat)
-    return tuple(sorted(failed))
 
 
 def below_bar_only_on_incomplete_evidence(reasons, failed_seats: tuple[str, ...]) -> bool:
@@ -246,6 +194,68 @@ def _record_rotation_precheck(pipeline, ctx) -> None:
         logger.warning("Rotation pre-check record failed: %s", exc)
 
 
+def _same_rules_opportunity(pipeline, ctx, surfaced, positions):
+    """The half-hour check's cull set under the 2026-10-13 same-rules ruling.
+
+    The ranked-margin tier is returned unchanged (it is OFF by config, and a
+    still-eligible name it proposed would be refused by the same gate in
+    `RiskStage`). Otherwise every held LONG is judged by
+    `src.exits.same_rules_gate.judge_holding`; those that fail every buy rule
+    but timing (owner Option A, 14 Oct) form the categorical cull set,
+    worst-first (most failing rules, then
+    alphabetical). A holding whose bar cannot be evaluated, or bought today,
+    is never in it. Returns `None` when nothing fails.
+
+    ONE SALE PER CHECK STAYS: the walk below closes the first sellable name
+    and `ctx.rotation` is a single slot that `ExecutionStage` and
+    `_rotation_sell_gate` read for exactly one held symbol. Any other failing
+    holding is sold at the next half-hour check, and a PM SELL of it this
+    run passes the same gate with no per-run limit.
+    """
+    from src.exits.same_rules_gate import judge_holding, views_from_pipeline
+    from src.rotation_parts.types import RotationOpportunity
+
+    if surfaced is not None and surfaced.tier == "ranked_margin":
+        return surfaced
+
+    def _opportunity(sym, reasons, candidates):
+        return RotationOpportunity(
+            new_symbol=getattr(surfaced, "new_symbol", None),
+            new_score=getattr(surfaced, "new_score", None),
+            held_symbol=sym,
+            held_score=None,
+            tier="ineligible_hold",
+            reasons=tuple(reasons),
+            ineligible_candidates=tuple(candidates),
+        )
+
+    record = getattr(ctx, "held_bar_record", None) or {}
+    cull = []
+    for p in positions or []:
+        sym = (p.symbol or "").strip().upper()
+        if not sym or p.qty <= 0:
+            continue
+        views = views_from_pipeline(pipeline, ctx, sym, is_short=False)
+        verdict = judge_holding(views)
+        logger.info("Same-rules gate (half-hour check): %s %s — %s", sym, verdict.basis, verdict.detail)
+        if verdict.sell_allowed:
+            cull.append((sym, tuple(verdict.reasons)))
+        elif below_bar_only_on_incomplete_evidence(record.get(sym, ()), views.unknown_seats):
+            # Unknown is not fail: the durable row says which seat failed.
+            _rotation_skip(
+                pipeline,
+                ctx,
+                _opportunity(sym, record[sym], ()),
+                "evidence_incomplete_seat_failed",
+                failed_seats=",".join(views.unknown_seats),
+                held_reasons=list(record[sym]),
+            )
+    if not cull:
+        return None
+    cull.sort(key=lambda c: (-len(c[1]), c[0]))
+    return _opportunity(cull[0][0], cull[0][1], cull)
+
+
 def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, position_history: dict | None) -> None:
     """Phase 14b — turn the CATEGORICAL rotation comparison into an ordinary
     zero-size PM target, when the desk's own data says it is safe to.
@@ -314,9 +324,21 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
         "last_rotation_precheck",
         None,
     )
-    if not isinstance(precheck, RotationPrecheck) or precheck.opportunity is None:
-        return  # nothing was surfaced this session — nothing to act on
-    opportunity = precheck.opportunity
+    if not isinstance(precheck, RotationPrecheck):
+        return  # no precheck this session — nothing to act on
+    if getattr(ctx, "held_bar_record", None) is None:
+        # This run's deterministic assembly did not produce a record (it
+        # failed): no judgement sale (unknown never sells).
+        logger.info("Half-hour check: no held-bar record this run — no judgement sale")
+        return
+    # OWNER RULING 2026-10-13, "same rules as buying". The categorical cull
+    # set is no longer the 25 Sep opposition-only STAY subset the PM's
+    # ranking surfaced: it is every held long that FAILS every-buy-rule-but-
+    # timing (Option A, 14 Oct: a neutral chart never culls) under the one
+    # same-rules gate, with missing evidence never selling.
+    opportunity = _same_rules_opportunity(pipeline, ctx, precheck.opportunity, positions)
+    if opportunity is None:
+        return  # no holding fails the entry bar this run — nothing to act on
     held_symbol = opportunity.held_symbol.strip().upper()
     # OWNER RULING 2026-10-01. The categorical tier surfaces a below-bar
     # holding with NO replacement candidate, so `new_symbol` is None on

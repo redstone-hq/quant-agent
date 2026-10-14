@@ -1083,6 +1083,11 @@ def test_rank_candidates_combines_all_five_seats_at_their_researched_weight():
     earnings_analyses = [
         {
             "symbol": "MULTI",
+            # Owner ruling 13 Oct 2026 (same rules for buys and sales): the one
+            # shared view builder drops an earnings view older than 90 days
+            # before any rule reads it. The fixture's own filing is 170 days
+            # before SESSION; this test combines LIVE seats, so it is dated 10.
+            "filing_date": date.fromordinal(SESSION.toordinal() - 10).isoformat(),
             "analysis": multi_earnings.model_dump(),
         }
     ]

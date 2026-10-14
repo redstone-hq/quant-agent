@@ -153,6 +153,11 @@ def _pipeline(tmp_path, *, enabled=True, precheck=None, protected=False):
         db=db,
         portfolio_manager=SimpleNamespace(
             last_rotation_precheck=precheck if precheck is not None else _precheck(_opportunity()),
+            # Owner ruling 2026-10-13: the cull set is every held long that
+            # FAILS the entry bar under the same-rules gate, which reads the
+            # PM's own R2-R6 record of THIS run (`ctx.held_bar_record`, set in
+            # `_ctx`); a stale `last_blocked` is never read.
+            last_blocked={},
         ),
     )
     pipeline.config = SimpleNamespace(
@@ -164,7 +169,22 @@ def _pipeline(tmp_path, *, enabled=True, precheck=None, protected=False):
 
 
 def _ctx(run_id="run-1") -> RunContext:
-    return RunContext(run_id=run_id, session="morning")
+    ctx = RunContext(run_id=run_id, session="morning")
+    # A technical and a news read for every held name, both supportive, so
+    # R7 passes and the gate's cull reasons are exactly the PM's R2-R6 record.
+    ctx.seat_verdicts = [
+        _seat(seat, sym)
+        for sym in ("OLD", "WORST", "NEXT")
+        for seat in ("technical", "news", "earnings", "smart_money", "macro")
+    ]
+    ctx.held_bar_record = {"OLD": tuple(HELD_REASONS), "WORST": tuple(WORST_REASONS), "NEXT": tuple(NEXT_REASONS)}
+    return ctx
+
+
+def _seat(seat, symbol, direction="bullish"):
+    return SimpleNamespace(
+        seat=seat, symbol=symbol, direction=direction, invalidation="closes below support", evidence=[object()]
+    )
 
 
 def _events(db, run_id="run-1") -> list[tuple[str | None, dict]]:
@@ -283,8 +303,11 @@ def test_ranked_margin_tier_is_surfaced_only_while_its_flag_is_off(tmp_path):
 
 
 def test_nothing_surfaced_means_nothing_happens(tmp_path):
+    # Since 2026-10-13 the cull set is the same-rules gate's, not what the
+    # PM surfaced: "nothing happens" now means no holding FAILS the entry bar.
     pipeline, db, _ = _pipeline(tmp_path, precheck=_precheck(None))
     ctx = _ctx()
+    ctx.held_bar_record = {}  # the manager ran; no holding has a failing reason
     decision = _decision(_buy_new())
     _apply_rotation_execution(pipeline, ctx, decision, [_pos()], HISTORY)
     assert [t.symbol for t in decision.targets] == ["NEW"]
@@ -476,8 +499,9 @@ def test_a_short_is_never_rotated(tmp_path):
     _apply_rotation_execution(pipeline, ctx, decision, [_pos(qty=-10.0)], HISTORY)
     assert [t.symbol for t in decision.targets] == ["NEW"]
     assert probe.calls == []
-    ((_, payload),) = _rotation_events(db)
-    assert payload["reason"] == "held_symbol_is_not_a_long_position"
+    # Since 2026-10-13 the same-rules cull set holds only longs, so a short
+    # never reaches the rotation walk (and writes no rotation row).
+    assert _rotation_events(db) == []
 
 
 # ---------------------------------------------------------------------------
@@ -528,8 +552,9 @@ def test_held_symbol_bought_today_is_never_rotated(tmp_path):
     _apply_rotation_execution(pipeline, ctx, decision, [_pos()], HISTORY)
     assert [t.symbol for t in decision.targets] == ["NEW"]
     assert probe.calls == []
-    ((_, payload),) = _rotation_events(db)
-    assert payload["reason"] == "held_symbol_bought_today"
+    # Since 2026-10-13 the same-rules gate refuses a name bought today before
+    # the rotation walk (src/exits/same_rules_gate.py), so no rotation row.
+    assert _rotation_events(db) == []
 
 
 def test_pending_protection_restore_wal_row_blocks_rotation(tmp_path):
