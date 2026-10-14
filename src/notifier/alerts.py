@@ -362,7 +362,38 @@ def alert_stop_out_recorded(
         return False
 
 
-def alert_positions_reprotected(count: int) -> bool:
+def _unprotected_for(since: Any, now: Any) -> str:
+    """Plain-words length of time a stop was missing ('' when the start was not recorded)."""
+    from datetime import datetime, timezone
+
+    try:
+        began = datetime.fromisoformat(str(since)).replace(tzinfo=timezone.utc)
+        minutes = int((now.astimezone(timezone.utc) - began).total_seconds() // 60)
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 90:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = round(minutes / 60)
+    return f"{hours} hours" if hours < 48 else f"{round(hours / 24)} days"
+
+
+def _reprotected_line(rec: dict, now: Any) -> str:
+    """One stock's line: its name, shares, the stop it got back, and how long it went without."""
+    sym = str(rec.get("symbol") or "").strip() or "a position"
+    prices = rec.get("stop_prices") or ([rec["stop_price"]] if rec.get("stop_price") else [])
+    shares = float(rec.get("shares") or 0)
+    parts = [f"{_fmt_qty(shares)} share{'' if shares == 1 else 's'}"] if shares > 0 else []
+    if prices:
+        parts.append(f"stop back at {' and '.join('$' + _fmt_price(p) for p in prices)}")
+    gap = _unprotected_for(rec.get("unprotected_since"), now)
+    if gap:
+        parts.append(f"was without a stop for {gap}")
+    return f"{sym}: " + ", ".join(parts) if parts else sym
+
+
+def alert_positions_reprotected(restored: list[dict]) -> bool:
     """NOTICE: naked positions from a prior bail were re-protected.
 
     Fires when `_drain_pending_protection_restores` successfully rebuilds
@@ -372,23 +403,32 @@ def alert_positions_reprotected(count: int) -> bool:
     this — this surfaces that a live-risk gap existed and is now closed, so a
     period of unprotected exposure never passes unreported.
 
+    `restored` is the drain's per-stock records (symbol, shares, stop price,
+    when the stop went missing); each stock is named on its own line so the
+    owner can tell WHICH positions were exposed.
+
     Its own standalone message, same alert-design rule as the siblings above.
     """
     try:
-        n = int(count or 0)
+        recs = [r for r in (restored or []) if isinstance(r, dict)]
+        n = len(recs)
         if n <= 0:
             return False
         from src.trading_calendar import et_now
 
-        when = fmt_time_12h(et_now())
+        now = et_now()
+        when = fmt_time_12h(now)
         noun = "position" if n == 1 else "positions"
         body = (
             "PROTECTION RESTORED — a position that was left without a stop is "
             "covered again\n"
             f"The desk found {n} {noun} that an earlier run had left without "
             "a protective stop (an exit that didn't finish cleanly) and put "
-            "the stop coverage back on just now, as of " + when + ".\n"
-            "\n"
+            "the stop coverage back on just now, as of "
+            + when
+            + ".\n"
+            + "\n".join(_reprotected_line(r, now) for r in recs)
+            + "\n\n"
             "WHY YOU'RE HEARING THIS: for a short window that "
             f"{'position was' if n == 1 else 'those positions were'} exposed "
             "with no automatic downside protection. That gap is now closed; "

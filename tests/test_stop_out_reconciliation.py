@@ -1178,7 +1178,14 @@ def test_surface_reconcile_outcomes_pages_re_protection_count(
         lambda text, **kw: sent.append((text, kw)) or True,
     )
 
-    pipeline._surface_reconcile_outcomes([], drained_count=2, run_id="r1")
+    pipeline._surface_reconcile_outcomes(
+        [],
+        drained_count=[
+            {"symbol": "ETN", "shares": 40.0, "stop_price": 280.5, "unprotected_since": None},
+            {"symbol": "PWR", "shares": 25.0, "stop_price": 312.25, "unprotected_since": None},
+        ],
+        run_id="r1",
+    )
 
     assert len(sent) == 1
     text, _ = sent[0]

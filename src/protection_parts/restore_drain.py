@@ -1,6 +1,7 @@
 """The pending protection-restore drain, lifted verbatim out of `src/pipeline_protection.py`
 (2026-10-09, ceiling split). Behaviour is unchanged; only its module moved."""
 
+import json as _json
 import logging
 
 from src.protection.sell_finalization import _WAL_SELL_SENTINEL
@@ -9,6 +10,38 @@ from src.sentinel.reconciliation import record_guarded_outcome
 #: The moved code logged under `src.pipeline` before the move and still does;
 #: binding the name rather than `__name__` keeps log records byte-identical.
 logger = logging.getLogger("src.pipeline")
+
+
+def _restore_record(row: dict) -> dict:
+    """What the owner is told about one stop put back: which stock, how many shares, at what stop.
+
+    Read from the pending row the drain just discharged. `unprotected_since` is when the row was
+    written, i.e. when the stop was taken off. An unreadable or empty spec list still yields a
+    record (the stock is still named), with no stop price rather than a guessed one.
+    """
+    try:
+        specs = _json.loads(row.get("specs_json") or "[]")
+    except Exception:  # noqa: BLE001 - the record only describes; the restore itself already happened
+        specs = []
+    shares = 0.0
+    stop_prices: list[float] = []
+    for spec in specs if isinstance(specs, list) else []:
+        if not isinstance(spec, dict):
+            continue
+        try:
+            shares += float(spec.get("qty") or 0)
+            price = float(spec.get("stop_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if price > 0 and price not in stop_prices:
+            stop_prices.append(price)
+    return {
+        "symbol": row["symbol"],
+        "shares": shares or float(row.get("position_qty_before_sell") or 0),
+        "stop_price": stop_prices[0] if stop_prices else None,
+        "stop_prices": stop_prices,
+        "unprotected_since": row.get("created_at"),
+    }
 
 
 class RestoreDrain:
@@ -31,13 +64,14 @@ class RestoreDrain:
         self._resolve_wal_row_side = resolve_wal_row_side
         self._restore_after_unconfirmed_sell = restore_after_unconfirmed_sell
 
-    def _drain_pending_protection_restores(self) -> int:
+    def _drain_pending_protection_restores(self) -> list[dict]:
         """Re-attempt orphaned protection restores from previous sessions.
 
         For each persisted row: re-query the SELL's terminal status. If
         terminal, run finalize from the persisted specs; on success,
         delete the row. If still non-terminal, leave the row for next
-        session. Returns the number of rows successfully drained.
+        session. Returns one record per row successfully drained (symbol, shares,
+        stop price, when it was left unprotected) so the owner is told WHICH stocks.
 
         Called at the start of each pipeline session so a single bail
         doesn't leave a position permanently unprotected.
@@ -47,13 +81,11 @@ class RestoreDrain:
         except Exception as exc:
             logger.warning("drain_pending_protection_restores: DB read failed: %s", exc)
             record_guarded_outcome(db=self.db, where="drain.read_rows", exc=exc, log=logger)
-            return 0
+            return []
         if not rows:
-            return 0
+            return []
 
-        import json as _json
-
-        drained = 0
+        restored: list[dict] = []
         for row in rows:
             row_id = row["id"]
             symbol = row["symbol"]
@@ -78,7 +110,7 @@ class RestoreDrain:
                         self.db.delete_pending_protection_restore(row_id)
                     except Exception as exc:
                         record_guarded_outcome(db=self.db, where="drain.delete_after_scale_in", exc=exc, log=logger)
-                    drained += 1
+                    restored.append(_restore_record(row))
                     logger.info(
                         "drain: scale-in recovery rebuilt coverage for %s (row %d cleared)",
                         symbol,
@@ -141,7 +173,7 @@ class RestoreDrain:
                         self.db.delete_pending_protection_restore(row_id)
                     except Exception as exc:
                         record_guarded_outcome(db=self.db, where="drain.delete_after_wal_restore", exc=exc, log=logger)
-                    drained += 1
+                    restored.append(_restore_record(row))
                     logger.info(
                         "drain: WAL recovery rebuilt coverage for %s (row %d cleared)",
                         symbol,
@@ -249,7 +281,7 @@ class RestoreDrain:
                     )
                     continue
                 self.db.delete_pending_protection_restore(row_id)
-                drained += 1
+                restored.append(_restore_record(row))
                 logger.info(
                     "drain: replayed protection finalize for %s (order %s, row %d cleared)",
                     symbol,
@@ -264,9 +296,9 @@ class RestoreDrain:
                     log=logger,
                     context={"symbol": symbol, "row": row_id, "effect": "leaving row for next session"},
                 )
-        if drained:
-            logger.info("drain: cleared %d orphaned protection-restore row(s)", drained)
+        if restored:
+            logger.info("drain: cleared %d orphaned protection-restore row(s)", len(restored))
         # Proof the drain RAN. Without this, "no fault rows" is ambiguous
         # between a clean pass and a drain that was never called at all.
         record_guarded_outcome(db=self.db, where="drain.completed", log=logger)
-        return drained
+        return restored

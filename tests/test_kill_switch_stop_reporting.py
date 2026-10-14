@@ -165,7 +165,7 @@ def test_drain_keeps_the_row_open_when_the_kill_switch_blocks_the_restore(tmp_pa
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     rows = db.get_pending_protection_restores()
     assert [r["id"] for r in rows] == [row_id]
 

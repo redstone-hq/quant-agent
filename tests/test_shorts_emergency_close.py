@@ -691,7 +691,7 @@ def test_drain_sentinel_restores_buy_side_stops_for_a_short(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe.broker._restore_stop_orders.assert_called_once()
     assert pipe.broker._restore_stop_orders.call_args.kwargs.get("side") == "buy"
     db.close()
@@ -726,7 +726,7 @@ def test_drain_finalize_restores_buy_side_stops_for_a_short(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe.broker._restore_stop_orders.assert_called_once()
     assert pipe.broker._restore_stop_orders.call_args.kwargs.get("side") == "buy"
     db.close()
@@ -762,7 +762,7 @@ def test_drain_finalize_long_row_has_no_side_kwarg_unchanged(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe.broker._restore_stop_orders.assert_called_once()
     assert "side" not in pipe.broker._restore_stop_orders.call_args.kwargs
     db.close()
@@ -812,7 +812,7 @@ def test_drain_finalize_degrades_to_sell_default_when_broker_unreadable(tmp_path
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1, (
+    assert len(drained) == 1, (
         "an unreadable broker must not stall the row — it degrades to the pre-existing 'sell' default instead"
     )
     assert "side" not in pipe.broker._restore_stop_orders.call_args.kwargs, (

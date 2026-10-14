@@ -106,7 +106,7 @@ def test_drain_sentinel_branch_uses_persisted_side_not_broker_derivation(tmp_pat
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipeline.broker._restore_stop_orders.assert_called_once_with(
         "TSLA",
         cancelled,
@@ -141,7 +141,7 @@ def test_drain_normal_branch_uses_persisted_side_not_broker_derivation(tmp_path)
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipeline.broker._restore_stop_orders.assert_called_once_with(
         "TSLA",
         cancelled,
@@ -183,7 +183,7 @@ def test_drain_legacy_null_side_row_falls_back_to_broker_derivation(tmp_path, ca
     with caplog.at_level(logging.INFO):
         drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipeline.broker._restore_stop_orders.assert_called_once_with(
         "MSFT",
         cancelled,
@@ -220,7 +220,7 @@ def test_drain_legacy_null_side_row_leaves_row_when_broker_unreadable(tmp_path):
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     pipeline.broker._restore_stop_orders.assert_not_called()
     # Row is left in place for the next session's drain pass, not lost.
     assert len(db.get_pending_protection_restores()) == 1
