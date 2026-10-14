@@ -459,3 +459,27 @@ def test_a_trims_put_back_counts_only_a_covered_book(monkeypatch, status, ok):
     monkeypatch.setattr(protected_sell, "trim_book_call", lambda _o, name, *a, **k: status)
     sale = {"symbol": "NVDA", "side": "sell", "stop_specs": [], "kept_leg": dict(STOP)}
     assert seller._put_back(sale) is ok
+
+
+def test_a_claimed_sale_never_holds_the_run_open(monkeypatch):
+    """Only claimed put-offs left and their legs never confirm: the run ends now; the restore drain puts the stop back."""
+    from src.protection import put_off_sales
+
+    pipe, calls = _pipe()
+    _statuses(pipe, calls, ["pending_cancel"])
+    pipe._alert_owner_exit_declined = MagicMock()
+    clock = _Clock()
+    monkeypatch.setattr(put_off_sales, "_now", clock.now)
+    monkeypatch.setattr(put_off_sales, "_pause", clock.pause)
+    monkeypatch.setenv("SESSION_DEADLINE_EPOCH", str(clock.t + 1200))
+
+    def _session():
+        assert _sell(pipe, 100.0) is None
+        assert put_off_sales.claim_put_offs(["NVDA"]) == {"NVDA"}
+        return {"status": "ok"}
+
+    result = put_off_sales.run_owning_put_offs(pipe, _session, "no_window_session")
+    assert clock.pauses == 0 and _submits(calls) == []
+    assert [o["outcome"] for o in result["put_off_sales"]] == ["handed_back"]
+    pipe._alert_owner_exit_declined.assert_not_called()
+    pipe.db.delete_pending_protection_restore.assert_not_called()  # the row stays for the restore drain

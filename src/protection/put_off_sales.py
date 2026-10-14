@@ -44,9 +44,15 @@ from src.sentinel.guarded import record_guarded_pass
 
 logger = logging.getLogger("src.pipeline")
 
-#: Epoch clock and the pause between re-checks; module names so a test can stand in.
-_now = time.time
+#: The pause between re-checks; it and `_now` are module names so a test can stand in.
 _pause = time.sleep
+
+
+def _now() -> float:
+    """Epoch seconds on the desk's one clock (`src.trading_calendar.utc_now`)."""
+    from src.trading_calendar import utc_now
+
+    return utc_now().timestamp()
 
 
 @dataclass(eq=False)
@@ -205,9 +211,16 @@ def _recheck_all(pipeline, run: _Run, deadline: float | None) -> list:
             else:
                 outcomes[i] = outcome
         waiting = still
-        if waiting:
-            _pause(max(0.0, round_start + ceiling - time.monotonic()))
+        if not any(record.resell for _, record in waiting):
+            # Only a sale this run still owns keeps the run waiting: a claimed one
+            # got this round's read; if unsettled, the restore drain puts it back.
+            break
+        _pause(max(0.0, round_start + ceiling - time.monotonic()))
     for i, record in waiting:
+        if not record.resell:
+            why = "handed back to its decider; its stop goes back when the broker confirms (restore drain)"
+            outcomes[i] = {"symbol": record.symbol, "label": record.sale["label"], "outcome": "handed_back", "why": why}
+            continue
         bound = "the run's bound passed first" if deadline is not None else "no run deadline is known"
         outcomes[i] = _not_sold(run, record, f"{record.reason}; {bound}")
     return [outcomes[i] for i in range(len(first))]

@@ -169,7 +169,9 @@ class CancelledEntries(int):
 
 def now_iso() -> str:
     """The desk's clock at a cancel request, as the broker reports times."""
-    return datetime.now(UTC).isoformat()
+    from src.trading_calendar import utc_now
+
+    return utc_now().isoformat()
 
 
 def _read_leg(broker: Any, order_id: str):

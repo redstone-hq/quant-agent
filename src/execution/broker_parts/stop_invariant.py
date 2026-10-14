@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from src.execution.broker_parts.cancel_confirm import _confirm_cancels_status
+from src.execution.broker_parts.cancel_confirm import _confirm_cancels_status, settle_legs
 from src.execution.broker_parts.stop_window import UnprotectedWindow
 from src.execution.order_gates import _FRACTIONAL_QTY_EPSILON, _split_protective_qty
 from src.sentinel.guarded import record_guarded_pass
@@ -412,6 +412,20 @@ def _held_on(placer, symbol: str, side: str) -> float:
     return _r(held) if _r(held) > 0 else 0.0
 
 
+def _unsold_legs(placer, symbol: str, specs: list[dict] | None) -> list[dict]:
+    """The legs that did not sell. A leg the broker reports filled is nothing to put
+    back (`_restore_stop_orders` skips it), so held must go to the others, never to it."""
+    with_id = [s for s in specs or [] if s.get("id")]
+    if not with_id:
+        return list(specs or [])
+    try:
+        settled = settle_legs(placer, with_id)
+    except Exception as exc:  # noqa: BLE001
+        record_guarded_pass(placer, "cover_to_held.leg_read", exc, log=logger, context={"symbol": symbol})
+        return list(specs or [])
+    return [s for s in specs or [] if not s.get("id") or getattr(settled.leg(s["id"]), "status", None) != "filled"]
+
+
 def cover_to_held(placer, symbol: str, specs: list[dict], *, side: str = "sell") -> bool:
     """Put protective cover back UP TO what is held now, never above it.
 
@@ -432,7 +446,7 @@ def cover_to_held(placer, symbol: str, specs: list[dict], *, side: str = "sell")
         return True
     sized: list[dict] = []
     room = held
-    for spec in specs or []:
+    for spec in _unsold_legs(placer, symbol, specs):
         take = _qty(spec) if room is None else min(_qty(spec), room)
         if take > 0:
             sized.append(spec if take == _qty(spec) else {**spec, "qty": take})

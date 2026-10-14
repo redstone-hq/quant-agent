@@ -274,3 +274,20 @@ def test_a_broker_that_never_confirms_puts_the_sale_off():
     assert _sell(pipe, 100.0) is None
     assert pipe._last_stop_clear_refusal == "cancel_unconfirmed"
     assert not [c for c in calls if c[0] == "submit"]
+
+
+def test_put_back_never_hands_held_to_a_leg_that_sold():
+    """Legs of 60 and 40, the 60 filled while cancelling, 40 held: the 40 goes to the leg that can be placed."""
+    from src.execution.broker_parts.stop_invariant import cover_to_held
+
+    statuses = {"s60": "filled", "s40": "canceled"}
+    fills = {"s60": "60", "s40": "0"}
+    placer = MagicMock()
+    placer.get_positions.return_value = [SimpleNamespace(symbol="NVDA", qty=40.0)]
+    placer.wait_for_order_terminal.side_effect = lambda order_id, **_kw: statuses[order_id]
+    placer.client.get_order_by_id.side_effect = lambda order_id: SimpleNamespace(filled_qty=fills[order_id])
+    placer._restore_stop_orders.return_value = (1, [])
+    legs = [dict(STOP, id="s60", qty=60.0), dict(STOP, id="s40", qty=40.0)]
+    assert cover_to_held(placer, "NVDA", legs)
+    (args, _kw) = placer._restore_stop_orders.call_args
+    assert [(s["id"], s["qty"]) for s in args[1]] == [("s40", 40.0)]
