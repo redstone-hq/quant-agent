@@ -19,6 +19,13 @@ analysis`, `begin_call`, `before_provider_attempt`):
 - A paid route is never admitted, so a free attempt that fails over to a paid
   fallback is refused at `before_provider_attempt` and the seat is recorded
   lost (PaidAnalysisSuspended), not silently skipped.
+
+Owner ruling 2026-10-14: the end-of-day ("close") review of held stocks runs
+even after the day's AI budget is spent (12 Oct: cap tripped 13:19 ET, close
+made 0 paid calls; 9/13/14 Oct the close cost $0.0072/$0.0068/$0.0034). The
+sessions in `DAILY_CAP_EXEMPT_MODES` are not stopped by the DAILY cap only --
+see `daily_cap_applies`. Their own session cost cap, the call-count backstop
+and every hard latch still bind, which is what bounds the exemption.
 """
 
 from __future__ import annotations
@@ -29,6 +36,14 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 MONEY_CAP_TRIGGERS = frozenset({"daily_cost_limit", "session_cost_limit"})
+
+DAILY_CAP_EXEMPT_MODES = frozenset({"close"})
+
+
+def daily_cap_applies(mode: str | None) -> bool:
+    """False only for a session mode the owner exempted from the DAILY money cap."""
+
+    return mode not in DAILY_CAP_EXEMPT_MODES
 
 
 def is_free_route(model: str | None) -> bool:
