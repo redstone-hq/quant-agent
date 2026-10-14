@@ -29,6 +29,7 @@ from src.notifier.sections import (
 )
 from src.notifier.category import (
     SUPPRESSED,
+    SuppressedSend,
     filtered_by_category,
     resolve_risk_only,
 )
@@ -38,7 +39,7 @@ from src.notifier.markup import (
     _escape_with_markup,
     _linkify_symbols,
 )
-from src.notifier.owner_alert_delivery import deliver_with_outcome
+from src.notifier.owner_alert_delivery import SendResult, deliver_with_outcome
 
 
 def send(
@@ -91,8 +92,13 @@ def send_once(
     kind: str = "generic",
     run_id: str | None = None,
     category: str | None = None,
-) -> bool:
-    """ONE delivery attempt. Returns True on success.
+) -> SendResult | SuppressedSend:
+    """ONE delivery attempt. Returns its `SendResult`.
+
+    Truthy only when the message landed. A refusal carries Telegram's own
+    `description` and `status_code`; a landed message carries its
+    `message_id`. A deliberate mute / category drop returns `SUPPRESSED`
+    (settled, not a failure), as `send` does.
 
     Not the public entry point: `TelegramNotifier.send` is, and it runs
     this through the retry-and-record funnel. Called directly only by
@@ -105,7 +111,7 @@ def send_once(
     care), `run_id` ties it back to `agent_logs`/`session_reports`
     when a run produced this message. Neither changes delivery.
 
-    - No-op when not enabled (returns False).
+    - No-op when not enabled (returns a failed result).
     - Escapes `text` and sends with `parse_mode="HTML"` — a stray
       underscore/asterisk/`<`/`&` in a ticker or a rationale must not
       corrupt the message or get the whole send rejected by Telegram.
@@ -154,9 +160,9 @@ def send_once(
             )
             # Deliberate and settled, not a failure: see `SuppressedSend`.
             return SUPPRESSED
-        return False
+        return SendResult(False)
     if not text:
-        return False
+        return SendResult(False)
     if filtered_by_category(
         self,
         kind=kind,
@@ -216,14 +222,14 @@ def send_once(
     delivered_text = payload["text"]
 
     try:
-        self._post_payload(payload)
+        reply = self._post_payload(payload)
         self._safe_record_send(
             kind=kind,
             status="sent",
             text=delivered_text,
             run_id=run_id,
         )
-        return True
+        return reply if isinstance(reply, SendResult) else SendResult(True)
     except Exception as exc:
         # Catch broadly on purpose — TelegramNotifier is a
         # best-effort side channel. A 429 rate-limit, a 5xx, a
@@ -237,4 +243,4 @@ def send_once(
             detail=self._redact(exc),
             run_id=run_id,
         )
-        return False
+        return SendResult.failed(exc)
