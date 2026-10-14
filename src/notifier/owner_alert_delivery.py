@@ -7,9 +7,9 @@ the return value get this behaviour without each one being edited.
 
 13 Oct 2026: a resend only helps when the answer can change. Telegram refused
 the morning report (HTTP 400, unbalanced HTML), the identical body went out
-three times, and nothing told the owner. The transport now reports each
-failed attempt as a `WireFailure` saying whether a resend can land; only
-those are retried; the last failure is written in the undelivered row. A
+three times, and nothing told the owner. Each attempt now RETURNS a
+`SendResult`, carrying a `WireFailure` that says whether a resend can land;
+only those are retried; the last failure is written in the undelivered row. A
 refusal is also sent to the owner as one plain line, using an attempt the
 refusal left unspent: the budget of `max_attempts` wire calls is never
 exceeded.
@@ -20,6 +20,7 @@ Never raises: a failing alert path must not abort the money path it reports on.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 
 from src.notifier.base import logger
 from src.notifier.category import CATEGORY_RISK, was_suppressed
@@ -54,7 +55,8 @@ class WireFailure(Exception):
     `retry_after`); a 4xx refusal — bad markup, wrong chat, revoked token —
     cannot, and resending only repeats it. `reason` keeps Telegram's own
     `error_code` and `description` for the durable record; `summary` is the
-    short form that goes to the owner.
+    short form that goes to the owner. `description` is Telegram's own words
+    alone (None when Telegram never answered, e.g. a network error).
     """
 
     def __init__(
@@ -65,24 +67,44 @@ class WireFailure(Exception):
         code: int | None = None,
         retry_after: float | None = None,
         summary: str | None = None,
+        description: str | None = None,
     ) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.description = description
         self.retryable = retryable
         self.code = code
         self.retry_after = retry_after
         self.summary = summary or reason
 
 
-def _take_wire_failure(notifier) -> WireFailure | None:
-    """The transport's report of the attempt that just failed, consumed.
+@dataclass(frozen=True)
+class SendResult:
+    """What ONE Telegram send attempt returns: whether it landed, and why not.
 
-    None for a notifier that has no transport (a duck-typed test double), or
-    for a failure raised before the wire was reached: unknown, so retried.
+    Truthy only when `ok`, so a caller that only asks "did it go?" is
+    unchanged. `description` and `status_code` are Telegram's own answer to a
+    refusal ("Bad Request: can't parse entities", 400); `message_id` is the
+    id Telegram gave a message that landed. `failure` is the full wire report
+    the retry loop reads (retryable, retry_after, summary): None for an
+    attempt that never reached the wire, which is unknown and so retried.
     """
-    take = getattr(notifier, "take_wire_failure", None)
-    failure = take() if callable(take) else None
-    return failure if isinstance(failure, WireFailure) else None
+
+    ok: bool
+    description: str | None = None
+    status_code: int | None = None
+    message_id: int | None = None
+    failure: WireFailure | None = field(default=None, repr=False, compare=False)
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    @classmethod
+    def failed(cls, exc: BaseException) -> SendResult:
+        """The result of an attempt that raised `exc` (a `WireFailure` from the wire)."""
+        if isinstance(exc, WireFailure):
+            return cls(False, exc.description, exc.code, failure=exc)
+        return cls(False)
 
 
 def _record_undelivered(
@@ -229,7 +251,7 @@ def deliver_with_outcome(
                 return False, True
             if not getattr(notifier, "enabled", True):
                 return False, False
-            failure = _take_wire_failure(notifier)
+            failure = outcome.failure if isinstance(outcome, SendResult) else None
             if failure is not None and not failure.retryable:
                 # The same body would only be refused again: say so instead.
                 break

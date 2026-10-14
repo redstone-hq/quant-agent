@@ -8,7 +8,6 @@ from __future__ import annotations
 import html
 import os
 import re
-import threading
 import requests
 from typing import Any
 
@@ -23,7 +22,7 @@ from src.notifier.category import (
     resolve_risk_only,
 )
 from src.notifier.credit_line import split_credit_line
-from src.notifier.owner_alert_delivery import WireFailure
+from src.notifier.owner_alert_delivery import SendResult, WireFailure
 from src.notifier.send_log import record_send
 from src.notifier.send_funnel import send as _public_send
 from src.notifier.send_funnel import send_once as _send_once
@@ -135,10 +134,6 @@ class TelegramNotifier:
         # one. str(...) guards against a non-str default sneaking through
         # (e.g. a test double); production always passes a validated str.
         self.mission_control_url = str(mission_control_url or "").strip()
-        # The last failed wire attempt on this thread, for the retry loop
-        # (`deliver_with_outcome`); per thread because one notifier serves
-        # the scheduler and the watchdog at once.
-        self._wire_failures = threading.local()
         if not self.enabled:
             if kill_switch:
                 logger.info("TelegramNotifier: disabled via TELEGRAM_DISABLED env var")
@@ -208,18 +203,12 @@ class TelegramNotifier:
     send_once = _send_once
     send = _public_send
 
-    def _note_wire_failure(self, failure: WireFailure) -> WireFailure:
-        self._wire_failures.value = failure
-        return failure
-
-    def take_wire_failure(self) -> WireFailure | None:
-        """The failure of this thread's last wire attempt, consumed on read."""
-        failure = getattr(self._wire_failures, "value", None)
-        self._wire_failures.value = None
-        return failure
-
-    def _post_payload(self, payload: dict) -> None:
+    def _post_payload(self, payload: dict) -> SendResult:
         """The one sendMessage wire call; raises `WireFailure` on any failure.
+
+        On success it returns the `SendResult` (status code and Telegram's
+        message id); a failure travels in the exception, and `send_once`
+        turns it into the failed `SendResult` it returns.
 
         Lives here, not in `send_funnel`, because this module is the cleared
         outbound-client site: the replay guard names it as the seam for
@@ -231,7 +220,6 @@ class TelegramNotifier:
         of the bare "400 Client Error" `raise_for_status` gives, and says
         whether a resend can land. `send_once` records `str(exc)`.
         """
-        self._wire_failures.value = None
         response = None
         try:
             response = requests.post(
@@ -250,7 +238,7 @@ class TelegramNotifier:
             )
             refused = failure
         else:
-            return
+            return self._landed(response)
         # Built and raised OUTSIDE the except block, `from None`: the
         # `requests` exception carries the token in its URL, and a chained
         # or in-flight one is printed by any traceback logged later (the
@@ -258,7 +246,18 @@ class TelegramNotifier:
         # reason travels on.
         if not isinstance(refused, WireFailure):
             refused = self._refusal(refused, response)
-        raise self._note_wire_failure(refused) from None
+        raise refused from None
+
+    def _landed(self, response: Any) -> SendResult:
+        """The result of a send Telegram accepted: its status and the new message's id."""
+        result = self._json_body(response).get("result")
+        message_id = result.get("message_id") if isinstance(result, dict) else None
+        status = getattr(response, "status_code", None)
+        return SendResult(
+            True,
+            status_code=status if isinstance(status, int) else None,
+            message_id=message_id if isinstance(message_id, int) else None,
+        )
 
     def _refusal(self, exc: Exception, response: Any) -> WireFailure:
         """Telegram's reason for refusing a send, from its JSON body.
@@ -283,6 +282,7 @@ class TelegramNotifier:
             retryable=code is None or code == 429 or code >= 500,
             code=code,
             retry_after=float(retry_after) if isinstance(retry_after, (int, float)) else None,
+            description=description if isinstance(description, str) and description else None,
         )
 
     def _api_url(self, method: str) -> str:

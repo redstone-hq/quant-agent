@@ -406,6 +406,7 @@ class ExitEngineMixin:
         metric_deltas: dict | None = None,
         risk_vetoed_symbols: set[str] | None = None,
         position_facts: dict | None = None,
+        same_rules_allowed: set[str] | None = None,
     ) -> list[dict]:
         """Dispatch LLM-recommended SELL / REDUCE / TRAIL_STOP / COVER actions
         to broker.
@@ -545,6 +546,7 @@ class ExitEngineMixin:
             risk_vetoed_symbols=risk_vetoed_symbols,
             already_trimmed=already_trimmed,
             acted_today=acted_today,
+            same_rules_allowed=frozenset(str(s).strip().upper() for s in (same_rules_allowed or ())),
         )
 
         for action_item in _actions_with_scan_fallback(
@@ -668,7 +670,9 @@ class ExitEngineMixin:
                         verdict.reason,
                     )
                     if alignment_claimed:
-                        if not verdict.exit_cleared:
+                        # A sale the same-rules gate decided keeps this as an
+                        # evidence row only (owner 2026-10-13: one standard).
+                        if not verdict.exit_cleared and not _loop.gate_decided(symbol, act):
                             continue
                         # Carry the chart's own words into the order reason
                         # so the owner and the other seats read WHY, not
@@ -724,11 +728,12 @@ class ExitEngineMixin:
                         run_id=run_id,
                         action=act,
                         code=CODE_UNRECOGNIZED_TRIGGER,
-                        dropped=True,
+                        dropped=not _loop.gate_decided(symbol, act),
                         detail=f"{act}: {str(reason_text)[:400]}",
                         layer="hard_trigger",
                     )
-                    continue
+                    if not _loop.gate_decided(symbol, act):
+                        continue
                 if trigger_judgment == "uncertain":
                     logger.error(
                         "Position reviewer: hard-trigger recogniser raised "

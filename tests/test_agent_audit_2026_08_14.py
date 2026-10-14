@@ -202,7 +202,11 @@ def test_f6_rm_prompt_declares_the_new_inputs() -> None:
     # halving into deterministic code: RM is told the state, not made the
     # enforcer of a rule it can only ask about.
     assert "**Drawdown state**" in text
-    assert "Holding-discipline compliance" in text
+    # Owner ruling 2026-10-13 ("same rules as buying") replaced item 8:
+    # RM no longer audits exits for triggers; one deterministic gate decides
+    # every judgement sale after it.
+    assert "Sales are not yours to judge" in text
+    assert "Holding-discipline compliance" not in text
     # Audit §1.3 — the Portfolio Risk block RM's sizing_sanity step now reads.
     assert "Portfolio Risk" in text
 

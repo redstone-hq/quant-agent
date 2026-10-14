@@ -86,6 +86,20 @@ if TYPE_CHECKING:
     from src.pipeline import TradingPipeline
 
 
+def _record_held_bar(pipeline, ctx, positions, analyses) -> None:
+    """`ctx.held_bar_record` from THIS run's deterministic prompt assembly —
+    the one place the held-direction entry bar is built, paid manager or not
+    (owner rulings 12 and 13 Oct 2026). A failure leaves no record, and no
+    record means no judgement sale (unknown never sells)."""
+    try:
+        from src.exits.same_rules_gate import held_bar_record_from_assembly
+
+        ctx.held_bar_record = held_bar_record_from_assembly(pipeline.portfolio_manager, positions, analyses)
+    except Exception as exc:  # noqa: BLE001 — no record = no judgement sale
+        logger.warning("held-bar record not built (%s) — no judgement sale this run", exc)
+        ctx.held_bar_record = None
+
+
 class DecisionStage:
     """Build PM memory layers → call PM → run Constructor.
 
@@ -229,6 +243,14 @@ class DecisionStage:
         # `candidate_ranked` event, beside the recorded-only reward:risk, off
         # the same preview. Never shown to the PM, never ranks or sizes.
         velocity_by_symbol: dict[str, dict] = {}
+        # Owner ruling 2026-10-13 (same rules): the refusal snapshot below
+        # holds only THIS run's refusals. A refusal carried from an earlier
+        # run (not yet drained by entry orders) is set aside before the
+        # preview and restored after it, so it is still filed exactly once.
+        from src.exits.same_rules_gate import restore_carried_refusals, set_aside_carried_refusals
+
+        _constructor = getattr(pipeline, "portfolio_constructor", None)
+        _carried_refusals = set_aside_carried_refusals(_constructor)
         for _a in analyses:
             _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
             try:
@@ -269,6 +291,7 @@ class DecisionStage:
                 or {}
             ).items()
         }
+        restore_carried_refusals(_constructor, _carried_refusals)
 
         # Margin capacity for the PM prompt — WORDING ONLY. Reuses the
         # EXACT §11.2 computation the execution submit loop uses to size
@@ -415,6 +438,8 @@ class DecisionStage:
         if pm_skip_reason:
             portfolio_decision, pm_result = None, None
             pm_dropped_targets, pm_blocked, pm_ranked = [], {}, []
+            # Built below, after the PM-free assembly (owner 12 Oct 2026).
+            ctx.held_bar_record = None
         else:
             portfolio_decision, pm_result = pipeline.portfolio_manager.decide(
                 **pm_decide_kwargs,
@@ -427,6 +452,11 @@ class DecisionStage:
             pm_blocked = dict(_pm_blocked) if isinstance(_pm_blocked, dict) else {}
             _pm_ranked = getattr(pipeline.portfolio_manager, "last_candidate_ranking", None)
             pm_ranked = list(_pm_ranked) if isinstance(_pm_ranked, list) else []
+            # Same rules as buying (owner 2026-10-13): THIS run's entry-rule
+            # record for every holding, in the holding's own direction, read
+            # from the assembly `decide()` just ran, before the accounting
+            # re-ask resets `last_blocked`.
+            _record_held_bar(pipeline, ctx, positions, analyses)
         # Board item 78: same "read NOW" reason — the accounting re-ask
         # resets the heal record too. One durable row per name, whether the
         # heal worked or not.
@@ -591,8 +621,14 @@ class DecisionStage:
                 pm_status=(f"skipped:{pm_skip_reason}" if pm_skip_reason else "failed"),
             )
             if portfolio_decision is None:
+                ctx.held_bar_record = None
                 ctx.portfolio_decision = None
                 return ctx
+            # Owner 12 Oct 2026: the record does not wait on the paid answer.
+            # The PM-free step above just ran the same deterministic assembly
+            # (`build_user_message`), so the same-rules gate judges every
+            # holding on this run's entry rules with no manager answer.
+            _record_held_bar(pipeline, ctx, positions, analyses)
 
         # The PM's own reasoning, targets, sizing narrative and candidate
         # accounting exist only when the PM answered. The accounting can
@@ -745,11 +781,17 @@ class DecisionStage:
         # Item 112 — and the RAW seat verdicts behind it, BEFORE any admission
         # gate. The cut order must rank seat conviction about a HOLDING, and
         # `last_candidate_ranking` cannot serve: it is the post-
-        # `candidate_eligibility`, post-conviction-bar ENTRY survivor list, and
-        # the bar's STAY side is opposition-only by owner ruling (2026-09-25) —
-        # a held name that fails the entry bar on soft grounds is dropped from
-        # it with no cull reason because "it earns its right to STAY".
+        # `candidate_eligibility`, post-conviction-bar ENTRY survivor list.
+        # Owner ruling 2026-10-13 ("same rules should apply") supersedes the
+        # 25 Sep opposition-only STAY text: one rule decides buys and
+        # judgement sales (`src/exits/same_rules_gate.py`), and the gate reads
+        # THESE verdicts, built with positions so both sides see one macro
+        # sector view.
         try:
+            from datetime import date as _date
+
+            from src.trading_calendar import session_date_key as _session_key
+
             ctx.seat_verdicts = PortfolioManagerAgent._collect_seat_verdicts(
                 analyses=analyses,
                 news_intel=news_intel,
@@ -757,6 +799,8 @@ class DecisionStage:
                 earnings_analyses=earnings_results,
                 smart_money_findings=ctx.smart_money_findings,
                 symbol_sectors=dict(ctx.symbol_sectors or {}),
+                positions=list(positions or []),
+                asof=_date.fromisoformat(_session_key()),  # the session being decided
             )
         except Exception as exc:  # noqa: BLE001
             # Best-effort like the collector itself: no verdicts means the cut

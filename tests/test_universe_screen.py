@@ -590,28 +590,6 @@ def test_a_failed_bar_batch_is_inconclusive():
     assert state["admitted"] == {} and "AAA" not in state["screened"]
 
 
-# ----------------------------------------------------------------- cap ----
-
-
-def test_select_for_run_caps_non_held_and_always_includes_held():
-    state = us.empty_state()
-    for sym in ("AAA", "BBB", "CCC", "DDD"):
-        us.apply_result(state, _pass(sym), today=TODAY, held=set())
-    chosen = us.select_for_run(state, held={"DDD"}, cap=2, today=TODAY)
-    assert set(chosen) == {"AAA", "BBB", "DDD"}
-    assert chosen["DDD"]["held"] is True
-
-
-def test_select_for_run_rotates_least_recently_offered_first():
-    state = us.empty_state()
-    for sym in ("AAA", "BBB", "CCC"):
-        us.apply_result(state, _pass(sym), today=TODAY, held=set())
-    first = us.select_for_run(state, held=set(), cap=2, today=TODAY)
-    second = us.select_for_run(state, held=set(), cap=2, today=TODAY + timedelta(days=1))
-    assert set(first) == {"AAA", "BBB"}
-    assert "CCC" in second
-
-
 # ------------------------------------------------------- pipeline wiring ----
 
 
@@ -628,8 +606,10 @@ def _fake_listing(**records):
 @pytest.fixture(autouse=True)
 def _side_door_listing(monkeypatch):
     """The side door reads size, sector and fund type from the Nasdaq listing,
-    never the network in a test: one stand-in listing per test."""
+    never the network in a test: one stand-in listing per test. A fund's
+    Yahoo category read answers blank (the fund stays undecided)."""
     monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing())
+    monkeypatch.setattr("src.universe_daily._yahoo_reader", lambda: lambda symbol: {})
 
 
 def _pipeline(tmp_path, *, enabled=True):
@@ -812,21 +792,6 @@ def test_form4_age_gate_is_off_with_the_screen(tmp_path, monkeypatch):
     assert pipeline.admission._admit_transient_smart_money_symbols([_purchase(364)])[0] == {"ACME"}
 
 
-def test_screened_universe_reaches_the_session_capped(tmp_path):
-    pipeline = _pipeline(tmp_path)
-    store = us.UniverseStore(tmp_path)
-    state = us.empty_state()
-    for sym in ("AAA", "BBB", "CCC", "DDD", "EEE"):
-        us.apply_result(state, _pass(sym), today=TODAY, held=set())
-    store.save(state)
-    symbols, details = pipeline.admission._admit_screened_universe_symbols(
-        [SimpleNamespace(symbol="EEE")],
-    )
-    assert "EEE" in symbols
-    assert len(symbols - {"EEE"}) == 3  # nominations.max_per_seat_per_run
-    assert details["AAA"]["reason"] == "universe_screen_admission"
-
-
 def test_screened_universe_is_empty_when_off(tmp_path):
     pipeline = _pipeline(tmp_path, enabled=False)
     state = us.empty_state()
@@ -884,3 +849,40 @@ def test_morning_message_is_silent_about_the_screen_when_it_is_off():
 
     text = format_session_result("morning", {"status": "ok", "run_id": "m"}, 1.0)
     assert "Stock list" not in text
+
+
+def test_select_for_run_caps_non_held_and_always_includes_held():
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC", "DDD"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    chosen = us.select_for_run(state, held={"DDD"}, cap=2, today=TODAY)
+    assert set(chosen) == {"AAA", "BBB", "DDD"}
+    assert chosen["DDD"]["held"] is True
+
+
+def test_select_for_run_rotates_least_recently_offered_first():
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    first = us.select_for_run(state, held=set(), cap=2, today=TODAY)
+    second = us.select_for_run(state, held=set(), cap=2, today=TODAY + timedelta(days=1))
+    assert set(first) == {"AAA", "BBB"}
+    assert "CCC" in second
+
+
+# ------------------------------------------------------- pipeline wiring ----
+
+
+def test_screened_universe_reaches_the_session_capped(tmp_path):
+    pipeline = _pipeline(tmp_path)
+    store = us.UniverseStore(tmp_path)
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC", "DDD", "EEE"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    store.save(state)
+    symbols, details = pipeline.admission._admit_screened_universe_symbols(
+        [SimpleNamespace(symbol="EEE")],
+    )
+    assert "EEE" in symbols
+    assert len(symbols - {"EEE"}) == 3  # nominations.max_per_seat_per_run
+    assert details["AAA"]["reason"] == "universe_screen_admission"

@@ -226,16 +226,17 @@ class AdmissionService:
         from src.data.fund_category import FundCategoryStore
         from src.data.nasdaq_fetch import fetch_json
         from src.data.nasdaq_listing import ListingUnavailable, load_listing
-        from src.universe_daily import _profile_reader
+        from src.universe_daily import _profile_reader, fund_category_reader
 
         try:
             listing = load_listing(fetch=fetch_json)
         except ListingUnavailable as exc:
             logger.warning("universe screen: Nasdaq listing unavailable: %s", exc)
             listing = None
-        # A fund's category is what the nightly pass kept in the desk database
-        # (src/data/fund_category.py); the side door never reads Yahoo. No
-        # database (a stand-alone service) leaves every fund inconclusive.
+        # A fund's category is what is kept in the desk database
+        # (src/data/fund_category.py); a fund with none kept gets one Yahoo
+        # read at the screen's profile stage, kept for next time, so this path
+        # decides funds too (2026-10-14). A failed read leaves it undecided.
         store = FundCategoryStore(getattr(getattr(self.config, "storage", None), "db_path", None))
         _profile = _profile_reader(listing, _canonicalize_sector, store)
 
@@ -257,6 +258,7 @@ class AdmissionService:
             get_profile=_profile,
             get_filings=_filings,
             get_role=get_role,
+            get_fund_category=fund_category_reader(store),
         )
 
     def _evaluate_screened_admission(

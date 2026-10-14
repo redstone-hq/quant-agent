@@ -35,3 +35,12 @@ class MiddayLoop:
     #: object the method holds: cuts submitted later in the pass append to
     #: it, and the spent-trigger phase must see those appends.
     acted_today: list | None
+    #: Holdings whose judgement sale the same-rules gate already decided
+    #: (owner 2026-10-13): no second hold-side check may drop it.
+    same_rules_allowed: frozenset = frozenset()
+
+    def gate_decided(self, symbol, act) -> bool:
+        """True when the same-rules gate already decided this judgement sale."""
+        return str(act or "").upper() in ("SELL", "REDUCE", "COVER") and (
+            str(symbol or "").strip().upper() in self.same_rules_allowed
+        )

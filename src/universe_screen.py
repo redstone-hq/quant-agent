@@ -791,6 +791,8 @@ class ScreenSources:
     get_filings(symbol) -> [(form, filing_date, items[, locator])] | None (None = no SEC issuer)
     get_role(locator) -> "target" | "bidder" | "not_target" | "undetermined"
         (None = no role reader; an open takeover filing is then undetermined)
+    get_fund_category(symbol) -> str | None   (Yahoo's category for a fund the
+        profile has none for; None = no reader, the fund stays undecided)
     """
 
     get_asset: Callable[[str], Any]
@@ -798,6 +800,27 @@ class ScreenSources:
     get_profile: Callable[[str], dict | None]
     get_filings: Callable[[str], list | None]
     get_role: Callable[[Any], str] | None = None
+    get_fund_category: Callable[[str], str | None] | None = None
+
+
+def _fill_fund_category(symbol: str, profile, read: Callable[[str], str | None] | None):
+    """A fund with no category on record gets one read here, after the free
+    bar checks passed, so every path through the screen (the weekly scan and
+    the side doors) decides a fund instead of leaving it undecided (board
+    item "weekly market scan, with funds", 2026-10-14). No reader, an error
+    or a blank answer leaves it undecided: never admitted."""
+    if read is None or not isinstance(profile, dict) or not profile.get("fund_category_not_listed"):
+        return profile
+    try:
+        category = str(read(symbol) or "").strip()
+    except Exception as exc:  # noqa: BLE001 -- could not read: the fund stays undecided
+        logger.warning("universe screen: fund category read failed for %s: %s", symbol, exc)
+        return profile
+    if not category:
+        return profile
+    filled = {k: v for k, v in profile.items() if k != "fund_category_not_listed"}
+    filled["category"] = category
+    return filled
 
 
 def screen_symbol(
@@ -848,6 +871,7 @@ def screen_symbol(
     if failures:
         result.failures = failures
         return result
+    profile = _fill_fund_category(symbol, profile, sources.get_fund_category)
     failures, measured = check_profile(profile, th, _field(asset, "name", "") or "")
     result.measured.update(measured)
     if failures or measured.get("fund"):

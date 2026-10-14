@@ -33,8 +33,10 @@ def _fake_listing(**records):
 @pytest.fixture(autouse=True)
 def _side_door_listing(monkeypatch):
     """The side door reads size, sector and fund type from the Nasdaq listing,
-    never the network in a test: one stand-in listing per test."""
+    never the network in a test: one stand-in listing per test. A fund's
+    Yahoo category read answers blank (the fund stays undecided)."""
     monkeypatch.setattr("src.data.nasdaq_listing.load_listing", lambda *, fetch: _fake_listing())
+    monkeypatch.setattr("src.universe_daily._yahoo_reader", lambda: lambda symbol: {})
 
 
 def _bars(n=300, price=50.0):
@@ -163,8 +165,8 @@ def _fund_listing(name="SPDR S&P 500 ETF Trust"):
 
 
 def test_side_door_admits_a_fund_with_a_stored_plain_category(tmp_path, monkeypatch):
-    """Owner ruling 2026-10-13: SPY-like funds come in on the category the
-    nightly pass kept in the desk database; the side door never reads Yahoo."""
+    """Owner ruling 2026-10-13: SPY-like funds come in on the category kept
+    in the desk database (here Yahoo answers blank, so only the kept one)."""
     from datetime import date
 
     from src.data.fund_category import FundCategoryStore
