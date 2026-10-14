@@ -999,6 +999,18 @@ def test_risk_stage_records_visible_event_when_rm_zeroes_a_sell():
         portfolio_view="test",
     )
 
+    # Owner ruling 13 Oct 2026 (same rules as buying): a PM sale is decided by
+    # the same-rules gate, and unknown never sells, so with no technical read
+    # this sale would now be refused before the RM step. This run's technical
+    # read opposes the held long, so the gate allows it and the RM-zeroing
+    # behaviour below is still what this test checks.
+    from types import SimpleNamespace
+
+    ctx.seat_verdicts = [
+        SimpleNamespace(seat="technical", symbol="XLE", direction="bearish", invalidation="x", evidence=[object()])
+    ]
+    ctx.held_bar_record = {"XLE": ()}
+
     stage = RiskStage(pipeline=pipeline)
     result = stage.run(ctx)
 
