@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from src.intraday.no_room_text import no_room_sentence  # noqa: F401 -- re-exported
 from src.risk.min_risk import min_risk_shortfall
@@ -33,20 +34,6 @@ def _num(value) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
-
-
-def _held_same_side_usd(positions, symbol: str, direction: str) -> float:
-    """Market value already held on this side; the floor reads the WHOLE position."""
-    for p in positions or []:
-        get = p.get if isinstance(p, dict) else lambda k, _p=p: getattr(_p, k, None)
-        if str(get("symbol") or "").upper() != symbol:
-            continue
-        mv = _num(get("market_value"))
-        if mv is None:
-            return 0.0
-        if (mv > 0 and direction == "long") or (mv < 0 and direction == "short"):
-            return abs(mv)
-    return 0.0
 
 
 @dataclass(frozen=True)
@@ -161,20 +148,17 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols, sold_symbols=()) 
         except Exception as exc:  # noqa: BLE001 -- no stop = cannot make the call worthwhile
             logger.warning("buying room: entry/stop preview failed for %s: %s", symbol, exc)
             preview = None
-        min_notional = None
+        needed = None
         if isinstance(preview, tuple) and len(preview) == 3:
             check = min_risk_shortfall(
                 position_notional=None, entry=preview[0], stop=preview[1], equity=equity, floor_pct=floor
             )
-            min_notional = check.min_notional
-        needed = None
-        if min_notional is not None:
-            needed = max(0.0, min_notional - _held_same_side_usd(positions, symbol, direction))
-        # A short does not draw on the settled-cash fallback (D11); a gross
-        # ladder budget it consumes like a long.
-        fits = needed is not None and (
-            (headroom > 0 and needed <= headroom) or (direction == "short" and not ladder_backed)
-        )
+            needed = check.min_notional
+        # ONE definition of room, either side, held or not: the headroom must
+        # reach this mover's own minimum position. A share already held does
+        # not shrink it (a held name counted as room on ANY headroom, 13 Oct
+        # 18:57 VLO/META at $186), and a short gets no settled-cash exemption.
+        fits = needed is not None and headroom > 0 and needed <= headroom
         rows.append(
             {
                 "symbol": symbol,
@@ -188,3 +172,63 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols, sold_symbols=()) 
     if sold_symbols:
         note = f"{note}; after selling {', '.join(sorted(sold_symbols))} below the entry bar"
     return BuyingRoom(headroom, note, bool(ladder_backed), floor, ceiling_x, rows)
+
+
+#: the seats whose fresh read can justify a sale by judgement
+_RESEARCH_SEATS = ("news_analyst", "earnings_analyst")
+_BUY_CLASS = {"long": ("buy", "strong_buy"), "short": ("sell", "strong_sell")}
+
+
+def _stamp(text) -> datetime | None:
+    if not isinstance(text, str) or not text:
+        return None
+    try:
+        when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)  # SQLite and broker stamps are UTC
+
+
+def judgement_sale_reasons(pipeline, ctx, analyses) -> list[str]:
+    """Why a paid PM call could still SELL by judgement when no new position fits; empty when nothing can.
+
+    Selling uses the same rules as buying (owner 2026-10-13): a holding whose
+    latest chart read is no longer in its own side's buy class, a news or
+    earnings read since the last PM call, or an exit fill (stop or sale)
+    since the last PM call that freed cash. A record that cannot be read
+    counts as a reason: the call then runs, the behaviour before this skip.
+    """
+    from src.trade_actions import is_position_exit_action
+
+    reasons: list[str] = []
+    rating = {str(a.symbol).upper(): a.rating for a in analyses or ()}
+    for p in ctx.positions or []:
+        mv = _num(p.get("market_value") if isinstance(p, dict) else getattr(p, "market_value", None))
+        side = "long" if mv is not None and mv > 0 else "short" if mv is not None and mv < 0 else None
+        read = rating.get(_sym(p))
+        if side and read is not None and read not in _BUY_CLASS[side]:
+            reasons.append(f"held {_sym(p)} chart read now {read}")
+    db = pipeline.db
+    try:
+        row = db.execute("SELECT MAX(timestamp) FROM agent_logs WHERE agent_name = 'portfolio_manager'").fetchone()
+        last_pm = _stamp(row[0] if row else None)
+        if last_pm is None:
+            return reasons
+        research = db.execute(
+            "SELECT agent_name, timestamp FROM agent_logs WHERE agent_name IN (?, ?) ORDER BY id DESC LIMIT 20",
+            _RESEARCH_SEATS,
+        ).fetchall()
+        fills = db.execute(
+            "SELECT symbol, action, COALESCE(filled_at, timestamp) FROM current_account_trades "
+            "WHERE fill_status = 'filled' ORDER BY id DESC LIMIT 50"
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001 -- unreadable: call the PM as before
+        logger.warning("buying room: judgement-sale record unreadable (%s); the PM call runs", exc)
+        return [*reasons, f"judgement-sale record unreadable: {exc}"]
+    reasons += [f"{seat} read at {when}" for seat, when in research if (_stamp(when) or last_pm) > last_pm]
+    reasons += [
+        f"{action} {symbol} filled at {when}"
+        for symbol, action, when in fills
+        if is_position_exit_action(action) and (_stamp(when) or last_pm) > last_pm
+    ]
+    return reasons
