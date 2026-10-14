@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent.parent
@@ -92,6 +93,19 @@ def catalyst_symbols(active_state_changes: str) -> set[str]:
     return out
 
 
+def session_day(selection: dict) -> date:
+    """The trading day a frozen selection was recorded on, from its provenance.
+
+    A replay judges evidence age as of THAT day, never the day the replay
+    runs: measured against today, the fixture's earnings views cross the
+    age bound one by one and the replay drifts with the calendar (14 Oct
+    2026: a 15 Jul filing turned 91 days old and the admitted set fell 25 -> 24).
+    Raises when the fixture carries no session timestamp rather than
+    falling back to today.
+    """
+    return date.fromisoformat(str(selection["_provenance"]["session_timestamp"])[:10])
+
+
 def evaluate(selection: dict, analyses, positions, news_intel) -> list[dict]:
     """One row per analysed symbol: eligible or the rules that blocked it."""
     agent = PortfolioManagerAgent.__new__(PortfolioManagerAgent)
@@ -106,6 +120,7 @@ def evaluate(selection: dict, analyses, positions, news_intel) -> list[dict]:
     )
     stale = agent.stale_evidence_sources(
         earnings_analyses=selection["earnings_analyses"],
+        asof=session_day(selection),
     )
     allowed = {
         str(s).strip().upper()
