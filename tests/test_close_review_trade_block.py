@@ -41,14 +41,14 @@ def test_winners_and_losers_day(tmp_path, monkeypatch):
         tmp_path,
         monkeypatch,
         [
-            ("A", "AAA", 100, 50, 52, 49, 200.0, "2026-10-14 14:00:00", "2026-10-14 16:00:00"),  # +2R
-            ("B", "BBB", 100, 20, 19.5, 19, -50.0, "2026-10-14 14:00:00", "2026-10-14 15:00:00"),  # -0.5R
+            ("A", "AAA", 100, 50, 52, 49, 200.0, "2026-10-14 14:00:00", "2026-10-14 16:00:00"),  # +$200
+            ("B", "BBB", 100, 20, 19.5, 19, -50.0, "2026-10-14 14:00:00", "2026-10-14 15:00:00"),  # -$50
         ],
     )
     assert "CLOSE REVIEW" in msg
-    assert "Closed today: 2 trades, 1 wins, 1 losses" in msg
-    assert "Win rate 50.0% · total +1.50R · average +0.75R" in msg
-    assert "Best AAA +2.00R · worst BBB -0.50R" in msg
+    assert "Closed today (clean record, opened since 12 Oct): 2 trades, 1 wins, 1 losses" in msg
+    assert "Win rate 50.0% · total +$150.00 · average +$75.00" in msg
+    assert "Best AAA +$200.00 · worst BBB -$50.00" in msg
     assert "Won per $1 lost: $4.00" in msg
     assert "Luck check: 2 trades with known result · odds it was luck: " in msg
     assert "unknown" not in msg.split("Closed today")[1].split("Won per $1 lost")[0]
@@ -60,18 +60,18 @@ def test_no_trades_day(tmp_path, monkeypatch):
     assert "Closed today" not in msg
 
 
-def test_unknown_r_trade_shows_unknown_not_zero(tmp_path, monkeypatch):
+def test_unrecorded_dollar_trade_shows_unknown_not_zero(tmp_path, monkeypatch):
     msg = _close_message(
         tmp_path,
         monkeypatch,
         [
             ("A", "AAA", 100, 50, 52, 49, 200.0, "2026-10-14 14:00:00", "2026-10-14 16:00:00"),
-            ("D", "DDD", 10, 10, 11, None, 10.0, "2026-10-14 14:00:00", "2026-10-14 17:00:00"),
+            ("D", "DDD", 10, 10, 11, None, None, "2026-10-14 14:00:00", "2026-10-14 17:00:00"),
         ],
     )
-    assert "Closed today: 2 trades, 2 wins, 0 losses" in msg
+    assert "Closed today (clean record, opened since 12 Oct): 2 trades, 2 wins, 0 losses" in msg
     assert "total unknown · average unknown" in msg
-    assert "Best AAA +2.00R" in msg
+    assert "Best AAA +$200.00" in msg
     assert "odds it was luck: unknown" in msg
 
 
