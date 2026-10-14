@@ -56,6 +56,8 @@ class PositionReviewSession:
         release_retired_cash_park,
         require_paid_analysis,
         risk_review_exits,
+        structural_protection_for_holding=None,
+        build_position_history=None,
         run_news_update,
         substantiate_exit_triggers,
         surface_reconcile_outcomes,
@@ -125,6 +127,8 @@ class PositionReviewSession:
         self._release_retired_cash_park = release_retired_cash_park
         self._require_paid_analysis = require_paid_analysis
         self._risk_review_exits = risk_review_exits
+        self._structural_protection_for_holding = structural_protection_for_holding
+        self._build_position_history = build_position_history
         self._run_news_update = run_news_update
         self._substantiate_exit_triggers = substantiate_exit_triggers
         self._surface_reconcile_outcomes = surface_reconcile_outcomes
@@ -139,6 +143,110 @@ class PositionReviewSession:
         self._macro = macro
         self._macro_store = macro_store
         self._position_reviewer = position_reviewer
+
+    def _todays_technical_reads(self, positions) -> list:
+        """Today's newest technical read per holding, from the evidence rows
+        the morning and half-hour scans file (every holding is re-read on each
+        scan). A read from another day, or one that does not parse, is not
+        used: unknown never sells."""
+        from src.models import TechAnalysisResult
+        from src.trading_calendar import et_today
+
+        symbols = [str(p.symbol or "").strip().upper() for p in positions or () if str(p.symbol or "").strip()]
+        if not symbols:
+            return []
+        try:
+            rows = self._db.get_latest_symbol_evidence("analysis", symbols) or {}
+        except Exception as exc:  # noqa: BLE001 — no reads = no judgement sale, recorded durably
+            from types import SimpleNamespace
+
+            from src.sentinel.guarded_site import record_site
+
+            record_site(SimpleNamespace(db=self._db), "same_rules_gate.technical_reads", exc, log=logger)
+            return []
+        today = str(et_today())
+        reads = []
+        for sym, row in dict(rows).items():
+            if not str((row or {}).get("timestamp") or "").startswith(today):
+                continue
+            try:
+                reads.append(TechAnalysisResult.model_validate_json(row["evidence_json"]))
+            except Exception:  # noqa: BLE001 — not a technical read: unknown, never sells
+                logger.info("same-rules gate: %s evidence row is not a technical read — not used", sym)
+        return reads
+
+    def _gate_reviewer_sales(
+        self,
+        review,
+        positions,
+        *,
+        run_id: str,
+        news_intel,
+        news_ok: bool,
+        macro_analysis,
+        earnings_analyses,
+    ):
+        """Route every proposed reviewer sale through the same-rules gate and
+        record each verdict per symbol. Returns the gated review."""
+        from src.exits.same_rules_gate import HoldingViews, bought_today_from_db, gate_review_actions
+
+        self._same_rules_allowed = set()
+        if review is None:
+            return review
+        stale: dict = {}
+        try:
+            from src.agents.portfolio_manager import PortfolioManagerAgent
+            from src.trading_calendar import et_today
+
+            # The ONE verdict builder, with positions (one macro sector view)
+            # and today's newest technical read per holding (adversary 14 Oct
+            # point 2: the buy side always has the technical read).
+            verdicts = PortfolioManagerAgent._collect_seat_verdicts(
+                analyses=self._todays_technical_reads(positions),
+                news_intel=news_intel,
+                macro_analysis=macro_analysis,
+                earnings_analyses=list(earnings_analyses or []),
+                smart_money_findings=None,
+                positions=list(positions or []),
+                asof=et_today(),  # the day this review decides
+            )
+            stale = dict(PortfolioManagerAgent.stale_evidence_sources(earnings_analyses=list(earnings_analyses or [])))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("same-rules gate: reviewer seat views unavailable (%s) — no judgement sale", exc)
+            verdicts = []
+        stale_earnings = frozenset(str(s).upper() for s, seats in stale.items() if "earnings" in set(seats or ()))
+        # The same protection read the morning path makes (stage_risk): an
+        # UNPROTECTED holding's sale is protective and passes ungated here too.
+        protection_bases = _reviewer_protection_bases(self, review, positions, run_id=run_id)
+        views = {}
+        for p in positions or []:
+            sym = (p.symbol or "").strip().upper()
+            if not sym:
+                continue
+            views[sym] = HoldingViews(
+                symbol=sym,
+                is_short=bool(p.qty < 0),
+                seat_verdicts=tuple(verdicts),
+                eligibility_reasons=None,
+                unknown_seats=() if news_ok else ("news",),
+                bought_today=bought_today_from_db(self._db, sym),
+                stale_earnings=stale_earnings,
+                protection_basis=protection_bases.get(sym),
+            )
+        gated, outcomes = gate_review_actions(review, views)
+        self._same_rules_allowed = {v.symbol for v in outcomes if v.sell_allowed}
+        for v in outcomes:
+            logger.warning("Same-rules gate (reviewer): %s %s — %s", v.symbol, v.basis, v.detail)
+            try:
+                self._db.record_intraday_evaluation(
+                    symbol=v.symbol,
+                    run_id=run_id,
+                    status=f"same_rules_gate_{v.basis}",
+                    detail=v.detail[:500],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("same-rules gate: audit row for %s not written (%s)", v.symbol, exc)
+        return gated
 
     def run(self, session_type: str) -> dict:
         """Unified entry for both midday (13:00 ET) and close (15:30 ET).
@@ -739,9 +847,28 @@ class PositionReviewSession:
             # should not depend on one remembering to propose a move.
             orders.extend(self._apply_deterministic_trails(review_positions, run_id=run_id))
 
-            # Phase 3.4 — AGENTS.md puts AI Risk in the chain for exits
-            # as well as entries. Until this landed the entire sell side
-            # skipped the veto layer the buy side has always had.
+            # SAME RULES AS BUYING — owner ruling 2026-10-13. The reviewer
+            # only PROPOSES a sale; `src/exits/same_rules_gate.py` decides
+            # it. A proposed SELL/COVER (including a "stalled pace" one)
+            # survives only when the holding FAILS a buy rule other than
+            # timing (Option A, 14 Oct: a neutral chart never sells it),
+            # judged on today's newest technical read per
+            # holding plus this session's news, macro and earnings. With no
+            # manager record (R2-R6) here, only a failure no missing view
+            # could undo can sell; a protective sale is never gated.
+            review = self._gate_reviewer_sales(
+                review,
+                review_positions,
+                run_id=run_id,
+                news_intel=session_news,
+                news_ok=bool(
+                    session_news is not None and (session_news_coverage is None or session_news_coverage.status == "ok")
+                ),
+                macro_analysis=macro_analysis_dict,
+                earnings_analyses=session_earnings,
+            )
+            # The AI Risk seat keeps its exit role (adversary 14 Oct point 5):
+            # it records an objection per stock, as the buy side keeps it.
             risk_vetoed, _exit_verdict = self._risk_review_exits(
                 review,
                 review_positions,
@@ -749,10 +876,6 @@ class PositionReviewSession:
                 total_value=total_value,
                 macro_summary=macro_summary,
                 position_facts=position_facts,
-                # This loop fetched all of these before the position
-                # reviewer ran; until 2026-09-13 none of them reached the
-                # AI Risk seat, which was then asked to audit the exits
-                # against news and drawdown state it had never been shown.
                 news_intel=session_news,
                 earnings_analyses=session_earnings,
                 cash=review_cash,
@@ -767,6 +890,7 @@ class PositionReviewSession:
                     already_trimmed_today=already_trimmed_today,
                     metric_deltas=metric_deltas,
                     risk_vetoed_symbols=risk_vetoed,
+                    same_rules_allowed=set(getattr(self, "_same_rules_allowed", None) or ()),
                     position_facts=position_facts,
                 )
             )
@@ -848,3 +972,51 @@ class PositionReviewSession:
             "total_return_pct": total_return_pct,
             "total_pnl_since": total_pnl_since,
         }
+
+
+def _reviewer_protection_bases(session, review, positions, *, run_id: str) -> dict:
+    """Per proposed judgement sale, the basis of an UNPROTECTED read — the
+    same `_structural_protection_for_holding` read the morning path makes
+    (`src/stage_risk.py`) — so an unprotected holding's reviewer sale passes
+    the same-rules gate as protective. A failed or absent read leaves the
+    holding judged on the bar; a failed bar fetch is never protective."""
+    from src.exits.same_rules_gate import is_judgement_sale
+
+    selling = {
+        str(getattr(a, "symbol", "") or "").strip().upper()
+        for a in (getattr(review, "actions", None) or [])
+        if is_judgement_sale(getattr(a, "action", None))
+    }
+    read = getattr(session, "_structural_protection_for_holding", None)
+    if not selling or not callable(read):
+        if selling:
+            logger.warning("same-rules gate (reviewer): no protection read wired; sales judged on the bar")
+        return {}
+    history: dict = {}
+    build = getattr(session, "_build_position_history", None)
+    if callable(build):
+        try:
+            history = dict(build(positions) or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("same-rules gate (reviewer): position history unavailable (%s)", exc)
+    out: dict = {}
+    for p in positions or []:
+        sym = (p.symbol or "").strip().upper()
+        if not sym or sym not in selling:
+            continue
+        hist = history.get(p.symbol) or history.get(sym) or {}
+        try:
+            protection = read(
+                symbol=sym,
+                thesis_invalid_if=hist.get("thesis_invalid_if"),
+                entry_price=hist.get("entry_price"),
+                stop_loss=hist.get("stop_loss"),
+                is_short=bool(p.qty < 0),
+                run_id=run_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("same-rules gate (reviewer): protection read failed for %s (%s)", sym, exc)
+            continue
+        if protection is not None and protection.protected is False:
+            out[sym] = protection.basis
+    return out

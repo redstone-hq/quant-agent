@@ -138,6 +138,9 @@ class StructuralProtection:
         # `raw_broken` is always False on the no-close path below, so it can
         # never manufacture a false confirmation regardless of the date
         # it's filed under.
+        # A failed or empty bar fetch is UNKNOWN, not "no chart level":
+        # it gets its own basis below so it never reads as a protective sale.
+        chart_unreadable = close_price is None
         effective_bar_date = bar_date or str(et_today())
 
         # Read the per-session break RECORDS for this position (most recent
@@ -196,6 +199,15 @@ class StructuralProtection:
             prior_break_records=prior_break_records,
             prior_session_dates=prior_session_dates,
         )
+        if chart_unreadable and check.basis == "no_chart_level":
+            import dataclasses
+
+            check = dataclasses.replace(
+                check,
+                basis="chart_unreadable",
+                detail="bars could not be read — the chart is unknown, not 'no level'; not protected, "
+                "and not a protective sale",
+            )
 
         try:
             if persist:

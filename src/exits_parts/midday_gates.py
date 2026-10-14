@@ -2,6 +2,9 @@
 `ExitEngineMixin._midday_execute_llm_actions` (src/pipeline_exits.py).
 
 The metric-contradiction veto (Phase 3.2) and the AI Risk veto (Phase 3.4).
+One rule since 2026-10-13: a sale the same-rules gate
+(`src/exits/same_rules_gate.py`) decided keeps both as evidence only; any
+other sale is vetoed as before.
 The body is unchanged apart from `continue` -> `return SKIP`; `self` is bound
 to the pipeline instance (`loop.owner`) so every line reads as before.
 Sell-side code: behaviour is identical.
@@ -17,7 +20,7 @@ logger = logging.getLogger("src.pipeline")
 
 
 def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
-    """Veto one symbol's exit before the noise band; `SKIP` drops it."""
+    """Veto one symbol's exit before the noise band (`SKIP` drops it) unless the gate decided it."""
     self = loop.owner
     run_id = loop.run_id
     metric_deltas = loop.metric_deltas
@@ -58,7 +61,11 @@ def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
                     self.db.record_intraday_evaluation(
                         symbol=symbol,
                         run_id=run_id,
-                        status="exit_vetoed_contradicts_own_metrics",
+                        status=(
+                            "exit_metrics_improved_evidence_only"
+                            if loop.gate_decided(symbol, act)
+                            else "exit_vetoed_contradicts_own_metrics"
+                        ),
                         detail=veto[:500],
                     )
                     record_exit_guard(self, "exit_guard.metric_audit_write")
@@ -71,41 +78,35 @@ def midday_pre_gates(loop: MiddayLoop, action_item: dict, act, symbol):
                         symbol=symbol,
                         effect="audit row not written",
                     )
-                from src.risk.exit_refusal import CODE_CONTRADICTS_METRICS
+                # ONE RULE with the alignment, keyword and spent-trigger
+                # checks (2026-10-13 same-rules ruling): a sale the gate
+                # decided keeps "my numbers improved" as evidence only; any
+                # other sale is vetoed exactly as before.
+                if not loop.gate_decided(symbol, act):
+                    from src.risk.exit_refusal import CODE_CONTRADICTS_METRICS
 
-                self._record_exit_refusal(
-                    symbol=symbol,
-                    run_id=run_id,
-                    action=act,
-                    code=CODE_CONTRADICTS_METRICS,
-                    dropped=True,
-                    detail=veto[:400],
-                    layer="metric_contradiction",
-                )
-                return SKIP
+                    self._record_exit_refusal(
+                        symbol=symbol,
+                        run_id=run_id,
+                        action=act,
+                        code=CODE_CONTRADICTS_METRICS,
+                        dropped=True,
+                        detail=veto[:400],
+                        layer="metric_contradiction",
+                    )
+                    return SKIP
 
-    # Phase 3.3 — EVERY exit must name a trigger, not just the second
-    # one on a symbol in a day.
-    #
-    # The gate below used to be conditioned on `symbol in
-    # already_trimmed`, so a position's FIRST sale of the day executed
-    # on soft reasoning entirely unchecked — and a first sale is almost
-    # every sale. Both of the exits the evening review graded
-    # "premature" on 2026-08-26 (EPD, MRVL) were first sales and sailed
-    # straight through.
-    #
-    # Failing closed here means HOLDING, and every position carries a
-    # broker-resident stop (AGENTS.md invariant 3), so the downside of
-    # a wrongly-blocked exit is bounded by that stop. The downside of a
-    # wrongly-allowed one is the pattern that emptied the book.
-    # Phase 3.4 — the AI Risk Manager reviewed these exits and
-    # rejected this one. Its authority over exits mirrors the veto it
-    # has always had over entries.
+    # Phase 3.4 — an AI Risk veto, under the same one rule: it never
+    # undoes a sale the same-rules gate decided (no seat holds or sells
+    # alone); any other sale it vetoed is skipped as before. Its per-stock
+    # objections are also recorded by `_risk_review_exits` as advisory rows.
     if act in ("SELL", "REDUCE", "COVER") and symbol in (risk_vetoed_symbols or set()):
+        if not loop.gate_decided(symbol, act):
+            logger.warning("Position reviewer: skipping %s %s — vetoed by AI Risk", act, symbol)
+            return SKIP
         logger.warning(
-            "Position reviewer: skipping %s %s — vetoed by AI Risk",
+            "Position reviewer: AI Risk objected to %s %s — evidence only; the same-rules gate decided it",
             act,
             symbol,
         )
-        return SKIP
     return None

@@ -19,6 +19,18 @@ from src.risk.rules import EARNINGS_STANCE_MAX_AGE_DAYS
 from src.trading_calendar import et_today
 
 
+def earnings_filing_is_stale(filing_date, asof: date | None = None) -> bool:
+    """§9.4 freshness: an earnings stance whose filing is older than
+    `EARNINGS_STANCE_MAX_AGE_DAYS`, or whose filing date is absent or
+    unparseable, is stale (an unknowable age is not evidence of freshness).
+    The ONE rule: the tally (`stale_evidence_sources`) and the shared seat
+    view builder (buys and judgement sales alike) both call it."""
+    try:
+        return ((asof or et_today()) - date.fromisoformat(filing_date)).days > EARNINGS_STANCE_MAX_AGE_DAYS
+    except (TypeError, ValueError):
+        return True
+
+
 class PromptEvidence:
     """Prompt evidence rows: stance collapsing, sector/macro/earnings rows, the evidence registry.
 
@@ -347,11 +359,7 @@ class PromptEvidence:
         today = asof or et_today()
         stale: dict[str, frozenset[str]] = {}
         for symbol, _stance, filing_date in self._earnings_stance_rows(earnings_analyses):
-            try:
-                age_days = (today - date.fromisoformat(filing_date)).days
-                is_stale = age_days > EARNINGS_STANCE_MAX_AGE_DAYS
-            except (TypeError, ValueError):
-                is_stale = True
+            is_stale = earnings_filing_is_stale(filing_date, today)
             # Last-wins, exactly as the registry resolves the stance itself:
             # a later entry for the same symbol replaces the verdict rather
             # than merging with it.

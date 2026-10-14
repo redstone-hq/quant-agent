@@ -202,11 +202,61 @@ def _seed_open_position(db) -> None:
     db.conn.commit()
 
 
+def _seed_technical_read(db, rating: str) -> None:
+    """Today's technical read of the holding, as the half-hour scan files it
+    (`specialist_evidence`, kind `analysis`) — what the same-rules gate reads
+    on the close review (owner 13 Oct 2026: a sale is judged on the views a
+    buy would be). Levels are the close file's constants; nothing is picked."""
+    from src.models import TechAnalysisResult
+
+    bearish = rating in ("sell", "strong_sell")
+    read = TechAnalysisResult(
+        symbol=SYMBOL,
+        rating=rating,
+        conviction="high",
+        thesis_invalid_if=f"closes below {INITIAL_STOP}",
+        reasoning="scripted close-session technical read",
+        entry_price=ENTRY,
+        stop_loss=TARGET if bearish else INITIAL_STOP,  # a sell read sits its stop at the range high
+        reference_target=INITIAL_STOP if bearish else TARGET,
+        setup_type="range",
+        expected_horizon_sessions=60,
+        support_levels=[INITIAL_STOP],
+        resistance_levels=[TARGET],
+        reasoning_chain={
+            "trend": "down",
+            "momentum": "weak",
+            "volatility": "normal",
+            "support_resistance": "range",
+            "volume": "average",
+        },
+    )
+    row_id = db.insert_specialist_evidence(
+        run_id="seed-tech",
+        agent_name="technical",
+        kind="analysis",
+        scope="symbol",
+        symbol=SYMBOL,
+        evidence_json=read.model_dump_json(),
+    )
+    db.conn.execute(
+        "UPDATE specialist_evidence SET timestamp=? WHERE id=?",
+        (CLOSE_AT.strftime("%Y-%m-%d %H:%M:%S"), row_id),
+    )
+    db.conn.commit()
+
+
 HOLD = [{"action": "HOLD", "symbol": SYMBOL, "reason": "thesis intact"}]
 
 
 def _run_close(
-    tmp_path: Path, monkeypatch, *, bars: list[OHLCV], standing_stop: float = INITIAL_STOP, actions: list[dict] = HOLD
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    bars: list[OHLCV],
+    standing_stop: float = INITIAL_STOP,
+    actions: list[dict] = HOLD,
+    tech_rating: str | None = None,
 ):
     from ops.rehearsal.broker import BrokerSnapshot, install_rehearsal_broker
     from ops.rehearsal.broker_amend import give_amend_endpoint
@@ -246,6 +296,8 @@ def _run_close(
 
         pipeline = TradingPipeline(config)
         _seed_open_position(pipeline.db)
+        if tech_rating is not None:
+            _seed_technical_read(pipeline.db, tech_rating)
         snapshot = BrokerSnapshot(
             as_of=now.date(),
             cash=CASH,
@@ -420,23 +472,37 @@ def test_a_close_below_the_last_higher_low_exits_the_whole_position(tmp_path, mo
     assert f"Alignment exit SELL {SYMBOL}: EXIT" in caplog.text, caplog.text[-2000:]
 
 
+REVIEWER_THESIS_SELL = [
+    {
+        "action": "SELL",
+        "symbol": SYMBOL,
+        "reason": "thesis invalidated: closed below the support the entry was measured on",
+        "exit_trigger": "thesis_invalid",
+        "trigger_evidence": f"thesis_invalid_if was 'closes below "
+        f"{INITIAL_STOP}'; the structure that held "
+        f"the range is gone",
+    }
+]
+
+
+def test_a_reviewer_sell_on_an_intact_chart_with_no_reading_against_it_is_refused(tmp_path, monkeypatch):
+    """Owner Option A, 14 Oct 2026: a held name is kept while it passes every
+    buy rule except timing. The chart is intact (last close above the thesis
+    level) and no seat reads against the holding today, so the same-rules gate
+    refuses the reviewer's SELL: unknown never sells, the stop stays."""
+    bars = _bars(end=ONE_R_PRICE - 1.0)
+    result, trace, trading, attempts = _run_close(tmp_path, monkeypatch, bars=bars, actions=REVIEWER_THESIS_SELL)
+    _assert_hermetic(result, trace, trading, attempts)
+    _assert_untouched(trading, INITIAL_STOP)
+
+
 def test_a_substantiated_reviewer_sell_exits_the_whole_position(tmp_path, monkeypatch):
+    """Today's technical read turned AGAINST the holding (rating sell): under
+    Option A the chart is against it, a buy would be refused on it, so the
+    same-rules gate lets the reviewer's SELL through and it exits whole."""
     bars = _bars(end=ONE_R_PRICE - 1.0)
     result, trace, trading, attempts = _run_close(
-        tmp_path,
-        monkeypatch,
-        bars=bars,
-        actions=[
-            {
-                "action": "SELL",
-                "symbol": SYMBOL,
-                "reason": "thesis invalidated: closed below the support the entry was measured on",
-                "exit_trigger": "thesis_invalid",
-                "trigger_evidence": f"thesis_invalid_if was 'closes below "
-                f"{INITIAL_STOP}'; the structure that held "
-                f"the range is gone",
-            }
-        ],
+        tmp_path, monkeypatch, bars=bars, actions=REVIEWER_THESIS_SELL, tech_rating="sell"
     )
     _assert_hermetic(result, trace, trading, attempts)
     _assert_whole_position_sold_after_clearing_its_stop(trading)

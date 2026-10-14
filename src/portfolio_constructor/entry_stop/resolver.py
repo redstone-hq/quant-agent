@@ -25,6 +25,10 @@ from src.portfolio_constructor.config import (
     STOP_REFUSAL_NO_STRUCTURAL_TARGET,
 )
 
+#: The backstop's code when the stop came back EMPTY and no upstream step
+#: recorded why: a missing measurement, not a fact about the stock.
+STOP_REFUSAL_EMPTIED_UNRECORDED = "stop_emptied_without_recorded_reason"
+
 
 class EntryStopResolver:
     def __init__(
@@ -221,7 +225,10 @@ class EntryStopResolver:
             self._note_refusal(
                 target.symbol,
                 target.direction,
-                STOP_REFUSAL_NO_VALID_STOP,
+                # An EMPTY stop with no upstream code is a missing
+                # measurement (UNKNOWN to the same-rules gate); only a
+                # stop measured on the wrong side is about the stock.
+                STOP_REFUSAL_NO_VALID_STOP if stop_loss is not None else STOP_REFUSAL_EMPTIED_UNRECORDED,
                 f"no valid stop {'above' if is_short else 'below'} the "
                 f"${entry_price:,.2f} entry (stop={stop_loss}). A stop that "
                 f"does not sit on the protective side of the entry protects "

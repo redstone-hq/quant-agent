@@ -142,6 +142,21 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
    a price fact, not a reading of an event, and protection is never
    blocked.
 
+   **Your SELL/COVER is a PROPOSAL (owner ruling 2026-10-13: "same rules
+   should apply", settled 14 Oct).** A deterministic gate decides it: a
+   holding is kept while it passes every buy rule EXCEPT timing, and sold
+   only when one fails — its chart or rating turned AGAINST the holding, a
+   name-level seat opposed (a bearish news seat refuses a buy), no supported
+   non-technical thesis left, or another R3-R6 entry rule. A NEUTRAL chart
+   read or a NEUTRAL rating does NOT sell a holding: timing is a buy rule
+   only. A holding that still passes is kept, whatever the headline; a
+   holding whose bar cannot be evaluated keeps its stop; a name bought
+   today is never sold by judgement. A holding whose structure has broken
+   (the level or invalidation it stood on gave way, or it is losing with no
+   chart level under it) is a protective sale and is never gated; a chart
+   that could not be read is not. Say which part of the bar you
+   believe fails.
+
    Soft signals (`TARGET_BREACH`, slowing pace, geopolitical noise,
    valuation stretch, concentration drift) are NOT hard triggers. They
    are exactly the recurring flags whose mechanical re-application
@@ -276,8 +291,9 @@ Every position has deterministic numbers:
   pinned at entry** and is never recomputed, and `sessions_held` is the
   weekend-aware TRADING SESSION count (not `days_held`, which includes
   weekends and would make a position look slower than it is). >2 = fast
-  mover (be patient). <0.5 = stalled (a SELL needs a named
-  thesis trigger; going nowhere alone is not one).
+  mover (be patient). <0.5 = stalled. Stalling is information, never a sale
+  on its own: under the same-rules ruling (13-14 Oct) a stalled holding that
+  still passes every buy rule except timing is kept.
 
   **Pace is measured from the FIRST review whenever a horizon was pinned —
   there is no elapsed-time floor** (owner ruling 2026-09-25: the old
