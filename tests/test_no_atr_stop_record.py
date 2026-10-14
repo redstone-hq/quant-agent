@@ -57,6 +57,10 @@ def test_tier_one_placement_is_unchanged_and_counted(caplog):
     assert rows[0]["level_zone_halfwidth_measured"] is True
     assert rows[0]["level_zone_halfwidth"] == pytest.approx(0.5)
     assert rows[0]["candidate_levels"] == 1
+    # Touches are recorded as data; no minimum exists since the touch bar
+    # was deleted, so the row carries no minimum-touches field at all.
+    assert rows[0]["level_touches"] == 2
+    assert "min_touches_required" not in rows[0]
 
 
 def test_tier_two_placement_is_unchanged_and_counted(caplog):
