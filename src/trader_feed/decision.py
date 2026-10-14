@@ -580,6 +580,105 @@ def _append_coverage_gaps(lines: list[str], result: dict) -> None:
         )
 
 
+_GUARD_EVIDENCE_KIND = "structural_break_trend_context"
+
+
+def _read_guard_verdicts(run_id: str | None) -> dict[str, dict]:
+    """symbol -> the exit guard's recorded verdict for this run (the last row
+    for a symbol wins). Read from the durable row the exit stage writes
+    instead of paging the owner; `{}` when there is none or the DB is
+    unreadable, so a missing row only ever means a missing note."""
+    from src.trader_feed import common as _common_mod
+
+    db_path = Path(_common_mod._DB_PATH)
+    if not run_id or run_id == "?" or not db_path.exists():
+        return {}
+    verdicts: dict[str, dict] = {}
+    conn = None
+    try:
+        conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=1.0)
+        rows = conn.execute(
+            "SELECT symbol, evidence_json FROM specialist_evidence "
+            "WHERE run_id = ? AND agent_name = 'risk_manager' AND kind = ? ORDER BY id",
+            (run_id, _GUARD_EVIDENCE_KIND),
+        ).fetchall()
+        for symbol, evidence_json in rows:
+            try:
+                data = json.loads(evidence_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            if symbol and isinstance(data, dict):
+                verdicts[str(symbol).upper()] = data
+    except sqlite3.DatabaseError as exc:
+        logger.warning("trader-feed guard-verdict read failed for %s: %s", run_id, exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    return verdicts
+
+
+def _with_guard_verdicts(snap: dict[str, Any], run_id: str | None) -> dict[str, Any]:
+    """Put the run's recorded guard verdicts on the snapshot so every stock's
+    one line can name them. Returns `snap` for chaining."""
+    snap["guard_verdicts"] = _read_guard_verdicts(run_id)
+    return snap
+
+
+def _guard_note(guard: dict, action: str) -> str:
+    """The guard's recorded verdict in one plain phrase. Where it said keep and
+    the PM sold, both are named; nothing here says which should have won."""
+    sold = action in ("SELL", "COVER")
+    if guard.get("protected") is False:
+        return "Guard: protection lifted (break confirmed)"
+    if sold:
+        return "Guard said keep (break not confirmed yet), PM sold"
+    return "Guard kept the hold (break not confirmed yet)"
+
+
+def _stock_notes(symbol: str, snap: dict[str, Any] | None, action: str = "") -> list[str]:
+    """What the other roles recorded about `symbol` this run, each as one short
+    phrase for the stock's single line: any risk change, the guard's verdict,
+    any pruning. The PM's own decision is the line itself."""
+    if not snap:
+        return []
+    symbol = symbol.upper()
+    action = action.upper()
+    notes: list[str] = []
+    for mod in snap.get("risk_mods") or []:
+        if isinstance(mod, dict) and str(mod.get("symbol", "")).upper() == symbol:
+            field = str(mod.get("field") or "setting").replace("_", " ")
+            old, new = _number(mod.get("original_value")), _number(mod.get("new_value"))
+            change = f" {old:g} to {new:g}" if old is not None and new is not None else ""
+            notes.append(f"Risk changed {field}{change}")
+    guard = (snap.get("guard_verdicts") or {}).get(symbol)
+    if isinstance(guard, dict):
+        notes.append(_guard_note(guard, action))
+    rotation = snap.get("rotation")
+    if (
+        isinstance(rotation, dict)
+        and str(rotation.get("held_symbol") or "").upper() == symbol
+        and str(rotation.get("tier") or "") == "ineligible_hold"
+    ):
+        notes.append("Pruning: put up to be cut")
+    return notes
+
+
+def _notes_text(symbol: str, snap: dict[str, Any] | None, action: str = "") -> str:
+    return "".join(f" · {note}" for note in _stock_notes(symbol, snap, action))
+
+
+def _append_guard_only(lines: list[str], snap: dict[str, Any], acted: set[str], profiles: dict) -> None:
+    """Stocks the guard gave a verdict on that have no order line above. The
+    verdict used to be a separate phone alert; it is one line here."""
+    guard = snap.get("guard_verdicts") or {}
+    symbols = [symbol for symbol in guard if symbol not in acted]
+    if not symbols:
+        return
+    lines.append(_b("🛡️ EXIT GUARD"))
+    for symbol in symbols:
+        lines.append(f"   • {_ticker_co(symbol, profiles)} — no order this session{_notes_text(symbol, snap)}")
+
+
 def _append_done(lines: list[str], rows: list[dict], snap: dict, profiles: dict) -> None:
     """NEW LAYOUT item 3 — orders that actually reached the broker, one
     line each, the true fill state (never implying a fill that hasn't
@@ -614,10 +713,11 @@ def _append_done(lines: list[str], rows: list[dict], snap: dict, profiles: dict)
         reason_text = f" — {reason}" if reason else ""
         lines.append(
             f"   • {action} {_ticker_co(symbol, profiles)} {qty_text} @ {price_text} — {state}{stop_text}{reason_text}"
+            f"{_notes_text(symbol, snap, action)}"
         )
 
 
-def _append_blocked(lines: list[str], rows: list[dict], profiles: dict) -> None:
+def _append_blocked(lines: list[str], rows: list[dict], profiles: dict, snap: dict[str, Any] | None = None) -> None:
     """NEW LAYOUT item 4 — who actually stopped it, in plain words. See
     `_blocked_rows` for the four sources this merges.
 
@@ -640,7 +740,8 @@ def _append_blocked(lines: list[str], rows: list[dict], profiles: dict) -> None:
             # characters and a broker reason can run longer; a cut
             # mid-sentence was item 89's "detail truncated" defect.
             reason = _clip(row.get("reason"), 600)
-            lines.append(f"   • {row['action']} {_ticker_co(row['symbol'], profiles)} — {row['who']}: {reason}")
+            notes = _notes_text(str(row["symbol"]), snap, str(row["action"]))
+            lines.append(f"   • {row['action']} {_ticker_co(row['symbol'], profiles)} — {row['who']}: {reason}{notes}")
 
     if refused:
         lines.append(_b("🚫 NOT TAKEN"))
@@ -734,6 +835,7 @@ def _format_decision_session(mode: str, result: dict, elapsed: float) -> str:
     if isinstance(result.get("_positions"), list):
         snap = dict(snap)
         snap["positions"] = result["_positions"]
+    _with_guard_verdicts(snap, run_id)
     status = str(result.get("status", "unknown"))
 
     done_rows = _done_rows(snap)
@@ -791,7 +893,8 @@ def _format_decision_session(mode: str, result: dict, elapsed: float) -> str:
     _new_block(lines, _append_market, snap)
     _new_block(lines, _append_book, snap)
     _new_block(lines, _append_done, done_rows, snap, profiles)
-    _new_block(lines, _append_blocked, blocked_rows, profiles)
+    _new_block(lines, _append_blocked, blocked_rows, profiles, snap)
+    _new_block(lines, _append_guard_only, snap, acted, profiles)
     # The candidate list is rendered LAST and spliced back in HERE — see
     # `_budgeted_sections` for why it may not claim the budget first.
     looked_at_slot = len(lines)
