@@ -462,7 +462,8 @@ def test_a_trims_put_back_counts_only_a_covered_book(monkeypatch, status, ok):
 
 
 def test_a_claimed_sale_never_holds_the_run_open(monkeypatch):
-    """Only claimed put-offs left and their legs never confirm: the run ends now; the restore drain puts the stop back."""
+    """Only claimed put-offs left and their legs never confirm: the run ends now;
+    the restore drain puts the stop back."""
     from src.protection import put_off_sales
 
     pipe, calls = _pipe()
