@@ -233,8 +233,18 @@ def send_once(
         result = reply if isinstance(reply, SendResult) else SendResult(True)
         if result.message_id is not None and PLACED_PHRASE in delivered_text:
             # Owner ruling 5b: remember which line lists which working order,
-            # so its fill EDITS this message. Never raises (see its docstring).
-            record_placed_lines(message_id=result.message_id, text=delivered_text, run_id=run_id)
+            # so its fill EDITS this message. The message already landed, so a
+            # recording fault costs only that later edit; it is recorded, not sent.
+            try:
+                record_placed_lines(message_id=result.message_id, text=delivered_text, run_id=run_id)
+            except Exception as rec_exc:  # noqa: BLE001
+                self._safe_record_send(
+                    kind="placed_lines",
+                    status="failed",
+                    text=delivered_text,
+                    detail=self._redact(rec_exc),
+                    run_id=run_id,
+                )
         return result
     except Exception as exc:
         # Catch broadly on purpose — TelegramNotifier is a
