@@ -134,14 +134,17 @@ _MALFORMED_NUMBER_MARKER = "[number garbled — removed]"
 # ~1,825 numeric tokens inside PROMPT INPUT (config/prompts/*.md) — mostly
 # dates and list numbering, hopeless signal-to-noise, and explicitly not
 # built. This is the opposite direction: it scans the LLM's OUTPUT prose
-# right before that text ships to the owner (see `TelegramNotifier.send`),
+# where that prose enters an owner message (see `_redact_malformed_numbers`),
 # looking only for a small number of STRUCTURALLY IMPOSSIBLE shapes, not
 # "suspicious" numbers in general. It is deliberately narrow to keep the
 # false-positive rate at zero on real desk language: percentages ("14.6%"),
 # multipliers ("2.0x"), day ranges ("5-15"), shorthand money ("$10M"), ISO
 # dates ("2026-09-24"), times ("12:51"), and share counts ("0.3155") must
 # never be touched.
-_NUMERIC_TOKEN_RE = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)*")
+# A comma only counts as part of a number when a digit follows it, so a
+# number can never END in a comma: in "stop covers 3, $164.61" the "3," is
+# the number 3 and a list comma, not a thousands group with no digits.
+_NUMERIC_TOKEN_RE = re.compile(r"-?\$?\d+(?:,\d+)*(?:\.\d+)*")
 
 
 def _malformed_numeric_reason(token: str) -> str | None:
@@ -215,7 +218,15 @@ def _redact_malformed_numbers(text: str) -> str:
     produced the malformed text) is logged here so it stays visible instead
     of silently disappearing into a redaction.
 
-    Never raises: this runs on every outgoing message, so a bug in the
+    Where it runs: ONLY where model-written prose enters an owner message,
+    never on the whole outgoing message — the send chokepoint cannot tell
+    desk-formatted text from model prose, and running there garbled real
+    desk figures. Current insertion points: `src/trader_feed/common.py`'s
+    `_clip` (every PM / risk / evening-review / thesis field the trader
+    feed renders). Model prose in `src/notifier/evening.py` (suggested
+    actions, tomorrow's outlook) is not yet routed through it.
+
+    Never raises: this runs on owner-facing text, so a bug in the
     guard itself must not be able to block a real alert. On any fault the
     original text goes out unredacted — the guard failing open, not the
     channel failing closed, matches every other best-effort contract in
