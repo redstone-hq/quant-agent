@@ -143,11 +143,13 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
    blocked.
 
    **Your SELL/COVER is a PROPOSAL (owner ruling 2026-10-13: "same rules
-   should apply").** A deterministic gate decides it: the holding is sold
-   only when it FAILS the entry bar a buy of it would have to pass now
-   (technical confirming, no name-level seat opposed — a bearish news seat
-   refuses a buy — a supported non-technical thesis, the R2-R6 entry
-   rules). A holding that still passes is kept, whatever the headline; a
+   should apply", settled 14 Oct).** A deterministic gate decides it: a
+   holding is kept while it passes every buy rule EXCEPT timing, and sold
+   only when one fails — its chart or rating turned AGAINST the holding, a
+   name-level seat opposed (a bearish news seat refuses a buy), no supported
+   non-technical thesis left, or another R3-R6 entry rule. A NEUTRAL chart
+   read or a NEUTRAL rating does NOT sell a holding: timing is a buy rule
+   only. A holding that still passes is kept, whatever the headline; a
    holding whose bar cannot be evaluated keeps its stop; a name bought
    today is never sold by judgement. A holding whose structure has broken
    (the level or invalidation it stood on gave way, or it is losing with no
@@ -290,8 +292,8 @@ Every position has deterministic numbers:
   weekend-aware TRADING SESSION count (not `days_held`, which includes
   weekends and would make a position look slower than it is). >2 = fast
   mover (be patient). <0.5 = stalled. Stalling is information, never a sale
-  on its own: under the 2026-10-13 same-rules ruling a stalled holding that
-  still passes the entry bar is kept.
+  on its own: under the same-rules ruling (13-14 Oct) a stalled holding that
+  still passes every buy rule except timing is kept.
 
   **Pace is measured from the FIRST review whenever a horizon was pinned —
   there is no elapsed-time floor** (owner ruling 2026-09-25: the old

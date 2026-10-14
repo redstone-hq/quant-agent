@@ -215,17 +215,19 @@ def test_f_stop_and_mechanical_exits_bypass_the_gate():
         assert "same_rules_gate" not in (ROOT / rel).read_text(), rel
 
 
-# The half-hour check now culls on the FULL bar (13 Oct supersedes 25 Sep):
-# a soft miss (technical not confirming) is culled, a passing name is not.
-def test_half_hour_check_uses_full_bar():
+# The half-hour check culls on every buy rule except timing (owner Option A,
+# 14 Oct): a neutral chart (technical not confirming) is KEPT; a name-level
+# seat turned against the holding is culled; a passing name is kept.
+def test_half_hour_check_uses_every_rule_but_timing():
     from src.pipeline_rotation_exec import _same_rules_opportunity
 
     verdicts = list(_passing("KEEP")) + [_v("technical", "SOFT", "neutral"), _v("news", "SOFT", "bullish")]
+    verdicts += [_v("technical", "GONE", "neutral"), _v("news", "GONE", "bearish")]
     pipeline, ctx = _pipeline_ctx(verdicts)
-    positions = [SimpleNamespace(symbol="KEEP", qty=5), SimpleNamespace(symbol="SOFT", qty=5)]
+    positions = [SimpleNamespace(symbol=s, qty=5) for s in ("KEEP", "SOFT", "GONE")]
     opp = _same_rules_opportunity(pipeline, ctx, None, positions)
     assert opp is not None and opp.tier == "ineligible_hold"
-    assert [s for s, _ in opp.ineligible_candidates] == ["SOFT"]
+    assert [s for s, _ in opp.ineligible_candidates] == ["GONE"]
 
 
 def opposed_for_exits(decisions):
@@ -343,10 +345,10 @@ def test_b_reviewer_session_hands_executor_a_hold_not_the_sell():
     assert [a.action for a in handed.actions] == ["HOLD"]
 
 
-# Half-hour check at the call site: a holding the 25 Sep STAY test keeps (the
-# PM surfaced nothing) but that fails the FULL bar (technical not confirming)
-# is now closed; a passing holding is not.
-def test_half_hour_rotation_closes_holding_that_fails_full_bar(tmp_path):
+# Half-hour check at the call site (owner Option A, 14 Oct): a holding a
+# name-level seat turned against is closed even though the PM surfaced
+# nothing; a neutral-chart holding and a passing holding are kept.
+def test_half_hour_rotation_closes_holding_that_fails_the_held_bar(tmp_path):
     from src.pipeline_context import RunContext
     from src.pipeline_rotation_exec import _apply_rotation_execution
     from tests.test_rotation_execute import HISTORY, _buy_new, _decision, _pos, _precheck
@@ -355,11 +357,12 @@ def test_half_hour_rotation_closes_holding_that_fails_full_bar(tmp_path):
     pipeline, _db, _probe = _rot_pipeline(tmp_path, precheck=_precheck(None))
     pipeline.portfolio_manager.last_blocked = {}
     ctx = RunContext(run_id="run-1", session="morning")
-    ctx.seat_verdicts = [_v("technical", "OLD", "neutral"), _v("news", "OLD", "bullish"), *_passing("KEEP")]
+    ctx.seat_verdicts = [_v("technical", "OLD", "neutral"), _v("news", "OLD", "bearish"), *_passing("KEEP")]
+    ctx.seat_verdicts += [_v("technical", "NEUT", "neutral"), _v("news", "NEUT", "bullish")]
     # The manager ran this run: its record, in each holding's direction.
-    ctx.held_bar_record = {"OLD": ("R2 neutral rating",), "KEEP": ()}
+    ctx.held_bar_record = {"OLD": ("R2 neutral rating",), "KEEP": (), "NEUT": ("R2 neutral rating",)}
     decision = _decision(_buy_new())
-    _apply_rotation_execution(pipeline, ctx, decision, [_pos("OLD"), _pos("KEEP")], HISTORY)
+    _apply_rotation_execution(pipeline, ctx, decision, [_pos("OLD"), _pos("KEEP"), _pos("NEUT")], HISTORY)
     assert [t.symbol for t in decision.targets if t.is_close] == ["OLD"]
 
 
@@ -710,3 +713,86 @@ def test_t16_reviewer_never_blocks_an_unprotected_holdings_sale():
         lambda positions: {},
     )
     assert unreadable.actions[0].action == "HOLD"
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling Option A (14 Oct 2026): a HELD name is kept while it passes
+# every buy rule EXCEPT timing; it is sold by judgement only when its chart
+# turns broken or against the holding. A neutral chart / rating never sells.
+# ---------------------------------------------------------------------------
+
+
+def _held_verdict(symbol, rating, *, qty, seats="bullish", protection_basis=None, blocked=None):
+    """Gate verdict for a holding, through this run's record as built."""
+    tech = {"neutral": "neutral", "sell": "bearish", "buy": "bullish"}[rating]
+    verdicts = [_v("technical", symbol, tech)] + [
+        _v(seat, symbol, seats) for seat in ("news", "earnings", "smart_money", "macro")
+    ]
+    positions = [SimpleNamespace(symbol=symbol, qty=qty)]
+    analyses = [SimpleNamespace(symbol=symbol, rating=rating)]
+    record = _g.build_held_bar_record(positions, analyses, blocked if blocked is not None else {symbol: "[]"})
+    pipeline, ctx = _pipeline_ctx(verdicts)
+    ctx.held_bar_record = record
+    views = _g.views_from_pipeline(pipeline, ctx, symbol, is_short=qty < 0, protection_basis=protection_basis)
+    return _g.judge_holding(views)
+
+
+def test_option_a_held_long_neutral_rating_intact_structure_no_timing_is_kept():
+    # The manager stops at R2 for a neutral rating ("R2 neutral rating"): kept.
+    unread = _held_verdict("ACME", "neutral", qty=10, blocked={"ACME": "['R2 neutral rating']"})
+    assert not unread.sell_allowed, unread.detail
+    # The manager read R3-R6 in the holding's direction and they pass: kept.
+    from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
+
+    read = _held_verdict("ACME", "neutral", qty=10, blocked={"ACME": str([HELD_NEUTRAL_R2])})
+    assert not read.sell_allowed and read.basis == BASIS_PASSES_BAR, read.detail
+
+
+def test_option_a_held_long_sell_rating_is_sold():
+    verdict = _held_verdict("ACME", "sell", qty=10)
+    assert verdict.sell_allowed and verdict.basis == BASIS_FAILS_BAR
+    assert "R2 rating sell does not point the holding's way (long)" in verdict.detail
+
+
+def test_option_a_held_long_broken_structure_is_sold():
+    verdict = _held_verdict("ACME", "neutral", qty=10, protection_basis="structural_level_broken")
+    assert verdict.sell_allowed and verdict.basis == _g.BASIS_PROTECTIVE
+
+
+def test_option_a_held_short_buy_rating_is_covered_and_neutral_is_kept():
+    covered = _held_verdict("SHRT", "buy", qty=-5, seats="bearish")
+    assert covered.sell_allowed and "(short)" in covered.detail
+    kept = _held_verdict("SHRT", "neutral", qty=-5, seats="bearish", blocked={"SHRT": "['R2 neutral rating']"})
+    assert not kept.sell_allowed, kept.detail
+
+
+def test_option_a_held_neutral_still_fails_the_other_buy_rules():
+    # Every buy rule except timing still applies: a name-level seat opposed sells.
+    verdicts = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bearish")]
+    verdicts += [_v(s, "ACME", "bullish") for s in ("earnings", "smart_money", "macro")]
+    views = _g.HoldingViews(symbol="ACME", is_short=False, seat_verdicts=tuple(verdicts), eligibility_reasons=())
+    assert _g.judge_holding(views).sell_allowed
+    # ...and R5, read in the holding's direction with every seat known, sells.
+    from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
+
+    blocked = {"ACME": str([HELD_NEUTRAL_R2, "R5 net evidence -1 if long — no rung"])}
+    assert _held_verdict("ACME", "neutral", qty=10, blocked=blocked).sell_allowed
+
+
+def test_option_a_new_buy_still_needs_timing_confirmed():
+    from src.agents.portfolio_manager import PortfolioManagerAgent
+    from src.risk.conviction_bar import own_bar_block_reason
+
+    analyses = [SimpleNamespace(symbol="ACME", rating="neutral"), SimpleNamespace(symbol="HELD", rating="neutral")]
+    eligibility = PortfolioManagerAgent.candidate_eligibility(
+        analyses=analyses,
+        evidence_registry={},
+        allowed_buy_symbols={"ACME", "HELD"},
+        active_state_changes="",
+        held_directions={"HELD": "long"},
+    )
+    assert eligibility["ACME"] == ["R2 neutral rating"]  # not held: a new buy, refused on R2
+    assert eligibility["HELD"][0].startswith("R2 neutral rating")  # adding to a holding is a buy: refused too
+    assert "R5 net evidence +0 if long — no rung" in eligibility["HELD"]  # read in the holding's direction
+    neutral_chart = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bullish")]
+    assert "does not confirm timing" in own_bar_block_reason(neutral_chart, direction="bullish")

@@ -3,25 +3,32 @@
 Owner, verbatim: "selling is not set up the same as buying and it should be.
 Same rules should apply."
 
+Owner ruling Option A, 14 Oct 2026: a stock the desk already HOLDS is kept
+while it passes every buy rule EXCEPT timing. It is sold by judgement only when
+its chart turns BROKEN or turns AGAINST the holding (or another buy rule
+fails). A NEUTRAL chart read or a NEUTRAL rating does NOT sell it.
+
 A holding may be sold, reduced or covered BY JUDGEMENT (the portfolio manager,
 the midday/close position reviewer, the half-hour "earn its place" check) only
-when it FAILS the entry bar a buy of the same stock would have to pass at that
-minute. Seats may still PROPOSE a sale; only this gate decides it.
+when it FAILS that bar. Seats may still PROPOSE a sale; only this gate decides
+it.
 
-The entry bar is the desk's existing one, CALLED here, never restated:
+The bar is the desk's existing entry bar minus timing, CALLED here, never
+restated:
 
   * R2-R6 — `candidate_eligibility` (rating, BUY-eligible universe, net
     independent evidence, constructor refusal), read from THIS run's
     `ctx.held_bar_record` — built right after the manager's main decision, in
     the HOLDING's direction. No record (the manager did not run this run)
-    means no judgement sale.
-  * R7 — the role-based conviction bar `own_bar_block_reason` (technical
-    confirms timing, NO name-level seat opposed — the 25 Sep rule that a
-    bearish news seat refuses a buy — and a supported non-technical thesis).
-    For a HELD name this is the FULL bar, not the opposition-only STAY subset
-    (`own_bar_opposition_reason`) the 25 Sep ruling used; the owner's 13 Oct
-    ruling supersedes it (the 25 Sep mandate itself says "survivorship both
-    ways: to enter AND to stay").
+    means no judgement sale. R2 fails only on a rating AGAINST the holding
+    (sell for a long, buy for a short); a neutral rating holds, and the
+    manager then reads R3-R6 in the holding's direction (`HELD_NEUTRAL_R2`).
+  * R7 — `own_bar_hold_reason`: the role-based conviction bar without its
+    technical timing veto (technical AGAINST the holding, NO name-level seat
+    opposed — the 25 Sep rule that a bearish news seat refuses a buy — and a
+    supported non-technical thesis). A new buy still needs timing confirmed
+    (`own_bar_block_reason`, unchanged).
+  * A BROKEN chart structure is the protective sale below, never gated.
 
 Every refusal code is classified ONCE (`COUNTS_CODES`, `NEVER_CODES`,
 `UNKNOWN_CODES`). Only a definite failure about the stock itself sells.
@@ -68,7 +75,7 @@ from dataclasses import dataclass
 
 from src.risk.conviction_bar import (
     OWN_BAR_REASON_PREFIX,
-    own_bar_block_reason,
+    own_bar_hold_reason,
     own_bar_opposition_reason,
 )
 
@@ -245,6 +252,8 @@ def _classify_reason(text: str, all_known: bool) -> str | None:
     """One R2-R6 reason as CLASS_*; None for R7 (recomputed in full)."""
     if text.startswith(OWN_BAR_REASON_PREFIX):
         return None
+    if text.startswith("R2 neutral rating"):
+        return CLASS_NEVER  # Option A: a neutral rating never sells a holding
     if text.startswith("R2"):
         return CLASS_COUNTS
     if text.startswith("R3"):
@@ -285,11 +294,13 @@ def _judge_bar(views: HoldingViews, verdicts: list, has_tech: bool, readings: di
         else:
             definite.append(opposition)
     elif has_tech:
-        full = own_bar_block_reason(verdicts, direction=direction)
-        if full and (all_known or full.startswith(f"{OWN_BAR_REASON_PREFIX} — technical")):
-            definite.append(full)
-        elif full:
-            unknown.append(full)
+        # Option A: every part of the bar but timing (no opposition here, so
+        # only a missing supported side can fail; it counts when all known).
+        held = own_bar_hold_reason(verdicts, direction=direction)
+        if held and all_known:
+            definite.append(held)
+        elif held:
+            unknown.append(held)
     return definite, unknown
 
 
@@ -317,13 +328,13 @@ def judge_holding(views: HoldingViews) -> SameRulesVerdict:
     definite, unknown = _judge_bar(views, verdicts, has_tech, readings)
     if definite:
         return SameRulesVerdict(
-            sym, True, BASIS_FAILS_BAR, tuple(definite), "fails the entry bar a buy must pass: " + "; ".join(definite)
+            sym, True, BASIS_FAILS_BAR, tuple(definite), "fails a buy rule other than timing: " + "; ".join(definite)
         )
     missing = list(unknown)
     if not has_tech:
         missing.append("no technical read this run")
     elif views.eligibility_reasons is None:
-        missing.append("entry rules R2-R6 not evaluated this run")
+        missing.append("entry rules R2-R6 not evaluated this run in the holding's direction")
     if missing:
         return SameRulesVerdict(
             sym,
@@ -333,7 +344,7 @@ def judge_holding(views: HoldingViews) -> SameRulesVerdict:
             "entry bar cannot be evaluated (" + "; ".join(missing) + ") — not sold by judgement; the stop stays",
         )
     return SameRulesVerdict(
-        sym, False, BASIS_PASSES_BAR, (), "still passes the entry bar a buy must pass — not sold by judgement"
+        sym, False, BASIS_PASSES_BAR, (), "still passes every buy rule except timing — not sold by judgement"
     )
 
 
@@ -359,8 +370,12 @@ def bought_today_from_db(db, symbol: str) -> bool | None:
     """True when today's trade record shows an opening trade; None if unreadable."""
     try:
         rows = db.get_trades(symbol=symbol, limit=50, today_only=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("same-rules gate: today's trades for %s unreadable (%s)", symbol, exc)
+    except Exception as exc:  # noqa: BLE001 — unreadable = refuse the sale, recorded durably
+        from types import SimpleNamespace
+
+        from src.sentinel.guarded_site import record_site
+
+        record_site(SimpleNamespace(db=db), "same_rules_gate.bought_today", exc, context={"symbol": symbol}, log=logger)
         return None
     return any(str(r.get("action") or "").upper() in _OPENING_ACTIONS for r in (rows or ()))
 
@@ -388,9 +403,15 @@ def build_held_bar_record(positions, analyses, blocked) -> dict[str, tuple[str, 
     """THIS run's entry-rule reasons for every holding with a technical read,
     in the HOLDING's direction (long stays long, short stays short).
 
-    R2 fails when the rating does not point the holding's way. When it does,
-    the manager's own `candidate_eligibility` reasons for the name were
-    computed in that same direction, so they are read, never restated."""
+    R2 fails when the rating points AGAINST the holding. When it points the
+    holding's way, the manager's own `candidate_eligibility` reasons for the
+    name were computed in that same direction, so they are read, never
+    restated. A NEUTRAL rating holds (owner Option A, 14 Oct 2026): R3-R6 are
+    read from the manager's held-direction pass (`HELD_NEUTRAL_R2`); if the
+    manager did not make that pass, R2-R6 are unread (no record, so no sale
+    on them)."""
+    from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
+
     rating_by = {str(getattr(a, "symbol", "")).strip().upper(): getattr(a, "rating", None) for a in analyses or ()}
     blocked_by = {str(k).strip().upper(): v for k, v in dict(blocked or {}).items()}
     record: dict[str, tuple[str, ...]] = {}
@@ -403,7 +424,9 @@ def build_held_bar_record(positions, analyses, blocked) -> dict[str, tuple[str, 
         held = "short" if qty < 0 else "long"
         rated = "short" if rating in ("sell", "strong_sell") else "long"
         if rating == "neutral":
-            record[sym] = ("R2 neutral rating",)
+            reasons = parse_blocked_reasons(blocked_by.get(sym))
+            if reasons[:1] == (HELD_NEUTRAL_R2,):
+                record[sym] = reasons[1:]
         elif rated != held:
             record[sym] = (f"R2 rating {rating} does not point the holding's way ({held})",)
         else:

@@ -881,8 +881,9 @@ class RiskStage:
         # Every PM SELL/REDUCE/COVER — morning and intraday, and the half-hour
         # check's rotation close, which reaches this list as a zero-size
         # target — is decided by ONE gate (`src/exits/same_rules_gate.py`): a
-        # holding is sold by judgement only when it FAILS the entry bar a buy
-        # of it would have to pass now, judged on this run's seat views. If
+        # holding is sold by judgement only when it FAILS a buy rule other
+        # than timing (Option A, 14 Oct: a neutral chart never sells it),
+        # judged on this run's seat views. If
         # that bar cannot be evaluated the sale is dropped and the stop
         # stays; a name bought today is never sold by judgement. This
         # REPLACES the "provably false claim" check and the "my numbers
@@ -1144,8 +1145,10 @@ def _record_claim_evidence(
             macro_status=data_status.get("macro") if data_status else None,
             active_state_changes=cache["state_changes"],
         )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Holding discipline check failed for %s (evidence only): %s", symbol_u, e)
+    except Exception as e:  # noqa: BLE001 — evidence only, recorded durably
+        from src.sentinel.guarded_site import record_site
+
+        record_site(pipeline, "holding_discipline_claim_check", e, context={"symbol": symbol_u}, log=logger)
         return
     if check.blocks:
         logger.warning("Holding discipline: claim PROVEN FALSE (evidence only): %s", check.finding)

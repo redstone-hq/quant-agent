@@ -157,8 +157,12 @@ class PositionReviewSession:
             return []
         try:
             rows = self._db.get_latest_symbol_evidence("analysis", symbols) or {}
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("same-rules gate: today's technical reads unreadable (%s) — none used", exc)
+        except Exception as exc:  # noqa: BLE001 — no reads = no judgement sale, recorded durably
+            from types import SimpleNamespace
+
+            from src.sentinel.guarded_site import record_site
+
+            record_site(SimpleNamespace(db=self._db), "same_rules_gate.technical_reads", exc, log=logger)
             return []
         today = str(et_today())
         reads = []
@@ -846,8 +850,9 @@ class PositionReviewSession:
             # SAME RULES AS BUYING — owner ruling 2026-10-13. The reviewer
             # only PROPOSES a sale; `src/exits/same_rules_gate.py` decides
             # it. A proposed SELL/COVER (including a "stalled pace" one)
-            # survives only when the holding FAILS the entry bar a buy would
-            # have to pass, judged on today's newest technical read per
+            # survives only when the holding FAILS a buy rule other than
+            # timing (Option A, 14 Oct: a neutral chart never sells it),
+            # judged on today's newest technical read per
             # holding plus this session's news, macro and earnings. With no
             # manager record (R2-R6) here, only a failure no missing view
             # could undo can sell; a protective sale is never gated.

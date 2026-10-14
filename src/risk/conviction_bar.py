@@ -194,7 +194,12 @@ def own_bar_block_reason(
             f"{OWN_BAR_REASON_PREFIX} — technical does not confirm timing; "
             "chart neutral/broken (right name, wrong time)"
         )
+    return _thesis_block_reason(seat_verdicts, aligned=aligned, opposed=opposed)
 
+
+def _thesis_block_reason(seat_verdicts: list["AnalystVerdict"], *, aligned: str, opposed: str) -> str | None:
+    """Checks 2-4 of `own_bar_block_reason`: every part of the bar EXCEPT the
+    technical timing veto. One definition for a buy and a held name."""
     opposition = _nontechnical_opposition_reason(seat_verdicts, aligned=aligned, opposed=opposed)
     if opposition:
         return opposition
@@ -263,11 +268,10 @@ def own_bar_opposition_reason(
     the same `_is_broadcast_macro_verdict` carve-out entry uses — so a single
     macro flip cannot cull the whole non-price-protected long book.
 
-    SALES: the owner's 13 Oct 2026 ruling ("same rules should apply")
-    supersedes the 25 Sep STAY text for every judgement sale. One rule
-    decides buys and judgement sales: a held name is sold by judgement only
-    when it fails the FULL entry bar (`src/exits/same_rules_gate.py`, which
-    calls this subset and `own_bar_block_reason`).
+    SALES: every judgement sale is decided by `src/exits/same_rules_gate.py`
+    (owner 13 Oct 2026 "same rules should apply", settled as Option A on
+    14 Oct): a held name is sold by judgement only when it fails every-rule-
+    but-timing (`own_bar_hold_reason`) — a neutral chart never sells it.
 
     ENTRY still uses the full-strict `own_bar_block_reason`; this narrower test
     exists solely for the held side. It reuses the SAME aligned/opposed
@@ -289,3 +293,24 @@ def own_bar_opposition_reason(
         return opposition
 
     return None
+
+
+def own_bar_hold_reason(
+    seat_verdicts: list["AnalystVerdict"],
+    *,
+    direction: str,
+) -> str | None:
+    """The conviction bar for a name the desk already HOLDS — owner ruling
+    Option A, 14 Oct 2026: kept while it passes every buy rule EXCEPT timing.
+
+    The same bar as `own_bar_block_reason` with the timing veto removed: a
+    neutral or absent technical read does not fail it; a technical read
+    AGAINST the holding does (the chart turned on it). Checks 2-4 (no
+    name-level seat opposed, a supported non-technical side, not macro
+    alone) apply unchanged, through the one shared `_thesis_block_reason`.
+    `None` when the held name passes."""
+    aligned = "bullish" if direction == "bullish" else "bearish"
+    opposed = "bearish" if direction == "bullish" else "bullish"
+    if any(v.seat == "technical" and v.direction == opposed for v in seat_verdicts):
+        return f"{OWN_BAR_REASON_PREFIX} — technical opposed; chart hostile to the trade (right name, wrong time)"
+    return _thesis_block_reason(seat_verdicts, aligned=aligned, opposed=opposed)

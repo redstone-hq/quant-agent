@@ -252,8 +252,9 @@ def _same_rules_opportunity(pipeline, ctx, surfaced, positions):
     The ranked-margin tier is returned unchanged (it is OFF by config, and a
     still-eligible name it proposed would be refused by the same gate in
     `RiskStage`). Otherwise every held LONG is judged by
-    `src.exits.same_rules_gate.judge_holding`; those that fail the full entry
-    bar form the categorical cull set, worst-first (most failing rules, then
+    `src.exits.same_rules_gate.judge_holding`; those that fail every buy rule
+    but timing (owner Option A, 14 Oct) form the categorical cull set,
+    worst-first (most failing rules, then
     alphabetical). A holding whose bar cannot be evaluated, or bought today,
     is never in it. Returns `None` when nothing fails.
 
@@ -368,8 +369,9 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
         return
     # OWNER RULING 2026-10-13, "same rules as buying". The categorical cull
     # set is no longer the 25 Sep opposition-only STAY subset the PM's
-    # ranking surfaced: it is every held long that FAILS the full entry bar
-    # under the one same-rules gate, with missing evidence never selling.
+    # ranking surfaced: it is every held long that FAILS every-buy-rule-but-
+    # timing (Option A, 14 Oct: a neutral chart never culls) under the one
+    # same-rules gate, with missing evidence never selling.
     opportunity = _same_rules_opportunity(pipeline, ctx, precheck.opportunity, positions)
     if opportunity is None:
         return  # no holding fails the entry bar this run — nothing to act on
