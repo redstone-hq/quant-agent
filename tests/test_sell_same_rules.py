@@ -304,9 +304,15 @@ def test_b_reviewer_session_hands_executor_a_hold_not_the_sell():
     from tests.test_midday_session_gross_ceiling import _pipeline, _Reached, _resolver, _session_kwargs
 
     kw = _session_kwargs(_pipeline(_resolver([])))
+    # The substantiation pass is injected; a MagicMock would replace the
+    # review with a mock. Pass the review through unchanged so the SELL
+    # reaches the same-rules gate, which is the subject here.
+    kw["substantiate_exit_triggers"] = lambda review, **_k: review
     kw["position_reviewer"].review.return_value = (
         _review("AAA", "SELL", "medium-grade adverse headline"),
-        SimpleNamespace(used_fallback=False, raw_text="{}"),
+        # The session logs every field of the reviewer's call record; the
+        # shared helper's MagicMock carries them all.
+        kw["position_reviewer"].review.return_value[1],
     )
     with pytest.raises(_Reached):
         PositionReviewSession(**kw).run("close")
