@@ -166,7 +166,7 @@ class DeleverTrims:
                     action="FORCE_DELEVER",
                     qty=qty,
                     price=position.current_price,
-                    reasoning=trim.reasoning[:500],
+                    reasoning=trim.reasoning,
                     run_id=ctx.run_id,
                     broker_order_id=order.get("id"),
                     fill_status="submitted",

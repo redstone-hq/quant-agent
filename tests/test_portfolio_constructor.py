@@ -1096,10 +1096,8 @@ def test_sell_thesis_invalid_if_survives_full_length_unlike_embedded_reasoning()
     d = decisions[0]
     assert d.action == "SELL"
     assert d.thesis_invalid_if == _LONG_INVALID_IF
-    # reasoning is capped hard at 500 with no headroom for SELL.
-    assert len(d.reasoning) <= 500
-    embedded = _extract_embedded_invalid_if(d.reasoning)
-    assert embedded is None or embedded != _LONG_INVALID_IF
+    # reasoning is no longer capped, so the full condition is stored in it too.
+    assert _LONG_INVALID_IF in d.reasoning
 
 
 def test_hold_and_no_condition_leave_the_field_none():

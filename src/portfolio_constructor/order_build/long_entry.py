@@ -252,7 +252,7 @@ class LongEntryBuilder:
             # rides alongside it for the same reason: a portfolio-level cut
             # the AI Risk Manager cannot see the arithmetic behind reads as
             # the PM contradicting itself.
-            reasoning=reasoning[:500]
+            reasoning=reasoning
             + cap_note
             + (f" {plan.note}" if plan is not None and plan.note else "")
             + self._target_note(derivation),

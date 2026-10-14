@@ -86,7 +86,7 @@ class ExitOrderBuilders:
             entry_price=0.0,
             stop_loss=0.0,
             take_profit=0.0,
-            reasoning=reasoning[:500],
+            reasoning=reasoning,
             # Real, untruncated field alongside the embedded-in-reasoning
             # text above — see TradeDecision.thesis_invalid_if.
             # Blank-falsifier funding-trims leave this None — never invent.
@@ -147,7 +147,7 @@ class ExitOrderBuilders:
             entry_price=0.0,
             stop_loss=0.0,
             take_profit=0.0,
-            reasoning=reasoning[:500],
+            reasoning=reasoning,
             # Real, untruncated field alongside the embedded-in-reasoning
             # text above — see TradeDecision.thesis_invalid_if.
             # Blank-falsifier funding-trims leave this None — never invent.
