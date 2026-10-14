@@ -502,6 +502,7 @@ class TargetRevision:
                         # point of recording it is that somebody measuring a
                         # slow session later can see WHY it was slow.
                         prior_code=None if serial_bar_read else prior_codes.get(sym),
+                        bar_date=bar_date,
                     )
                 )
             except Exception as exc:  # noqa: BLE001

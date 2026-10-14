@@ -139,7 +139,11 @@ def _append_trade_session_body(lines: list[str], result: dict) -> None:
     _new_block(lines, _render_orders)
 
     def _render_target_revisions(lines: list[str]) -> None:
-        lines.extend(describe_target_revisions(result))
+        # The book this message carries, if any (a stored report's snapshot);
+        # without one the renderer says so instead of naming unheld stocks.
+        book = result.get("_positions")
+        held = [p.get("symbol") for p in book if isinstance(p, dict)] if isinstance(book, list) else None
+        lines.extend(describe_target_revisions(result, held_symbols=held))
 
     _new_block(lines, _render_target_revisions)
 
