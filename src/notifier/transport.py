@@ -470,6 +470,35 @@ class TelegramNotifier:
             return False, f"delete refused: {self._redact(detail)}"
         return True, ""
 
+    def edit_message_text(self, message_id: int, text: str, *, kind: str = "fill_edit") -> SendResult:
+        """ONE editMessageText on a message this bot sent; never raises, never retries.
+
+        `text` is the whole delivered HTML body (owner ruling 5b edits one
+        line of it in place). Recorded like a send; a rehearsal edits nothing.
+        """
+        if not self.enabled or not text or _REHEARSAL_MODE:
+            return SendResult(False)
+        try:
+            response = requests.post(
+                self._api_url("editMessageText"),
+                json={
+                    "chat_id": self.chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=self.HTTP_TIMEOUT_S,
+            )
+            response.raise_for_status()
+            result = self._landed(response)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Telegram edit failed: %s", self._redact(exc))
+            self._safe_record_send(kind=kind, status="failed", text=text, detail=self._redact(exc))
+            return SendResult(False)
+        self._safe_record_send(kind=kind, status="sent", text=text)
+        return SendResult(True, status_code=result.status_code, message_id=message_id)
+
     def send_document(
         self,
         csv_bytes: bytes,
