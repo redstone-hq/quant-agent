@@ -11,6 +11,7 @@ from typing import Any, Callable, TypeVar
 from src.cost_circuit.classification import _SELF_CLEARING_HARD_TRIGGERS
 from src.cost_circuit.refusal import _fmt_settled
 from src.cost_circuit.clock import _et_day_and_utc_bounds, _et_day_from_sqlite_utc, _sql_stamp
+from src.cost_circuit.free_route import daily_cap_applies
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,13 @@ class CircuitState:
         run_id: str,
         mode: str,
     ) -> dict[str, Any] | None:
+        # A session exempted from the DAILY money cap (free_route.daily_cap_applies)
+        # does not see the day-wide daily_cost_limit hold; every other hold still binds.
+        day_scope = "scope='day'" if daily_cap_applies(mode) else "(scope='day' AND trigger_code<>'daily_cost_limit')"
         row = conn.execute(
             "SELECT * FROM llm_quota_holds WHERE active=1 AND day=? AND ("
-            "scope='day' OR (scope='mode_day' AND scope_key=?) OR "
+            + day_scope
+            + " OR (scope='mode_day' AND scope_key=?) OR "
             "(scope='session' AND scope_key=?)) "
             "ORDER BY CASE scope WHEN 'day' THEN 1 WHEN 'mode_day' THEN 2 ELSE 3 END, "
             "id LIMIT 1",
