@@ -419,6 +419,7 @@ class AlpacaBroker:
                     unrealized_pnl=float(p.unrealized_pl),
                     unrealized_intraday_pnl=float(getattr(p, "unrealized_intraday_pl", 0) or 0),
                     sector=_sector_reference._get_sector(symbol),
+                    qty_available=_reported_float(getattr(p, "qty_available", None)),
                 )
             )
         return positions
@@ -1170,3 +1171,11 @@ _sys.modules[__name__].__class__ = _MirrorModule
 for _n in _SECTOR_MIRROR_NAMES:
     _types.ModuleType.__setattr__(_sys.modules[__name__], _n, getattr(_sector_reference, _n))
 del _n
+
+
+def _reported_float(value) -> float | None:
+    """A broker numeric field as a float; None when absent or unparseable."""
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None

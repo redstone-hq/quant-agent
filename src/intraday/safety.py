@@ -150,6 +150,12 @@ class IntradaySafety:
                 # Drain orphaned protection-restore intents — intra runs every
                 # 30 min so this is the most frequent recovery opportunity for
                 # bails that landed during morning. Codex r8 #2.
+                # Owed sales first: a sale deferred because its stop's cancel
+                # was unconfirmed is sent (or handed back to the restore
+                # below) before the restore drain reads the same rows.
+                from src.protection.protected_sell import drain_owed_sales
+
+                drain_owed_sales(self)
                 drained = self._drain_pending_protection_restores()
                 self._drain_pending_repegs()
                 # Broker-truth coverage audit + auto-repair every tick (audit round

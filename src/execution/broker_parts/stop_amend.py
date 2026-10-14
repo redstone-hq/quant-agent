@@ -218,7 +218,7 @@ class StopAmender:
                 new_stop_price,
             )
             return deferred_payload(symbol, stop_specs, new_stop_price)
-        if not stop_specs or len(stop_specs) != len(live_orders):
+        if not stop_specs:
             return _AMEND_NOT_ATTEMPTED
         if not all(self._stop_order_amendable_in_place(o) for o in live_orders):
             return _AMEND_NOT_ATTEMPTED

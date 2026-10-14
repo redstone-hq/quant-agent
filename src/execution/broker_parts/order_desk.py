@@ -55,6 +55,12 @@ logger = logging.getLogger("src.execution.broker")
 
 from src.execution.broker_parts.submission_rejection import _is_terminal_submission_rejection  # noqa: F401 (re-export)
 
+#: The one ceiling on waiting for an order to reach a terminal state. Every
+#: cancel-then-act site waits on this (no per-site literal), and a cancel not
+#: confirmed inside it defers the sale to the owed-sale drain rather than
+#: sending into a stop still holding the shares (refused sales, 13 Oct).
+ORDER_TERMINAL_CEILING_S = 15.0
+
 
 class OrderDesk:
     """The broker's order-submission and order-read cluster, standalone.
@@ -255,7 +261,7 @@ class OrderDesk:
     def wait_for_order_terminal(
         self,
         order_id: str,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float = ORDER_TERMINAL_CEILING_S,
         poll_interval: float = 1.0,
         use_stream: bool = True,
     ) -> str | None:

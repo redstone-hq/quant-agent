@@ -6688,15 +6688,22 @@ numbers:
       (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). Same class as
       src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk
       waits for the broker to report, never whether or how much to trade.
-  - id: src.execution.broker_parts.order_desk.OrderDesk.wait_for_order_terminal(timeout_seconds)
+  - id: src.execution.broker_parts.order_desk.ORDER_TERMINAL_CEILING_S
     value: 15
     status: not-trade-governing
     site: src/execution/broker_parts/order_desk.py
     note: >-
-      Poll interval or wait deadline on an order-status lookup
-      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). Same class as
-      src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk
-      waits for the broker to report, never whether or how much to trade.
+      Wait ceiling on an order reaching a terminal state
+      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal's default; value
+      unchanged, moved to a named constant 14 Oct so every cancel-then-act site waits on this one
+      number instead of the 5 s and 10 s site literals it replaced). Same class as
+      src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk waits for the broker
+      to report. Since 14 Oct it also decides how long a protected sale waits for its stop cancels
+      to be confirmed (one deadline shared across all legs, cancel_confirm.settle_legs): reached,
+      the sale is not sent this pass and is recorded as OWED on its recovery row, and the
+      intra_safety drain sends the same sale once the legs are dead and the position re-checks. So
+      it decides WHEN a sale goes, never whether it goes or its size. Whether a ceiling that
+      defers a sale is still "not-trade-governing" is an open question for review.
   - id: src.execution.broker_parts.trade_stream._TradeUpdatesHub.wait(poll_interval)
     value: 1
     status: not-trade-governing

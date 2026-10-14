@@ -13,6 +13,9 @@ class Position(BaseModel):
     unrealized_pnl: float
     unrealized_intraday_pnl: float = 0.0
     sector: str
+    # The broker's own free quantity: held minus shares reserved by open
+    # orders. None when the broker did not report it.
+    qty_available: float | None = None
 
     @field_validator("symbol")
     @classmethod

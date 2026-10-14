@@ -34,6 +34,15 @@ desk!!"*
   losing positions, biggest loss first, and only when no loser is left the
   weakest-rated winner, whole (owner, 12 Oct). Selling whole may take the
   book below the new limit; that is accepted.
+- **Cancel, wait for the broker to confirm, then sell (owner, 13 Oct).** A
+  sale that must first cancel its protective stop waits until the broker
+  reports every cancelled stop dead; a few minutes without a stop while a
+  cancel completes is accepted, and the 30 Sep "never cancel, amend in place"
+  doctrine no longer binds. The sale is exactly the intended size or nothing,
+  with a per-symbol reason (`cancel_unconfirmed`, `cancel_read_failed`,
+  `shares_reserved`, `position_disagrees`, `stop_filled_in_part`). A sale not
+  sent because a cancel was unconfirmed is recorded as owed on its recovery
+  row, and the intra_safety drain sends it after re-checking the position.
 - **No risk-tolerance number is asked of the owner.** *"I don't want to make
   up numbers."* Every risk number is derived from the two goals above plus
   each name's own volatility, or adopted from published practice; a limit that
