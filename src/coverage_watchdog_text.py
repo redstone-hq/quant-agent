@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from src.log_markers import SWEEP_LOG_NAME  # noqa: F401  re-exported; one home for writer and reader
+
 if TYPE_CHECKING:  # annotations only -- no runtime import, no cycle
     from src.coverage_watchdog import CoverageStatus, UnreadableStop
 
@@ -223,8 +225,6 @@ def status_line(status: CoverageStatus) -> str:
     )
 
 
-#: The log prefix a reader greps for. One name for both entry points.
-SWEEP_LOG_NAME = "COVERAGE SWEEP"
 #: `agent_name` on the evidence row — distinct from 'pipeline' so the
 #: dashboard's per-session feed never mistakes a sweep for a session.
 SWEEP_AGENT_NAME = "coverage_sweep"

@@ -493,7 +493,10 @@ def test_a_rule_stopping_an_order_is_not_the_broker_rejecting_us():
 
 def test_overnight_exposure_is_reported_until_the_next_session_repairs_it():
     overnight = next(r for r in _records() if "OVERNIGHT FRACTIONAL EXPOSURE" in r.message)
-    assert _report(records=[overnight]).verdict == "hurt"
+    alone = _report(records=[overnight])
+    assert "overnight_fractional_exposure" in {f.family.key for f in alone.reported}
+    # Owner-accepted 2 Sep: reported while true, as "known, accepted", not HURT.
+    assert alone.verdict == "accepted"
     repaired = next(r for r in _records() if "COVERAGE REPAIRED: AAPL" in r.message)
     after = L.LogRecord(
         overnight.timestamp + timedelta(hours=13),
@@ -668,17 +671,21 @@ def _fam(key):
     return next(f for f in L.FAMILIES if f.key == key)
 
 
-def test_an_owner_accepted_family_says_so_and_stays_hurt():
+def test_an_owner_accepted_family_says_so_and_is_never_hurt():
     fam = _fam("overnight_fractional_exposure")
     finding = L.Finding(family=fam, count=1, dollars_uncovered=12.5)
     text = L.disposition(finding, set(), set(), is_new=True)
-    assert "owner-accepted 2 Sep" in text
+    assert "known, accepted 2 Sep" in text
     assert "$12.50 uncovered" in text
     assert "not yet on the list" not in text
     assert fam.reason == L.MONEY_UNPROTECTED
     other = L.Finding(family=_fam("seat_answer_unreadable"), count=5)
     report = L.Report(window_start=WIDE_START, window_end=WIDE_END, findings=[other, finding])
-    assert report.reported[0].family.key == "overnight_fractional_exposure"
+    # Accepted sorts after every open fault; the open one still sets HURT.
+    assert report.reported[0].family.key == "seat_answer_unreadable"
+    assert report.verdict == "hurt"
+    alone = L.Report(window_start=WIDE_START, window_end=WIDE_END, findings=[finding])
+    assert alone.verdict == "accepted"
 
 
 def test_the_accepted_dollars_are_read_from_the_log_line():
