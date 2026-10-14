@@ -29,7 +29,7 @@ from src.quantities import (
     split_position_chain,
     summarize_closed_position,
 )
-from src.storage.analytics.calibration import _opened_before_clean_record
+from src.storage.analytics.calibration import CLEAN_RECORD_START_UTC, _opened_before_clean_record
 from src.trade_actions import fill_sort_key
 from src.util.time import ET
 
@@ -75,11 +75,28 @@ def _position_pnl(position, rows: list[dict]) -> float:
     Exit rows are the same split `summarize_closed_position` prices from
     (`split_position_chain`): a TRAIL_STOP stop-move that never filled is not an exit.
     """
+    recorded = _recorded_pnl(rows)
+    if recorded is not None:
+        return recorded
+    return (position.exit_price - position.entry_price) * position.qty
+
+
+def _recorded_pnl(rows: list[dict]) -> float | None:
+    """Realised $ the desk RECORDED on every exit row of one position chain; None when any is missing.
+
+    The scorecard shows this and nothing else: a price difference x quantity is an estimate, not a result.
+    """
     _, exits, _ = split_position_chain(rows)
     recorded = [r.get("realized_pnl") for r in exits if r.get("realized_pnl") is not None]
     if exits and len(recorded) == len(exits):
         return float(sum(float(v) for v in recorded))
-    return (position.exit_price - position.entry_price) * position.qty
+    return None
+
+
+def clean_record_since_label() -> str:
+    """The clean record's first day for a label, read from `CLEAN_RECORD_START_UTC` ("12 Oct")."""
+    start = datetime.fromisoformat(CLEAN_RECORD_START_UTC)
+    return f"{start.day} {start:%b}"
 
 
 def _trade_record(position, rows: list[dict]) -> dict:
@@ -91,6 +108,7 @@ def _trade_record(position, rows: list[dict]) -> dict:
         "symbol": position.symbol,
         "side": position.direction,
         "pnl": round(_position_pnl(position, rows), 2),
+        "recorded_pnl": None if (recorded := _recorded_pnl(rows)) is None else round(recorded, 2),
         "r": r,
         "opened_at": position.opened_at,
         "closed_at": position.closed_at,
@@ -98,26 +116,33 @@ def _trade_record(position, rows: list[dict]) -> dict:
     }
 
 
-def closed_trades(rows: list[dict]) -> tuple[list[dict], int]:
-    """(clean-record closed trades oldest-closed first, count excluded as pre-clean-record)."""
+def _split_closed_trades(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(clean-record closed trades oldest-closed first, trades excluded as opened before the clean record)."""
     chains: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         pid = row.get("position_id")
         if pid:
             chains[str(pid)].append(row)
     trades: list[dict] = []
-    excluded = 0
+    excluded: list[dict] = []
     for chain in chains.values():
         chain.sort(key=fill_sort_key)
         position = summarize_closed_position(chain)
         if position is None:
             continue
+        record = _trade_record(position, chain)
         if _opened_before_clean_record(position.opened_at):
-            excluded += 1
+            excluded.append(record)
             continue
-        trades.append(_trade_record(position, chain))
+        trades.append(record)
     trades.sort(key=lambda t: t["closed_at"] or "")
     return trades, excluded
+
+
+def closed_trades(rows: list[dict]) -> tuple[list[dict], int]:
+    """(clean-record closed trades oldest-closed first, count excluded as pre-clean-record)."""
+    trades, excluded = _split_closed_trades(rows)
+    return trades, len(excluded)
 
 
 # ---------------------------------------------------------------- statistics
@@ -365,30 +390,33 @@ def build_trade_review(rows: list[dict], now: datetime | None = None) -> dict:
 def close_review_summary(rows: list[dict], now: datetime | None = None) -> dict:
     """Today's closed-trade figures for the Telegram close review. Pure; display only.
 
-    Reuses `closed_trades`, `window_stats` and `quality`. Adds only the R total and the best
-    and worst trade by R with their symbols, which the window stats do not carry. Any R that
-    is unreadable makes the R total and average None (unknown), never zero.
+    Counts only clean-record trades (opened at or after `CLEAN_RECORD_START_UTC`) and lists, in
+    `not_counted`, the symbols of trades closed today that were left out for opening earlier.
+    Reuses `window_stats` and `quality`; adds the dollar total, average, best and worst trade with
+    their symbols, which the window stats do not carry. Dollars are the RECORDED realised P&L only:
+    a trade without one makes the total and average None (unknown), never zero or a computed figure.
     """
     now = now or utc_now()
     today = now.astimezone(ET).date()
-    trades, _excluded = closed_trades(rows)
+    trades, excluded = _split_closed_trades(rows)
     todays = [t for t in trades if _et_date(t["closed_at"]) == today]
     stats = window_stats(todays)
-    known = [t for t in todays if t["r"] is not None]
+    known = [t for t in todays if t["recorded_pnl"] is not None]
     all_known = bool(todays) and len(known) == len(todays)
-    total_r = _round(sum(t["r"] for t in known)) if all_known else None
-    best = max(known, key=lambda t: t["r"], default=None)
-    worst = min(known, key=lambda t: t["r"], default=None)
+    total_usd = _round(sum(t["recorded_pnl"] for t in known)) if all_known else None
+    best = max(known, key=lambda t: t["recorded_pnl"], default=None)
+    worst = min(known, key=lambda t: t["recorded_pnl"], default=None)
     q = quality(trades)
     return {
         "n": stats["n"],
         "wins": stats["wins"],
         "losses": stats["losses"],
         "win_rate_pct": stats["win_rate_pct"],
-        "total_r": total_r,
-        "average_r": stats["expectancy_r"] if all_known else None,
-        "best": None if best is None else {"symbol": best["symbol"], "r": _round(best["r"])},
-        "worst": None if worst is None else {"symbol": worst["symbol"], "r": _round(worst["r"])},
+        "total_usd": total_usd,
+        "average_usd": _round(total_usd / stats["n"]) if total_usd is not None else None,
+        "best": None if best is None else {"symbol": best["symbol"], "usd": best["recorded_pnl"]},
+        "worst": None if worst is None else {"symbol": worst["symbol"], "usd": worst["recorded_pnl"]},
+        "not_counted": sorted({t["symbol"] for t in excluded if _et_date(t["closed_at"]) == today}),
         "profit_factor": stats["profit_factor"],
         "quality_n": q["n"],
         "p_value": q["p_value"],

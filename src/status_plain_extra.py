@@ -101,14 +101,15 @@ _RISK_FIELD = {
 
 # `trade_review.close_review_summary` keys the close-review block prints.
 _TRADE_REVIEW = {
-    "n": "Closed today",
+    "n": "Closed today (clean record, opened since {since})",
     "wins": "wins",
     "losses": "losses",
     "win_rate_pct": "Win rate",
-    "total_r": "total",
-    "average_r": "average",
+    "total_usd": "total",
+    "average_usd": "average",
     "best": "Best",
     "worst": "worst",
+    "not_counted": "Not counted (opened before {since})",
     "profit_factor": "Won per $1 lost",
     "quality_n": "trades with known result",
     "p_value": "odds it was luck",
