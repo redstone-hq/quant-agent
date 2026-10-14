@@ -304,8 +304,8 @@ def test_submit_protected_close_short_restores_buy_stops_on_reject():
     assert out is None
     pipe.broker._restore_stop_orders.assert_called_once_with(
         "NVDA",
-        [{"id": "s1", "qty": 10}],
-        check_idempotency=False,
+        [{"id": "s1", "qty": 73.0}],  # the 10-share leg topped up to the 73 held: cover never short of held
+        check_idempotency=True,  # a dying stop is never counted as cover
         side="buy",
     )
 
@@ -327,8 +327,8 @@ def test_submit_protected_close_short_restores_buy_stops_on_submit_throw():
     assert out is None
     pipe.broker._restore_stop_orders.assert_called_once_with(
         "NVDA",
-        [{"id": "s1", "qty": 10}],
-        check_idempotency=False,
+        [{"id": "s1", "qty": 73.0}],  # the 10-share leg topped up to the 73 held: cover never short of held
+        check_idempotency=True,  # a dying stop is never counted as cover
         side="buy",
     )
 
