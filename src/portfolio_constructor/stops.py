@@ -74,7 +74,6 @@ from src.portfolio_constructor.config import (
 
 
 from src.portfolio_constructor.entry_stop.resolver import EntryStopResolver
-import src.portfolio_constructor.level_touch_record as touch_gate
 from src.portfolio_constructor.stop_width import stop_atr_multiple
 from src.portfolio_constructor import no_atr_stop_record as no_atr_rows
 from src.portfolio_constructor.reward_risk_at import reward_risk_at
@@ -147,18 +146,15 @@ class StopRules:
         for the same reason — see the `levels` note in its docstring.
 
         Returns the CLOSEST matching level so the log names the one the
-        stop is actually sitting on. A level with fewer than
-        `risk.min_level_touches_for_stop_honor` prior touches is skipped
-        entirely here — it is real enough to register in `computed_levels`
-        and to anchor a target, but not (per docs/RESEARCH_FINDINGS.md §7's
-        measured table) trusted enough to earn the tight-stop exemption. A
-        stop resting on it falls through to the ATR floors below, same as a
-        stop with nothing computed under it at all.
+        stop is actually sitting on. Any real computed level counts, at any
+        touch count (2026-10-14): a 148-stock study found a long stop just
+        beyond a real level is hit 26.5% of the time against 30.3% with no
+        level at the same distance, and extra touches add nothing. The
+        owner's 9 Oct ruling keeps levels as one weighted input to the odds,
+        never a gate on their own, so touch count is not asked here.
         """
         raw_levels = getattr(analysis, "computed_levels", None) or []
-        touches_by_price = getattr(analysis, "computed_level_touches", None) or {}
         bars_by_price = getattr(analysis, "computed_level_bars", None) or {}
-        min_touches = self.cfg.min_level_touches_for_stop_honor
 
         best: float | None = None
         best_gap = float("inf")
@@ -175,12 +171,6 @@ class StopRules:
             if is_short and price < entry_price:
                 continue
             if not is_short and price > entry_price:
-                continue
-            if not touch_gate.level_clears_touch_bar(
-                touches_by_price.get(price),
-                min_touches,
-                site=touch_gate.SITE_TIGHT_STOP_EXEMPTION,
-            ):
                 continue
             # "At" this level means ON ONE OF ITS BARS, not merely inside
             # its band — docs/WORK.md item 215. Item 55 made the zone the
@@ -236,9 +226,9 @@ class StopRules:
 
           1. The NEAREST verified computed structural level on the protective
              side of entry -- support at/below a long, resistance at/above a
-             short -- with at least `risk.min_level_touches_for_stop_honor`
-             prior touches, the SAME trust bar `_level_backing_stop` applies
-             before it will honour a tight typed stop. This is a swing-low /
+             short -- at any touch count, the SAME rule `_level_backing_stop`
+             applies (2026-10-14: a real level beats none at the same
+             distance, and touch count adds nothing). This is a swing-low /
              structure stop (IG, LuxAlgo). The shipping stop is placed one
              buffer BEYOND the level (the losing side).
           2. The signal (last completed) bar's low for a long / high for a
@@ -268,8 +258,8 @@ class StopRules:
 
         # ---- Tier 1: nearest verified computed structural level ----------
         raw_levels = getattr(analysis, "computed_levels", None) or []
+        # Touch counts are recorded on the row as data; none is required.
         touches_by_price = getattr(analysis, "computed_level_touches", None) or {}
-        min_touches = self.cfg.min_level_touches_for_stop_honor
         best_level: float | None = None
         best_gap = float("inf")
         candidates = 0
@@ -278,7 +268,7 @@ class StopRules:
             is_short,
             entry_price,
             buffer_pct,
-            min_touches,
+            None,
         )
         for raw in raw_levels:
             try:
@@ -292,12 +282,6 @@ class StopRules:
             if is_short and price <= entry_price:
                 continue
             if not is_short and price >= entry_price:
-                continue
-            if not touch_gate.level_clears_touch_bar(
-                touches_by_price.get(price),
-                min_touches,
-                site=touch_gate.SITE_NO_ATR_STRUCTURAL_ANCHOR,
-            ):
                 continue
             candidates += 1
             gap = abs(entry_price - price)

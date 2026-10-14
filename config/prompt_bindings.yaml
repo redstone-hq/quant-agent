@@ -22,7 +22,8 @@ bindings:
     why: >
       The technical seat is told, in four figures, what the portfolio
       constructor will do to the stop it places: honoured exactly when it
-      rests on a bar that drew a computed structural level AND that
+      rests on a bar that drew a computed structural level (any level, at
+      any touch count, since 2026-10-14) AND that
       level's measured span is narrower than the trade's own stop
       distance, otherwise pushed out to `risk.min_stop_atr_multiple` (2.5
       ATRs for every trade, no setup or regime scaling since 2026-10-09), with a
@@ -42,5 +43,5 @@ bindings:
           - "the stop is honoured exactly as you placed it"
           - "pushed out to a deterministic minimum distance"
           - "Absolute backstop, applied in code even to a level-backed stop"
-    code_digest: "cde147356d52819b"
-    prose_digest: "468b95227d437632"
+    code_digest: "5b44b6bd35ea813d"
+    prose_digest: "80bd0400cf44b609"

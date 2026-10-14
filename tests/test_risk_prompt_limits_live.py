@@ -691,9 +691,12 @@ def test_the_rest_of_the_omission_is_recorded_not_silently_swept():
     # 11 -> 10 on 2026-10-13, made-up numbers row 20a: `target_divergence_warn_pct`
     # (a log-level-only warning threshold that changed no order) was deleted
     # from settings.yaml and its wiring.
-    assert len(omitted) == 10, (
+    # 10 -> 9 on 2026-10-14: `min_level_touches_for_stop_honor` (the five-touch
+    # bar on stop placement) was deleted from settings.yaml, `RiskConfig` and
+    # every reader; any real level now backs a stop at any touch count.
+    assert len(omitted) == 9, (
         f"the engine's hand-enumerated RiskConfig now omits {len(omitted)} "
-        f"settings present in settings.yaml, not 10 — if that grew, thread "
+        f"settings present in settings.yaml, not 9 — if that grew, thread "
         f"the new one; if it shrank, lower this number. Omitted: {omitted}"
     )
 

@@ -1,4 +1,11 @@
-"""Make the state of `risk.min_level_touches_for_stop_honor` VISIBLE.
+"""History of the deleted touch bar, and the rule that replaced it.
+
+2026-10-14: the bar below is DELETED. A 148-stock study found a long stop
+just beyond a real level is hit less often than one with no level at the
+same distance, and extra touches add nothing; any real computed level now
+backs a stop at any touch count. The tests below pin that touch count no
+longer decides, and that the level question is still only asked inside the
+noise band. The measurement that follows is kept as the record.
 
 Measured 2026-10-04 against the recorded real bars
 (`ops/rehearsal/recordings/market_bars.json.gz`, 33 symbols, 6,205 long
@@ -19,10 +26,8 @@ signals, 30,773 computed levels, 22,117 of them on the protective side):
     outside the band returns early ("the majority path", per that function's
     own comment) and never asks the question at all.
 
-So the parameter is live in the rule and unreachable in the harness that
-measured it. These tests pin both halves so neither can rot silently.
-
-Nothing here changes the threshold or the guard's logic.
+So the parameter was live in the rule and unreachable in the harness that
+measured it.
 """
 
 from types import SimpleNamespace
@@ -32,11 +37,9 @@ import pytest
 from src.portfolio_constructor.stops import StopRules
 
 
-def _rules(min_touches: int) -> StopRules:
+def _rules() -> StopRules:
     return StopRules(
-        read_cfg=lambda: SimpleNamespace(
-            min_level_touches_for_stop_honor=min_touches,
-        ),
+        read_cfg=lambda: SimpleNamespace(),
         entry_stop_resolver=lambda: None,
     )
 
@@ -51,24 +54,16 @@ def _analysis(touches: int) -> SimpleNamespace:
     )
 
 
-@pytest.mark.parametrize(
-    "bar,touches,honoured",
-    [
-        (5, 4, False),  # below the shipped bar -> refused
-        (5, 5, True),  # exactly at it -> honoured
-        (8, 5, False),  # a tighter bar refuses what 5 honours
-        (2, 4, True),  # a looser bar honours what 5 refuses
-    ],
-)
-def test_touch_bar_actually_binds(bar: int, touches: int, honoured: bool) -> None:
-    """The bar is NOT inert: the same level flips on the threshold alone."""
-    level = _rules(bar)._level_backing_stop(
+@pytest.mark.parametrize("touches", [1, 2, 4, 5, 8])
+def test_touch_count_no_longer_decides(touches: int) -> None:
+    """The same real level backs the stop at every touch count."""
+    level = _rules()._level_backing_stop(
         _analysis(touches),
         entry_price=100.0,
         stop_loss=90.0,
         is_short=False,
     )
-    assert (level is not None) is honoured
+    assert level == 90.0
 
 
 def test_touch_map_is_populated_not_defaulted() -> None:
@@ -93,7 +88,7 @@ def test_level_question_is_never_asked_for_an_outside_band_stop() -> None:
     where every stop is placed.
     """
     calls: list[tuple[float, float]] = []
-    rules = _rules(5)
+    rules = _rules()
     original = rules._level_backing_stop
 
     def spy(analysis, entry_price, stop_loss, is_short):  # noqa: ANN001
@@ -104,8 +99,7 @@ def test_level_question_is_never_asked_for_an_outside_band_stop() -> None:
     spy(_analysis(5), 100.0, 90.0, False)
     assert len(calls) == 1, "the guard itself is reachable and answers"
 
-    # And it answers in the affirmative only because the touch count clears
-    # the bar — the same call with 4 touches is refused, proving the
-    # threshold, not the band, decided this one.
+    # And it answers the same at 5 touches and at 4: touch count is not
+    # asked any more (2026-10-14).
     assert original(_analysis(5), 100.0, 90.0, False) == 90.0
-    assert original(_analysis(4), 100.0, 90.0, False) is None
+    assert original(_analysis(4), 100.0, 90.0, False) == 90.0

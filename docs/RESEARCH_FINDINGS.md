@@ -368,7 +368,9 @@ before a stop resting on it is trusted enough to be honoured however tight?
 That is a decision about wiring level quality into stops — separate evidence,
 separate decision, made here rather than left in the measurement above.
 
-**Decided: 5 touches** (`risk.min_level_touches_for_stop_honor`, wired in
+**SUPERSEDED 2026-10-14 — the touch bar is deleted.** A 148-stock study found a long stop just beyond a real level is hit 26.5% of the time against 30.3% with no level at the same distance (-4.11 pp, t -12.5), and extra touches add nothing (-0.3 pp per touch, t -1.6); any real computed level now backs a stop at any touch count. The original decision follows for the record.
+
+**Decided (superseded): 5 touches** (`risk.min_level_touches_for_stop_honor`, wired in
 `PortfolioConstructor._level_backing_stop`). Below the table, restated with
 the CI overlap made explicit — the thing that actually decides where the
 line goes:

@@ -61,9 +61,8 @@ def _resolve_structural_stop_and_target(
 
     The fourth element is the touch count behind each of those prices — the
     same shape `TechAnalysisResult.computed_level_touches` carries in live
-    (Phase 12.1, 2026-09-03). Without it this engine would honour a
-    level-backed stop regardless of touch count while the live path enforces
-    `risk.min_level_touches_for_stop_honor`, which is not the same rule.
+    (Phase 12.1, 2026-09-03). It is carried as data only: since 2026-10-14
+    no touch count gates whether a real level backs a stop, live or here.
 
     The fifth element is the high-low range of every bar that DREW each of
     those levels — the same shape `TechAnalysisResult.computed_level_bars`

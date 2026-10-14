@@ -39,7 +39,6 @@ from src.risk.exit_guard import (
 )
 from tests.pipeline_factory import build_pipeline
 
-MIN_TOUCHES = 5
 _LEVELS = [90.0]
 _TOUCHES = {90.0: 6}
 
@@ -66,7 +65,6 @@ def _common(**over):
         # stop sits on the session that turned at 90.00 and traded to 90.60;
         # every level states the narrowest bar that can have drawn it.
         computed_level_bars={lv: [(lv, lv)] for lv in _LEVELS} | {90.0: [(90.0, 90.6)]},
-        min_level_touches=MIN_TOUCHES,
         level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     base.update(over)
@@ -422,7 +420,7 @@ def _board_rows(pipeline):
     return rows
 
 
-def test_voicing_reaches_telegram_and_board():
+def test_voicing_is_recorded_for_the_session_message_and_not_paged():
     p = _voicing_pipeline()
     with patch("src.notifier.send_owner_alert", return_value=True) as alert:
         p._voice_structural_protection_break(
@@ -430,14 +428,15 @@ def test_voicing_reaches_telegram_and_board():
             run_id="run-1",
             check=_exit_check(),
         )
-    assert alert.call_count == 1
-    telegram_text = alert.call_args.args[0]
-    assert "NVDA" in telegram_text and "hold-protection lifted" in telegram_text.lower()
+    # Owner 2026-10-14: the verdict is recorded for the session message's one
+    # line per stock, not paged on its own (tests/test_one_message_per_stock.py).
+    assert alert.call_count == 0
     rows = _board_rows(p)
     assert len(rows) == 1
     sym, payload = rows[0]
     assert sym == "NVDA"
-    assert payload["owner_reason"] == telegram_text
+    owner_text = payload["owner_reason"]
+    assert "NVDA" in owner_text and "hold-protection lifted" in owner_text.lower()
     assert payload["protected"] is False
     assert payload["trend_context"] == REGIME_DEFAULT
 
@@ -448,7 +447,7 @@ def test_voicing_deduplicated_within_a_run():
     with patch("src.notifier.send_owner_alert", return_value=True) as alert:
         p._voice_structural_protection_break(symbol="NVDA", run_id="run-1", check=check)
         p._voice_structural_protection_break(symbol="NVDA", run_id="run-1", check=check)
-    assert alert.call_count == 1
+    assert alert.call_count == 0
     assert len(_board_rows(p)) == 1
 
 

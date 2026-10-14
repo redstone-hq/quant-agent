@@ -249,14 +249,11 @@ def _resolve_stop_for_signal(
     the same field `TechAnalystAgent` sets in Python on the live path. This
     engine's stop candidate IS one of them, so without this the backtest
     would exercise the pre-§12.1 rule while claiming to run the real one.
-    `computed_level_touches` is the touch count behind each of those prices
-    (2026-09-03) — without it `_level_backing_stop` would honour every
-    level regardless of `risk.min_level_touches_for_stop_honor`, which is
-    not the rule the live path runs. The bar those counts are judged
-    against is `config.risk.min_level_touches_for_stop_honor`, wired into
-    this engine's `ConstructorConfig` in `run_backtest` — it was not wired
-    before 2026-10-04, so this paragraph described a rule the engine was
-    not actually running. `computed_level_bars` is the pivot-bar
+    `computed_level_touches` is the touch count behind each of those prices,
+    carried as data only: since 2026-10-14 no touch count gates whether a
+    real level backs a stop, live or here (a 148-stock study found a stop
+    just beyond a real level is hit less often than one with no level at
+    the same distance, and extra touches add nothing). `computed_level_bars` is the pivot-bar
     ranges behind those same prices — `_level_backing_stop` fails closed
     without them, so omitting it would make this engine refuse every
     level-backed stop that live honours.
@@ -347,17 +344,6 @@ def run_backtest(
             # own width, read from `src.data.levels.CLUSTER_TOLERANCE_PCT`, so
             # live and backtest get it from the same place by construction.
             absolute_min_stop_atr_multiple=config.risk.absolute_min_stop_atr_multiple,
-            # The §12.1 trust bar itself. Until 2026-10-04 this line was
-            # MISSING while the two docstrings below claimed the engine ran
-            # the live touch rule: the constructor fell back to
-            # `ConstructorConfig`'s own default, so `risk.min_level_touches_
-            # for_stop_honor` in the YAML changed nothing and an A/B sweep of
-            # it returned byte-identical results. The level branch was always
-            # reached (measured: 32 entries into `_level_backing_stop` over a
-            # five-symbol 2026 run); what was unreachable was the CONFIGURED
-            # bar. Wired here for the same reason every other `config.risk.*`
-            # field above is wired — so changing the YAML IS the experiment.
-            min_level_touches_for_stop_honor=config.risk.min_level_touches_for_stop_honor,
             # Target-derivation tunables (2026-09-01). Wired for parity with
             # live, though this engine does not reach `_derive_target`: it
             # computes its own nearest-level target in
