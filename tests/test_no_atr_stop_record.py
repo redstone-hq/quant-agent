@@ -41,7 +41,7 @@ def test_tier_one_placement_is_unchanged_and_counted(caplog):
     rules, cfg = _rules()
     a = _Analysis(
         computed_levels=[90.0],
-        computed_level_touches={90.0: cfg.min_level_touches_for_stop_honor + 1},
+        computed_level_touches={90.0: 2},
         computed_level_zones={90.0: [89.5, 90.5]},
     )
     with caplog.at_level(logging.INFO):

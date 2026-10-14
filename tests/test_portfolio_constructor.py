@@ -572,12 +572,14 @@ def test_no_atr_derives_structural_stop_from_computed_level_and_holds():
 
 
 def test_no_atr_falls_back_to_prior_bar_low_when_no_verified_level():
-    """With no computed level trusted enough (under the touch bar) but a
-    signal-bar low present, the stop is read from the prior bar and held."""
+    """With no computed level on the protective side (the only one sits above
+    a long's entry) but a signal-bar low present, the stop is read from the
+    prior bar and held. Since 2026-10-14 any real level below entry would
+    anchor the stop at any touch count, so "no level" means none below."""
     constructor = PortfolioConstructor()
     analysis = _no_atr_analysis(
-        computed_levels=[95.0],
-        computed_level_touches={95.0: 2},
+        computed_levels=[105.0],
+        computed_level_touches={105.0: 2},
         signal_bar_low=97.0,
     )
     buffer = constructor.cfg.structural_stop_buffer_pct

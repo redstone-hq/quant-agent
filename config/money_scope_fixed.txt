@@ -238,7 +238,6 @@ src/portfolio_constructor/config.py
 src/portfolio_constructor/divergence_counter.py
 src/portfolio_constructor/entry_stop/__init__.py
 src/portfolio_constructor/entry_stop/resolver.py
-src/portfolio_constructor/level_touch_record.py
 src/portfolio_constructor/no_atr_stop_record.py
 src/portfolio_constructor/order_build/__init__.py
 src/portfolio_constructor/order_build/exits.py

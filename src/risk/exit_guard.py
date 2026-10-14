@@ -184,15 +184,15 @@ BREAK_CONFIRMATION_ATR_MULTIPLE = 1.0
 #      whether a stop earns an exemption from the ATR noise floor:
 #      `computed_levels` / `computed_level_touches` (real levels, attached
 #      to the analysis in Python by `TechAnalystAgent`, never asserted by
-#      the model — see that method's docstring), gated on
-#      `min_level_touches` prior touches (the already-ratified
-#      `min_level_touches_for_stop_honor` bar, docs/RESEARCH_FINDINGS.md
-#      §7), matched to the stop by whether the stop falls inside that
-#      level's own zone (`level_cluster_tolerance_pct` of the level price
-#      — `src.data.levels.CLUSTER_TOLERANCE_PCT`, the constant that built
-#      the zone). No new constant is introduced here — both bars are the
-#      ones `_level_backing_stop` already uses, reused rather than
-#      duplicated. A long's level is "broken" when price is at or through
+#      the model — see that method's docstring), at any touch count
+#      (the touch bar was deleted 2026-10-14: a real level beats none at
+#      the same distance and extra touches add nothing), matched to the
+#      stop by whether the stop falls inside that level's own zone
+#      (`level_cluster_tolerance_pct` of the level price —
+#      `src.data.levels.CLUSTER_TOLERANCE_PCT`, the constant that built
+#      the zone). No new constant is introduced here — the bar is the one
+#      `_level_backing_stop` already uses, reused rather than duplicated.
+#      A long's level is "broken" when price is at or through
 #      it by more than one ATR noise band (a different question in a
 #      different unit — see `check_structural_protection`'s docstring);
 #      the mirror for a short is price at or through a resistance level
@@ -343,7 +343,6 @@ def check_structural_protection(
     computed_level_touches: dict | None = None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    min_level_touches: int,
     level_cluster_tolerance_pct: float,
     ma_20: float | None = None,
     ma_50: float | None = None,
@@ -543,10 +542,8 @@ def check_structural_protection(
             stop_loss=stop,
             is_short=is_short,
             computed_levels=computed_levels,
-            computed_level_touches=computed_level_touches,
             computed_level_zones=computed_level_zones,
             computed_level_bars=computed_level_bars,
-            min_level_touches=min_level_touches,
             level_cluster_tolerance_pct=level_cluster_tolerance_pct,
         )
         if level is not None:
@@ -594,7 +591,7 @@ def check_structural_protection(
                 # broken, so the level stays trusted (fail toward
                 # protection, same "fail closed on the side that does not
                 # ship a false 'safe to sell'" posture as
-                # `_level_backing_stop` itself uses for touch counts).
+                # `_level_backing_stop` itself uses for missing bar ranges).
                 return StructuralProtectionCheck(
                     protected=True,
                     basis="structural_level_intact",
@@ -636,7 +633,6 @@ def check_structural_protection(
                 f"atr14={atr_f:.4g} margin_price={break_margin:.4g} "
                 f"margin_pct_of_close={_margin_pct:.3g} "
                 f"level={level:g} level_touches={_level_touches} "
-                f"min_level_touches={min_level_touches} "
                 f"regime={trend_context} | "
             )
             if is_short:
@@ -786,7 +782,6 @@ def structural_protection_broken(
     computed_level_touches: dict | None = None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    min_level_touches: int,
     level_cluster_tolerance_pct: float,
     ma_20: float | None = None,
     ma_50: float | None = None,
@@ -821,7 +816,6 @@ def structural_protection_broken(
         computed_level_touches=computed_level_touches,
         computed_level_zones=computed_level_zones,
         computed_level_bars=computed_level_bars,
-        min_level_touches=min_level_touches,
         level_cluster_tolerance_pct=level_cluster_tolerance_pct,
         ma_20=ma_20,
         ma_50=ma_50,

@@ -88,7 +88,6 @@ EXPECTED_FIELDS = {
     "max_gross_exposure_x",
     "min_stop_atr_multiple",
     "absolute_min_stop_atr_multiple",
-    "min_level_touches_for_stop_honor",
     "min_target_atr_multiple",
     "breakout_projection_atr_multiple",
     "max_target_reach_atr_multiple",

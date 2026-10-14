@@ -39,7 +39,6 @@ from src.risk.exit_guard import (
 )
 from tests.pipeline_factory import build_pipeline
 
-MIN_TOUCHES = 5
 _LEVELS = [90.0]
 _TOUCHES = {90.0: 6}
 
@@ -66,7 +65,6 @@ def _common(**over):
         # stop sits on the session that turned at 90.00 and traded to 90.60;
         # every level states the narrowest bar that can have drawn it.
         computed_level_bars={lv: [(lv, lv)] for lv in _LEVELS} | {90.0: [(90.0, 90.6)]},
-        min_level_touches=MIN_TOUCHES,
         level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     base.update(over)

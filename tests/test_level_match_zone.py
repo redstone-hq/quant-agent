@@ -182,9 +182,7 @@ def test_new_tolerance_is_independent_of_volatility():
             stop_loss=stop,
             is_short=False,
             computed_levels=[level_price],
-            computed_level_touches={level_price: 5},
             computed_level_bars=bars,
-            min_level_touches=5,
             level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
         )
         assert matched == level_price, f"unmatched at atr={atr}"
@@ -198,7 +196,7 @@ def test_new_tolerance_is_independent_of_volatility():
 
 
 def _constructor():
-    return PortfolioConstructor(ConstructorConfig(min_level_touches_for_stop_honor=5))
+    return PortfolioConstructor(ConstructorConfig())
 
 
 class _Analysis:
@@ -257,9 +255,7 @@ def test_constructor_and_exit_guard_match_identically(gap):
         stop_loss=stop,
         is_short=False,
         computed_levels=[level_price],
-        computed_level_touches=touches,
         computed_level_bars=bars,
-        min_level_touches=5,
         level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     assert from_constructor == from_exit_guard
@@ -308,9 +304,7 @@ def test_boundary_scales_with_price_in_both_implementations():
                 stop_loss=stop,
                 is_short=False,
                 computed_levels=[level_price],
-                computed_level_touches=touches,
                 computed_level_bars=bars,
-                min_level_touches=5,
                 level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
             )
             assert from_ctor == from_guard, (level_price, stop)
@@ -359,9 +353,7 @@ def test_stop_to_level_distance_is_bounded_by_the_trade_own_risk():
             stop_loss=stop,
             is_short=False,
             computed_levels=[level_price],
-            computed_level_touches=touches,
             computed_level_bars=bars,
-            min_level_touches=5,
             level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
         )
         assert from_ctor == from_guard, (bar, stop)
@@ -588,9 +580,7 @@ def test_a_stop_inside_the_zone_but_on_no_forming_bar_is_not_backed():
                 stop_loss=stop,
                 is_short=False,
                 computed_levels=[level_price],
-                computed_level_touches=touches,
                 computed_level_bars=bars,
-                min_level_touches=5,
                 level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
             )
             == expected

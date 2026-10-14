@@ -163,17 +163,6 @@ class StructuralProtection:
                 e,
             )
 
-        # Same two ratified bars `PortfolioConstructor`'s `ConstructorConfig`
-        # mirrors off `self.risk_engine.config` (see its own "Kept in sync
-        # with risk.*" comments) — read defensively rather than assumed,
-        # since this method must survive a lightweight pipeline double (unit
-        # tests) that never built a real `risk_engine`. The fallback values
-        # are the RiskConfig field defaults themselves, not a second
-        # invented number.
-        risk_cfg = getattr(self, "risk_engine", None)
-        risk_cfg = getattr(risk_cfg, "config", None)
-        min_level_touches = getattr(risk_cfg, "min_level_touches_for_stop_honor", 5)
-
         check = check_structural_protection(
             thesis_invalid_if=thesis_invalid_if,
             current_price=close_price,
@@ -185,7 +174,6 @@ class StructuralProtection:
             computed_level_touches=computed_level_touches,
             computed_level_zones=computed_level_zones,
             computed_level_bars=computed_level_bars,
-            min_level_touches=min_level_touches,
             # NOT a setting and not a fallback default — this is the exact
             # constant `find_structural_levels` used to cluster pivots into
             # the zones being matched against, so the tolerance cannot be

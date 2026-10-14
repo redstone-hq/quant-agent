@@ -126,11 +126,9 @@ def _short_analysis(
     analyst's own number with nothing computed under it — the case the band
     exists for. `computed` is available for tests that want the other case.
 
-    `touches` (2026-09-03, Phase 12.1) mirrors `_vol_analysis` in
-    `test_risk_based_sizing.py`: every price in `computed` defaults to 5
-    touches (the derived `min_level_touches_for_stop_honor` bar — see
-    docs/RESEARCH_FINDINGS.md §7) unless a test overrides it to exercise
-    the gate below the bar.
+    `touches` mirrors `_vol_analysis` in `test_risk_based_sizing.py`: data
+    only, defaulting to 5 per price. No touch count gates a stop since
+    2026-10-14.
     """
     levels = list([target] if computed is None else computed)
     # 2026-09-12, "no floor, no trade" — for a short the floor is OVERHEAD.
@@ -768,12 +766,9 @@ def test_short_level_the_model_asserted_does_not_earn_the_exemption():
     )
 
 
-def test_short_a_level_below_the_touch_bar_does_not_earn_the_exemption():
-    """Phase 12.1, 2026-09-03, mirrored on the short side. The resistance at
-    $260.00 is real enough to be a computed level, but 4 touches is below
-    `min_level_touches_for_stop_honor` (5, derived in
-    docs/RESEARCH_FINDINGS.md §7), so the stop widens to the band exactly as
-    an unbacked short stop does."""
+def test_short_a_level_with_few_touches_still_earns_the_exemption():
+    """2026-10-14, mirrored on the short side: the resistance at $260.00
+    with 4 touches backs the stop. The 5-touch bar is deleted."""
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[_short_target()],
@@ -792,10 +787,10 @@ def test_short_a_level_below_the_touch_bar_does_not_earn_the_exemption():
         price_map={"TSLA": _S_ENTRY},
     )
     assert len(decisions) == 1
-    assert decisions[0].stop_loss == _S_BAND_EDGE
+    assert decisions[0].stop_loss == _S_TIGHT_STOP
 
 
-def test_short_a_level_at_the_touch_bar_earns_the_exemption():
+def test_short_a_level_with_five_touches_earns_the_exemption():
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[_short_target()],

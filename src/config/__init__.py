@@ -256,25 +256,6 @@ class RiskConfig(BaseModel):
     # however tight down to this many ATRs; inside it the stop is pushed out
     # to exactly this floor — never to the full `min_stop_atr_multiple` band.
     absolute_min_stop_atr_multiple: float = Field(default=1.0, ge=0, le=10)
-    # How many prior touches a computed level needs before a stop sitting on
-    # it is trusted enough to be honoured however tight (Phase 12.1,
-    # 2026-09-03 — docs/RESEARCH_FINDINGS.md §7). `find_structural_levels`
-    # already requires 2 touches to register a level at all (`MIN_TOUCHES`),
-    # but §12.1's own text names that as a SEPARATE, undecided question: "a
-    # level currently qualifies on two touches ever ... so two old swing
-    # points can justify a very tight stop." The measured table (101
-    # symbols, 5 years, daily bars, real vs shuffled arithmetic control)
-    # only clears real-vs-shuffled separation cleanly at 5+ touches: real
-    # 0.644 [0.590, 0.696] against shuffled 0.505 [0.470, 0.539] — the
-    # confidence intervals do not overlap at all. Every lower bucket's
-    # intervals overlap or nearly touch (2 touches: real floor 0.510 versus
-    # shuffled ceiling 0.510; 3 and 4 touches overlap outright), so a bar
-    # below 5 would be honouring a tight stop on a separation that could be
-    # noise. Below this bar the stop is NOT treated as level-backed and
-    # falls back to `min_stop_atr_multiple` / `absolute_min_stop_atr_multiple`
-    # exactly as an unbacked stop does — it does not become untradeable, it
-    # loses only the tight-stop exemption.
-    min_level_touches_for_stop_honor: int = Field(default=5, ge=1, le=20)
     # --- Target derivation (2026-09-01) ---------------------------------
     # The floor above was dividing a stop computed from measured volatility
     # by a target a language model guessed. On 2026-09-01's morning run that

@@ -622,11 +622,12 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
     # to a bare price, which is enough to derive a target but not enough to
     # ask "how much do we trust this specific level" — and §12.1 made that
     # question load-bearing by honouring a level-backed stop however tight.
-    # `PortfolioConstructor._level_backing_stop` reads this to enforce
-    # `risk.min_level_touches_for_stop_honor`; nothing else consumes it, and
-    # target derivation is deliberately untouched by this field — see
-    # docs/RESEARCH_FINDINGS.md §7 for the touch-count evidence and the
-    # threshold derived from it.
+    # It is DATA, not a gate: since 2026-10-14 no touch count decides whether
+    # a real level backs a stop (a 148-stock study found a stop just beyond a
+    # real level is hit less often than one with no level at the same
+    # distance, and extra touches add nothing). It is recorded on the exit
+    # guard's break rows and summed as verdict evidence; target derivation is
+    # deliberately untouched by this field.
     computed_level_touches: dict[float, int] = Field(default_factory=dict)
     # PYTHON-SET, keyed by the same prices as `computed_levels`: each level's
     # MEASURED zone as ``[low, high]`` — the combined traded range of the
@@ -770,10 +771,9 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
         for level in self.resistance_levels:
             evidence.append(VerdictEvidence(label="resistance_level", value=float(level)))
         # `computed_level_touches` (Python-set, `find_structural_levels`) is
-        # already how many prior pivots back EACH computed level — used
-        # elsewhere (`PortfolioConstructor._level_backing_stop`,
-        # `risk.min_level_touches_for_stop_honor`) to decide whether a stop
-        # earns the tight-stop exemption.
+        # already how many prior pivots back EACH computed level. It is
+        # evidence only; no touch count decides whether a stop is level-backed
+        # (that bar was deleted 2026-10-14).
         #
         # RISK-SIDE ONLY, not every computed level. `computed_levels` is
         # `find_structural_levels`' supports and resistances UNIONED
