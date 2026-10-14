@@ -193,8 +193,8 @@ def test_off_does_not_charge_the_submit_window_for_a_handshake(tmp_path):
         )
     )
 
-    assert _known_entry_submit_budget_s(off, will_fund=False) == 0.0
-    assert _known_entry_submit_budget_s(on, will_fund=False) == float(
+    assert _known_entry_submit_budget_s(off) == 0.0
+    assert _known_entry_submit_budget_s(on) == float(
         _ALPACA_STREAM_AUTH_DEADLINE_S,
     )
 

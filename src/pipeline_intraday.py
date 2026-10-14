@@ -816,7 +816,6 @@ class IntradayMixin:
             reconcile_orphan_pending_submits=getattr(self, "_reconcile_orphan_pending_submits", None),
             reconcile_stop_coverage=getattr(self, "_reconcile_stop_coverage", None),
             reconcile_stop_out_fills=getattr(self, "_reconcile_stop_out_fills", None),
-            release_retired_cash_park=getattr(self, "_release_retired_cash_park", None),
             surface_reconcile_outcomes=getattr(self, "_surface_reconcile_outcomes", None),
             run_intra_safety_preamble=self._intraday_live("_run_intra_safety_preamble", self._intraday_safety),
             state=_HostState(self),

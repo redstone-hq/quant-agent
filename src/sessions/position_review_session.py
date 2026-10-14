@@ -53,7 +53,6 @@ class PositionReviewSession:
         reconcile_stop_coverage,
         reconcile_stop_out_fills,
         record_account_snapshot,
-        release_retired_cash_park,
         require_paid_analysis,
         risk_review_exits,
         structural_protection_for_holding=None,
@@ -124,7 +123,6 @@ class PositionReviewSession:
         self._reconcile_stop_coverage = reconcile_stop_coverage
         self._reconcile_stop_out_fills = reconcile_stop_out_fills
         self._record_account_snapshot = record_account_snapshot
-        self._release_retired_cash_park = release_retired_cash_park
         self._require_paid_analysis = require_paid_analysis
         self._risk_review_exits = risk_review_exits
         self._structural_protection_for_holding = structural_protection_for_holding
@@ -315,8 +313,6 @@ class PositionReviewSession:
         self._reconcile_orphan_pending_submits()  # audit F4
         # Broker-truth coverage audit (independent of the WAL).
         coverage_gaps = self._reconcile_stop_coverage()
-        # Sweep retired (owner mandate 2026-09-17): release any held vehicle.
-        self._release_retired_cash_park(run_id)
         # Broker-truth EXIT audit (2026-08-28 ONDS/CCJ) — midday/close run
         # every trading day, so this is the most frequent chance to catch a
         # stop that fired since the last pass and write it back before the

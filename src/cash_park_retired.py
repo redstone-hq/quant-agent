@@ -1,7 +1,7 @@
-"""The retired cash-park vehicle: exempting it from the stop audit and selling it.
+"""The retired cash-park vehicle: exempting it from the stop audit.
 
-Former `TradingPipeline._retired_cash_park_symbol` / `_release_retired_cash_park`
-(bodies moved here unchanged). The cash sweeper is HANDED IN as a getter
+Former `TradingPipeline._retired_cash_park_symbol` (body moved here unchanged).
+Its sibling `_release_retired_cash_park` was deleted 2026-10-14. The cash sweeper is HANDED IN as a getter
 rather than imported: `src.execution` is the broker seam and the set of
 modules reaching it must not widen (`scripts/import_graph.LAYER_RULES`).
 
@@ -29,8 +29,8 @@ def retired_cash_park_symbol(get_sweeper: SweeperGetter) -> str | None:
     """The configured sweep vehicle when the sweep is DISABLED, else None.
 
     Owner mandate 2026-09-17 turned the sweep off. A vehicle bought
-    before that is still a deliberately stopless holding until
-    `release_retired_cash_park` sells it, so the stop-coverage audit
+    before that is a deliberately stopless holding (nothing sells it
+    automatically since 2026-10-14), so the stop-coverage audit
     must keep exempting it rather than raising a naked-position banner
     (its opening row is SWEEP_BUY, so the repair could not rebuild a
     stop anyway).
@@ -46,21 +46,3 @@ def retired_cash_park_symbol(get_sweeper: SweeperGetter) -> str | None:
         record_swallowed_here("cash_park_retired.retired_cash_park_symbol", log=logger)
         return None
     return sym if isinstance(sym, str) and sym.strip() else None
-
-
-def release_retired_cash_park(get_sweeper: SweeperGetter, run_id: str | None) -> None:
-    """Sell any sweep vehicle still held after the sweep was disabled.
-
-    Called at the start of every market-hours session (morning, midday/
-    close review, intra_check), right after the stop-coverage audit and
-    before any seat reads the book, so the release lands in cash the
-    same session. Non-fatal by design; see
-    `CashSweeper.release_retired_vehicle`.
-    """
-    sweeper = get_sweeper()
-    if sweeper is None:
-        return
-    try:
-        sweeper.release_retired_vehicle(run_id=run_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("cash sweep retired: release failed (non-fatal): %s", exc)

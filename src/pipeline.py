@@ -117,7 +117,7 @@ from src import pipeline_cost_gate as _cost_gate
 from src import pipeline_halt_gates as _halt_gates
 from src.portfolio_constructor.refusal_recorder import TradeRefusalRecorder
 from src.portfolio_constructor import PortfolioConstructor
-from src.cash_park_retired import release_retired_cash_park, retired_cash_park_symbol
+from src.cash_park_retired import retired_cash_park_symbol
 from src.sessions.live_session_context_session import LiveSessionContextSession
 from src.sessions.live_context_resolve_session import LiveContextResolveSession
 from src.sessions.quarterly_meta_session import QuarterlyMetaReflectionSession
@@ -733,10 +733,6 @@ class TradingPipeline(
         """Thin shim: body moved to src/cash_park_retired.py."""
         return retired_cash_park_symbol(self._typed_cash_sweeper)
 
-    def _release_retired_cash_park(self, run_id: str | None) -> None:
-        """Thin shim: body moved to src/cash_park_retired.py."""
-        release_retired_cash_park(self._typed_cash_sweeper, run_id)
-
     def _news_held_symbols(self, positions) -> list[str]:
         """Thin shim: body moved to src/cash_park.py."""
         return self._cash_park()._news_held_symbols(positions)
@@ -1063,7 +1059,6 @@ class TradingPipeline(
             reconcile_stop_out_fills=self._collab("_reconcile_stop_out_fills"),
             repair_stops_on_kill=self._collab("_repair_stops_on_kill"),
             record_account_snapshot=self._collab("_record_account_snapshot"),
-            release_retired_cash_park=self._collab("_release_retired_cash_park"),
             require_paid_analysis=self._collab("_require_paid_analysis"),
             restore_sigterm=self._collab("_restore_sigterm"),
             risk_stage=self._collab("_risk_stage"),

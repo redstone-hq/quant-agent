@@ -10,7 +10,6 @@ src.notifier.costs -> src.execution.broker
 src.pipeline -> src.execution.broker
 src.pipeline -> src.execution.cash_sweep
 src.pipeline_entry_orders -> src.execution.broker
-src.pipeline_entry_orders -> src.execution.cash_sweep
 src.pipeline_exits -> src.execution.scale_in
 src.pipeline_exits -> src.execution.stop_read
 src.pipeline_exits -> src.execution.stop_records

@@ -41,7 +41,6 @@ class IntradaySafety:
         reconcile_orphan_pending_submits=None,
         reconcile_stop_coverage=None,
         reconcile_stop_out_fills=None,
-        release_retired_cash_park=None,
         surface_reconcile_outcomes=None,
         run_intra_safety_preamble=None,
         state=None,
@@ -57,7 +56,6 @@ class IntradaySafety:
         self._reconcile_orphan_pending_submits = reconcile_orphan_pending_submits
         self._reconcile_stop_coverage = reconcile_stop_coverage
         self._reconcile_stop_out_fills = reconcile_stop_out_fills
-        self._release_retired_cash_park = release_retired_cash_park
         self._surface_reconcile_outcomes = surface_reconcile_outcomes
         if run_intra_safety_preamble is not None:
             self._run_intra_safety_preamble = run_intra_safety_preamble  # else: this part's own body
@@ -168,8 +166,6 @@ class IntradaySafety:
                     _site(self, "coverage_reconcile", exc, log=logger)
                 else:
                     _site(self, "coverage_reconcile", log=logger)
-                # Sweep retired (owner mandate 2026-09-17): release any held vehicle.
-                self._release_retired_cash_park(run_id)
                 self._reconcile_orphan_pending_submits()  # audit F4
                 # 2026-09-17 AMD incident: AMD filled at $549.11 but the trades
                 # table still read 'submitted' half an hour later. The stop-coverage

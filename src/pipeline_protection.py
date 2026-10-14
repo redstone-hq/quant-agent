@@ -389,7 +389,7 @@ class ProtectionMixin:
         shorts_checked = 0
         sweeper = self._sweeper()
         # A DISABLED sweep's vehicle is still exempt while it is held: it is
-        # awaiting `_release_retired_cash_park`, not naked.
+        # a deliberately stopless cash-park holding, not naked.
         sweep_symbol = sweeper.symbol if sweeper is not None else self._retired_cash_park_symbol()
         for p in positions:
             symbol = getattr(p, "symbol", None)

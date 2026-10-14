@@ -469,10 +469,9 @@ class ExecutionStage:
                     raw_cash=cash,
                 )
             _adopt_stream_stall(pipeline, ctx)
-            # Encode AFTER funding so the fund step's own 180s/30s ceiling
-            # cannot sit as leftover slack on a fast no-op. Remaining
-            # programmed wait is auth only when the hub did not start.
-            _encode_entry_submit_window(pipeline, ctx, will_fund=False)
+            # Programmed wait ahead of submit is auth only, and only when
+            # the hub did not start.
+            _encode_entry_submit_window(pipeline, ctx)
 
         # Spec §11.2 — how much NEW exposure this session may still add, and
         # the pool every entry below draws from. Ladder-derived (see

@@ -4,8 +4,8 @@ Bodies moved verbatim from src/pipeline.py (TradingPipeline). The one collaborat
 explicit keyword-only constructor argument; nothing here imports src.pipeline or the
 broker seam. The host's `_sweeper` callable is handed IN (not lifted) so a test that swaps
 it on the host is what these bodies see. Read-only: places no orders, cancels nothing.
-The retired-vehicle pair (`_retired_cash_park_symbol`, `_release_retired_cash_park`) stays
-on the host because each imports `src.execution.cash_sweep` inline and the broker-seam
+The retired-vehicle shim (`_retired_cash_park_symbol`) stays
+on the host because it imports `src.execution.cash_sweep` inline and the broker-seam
 importer set must not widen (tests/test_import_layering.py); see docs/ARCHITECTURE.md.
 """
 
