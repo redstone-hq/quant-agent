@@ -133,6 +133,7 @@ CLEAR_TABLES = (
     "evening_reports",  # evening report grading the old trades
     "session_reports",  # session report on the old book
     "intra_check_reports",  # intraday report on the old book
+    "placed_order_messages",  # placed order -> its Telegram message id; dead order ids
 )
 
 # Rows here are NOT trading decisions. Keeping them costs nothing and

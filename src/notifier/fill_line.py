@@ -7,38 +7,45 @@ exact delivered line when the message landed; this module rebuilds the line
 from the confirmed fill and makes one editMessageText call.
 
 SAFETY: this rides on the fill path and may never change it. `note_fill` is
-called only after the fill write has committed, hands the work to a daemon
-thread (so a slow Telegram never delays reconciliation), makes ONE attempt
-(no retry loop) and never raises. No stored message id: nothing is sent.
+called only after the fill write has committed, hands the work to a worker
+thread (so a slow Telegram never delays reconciliation; the standard library
+joins it at interpreter exit), makes ONE attempt (no retry loop) and never
+raises. No stored message id: nothing is sent.
 
-Stop wording: the rebuilt line carries NO stop. The "placed" line's stop comes
-from `trader_feed.common._symbol_stop`, which reads the PLANNED stop (the
+Stop wording: the "placed" line's stop comes from
+`trader_feed.common._symbol_stop`, which reads the PLANNED stop (the
 constructor's `stop_loss`, or a risk modification of it), never the stop the
-broker actually holds, and no broker-held stop is known at this point.
+broker holds. The fill path does not read the broker's stop, and an entry's
+protective stop is attached after the fill, so none is known here. The
+rebuilt line therefore carries that planned stop forward from the stored
+"placed" line and labels it "planned stop" -- never a bare "stop".
 """
 
 from __future__ import annotations
 
-import atexit
 import html
+import re
 import sqlite3
 import threading
-from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 import src.notifier.base as base
 from src.notifier.base import logger
-from src.notifier.send_log import PLACED_ORDER_MESSAGES_DDL
+from src.notifier.send_log import PLACED_ORDER_MESSAGES_DDL, _plain
+from src.risk.metrics import unrealized_pnl_pct
 from src.trading_calendar import sql_utc_stamp
 
 #: Opening actions per side; every other executed action reduces the position.
 _OPENING_LONG = {"BUY", "SWEEP_BUY"}
 _OPENING = _OPENING_LONG | {"SHORT"}
 
-#: Edits started recently. Bounded: never grows with uptime. Joined at exit so a
-#: session process that ends right after a fill does not kill its edit mid-send.
-_RECENT: deque[threading.Thread] = deque(maxlen=32)
+#: Runs the edits off the fill path. The standard library joins its worker
+#: threads at interpreter exit, so a session process that ends right after a
+#: fill does not kill its edit mid-send. Threads start lazily, on first submit.
+_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="fill-line-edit")
 #: Two fills in one message must not both edit from the same stale text.
 _EDIT_LOCK = threading.Lock()
 
@@ -53,23 +60,7 @@ def note_fill(db: Any, broker_order_id: str) -> None:
 
 
 def _spawn(target) -> None:
-    thread = threading.Thread(target=target, name="fill-line-edit", daemon=True)
-    thread.start()
-    _RECENT.append(thread)
-
-
-def _join_pending_edits() -> None:
-    """Let in-flight edits finish before the process exits.
-
-    Each edit is already bounded by its own database and Telegram timeouts,
-    so this adds no wait of its own; it only stops interpreter exit from
-    killing a daemon edit thread between the fill write and the edit.
-    """
-    for thread in list(_RECENT):
-        thread.join()
-
-
-atexit.register(_join_pending_edits)
+    _EXECUTOR.submit(target)
 
 
 def _run(trades_path: str, broker_order_id: str) -> None:
@@ -80,9 +71,9 @@ def _run(trades_path: str, broker_order_id: str) -> None:
 
 
 def _notifier():
-    from src.notifier.transport import TelegramNotifier
+    from src.notifier.owner_alert_funnel import build_default_notifier
 
-    return TelegramNotifier()
+    return build_default_notifier()
 
 
 def _edit_placed_lines(trades_path: str, broker_order_id: str) -> int:
@@ -115,7 +106,8 @@ def _edit_placed_lines(trades_path: str, broker_order_id: str) -> int:
                 if row["line_text"] not in text:
                     logger.warning("fill edit: stored line for order %s no longer in its message", broker_order_id)
                     continue
-                new_text = text.replace(row["line_text"], html.escape(line, quote=False), 1)
+                row_line = _with_planned_stop(line, row["line_text"])
+                new_text = text.replace(row["line_text"], html.escape(row_line, quote=False), 1)
                 if not notifier.edit_message_text(row["message_id"], new_text):
                     continue
                 conn.execute(
@@ -175,13 +167,24 @@ def filled_line(trades_path: str, broker_order_id: str) -> str | None:
         short = action.startswith("COVER")
         entry = price + pnl / qty if short else price - pnl / qty
         sign = "-" if pnl < 0 else "+"
-        pct = f" ({pnl / (entry * qty) * 100:+.2f}%)" if entry > 0 else ""
+        # The ONE definition of a P&L percent (|avg_entry x qty| denominator).
+        pct_value = unrealized_pnl_pct(SimpleNamespace(avg_entry=entry, qty=qty, unrealized_pnl=pnl))
+        pct = f" ({pct_value:+.2f}%)" if pct_value is not None else ""
         parts.append(f"{sign}${abs(pnl):,.2f}{pct}")
         parts.append(f"entry avg ${entry:,.2f}")
     held_for = _held_for(openings, row["filled_at"])
     if held_for:
         parts.append(f"held {held_for}")
     return " · ".join(parts)
+
+
+_PLACED_STOP = re.compile(r"· stop (\$[\d,]+\.\d+)")
+
+
+def _with_planned_stop(line: str, placed_line: str) -> str:
+    """`line` plus the stop the "placed" line printed, labelled as the planned stop."""
+    match = _PLACED_STOP.search(_plain(placed_line))
+    return f"{line} · planned stop {match.group(1)}" if match else line
 
 
 def _signed(row: Any) -> float:

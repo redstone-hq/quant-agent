@@ -9,7 +9,11 @@ returning normally.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -77,6 +81,11 @@ def rig(monkeypatch, tmp_path):
 
     monkeypatch.setattr(transport.requests, "post", fake_post)
 
+    from src.notifier import fill_line
+
+    executor = ThreadPoolExecutor()
+    monkeypatch.setattr(fill_line, "_EXECUTOR", executor)
+
     db = Database(str(path))
     db.initialize()
     sell_time = datetime.now(timezone.utc).replace(microsecond=0)
@@ -116,7 +125,8 @@ def rig(monkeypatch, tmp_path):
         format_qty=lambda q: f"{q:g}",
         parse_broker_fill_timestamp=lambda s: s,
     )
-    yield {"db": db, "calls": calls, "reconciler": reconciler}
+    yield {"db": db, "calls": calls, "reconciler": reconciler, "executor": executor}
+    executor.shutdown(wait=True)
     db.close()
 
 
@@ -126,14 +136,9 @@ def _send_session(calls: list) -> None:
     calls.clear()
 
 
-def _settle() -> None:
-    """Wait for the background edit; a trunk without the module has none to wait for."""
-    try:
-        from src.notifier import fill_line
-    except ImportError:
-        return
-    for thread in list(fill_line._RECENT):
-        thread.join(timeout=10)
+def _settle(rig: dict) -> None:
+    """Wait for the background edit to finish."""
+    rig["executor"].shutdown(wait=True)
 
 
 def _sell_row(db: Database) -> dict:
@@ -145,7 +150,7 @@ def test_a_fill_edits_the_placed_line_in_the_same_message(rig):
     _send_session(rig["calls"])
 
     rig["reconciler"]._reconcile_fills(None)
-    _settle()
+    _settle(rig)
 
     edits = [(u, p) for u, p in rig["calls"] if u.endswith("/editMessageText")]
     sends = [(u, p) for u, p in rig["calls"] if u.endswith("/sendMessage")]
@@ -175,7 +180,7 @@ def test_a_raising_edit_leaves_the_fill_recorded(rig, monkeypatch):
 
     monkeypatch.setattr(fill_line, "_edit_placed_lines", boom)
     rig["reconciler"]._reconcile_fills(None)  # must not raise
-    _settle()
+    _settle(rig)
 
     row = _sell_row(rig["db"])
     assert row["fill_status"] == "filled"
@@ -200,25 +205,54 @@ def test_a_raising_dispatch_leaves_the_fill_recorded(rig, monkeypatch):
 
 def test_no_stored_message_means_no_edit(rig):
     rig["reconciler"]._reconcile_fills(None)
-    _settle()
+    _settle(rig)
 
     assert rig["calls"] == []
     assert _sell_row(rig["db"])["fill_status"] == "filled"
 
 
-def test_exit_waits_for_an_edit_still_in_flight():
+def test_exit_waits_for_an_edit_still_in_flight(tmp_path):
     """A session process that exits right after a fill must not kill the edit."""
-    import threading
-    import time
+    marker = tmp_path / "edit-done"
+    code = (
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "from src.notifier import fill_line\n"
+        "def slow_edit():\n"
+        "    time.sleep(0.5)\n"
+        "    Path(sys.argv[1]).write_text('done')\n"
+        "fill_line._spawn(slow_edit)\n"
+    )
+    root = Path(__file__).resolve().parent.parent
+    subprocess.run([sys.executable, "-c", code, str(marker)], cwd=root, check=True)
+    assert marker.read_text() == "done"
 
-    from src.notifier import fill_line
 
-    done = threading.Event()
+def test_the_placed_lines_stop_is_carried_forward_labelled_as_planned():
+    from src.notifier.fill_line import _with_planned_stop
 
-    def slow_edit():
-        time.sleep(0.2)
-        done.set()
+    placed = "   • BUY YYY 3 @ $20.00 — placed, waiting to fill · stop $1,018.00 — breakout"
+    assert _with_planned_stop("   • BUY YYY 3 @ $20.00 — filled", placed).endswith("filled · planned stop $1,018.00")
+    assert _with_planned_stop("   • SELL ZZZ 1 sh — filled", "   • SELL ZZZ 1 — placed, waiting to fill") == (
+        "   • SELL ZZZ 1 sh — filled"
+    )
 
-    fill_line._spawn(slow_edit)
-    fill_line._join_pending_edits()
-    assert done.is_set()
+
+def test_a_closing_fills_percent_uses_the_absolute_cost_basis(rig):
+    """A winning short must read as a gain: the one P&L-percent definition."""
+    from src.notifier.fill_line import filled_line
+
+    db = rig["db"]
+    order = "ord-yyy-cover-1"
+    db.insert_trade("YYY", "COVER", 10, 90.0, "target", "run-x", 0, 0, broker_order_id=order, fill_status="submitted")
+    db.update_trade_fill(
+        broker_order_id=order,
+        fill_status="filled",
+        fill_qty=10,
+        fill_price=90.0,
+        filled_at=_iso(datetime.now(timezone.utc)),
+    )
+    db.conn.execute("UPDATE trades SET realized_pnl = ? WHERE broker_order_id = ?", (100.0, order))
+    db.conn.commit()
+    line = filled_line(str(db.db_path), order)
+    assert "+$100.00 (+" in line and "entry avg $100.00" in line, line
