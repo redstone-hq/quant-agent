@@ -95,6 +95,7 @@ from src.universe_screen import (
     INCONCLUSIVE,
     ScreenSources,
     ScreenThresholds,
+    SecondFilterInputs,
     _asset_symbol,
     _field,
     check_asset,
@@ -102,6 +103,7 @@ from src.universe_screen import (
     check_fund,
     iso_week,
     screen_symbol,
+    second_filter_score,
 )
 
 logger = logging.getLogger(__name__)
@@ -193,6 +195,23 @@ class DailyRun:
         row.update(extra)
         self.records[symbol] = row
 
+    def add_second_filter(self, inputs: SecondFilterInputs) -> None:
+        """Record-only: score K and its rank among passers, on each passer's own record.
+
+        Touches no status and no failure list, so the names that pass are unchanged."""
+        import pandas as pd
+
+        scored = {
+            symbol: second_filter_score(row["measured"], inputs)
+            for symbol, row in self.records.items()
+            if row["status"] == "passed"
+        }
+        have = pd.Series({s: v["k"] for s, v in scored.items() if v["k"] is not None}, dtype=float)
+        ranks = have.rank(ascending=False, method="min")
+        for symbol, score in scored.items():
+            score["rank"] = int(ranks[symbol]) if symbol in ranks.index else None
+            self.records[symbol]["second_filter"] = score
+
     def summary(self) -> dict:
         statuses: dict[str, int] = {}
         dropped_any: dict[str, int] = {}
@@ -262,13 +281,15 @@ def run_daily_record(
     get_yahoo: Callable[[str], dict] | None = None,
     get_role: Callable[[Any], str] | None = None,
     yahoo_fill: YahooFill | None = None,
+    second_filter: SecondFilterInputs | None = None,
 ) -> DailyRun:
     """Screen every listed name once; record each. Never mutates admission state.
 
     `get_yahoo(symbol) -> yfinance .info dict` fills the Yahoo gap (module
     docstring); None leaves those names as the listing alone records them.
     `yahoo_fill` says where a fund category is kept and how long the pass
-    may run (default: nothing kept, the run's own deadline)."""
+    may run (default: nothing kept, the run's own deadline). `second_filter`,
+    when given, adds the record-only morning-scan score K to each passer's record."""
     started = clock()
     fill = yahoo_fill or YahooFill()
     if fill.until is None:
@@ -294,6 +315,8 @@ def run_daily_record(
     bars = screen.bars_phase(needs_bars, get_bars_batch, max(1, int(batch_size)))
     screen.detail_phase(by_symbol, bars)
     screen.yahoo_phase()
+    if second_filter is not None:
+        screen.run.add_second_filter(second_filter)
     screen.run.seconds = clock() - started
     return screen.run
 
@@ -770,6 +793,44 @@ class _CountedBatches:
         self.calls += 1
 
 
+def _second_filter_inputs(config, broker) -> SecondFilterInputs:
+    """The score's numbers. G is read as `src/delever/ladder.py` reads it: the
+    current-account equity curve (same 252-row window), today's broker equity, the
+    drawdown, then `resolve_gross_ceiling`. Read-only; any failure records G as
+    None with the reason (a durable fault row), never a guessed ceiling."""
+    import sqlite3
+
+    from src.api.broker_reads_record import record_read_fault
+    from src.risk.book_exposure import peak_to_trough_pct
+    from src.risk.gross_ladder import resolve_gross_ceiling
+    from src.stage_decision import VELOCITY_HOLD_SESSIONS
+    from src.storage.account_epoch import current_account_daily_pnl
+
+    gross_x, why = None, None
+    try:
+        equity = float(broker.get_account()["portfolio_value"])
+        conn = sqlite3.connect(Path(config.storage.db_path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            rows = current_account_daily_pnl(conn, limit=252)
+        finally:
+            conn.close()
+        drawdown = peak_to_trough_pct([r.get("total_value") for r in rows], equity)
+        if drawdown is None:
+            why = "gross_ceiling_drawdown_unmeasurable"
+        else:
+            gross_x = resolve_gross_ceiling(drawdown, base_x=float(config.risk.max_gross_exposure_x)).ceiling_x
+    except Exception as exc:  # noqa: BLE001 -- recorded as a fault row, G stays None
+        record_read_fault("universe_daily.gross_ceiling", exc)
+        why = f"gross_ceiling_unreadable: {type(exc).__name__}"
+    return SecondFilterInputs(
+        hold_sessions=VELOCITY_HOLD_SESSIONS,
+        stop_atr_multiple=float(config.risk.min_stop_atr_multiple),
+        max_portfolio_risk_pct=float(config.risk.max_portfolio_risk_pct),
+        gross_ceiling_x=gross_x,
+        gross_ceiling_reason=why,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -822,6 +883,7 @@ def main(argv: list[str] | None = None) -> int:
         cache=cache,
         get_yahoo=_yahoo_reader(),
         yahoo_fill=fill,
+        second_filter=_second_filter_inputs(config, broker),
     )
     run.calls["alpaca_assets"] = 1
     run.calls["nasdaq_listing"] = 2
