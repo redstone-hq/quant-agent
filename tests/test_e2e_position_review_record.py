@@ -171,6 +171,7 @@ def test_a_substantiated_sell_is_recorded_as_a_fill_with_its_reason(tmp_path, mo
         monkeypatch,
         bars=bars,
         actions=SELL,
+        tech_rating="sell",  # today's chart read is against the holding: the gate lets the sale through
     )
     _assert_hermetic(result, trace, trading, attempts)
     _assert_whole_position_sold_after_clearing_its_stop(trading)

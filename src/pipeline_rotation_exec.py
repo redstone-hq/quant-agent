@@ -269,27 +269,43 @@ def _same_rules_opportunity(pipeline, ctx, surfaced, positions):
 
     if surfaced is not None and surfaced.tier == "ranked_margin":
         return surfaced
+
+    def _opportunity(sym, reasons, candidates):
+        return RotationOpportunity(
+            new_symbol=getattr(surfaced, "new_symbol", None),
+            new_score=getattr(surfaced, "new_score", None),
+            held_symbol=sym,
+            held_score=None,
+            tier="ineligible_hold",
+            reasons=tuple(reasons),
+            ineligible_candidates=tuple(candidates),
+        )
+
+    record = getattr(ctx, "held_bar_record", None) or {}
     cull = []
     for p in positions or []:
         sym = (p.symbol or "").strip().upper()
         if not sym or p.qty <= 0:
             continue
-        verdict = judge_holding(views_from_pipeline(pipeline, ctx, sym, is_short=False))
+        views = views_from_pipeline(pipeline, ctx, sym, is_short=False)
+        verdict = judge_holding(views)
         logger.info("Same-rules gate (half-hour check): %s %s — %s", sym, verdict.basis, verdict.detail)
         if verdict.sell_allowed:
             cull.append((sym, tuple(verdict.reasons)))
+        elif below_bar_only_on_incomplete_evidence(record.get(sym, ()), views.unknown_seats):
+            # Unknown is not fail: the durable row says which seat failed.
+            _rotation_skip(
+                pipeline,
+                ctx,
+                _opportunity(sym, record[sym], ()),
+                "evidence_incomplete_seat_failed",
+                failed_seats=",".join(views.unknown_seats),
+                held_reasons=list(record[sym]),
+            )
     if not cull:
         return None
     cull.sort(key=lambda c: (-len(c[1]), c[0]))
-    return RotationOpportunity(
-        new_symbol=getattr(surfaced, "new_symbol", None),
-        new_score=getattr(surfaced, "new_score", None),
-        held_symbol=cull[0][0],
-        held_score=None,
-        tier="ineligible_hold",
-        reasons=cull[0][1],
-        ineligible_candidates=tuple(cull),
-    )
+    return _opportunity(cull[0][0], cull[0][1], cull)
 
 
 def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, position_history: dict | None) -> None:
@@ -363,8 +379,8 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
     if not isinstance(precheck, RotationPrecheck):
         return  # no precheck this session — nothing to act on
     if getattr(ctx, "held_bar_record", None) is None:
-        # The manager did not run this run: no record of this run's entry
-        # rules, so no judgement sale (a stale record never sells).
+        # This run's deterministic assembly did not produce a record (it
+        # failed): no judgement sale (unknown never sells).
         logger.info("Half-hour check: no held-bar record this run — no judgement sale")
         return
     # OWNER RULING 2026-10-13, "same rules as buying". The categorical cull

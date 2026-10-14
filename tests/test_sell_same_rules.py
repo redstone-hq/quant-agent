@@ -492,10 +492,18 @@ def test_t8_ok_but_empty_feed_is_unknown_and_never_sells():
     assert verdict.basis == _g.BASIS_EVIDENCE_MISSING
 
 
-def test_r5_counts_only_when_every_seat_is_known():
+def test_r5_counts_unless_a_seat_feeding_the_sum_has_no_reading():
+    """The evidence sum is unknown only when a seat feeding it has no reading
+    for the name this run (`failed_evidence_seats`, the one rule the half-hour
+    check uses; owner-ruling test `test_net_evidence_below_bar_still_sells_
+    when_every_seat_read`). A seat that ran and holds no view on the name adds
+    nothing to the sum, which is a reading."""
     record = {"ACME": ("R5 net evidence +0 if long — no rung",)}
     partial = (_v("technical", "ACME", "bullish"), _v("news", "ACME", "bullish"))
-    assert not _g.judge_holding(_held_views("ACME", partial, record)).sell_allowed
+    outage = _held_views("ACME", partial, record, data_status={"tech": "ok", "news": "ok", "macro": "failed"})
+    assert not _g.judge_holding(outage).sell_allowed, "a seat outage never sells"
+    read = _held_views("ACME", partial, record, data_status={"tech": "ok", "news": "ok", "macro": "ok"})
+    assert _g.judge_holding(read).sell_allowed
     assert _g.judge_holding(_held_views("ACME", _all_known("ACME"), record)).sell_allowed
 
 
@@ -796,3 +804,90 @@ def test_option_a_new_buy_still_needs_timing_confirmed():
     assert "R5 net evidence +0 if long — no rung" in eligibility["HELD"]  # read in the holding's direction
     neutral_chart = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bullish")]
     assert "does not confirm timing" in own_bar_block_reason(neutral_chart, direction="bullish")
+
+
+# ---------------------------------------------------------------------------
+# No paid manager answer (owner 12 Oct 2026): the held-direction record comes
+# from the deterministic prompt assembly, and the sale goes THROUGH the gate.
+# ---------------------------------------------------------------------------
+
+
+def _no_manager_run(*, pm_skip_reason=None):
+    """The real DecisionStage with a PM that gives no answer (or is skipped).
+    Its assembly (`build_user_message`) leaves what a real one would for two
+    holdings: OLD, whose chart read turned AGAINST it (R7 opposition), and
+    KEEP, rated NEUTRAL with its chart level intact and every other seat
+    backing it (`HELD_NEUTRAL_R2`, R3-R6 passed in the holding's direction)."""
+    from unittest.mock import MagicMock, patch
+
+    from src.agents.portfolio_manager import PortfolioManagerAgent
+    from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
+    from src.risk.conviction_bar import own_bar_opposition_reason
+    from src.rotation import RotationOpportunity, RotationPrecheck
+    from tests import test_earn_its_place_without_pm as free
+
+    opposed = (own_bar_opposition_reason([_v("technical", "OLD", "bearish")], direction="bullish"),)
+    precheck = RotationPrecheck(
+        opportunity=RotationOpportunity(
+            new_symbol=None,
+            new_score=None,
+            held_symbol="OLD",
+            held_score=None,
+            tier="ineligible_hold",
+            reasons=opposed,
+            ineligible_candidates=(("OLD", opposed), ("KEEP", (HELD_NEUTRAL_R2,))),
+        ),
+        headroom_pct=5.0,
+        ceiling_pct=25.0,
+        floor_pct=0.5,
+        held_below_entry_bar=("KEEP", "OLD"),
+        held_examined=("KEEP", "OLD"),
+    )
+    pipeline = free._pipeline(precheck)
+    pm = pipeline.portfolio_manager
+    assemble = pm.build_user_message.side_effect
+
+    def _assemble(**kwargs):
+        pm.last_blocked = {"OLD": str(list(opposed)), "KEEP": str([HELD_NEUTRAL_R2])}
+        return assemble(**kwargs)
+
+    pm.build_user_message.side_effect = _assemble
+    verdicts = [_v("technical", "OLD", "bearish"), *_all_known("KEEP", tech="neutral")]
+    seen = {}
+    real_judge = _g.judge_holding
+
+    def _judge(views):
+        verdict = real_judge(views)
+        seen[verdict.symbol] = verdict
+        return verdict
+
+    with (
+        patch.object(PortfolioManagerAgent, "_collect_seat_verdicts", MagicMock(return_value=verdicts)),
+        patch("src.exits.same_rules_gate.judge_holding", _judge),
+    ):
+        ctx, _ = free._run_recorded(
+            pipeline, {"tech": "ok", "news": "ok", "macro": "ok"}, pm_skip_reason=pm_skip_reason
+        )
+    return pipeline, ctx, seen
+
+
+def test_no_manager_answer_still_sells_a_below_bar_holding_through_the_gate():
+    pipeline, ctx, seen = _no_manager_run()
+    assert pipeline.portfolio_manager.decide.call_count == 1  # it answered nothing
+    assert ctx.held_bar_record is not None, "the record does not wait on the paid answer"
+    assert seen["OLD"].basis == BASIS_FAILS_BAR and seen["OLD"].sell_allowed
+    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+
+
+def test_no_manager_answer_keeps_a_neutral_rated_structure_intact_holding():
+    _, ctx, seen = _no_manager_run()
+    assert ctx.held_bar_record["KEEP"] == (), "R3-R6 passed in the holding's direction"
+    assert seen["KEEP"].basis == BASIS_PASSES_BAR and not seen["KEEP"].sell_allowed
+    assert ctx.rotation["held_symbol"] != "KEEP"
+
+
+def test_a_skipped_manager_judges_the_same_way_with_no_paid_call():
+    pipeline, ctx, seen = _no_manager_run(pm_skip_reason="intraday_no_movers")
+    assert pipeline.portfolio_manager.decide.call_count == 0
+    assert seen["OLD"].sell_allowed and not seen["KEEP"].sell_allowed
+    assert ctx.rotation["held_symbol"] == "OLD"

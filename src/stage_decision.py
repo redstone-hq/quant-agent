@@ -86,6 +86,20 @@ if TYPE_CHECKING:
     from src.pipeline import TradingPipeline
 
 
+def _record_held_bar(pipeline, ctx, positions, analyses) -> None:
+    """`ctx.held_bar_record` from THIS run's deterministic prompt assembly —
+    the one place the held-direction entry bar is built, paid manager or not
+    (owner rulings 12 and 13 Oct 2026). A failure leaves no record, and no
+    record means no judgement sale (unknown never sells)."""
+    try:
+        from src.exits.same_rules_gate import held_bar_record_from_assembly
+
+        ctx.held_bar_record = held_bar_record_from_assembly(pipeline.portfolio_manager, positions, analyses)
+    except Exception as exc:  # noqa: BLE001 — no record = no judgement sale
+        logger.warning("held-bar record not built (%s) — no judgement sale this run", exc)
+        ctx.held_bar_record = None
+
+
 class DecisionStage:
     """Build PM memory layers → call PM → run Constructor.
 
@@ -424,7 +438,7 @@ class DecisionStage:
         if pm_skip_reason:
             portfolio_decision, pm_result = None, None
             pm_dropped_targets, pm_blocked, pm_ranked = [], {}, []
-            # No manager this run = no record = no judgement sale.
+            # Built below, after the PM-free assembly (owner 12 Oct 2026).
             ctx.held_bar_record = None
         else:
             portfolio_decision, pm_result = pipeline.portfolio_manager.decide(
@@ -440,14 +454,9 @@ class DecisionStage:
             pm_ranked = list(_pm_ranked) if isinstance(_pm_ranked, list) else []
             # Same rules as buying (owner 2026-10-13): THIS run's entry-rule
             # record for every holding, in the holding's own direction, read
-            # before the accounting re-ask resets `last_blocked`.
-            try:
-                from src.exits.same_rules_gate import build_held_bar_record
-
-                ctx.held_bar_record = build_held_bar_record(positions, analyses, pm_blocked)
-            except Exception as exc:  # noqa: BLE001 — no record = no judgement sale
-                logger.warning("held-bar record not built (%s) — no judgement sale this run", exc)
-                ctx.held_bar_record = None
+            # from the assembly `decide()` just ran, before the accounting
+            # re-ask resets `last_blocked`.
+            _record_held_bar(pipeline, ctx, positions, analyses)
         # Board item 78: same "read NOW" reason — the accounting re-ask
         # resets the heal record too. One durable row per name, whether the
         # heal worked or not.
@@ -612,8 +621,14 @@ class DecisionStage:
                 pm_status=(f"skipped:{pm_skip_reason}" if pm_skip_reason else "failed"),
             )
             if portfolio_decision is None:
+                ctx.held_bar_record = None
                 ctx.portfolio_decision = None
                 return ctx
+            # Owner 12 Oct 2026: the record does not wait on the paid answer.
+            # The PM-free step above just ran the same deterministic assembly
+            # (`build_user_message`), so the same-rules gate judges every
+            # holding on this run's entry rules with no manager answer.
+            _record_held_bar(pipeline, ctx, positions, analyses)
 
         # The PM's own reasoning, targets, sizing narrative and candidate
         # accounting exist only when the PM answered. The accounting can

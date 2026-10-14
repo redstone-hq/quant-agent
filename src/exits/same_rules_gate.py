@@ -18,9 +18,12 @@ restated:
 
   * R2-R6 — `candidate_eligibility` (rating, BUY-eligible universe, net
     independent evidence, constructor refusal), read from THIS run's
-    `ctx.held_bar_record` — built right after the manager's main decision, in
-    the HOLDING's direction. No record (the manager did not run this run)
-    means no judgement sale. R2 fails only on a rating AGAINST the holding
+    `ctx.held_bar_record` — built from the decision stage's DETERMINISTIC
+    prompt assembly (`build_user_message`: candidate ranking, the conviction
+    bar, the rotation pre-check), in the HOLDING's direction, on every run
+    whether or not the paid manager answers (owner 12 Oct: the "earn its
+    place" sale needs no paid call). No record (the assembly did not run, or
+    failed) means no judgement sale. R2 fails only on a rating AGAINST the holding
     (sell for a long, buy for a short); a neutral rating holds, and the
     manager then reads R3-R6 in the holding's direction (`HELD_NEUTRAL_R2`).
   * R7 — `own_bar_hold_reason`: the role-based conviction bar without its
@@ -36,9 +39,16 @@ Account-level refusals (budget, gross ceiling, sizing, minimum risk, order
 shape, book risk unknown) and target / profit-taking reasons NEVER sell; a
 missing measurement, or a code nobody classified, is UNKNOWN and never sells.
 
-A seat's reading is `known` for a stock only when that seat produced a
-verdict for that stock this run; a feed marked "ok" with nothing on the name
-is `unknown`. A failure a missing reading could undo is not definite.
+Two readings of "unknown", each used where it means something:
+  * the net evidence sum (R5, and its constructor twin
+    `agreement_net_at_or_below_zero`) is unknown when a seat feeding it has
+    no reading for the name this run — `failed_evidence_seats`, the ONE rule
+    the half-hour check has always used (a seat that ran and holds no view
+    on the name contributes nothing, which is a reading);
+  * the supported-side part of R7 is unknown unless every non-technical seat
+    produced a verdict for that stock this run (a missing supporter could
+    undo it).
+A failure a missing reading could undo is not definite.
 
 A PROTECTIVE sale is not judgement: a holding whose structural-protection
 read is `protected=False` sells ungated, as on trunk. A failed bar fetch
@@ -248,10 +258,16 @@ def seat_readings(verdicts, symbol: str, extra_unknown=()) -> dict[str, str]:
     return {s: ("known" if s in have and s not in extra else "unknown") for s in NON_TECHNICAL_SEATS}
 
 
-def _classify_reason(text: str, all_known: bool) -> str | None:
-    """One R2-R6 reason as CLASS_*; None for R7 (recomputed in full)."""
+def _classify_reason(text: str, all_known: bool, sum_known: bool = True, names_known: bool = True) -> str | None:
+    """One recorded reason as CLASS_*. An R7 reason the assembly recorded is
+    an OPPOSITION (the held side of `_apply_conviction_bar` records nothing
+    else): a positive reading a missing seat cannot erase, except a macro vote
+    while a name-level seat is unread. `sum_known` = no seat feeding the
+    evidence sum is without a reading for this name this run."""
     if text.startswith(OWN_BAR_REASON_PREFIX):
-        return None
+        if "opposed" not in text:
+            return CLASS_UNKNOWN  # fail closed: only an opposition is recorded here
+        return CLASS_UNKNOWN if "macro opposed" in text and not names_known else CLASS_COUNTS
     if text.startswith("R2 neutral rating"):
         return CLASS_NEVER  # Option A: a neutral rating never sells a holding
     if text.startswith("R2"):
@@ -259,11 +275,11 @@ def _classify_reason(text: str, all_known: bool) -> str | None:
     if text.startswith("R3"):
         return CLASS_NEVER  # the desk's list, not the stock
     if text.startswith("R5"):
-        return CLASS_COUNTS if all_known else CLASS_UNKNOWN
+        return CLASS_COUNTS if sum_known else CLASS_UNKNOWN
     if text.startswith("R6"):
         code = text.split("[", 1)[1].split("]", 1)[0] if "[" in text and "]" in text else ""
         klass = classify_refusal(code)
-        if code in _COUNTS_ONLY_IF_ALL_KNOWN and not all_known:
+        if code in _COUNTS_ONLY_IF_ALL_KNOWN and not sum_known:
             return CLASS_UNKNOWN
         return klass
     return CLASS_UNKNOWN  # fail closed
@@ -274,17 +290,21 @@ def _judge_bar(views: HoldingViews, verdicts: list, has_tech: bool, readings: di
     direction = "bearish" if views.is_short else "bullish"
     all_known = all(r == "known" for r in readings.values())
     names_known = all(readings[s] == "known" for s in NAME_LEVEL_SEATS)
+    sum_known = not views.unknown_seats
     definite: list[str] = []
     unknown: list[str] = []
-    if has_tech and views.eligibility_reasons is not None:
-        for reason in views.eligibility_reasons:
-            text = str(reason)
-            klass = _classify_reason(text, all_known)
-            if klass == CLASS_COUNTS:
-                definite.append(text)
-            elif klass == CLASS_UNKNOWN:
-                unknown.append(text)
+    # A record entry exists only for a name the assembly evaluated on this
+    # run's technical read, so its presence is the "entry rules were read".
+    for reason in views.eligibility_reasons or ():
+        text = str(reason)
+        klass = _classify_reason(text, all_known, sum_known, names_known)
+        if klass == CLASS_COUNTS:
+            definite.append(text)
+        elif klass == CLASS_UNKNOWN:
+            unknown.append(text)
     opposition = own_bar_opposition_reason(verdicts, direction=direction)
+    if opposition and opposition in definite + unknown:
+        return definite, unknown  # the assembly already recorded this reading
     if opposition:
         # A macro vote is weighed against name-level supporters, so a missing
         # supporter could outweigh it; every other opposition is a positive
@@ -400,16 +420,17 @@ def restore_carried_refusals(constructor, carried: dict) -> None:
 
 
 def build_held_bar_record(positions, analyses, blocked) -> dict[str, tuple[str, ...]]:
-    """THIS run's entry-rule reasons for every holding with a technical read,
-    in the HOLDING's direction (long stays long, short stays short).
+    """THIS run's entry-rule reasons for every holding the assembly evaluated
+    (a technical read this run), in the HOLDING's direction (long stays long,
+    short stays short).
 
     R2 fails when the rating points AGAINST the holding. When it points the
-    holding's way, the manager's own `candidate_eligibility` reasons for the
+    holding's way, the assembly's own `candidate_eligibility` reasons for the
     name were computed in that same direction, so they are read, never
     restated. A NEUTRAL rating holds (owner Option A, 14 Oct 2026): R3-R6 are
-    read from the manager's held-direction pass (`HELD_NEUTRAL_R2`); if the
-    manager did not make that pass, R2-R6 are unread (no record, so no sale
-    on them)."""
+    read from the held-direction pass (`HELD_NEUTRAL_R2`); without that pass
+    R2-R6 are unread (no record, so no sale on them). A held name the
+    assembly recorded in `blocked` with no rating at hand is read as recorded."""
     from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
 
     rating_by = {str(getattr(a, "symbol", "")).strip().upper(): getattr(a, "rating", None) for a in analyses or ()}
@@ -418,20 +439,44 @@ def build_held_bar_record(positions, analyses, blocked) -> dict[str, tuple[str, 
     for p in positions or ():
         sym = str(getattr(p, "symbol", "") or "").strip().upper()
         qty = getattr(p, "qty", 0) or 0
-        if not sym or not qty or sym not in rating_by:
+        if not sym or not qty or (sym not in rating_by and sym not in blocked_by):
             continue
-        rating = str(rating_by[sym] or "")
+        rating = str(rating_by.get(sym) or "")
         held = "short" if qty < 0 else "long"
         rated = "short" if rating in ("sell", "strong_sell") else "long"
-        if rating == "neutral":
-            reasons = parse_blocked_reasons(blocked_by.get(sym))
-            if reasons[:1] == (HELD_NEUTRAL_R2,):
-                record[sym] = reasons[1:]
-        elif rated != held:
+        reasons = parse_blocked_reasons(blocked_by.get(sym))
+        if reasons[:1] == (HELD_NEUTRAL_R2,):
+            record[sym] = reasons[1:]
+        elif rating == "neutral":
+            continue
+        elif rating and rated != held:
             record[sym] = (f"R2 rating {rating} does not point the holding's way ({held})",)
         else:
-            record[sym] = parse_blocked_reasons(blocked_by.get(sym))
+            record[sym] = reasons
     return record
+
+
+def held_bar_record_from_assembly(pm, positions, analyses) -> dict[str, tuple[str, ...]]:
+    """The held-direction record from the manager agent's DETERMINISTIC prompt
+    assembly (`build_user_message`), which runs on every run — inside the paid
+    `decide()` call, or alone for the half-hour "earn its place" check when
+    the paid manager does not answer (owner 12 Oct 2026). Nothing here reads
+    the manager's ANSWER: `blocked` is computed before any model is asked.
+
+    `blocked` is read whole (`last_blocked`); the rotation pre-check carries
+    the held part of the same set (`ineligible_candidates`) and is read too,
+    so a name the pre-check acts on always has its reasons here. The caller
+    reads this only right after the assembly ran this run (both values are
+    reset at its start), so nothing from an earlier run is read."""
+    blocked: dict = {}
+    opportunity = getattr(getattr(pm, "last_rotation_precheck", None), "opportunity", None)
+    if getattr(opportunity, "tier", None) == "ineligible_hold":
+        for sym, reasons in getattr(opportunity, "ineligible_candidates", None) or ():
+            blocked[str(sym).strip().upper()] = tuple(reasons)
+    live = getattr(pm, "last_blocked", None)
+    if isinstance(live, dict):
+        blocked.update({str(k).strip().upper(): v for k, v in live.items()})
+    return build_held_bar_record(positions, analyses, blocked)
 
 
 def views_from_pipeline(
@@ -439,8 +484,10 @@ def views_from_pipeline(
 ) -> HoldingViews:
     """The views a buy of `symbol` would be judged on in THIS pipeline run.
 
-    Reads only `ctx.held_bar_record`, never the manager's `last_blocked`
-    (which survives a skipped manager and is reset by the accounting re-ask)."""
+    Reads only `ctx.held_bar_record` (built by the decision stage right after
+    this run's deterministic assembly), never the manager agent's live
+    `last_blocked` (which survives a run with no assembly and is reset by the
+    accounting re-ask)."""
     sym = str(symbol or "").strip().upper()
     record = getattr(ctx, "held_bar_record", None)
     eligibility = record.get(sym) if isinstance(record, dict) else None
@@ -450,11 +497,16 @@ def views_from_pipeline(
         for s, seats in (dict(stale) if isinstance(stale, dict) else {}).items()
         if "earnings" in set(seats or ())
     )
+    from src.pipeline_rotation_exec import failed_evidence_seats
+
     return HoldingViews(
         symbol=sym,
         is_short=is_short,
         seat_verdicts=tuple(getattr(ctx, "seat_verdicts", None) or ()),
         eligibility_reasons=tuple(eligibility) if eligibility is not None else None,
+        # The seats with no reading for this name this run — the one rule the
+        # half-hour check has always used; a seat outage is unknown, never fail.
+        unknown_seats=failed_evidence_seats(ctx, sym),
         bought_today=bought_today_from_db(pipeline.db, sym),
         stale_earnings=stale_earnings,
         protection_basis=protection_basis,
