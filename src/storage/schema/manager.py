@@ -354,15 +354,18 @@ class DatabaseSchema:
                 run_id TEXT
             );
 
-            -- Explicit intraday evaluation ledger. A candidate is recorded
-            -- before paid analysis, so HOLD/RM-reject/parse-failure outcomes
-            -- still enforce cooldown even though no trades row exists.
+            -- Explicit intraday evaluation ledger: one row per name the
+            -- desk looked at, whatever the outcome. `ref_price` is the live
+            -- price the mover scan ranked the name at when the PM saw it;
+            -- the next scan this session ranks the name by its move since
+            -- that price (NULL on exit-path rows and pre-2026-10-13 rows).
             CREATE TABLE IF NOT EXISTS intraday_evaluations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
                 run_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 detail TEXT,
+                ref_price REAL,
                 timestamp TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(symbol, run_id)
             );
@@ -1017,6 +1020,10 @@ class DatabaseSchema:
             "previous_outlook_assessment",
             "previous_outlook_assessment TEXT DEFAULT ''",
         )
+        # The price a mover was ranked at when the desk looked (2026-10-13,
+        # replaces the deleted 3h re-look cooldown). NULL on older rows; the
+        # scan then ranks the name from the prior close, as if never looked at.
+        _ensure_column("intraday_evaluations", "ref_price", "ref_price REAL")
         # codex r7 P1 #3: pending_protection_restores table for older DBs
         # that pre-date the orphaned-stop-restore queue. Idempotent.
         try:

@@ -416,41 +416,6 @@ numbers:
       how long the desk waits or how much it fetches, never whether or how
       much to trade. A wrong value degrades data availability, which is a
       separate failure the seats already see as missing evidence.
-  - id: src.config.IntradayScanConfig.cooldown_hours
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: how often a name that crosses the intraday move threshold crosses it again within one,
-        two, three, six and twelve hours, measured over the universe the desk could trade, on public
-        daily bars on intraday bars, so the re-evaluation lock is read off the real repeat rate rather
-        than picked at three hours
-      closes_when: the repeat-crossing curve is in hand and the cooldown is set where a second crossing
-        stops being the same move being counted twice; it is DELETED, and every crossing is evaluated,
-        if repeat crossings turn out to carry independent information
-    value: 3
-    status: arbitrary
-    site: src/config/research.py
-    measured_2026_10_13: >-
-      Measured 2026-10-13, intraday_evaluations from 2026-10-12 [measured, live DB read-only]:
-      166 selected scans over 101 symbols, 65 repeat selections of the same symbol, 0 repeats
-      closer than 3h, shortest gap 3.28h, so the lock is respected. Blocked crossings are not
-      recorded (the log only says 'outside the 3.0h cooldown'), so how often it BINDS and the
-      repeat-crossing curve are unmeasured. Stays arbitrary; value not shown wrong.
-    note: >-
-      The intraday scan trigger, its cooldown and its per-scan cap. THE SCAN
-      IS ON -- the 2026-09-14 verification corrected a stale settings comment
-      claiming it was disabled. A round 3% move and a round 3 hours, neither
-      read off any instrument.
-      Tracked by docs/WORK.md item 177, the intraday-tick cluster: this
-      number is settled together with the tick cadence and the per-run held-book
-      context, never alone.
-    open_question: >-
-      How long after an intraday scan does a re-scan of the same name produce
-      information the first scan did not?
-    cost_while_unanswered: >-
-      Either a real intraday development is ignored, or the seat is re-billed
-      for the same read.
   - id: src.pipeline_intraday._NAMES_PER_PAID_CALL
     value: 5
     status: arbitrary
@@ -460,7 +425,12 @@ numbers:
       analysis: owner ruling 2026-10-12, "Later batches are weaker moves. So
       why send them at all?" -- one batch per check, the strongest-ranked.
       The SIZE 5 is still arbitrary: it is the batch size the desk has always
-      sent (the deleted per-scan name cap), not a measured optimum. The
+      sent (the deleted per-scan name cap), not a measured optimum. Its
+      neighbour, the 3-hour intraday cooldown (`arbitrary`), is
+      DELETED 2026-10-13 and its row is gone: a name the desk already looked
+      at this session now ranks in this one batch by its move since that look,
+      in its own ATR (`intraday_evaluations.ref_price`), so there is no lock
+      length left for the repeat-crossing study to set. The
       spent-money cap is checked before the one call, so it is overshot by at
       most that call, and that overshoot is measured: the costliest intraday call
       on record is a portfolio_manager decision at $0.389885, and the largest

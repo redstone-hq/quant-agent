@@ -1016,18 +1016,19 @@ cash_reserve:
 # 2026-08-19 intraday opportunity-discovery fix — bounded, cheap trigger
 # added onto the existing intra_check cadence (every 30 min): a single bulk
 # current-session snapshot flags symbols that moved materially since the
-# last close; only those (capped, cooldown-deduped) get a real tech_analyst
+# last close; only the strongest-ranked get a real tech_analyst
 # call and the normal Specialist -> PM -> AI Risk -> deterministic gate ->
 # execution chain. See src/config/__init__.py::IntradayScanConfig.
 #
 # ENABLED. This comment used to say the scan was left disabled pending
 # operator review; the flag below has been `true` since that step was taken,
-# and the stale wording was corrected 2026-09-14. Its two thresholds (3% move,
-# 3h cooldown) carry no source — see docs/INCIDENT_HISTORY.md, 2026-09-14,
-# "the 2026-09-11 audit's unsourced numbers, checked one by one".
+# and the stale wording was corrected 2026-09-14. Its two unsourced thresholds
+# (3% move, 3h cooldown — docs/INCIDENT_HISTORY.md, 2026-09-14) are both gone:
+# the 3h re-look cooldown was deleted 2026-10-13. A name the desk already
+# looked at this session ranks by its move since that look, in its own ATR,
+# in the same single ranking as every fresh mover (src/intraday/candidates.py).
 intraday_scan:
   enabled: true
-  cooldown_hours: 3.0       # min hours between two decisions for the same symbol
   # Owner ruling 2026-10-13: the paid portfolio_manager ("what to buy") call
   # runs at most once per hour; the free held-book review still runs every
   # 30-minute check. Read against the last intraday portfolio_manager row in
