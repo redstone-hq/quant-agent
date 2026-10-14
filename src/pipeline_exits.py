@@ -125,20 +125,25 @@ class ExitEngineMixin:
         run_id: str,
         check,
     ) -> None:
-        """Push a decisive structural-protection break's plain-language reason
-        to BOTH owner surfaces (Telegram + board journal). Never raises.
+        """Record a decisive structural-protection break's plain-language
+        reason as a durable row, which the session message reads. Never raises.
 
-        Reuses the desk's established durable-reason trail rather than adding a
-        new one: the same `notifier.send_owner_alert` standalone-alert path
-        `_alert_holding_discipline_block` uses for Telegram, and a
-        `specialist_evidence` row (the same table the board journal and
-        Mission Control forensic views read) for the dashboard. Deduplicated
-        per (run, symbol, basis) via a run-scoped set.
+        The guard's verdict is PROVISIONAL (the PM may still sell or hold), so
+        it no longer pages the owner on its own mid-session: the row below is
+        read into the one line the session message carries for the stock,
+        next to the PM's decision and any risk change or pruning. Owner,
+        2026-10-14: one line per stock, not the same stock several times with
+        verdicts that may disagree.
 
-        SILENT-ACTION GUARD (#5): the dedup slot is consumed only AFTER at least
-        one surface write (board OR Telegram) SUCCEEDS. If BOTH fail, the slot is
-        left free so a later cycle retries — the desk must never act on a break
-        without the why reaching at least one surface.
+        FAILURES STILL GO OUT ALONE AND AT ONCE (owner ruling 2026-09-02): if
+        the row cannot be written, the session message has nothing to read, so
+        the verdict is sent as its own alert through
+        `notifier.send_owner_alert` instead.
+
+        SILENT-ACTION GUARD (#5): the dedup slot is consumed only AFTER the why
+        has reached a surface (the row, or the fallback alert). If BOTH fail,
+        the slot is left free so a later cycle retries — the desk must never
+        act on a break without the why reaching the owner.
         """
         from src.risk.exit_guard import render_owner_break_message
 
@@ -173,6 +178,9 @@ class ExitEngineMixin:
                         "confirming_closes_needed": check.confirming_closes_needed,
                         "confirming_closes_seen": check.confirming_closes_seen,
                         "owner_reason": message,
+                        # The bare clause (no symbol, no lead verb): what the
+                        # session message's one line for the stock quotes.
+                        "reason": check.owner_reason,
                     }
                 ),
             )
@@ -185,28 +193,32 @@ class ExitEngineMixin:
                 e,
                 logger,
                 symbol=symbol_u,
-                effect="Telegram send still attempted",
+                effect="verdict sent as its own alert instead",
             )
 
-        # Telegram: the same standalone owner-alert path the holding-discipline
-        # block uses. `send_owner_alert` does NOT raise on a failed send — it
-        # RETURNS False — so a surface only counts as reached when the return is
-        # truthy (and, as a backstop, when it does not raise).
-        try:
-            from src import notifier as _notifier
+        # Fallback only: the row was not written, so the session message cannot
+        # carry this verdict. `send_owner_alert` does NOT raise on a failed
+        # send — it RETURNS False — so the surface only counts as reached when
+        # the return is truthy (and, as a backstop, when it does not raise).
+        if not any_surface_ok:
+            try:
+                from src import notifier as _notifier
 
-            ok = _notifier.send_owner_alert(message, symbols=[symbol_u])
-            any_surface_ok |= bool(ok)
-            record_exit_guard(self, "structural.owner_alert_send")
-        except Exception as e:  # noqa: BLE001
-            record_exit_guard(
-                self,
-                "structural.owner_alert_send",
-                e,
-                logger,
-                symbol=symbol_u,
-                effect="owner not told; dedup slot stays free",
-            )
+                ok = _notifier.send_owner_alert(
+                    f"{message} (Not recorded for the session message, so sent on its own.)",
+                    symbols=[symbol_u],
+                )
+                any_surface_ok |= bool(ok)
+                record_exit_guard(self, "structural.owner_alert_send")
+            except Exception as e:  # noqa: BLE001
+                record_exit_guard(
+                    self,
+                    "structural.owner_alert_send",
+                    e,
+                    logger,
+                    symbol=symbol_u,
+                    effect="owner not told; dedup slot stays free",
+                )
 
         # Consume the dedup slot only if the why reached at least one surface;
         # otherwise leave it free so a later cycle retries rather than the desk

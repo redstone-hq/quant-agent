@@ -62,18 +62,20 @@ from src.trader_feed.decision import (
     _append_done,
     _append_footer,
     _append_gate_and_execution,
+    _append_guard_only,
     _append_intraday_evidence_freshness,
     _append_pm,
     _append_risk,
     _append_rotation,
     _append_signals,
     _signal_row_line,
+    _with_guard_verdicts,
 )
 
 
 def _format_intraday(outer: dict, nested: dict, elapsed: float) -> str:
     run_id = nested.get("run_id") or outer.get("run_id")
-    snap = _read_run(run_id)
+    snap = _with_guard_verdicts(_read_run(run_id), run_id)
     status = str(nested.get("status", "unknown"))
 
     candidates = [str(symbol).upper() for symbol in (nested.get("candidates") or []) if symbol]
@@ -165,7 +167,8 @@ def _format_intraday(outer: dict, nested: dict, elapsed: float) -> str:
     _new_block(lines, _render_status_banner)
 
     _new_block(lines, _append_done, done_rows, snap, profiles)
-    _new_block(lines, _append_blocked, blocked_rows, profiles)
+    _new_block(lines, _append_blocked, blocked_rows, profiles, snap)
+    _new_block(lines, _append_guard_only, snap, acted, profiles)
     # Same pruning-pass report the morning message carries (board item 219).
     _new_block(lines, _append_rotation, snap)
     # Held back and spliced in here — see `_budgeted_sections`.

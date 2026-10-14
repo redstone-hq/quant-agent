@@ -243,6 +243,19 @@ def _compose_owner_break_reason(
     )
 
 
+def owner_break_clause(reason: str) -> str:
+    """The reason clause joined to its subject: "it <reason>", except when the
+    reason already opens with its own subject ("its stated exit condition was
+    met ...", "it ...") — prefixing those gave the owner "it its stated exit
+    condition". Pure."""
+    text = (reason or "").strip()
+    if not text:
+        return ""
+    if text.split(None, 1)[0].lower().rstrip(",") in ("it", "its"):
+        return text
+    return f"it {text}"
+
+
 def render_owner_break_message(
     symbol: str,
     check: "StructuralProtectionCheck",
@@ -263,8 +276,9 @@ def render_owner_break_message(
     if not reason:
         return None
     sym = (symbol or "").strip().upper() or "this position"
+    clause = owner_break_clause(reason)
     if not check.protected:
         # Confirmed break — the hold-protection veto is removed (not a sale).
-        return f"{sym}: hold-protection lifted — it {reason}"
+        return f"{sym}: hold-protection lifted — {clause}"
     # Break held pending confirmation — the veto stays on.
-    return f"{sym}: hold-protection kept — it {reason}"
+    return f"{sym}: hold-protection kept — {clause}"
