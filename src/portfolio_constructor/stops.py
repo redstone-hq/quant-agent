@@ -268,7 +268,6 @@ class StopRules:
             is_short,
             entry_price,
             buffer_pct,
-            None,
         )
         for raw in raw_levels:
             try:

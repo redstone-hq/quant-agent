@@ -62,11 +62,12 @@ Discovered 2026-10-04: outside regular hours the atomic amend CANNOT RUN AT
 ALL, so every overnight and pre-open stop change falls back to
 cancel-and-resubmit — the exact mechanism recorded as the root cause of this
 desk's stop failures. How often the desk does this, and how long each window
-lasts, is unmeasured.
+lasts, was unmeasured: the count is now measured (first box below); the window length still is.
 
 DONE WHEN:
-- [ ] The number of stop changes the desk attempts outside regular hours is
+- [x] The number of stop changes the desk attempts outside regular hours is
       counted from its own records.
+      EVIDENCE [measured 2026-10-14, live desk records]: 0 stop changes outside market hours since 12 Oct, 3 inside.
 - [ ] The cancel-to-replace gap is timed against the sandbox at a real open.
 
 ### 4. Partial fills driven by the live stream
@@ -166,11 +167,13 @@ board was not recounted here.
 
 ---
 
-## BUILT, NOT YET SEEN LIVE — the session windows follow the calendar
+## BUILT AND LIVE (since 2026-10-14), NOT YET SEEN ON A REAL EARLY CLOSE — the session windows follow the calendar
 
 This belongs here because the only honest end-to-end proof is a real early
 close. The next ones on the US equities calendar are Fri 27 Nov 2026 and
 Thu 24 Dec 2026 (both 13:00 ET); Thu 26 Nov and Fri 25 Dec are full holidays.
+
+**Live since 2026-10-14.** PR #1774 was deployed 20:08 UTC. Checked on the box with the desk's keys [measured 2026-10-14]: 27 Nov reads close 12:30-13:00 ET (750-780 minutes), a Saturday reads closed, a normal day reads 09:30-16:00.
 
 **What trunk does now.** The schedule has one copy: `PHASE_OFFSETS` in
 `src/trading_calendar.py` states each phase as minutes from the day's real open
