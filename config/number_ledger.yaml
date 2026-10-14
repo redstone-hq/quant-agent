@@ -1052,88 +1052,6 @@ numbers:
     cost_while_unanswered: >-
       Every reachability judgement - for targets AND for whether a level is
       relevant at all - scales off this one number.
-  - id: src.config.RiskConfig.min_level_touches_for_stop_honor
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: the bounce rate at a structural level as a function of how many prior touches it carries,
-        measured on daily bars over the universe the desk could trade, on public daily bars, with
-        distance from the level held fixed, so the credibility threshold is read off where touches
-        start to predict a hold
-      closes_when: the bounce-rate-versus-touch-count curve is in hand and the threshold is set where
-        bounce rate separates from the unconditional base rate; the touch test is DELETED, and levels
-        are honoured on distance alone, if the curve is flat in touch count
-    value: 5
-    status: arbitrary
-    site: src/config/__init__.py
-    narrowed: >-
-      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over every 60-bar window of the committed daily-bar fixture (1176 windows, 7 symbols, 1886 levels) [measured]: touch counts were 2:1345, 3:432, 4:94, 5:15, none above 5. So the bar of 5 sits at the very top of what the data produces: 15 of 1886 levels (0.8%) clear it, a bar of 6 would make the tight-stop exemption unreachable on this data, a bar of 4 would admit 109. Pinned by tests/test_dead_branch_narrowing_levels.py.
-    downgraded: >-
-      WAS `sourced`. DOWNGRADED 2026-10-01 (docs/WORK.md item 55), because the
-      input its source was measured on no longer exists. The table below was
-      built with levels clustered by the flat 1%-of-price rule; item 55 deletes
-      that rule and clusters on the overlap of the bars that made each pivot
-      instead, so the OBJECT the touch count is counting changed. docs/OUTCOME.md
-      requires every number derived from a changed input to be re-checked, and
-      the re-derivation was attempted twice and FAILED both times -- both
-      reasons recorded in docs/WORK.md item 55 rather than glossed. The value
-      stays at 5 because moving it would be inventing a number; the status no
-      longer claims a measurement that stands.
-      THIRD RE-DERIVATION, 2026-10-04, also NEGATIVE, and it is the first one
-      run against the post-item-55 level definition. Walked forward over the
-      desk's own committed daily bars (ops/rehearsal/recordings/market_bars.json.gz,
-      400 sessions, 33 symbols of which 32 carry data), a touch episode is a bar
-      trading into a computed support zone and closing above it, and the level is
-      "respected" if no close in the next five sessions sits below it. 2,196 real
-      episodes against 7,735 from three shuffled-returns controls per symbol that
-      preserve each symbol's return distribution and each bar's relative range.
-      Respect rate at 2/3/4/5+ touches: real 0.859 / 0.906 / 0.935 / 0.934;
-      control 0.903 / 0.928 / 0.946 / 0.937. The curve RISES with touch count in
-      both series by almost exactly the same amount, and the real series is at or
-      BELOW the control in every bucket, so the rise is geometry and volatility
-      clustering rather than structure. The 5+ bucket's 95% intervals overlap
-      ([0.913, 0.955] real against [0.926, 0.948] control). This does not meet the
-      closes_when test's deletion condition either, because that asks for a flat
-      curve and this one is not flat; it is a curve the control reproduces. Sample
-      caveats stated rather than buried: one hold horizon, one respect definition,
-      roughly fourteen months, and the seven heaviest symbols supply 40% of the
-      episodes. So the number is UNMEASURABLE TODAY on this evidence, the row
-      stays `arbitrary`, and the gate is now counted instead
-      (src/portfolio_constructor/level_touch_record.py) so the next attempt can
-      start from how often it actually binds in production.
-    source: >-
-      In-repo measured study at src/config/__init__.py::RiskConfig.min_level_touches_for_stop_honor (Phase 12.1, 2026-09-03,
-      docs/RESEARCH_FINDINGS.md section 7): a real-vs-shuffled bounce-probability
-      table over 101 symbols, 5 years of daily bars, separates with
-      non-overlapping 95% confidence intervals only at 5+ touches -- real 0.644
-      [0.590, 0.696] against shuffled 0.505 [0.470, 0.539]. At 2 touches the
-      intervals meet (real floor 0.510 vs shuffled ceiling 0.510) and at 3-4
-      they overlap outright, so any bar below 5 would honour a tight stop on a
-      separation that could be noise. Osler (2000) established the
-      bounce-frequency TEST but evaluates dealer-published levels and never
-      defines a touch count -- searched and ruled out, docs/INCIDENT_HISTORY.md.
-    note: >-
-      How many touches make a price level real enough to honour a tight stop
-      against. The 5 is read from the measured separation table above, not
-      chosen: below it a stop is not treated as level-backed and falls back to
-      the unbacked-stop floor exactly as any unbacked stop does.
-    open_question: >-
-      Does the real-versus-shuffled separation survive the new overlap
-      clustering, and at what touch count? Unanswered: the attempt on the
-      276-bar panel this repo holds yields n=27 real observations at 5 touches
-      against n=400+ in the original, and the shuffled control scored HIGHER
-      than real at every touch count, which means the reconstruction is not
-      the original test. docs/WORK.md item 55 names the recording that would
-      settle it. The older open question stands too: whether a table over 101
-      symbols and 5 years of daily bars transfers to the holding periods and
-      names this desk actually trades.
-    cost_while_unanswered: >-
-      Five touches is the bar a level must clear before a stop resting on it
-      earns the tight-stop exemption (1.0 ATR instead of 2.5 ATR), so an
-      unproven bar decides how tight a live stop may be. Set too low, a stop is
-      honoured against a separation that could be noise; set too high, real
-      structure is ignored and every stop is widened to the unbacked floor.
   - id: src.config.RiskConfig.min_position_risk_pct
     value: 0.5
     status: owner-ruled
@@ -2413,9 +2331,9 @@ numbers:
       levels were hit 26,868 times and bounced 60.99% of the time, three-local
       levels 6,661 times and bounced 61.04%. Anything above 2 discards levels
       for no measured gain, so 2 is a floor read off the geometry and
-      confirmed against published measurement. Distinct from
-      RiskConfig.min_level_touches_for_stop_honor (5), which is the separate
-      bar for TRUSTING a tight stop on a level.
+      confirmed against published measurement. It is the only touch bar: the
+      separate 5-touch bar for resting a stop on a level was deleted on
+      2026-10-14 (a 148-stock study found extra touches add nothing).
     note: >-
       Prior touches needed before a price level is registered at all.
   - id: src.data.levels.PIVOT_WINDOW
@@ -3162,20 +3080,6 @@ numbers:
         stays and the recording states how often the branch ran, so the cost is at
         least a measured number instead of an assumption; if the branch effectively
         never runs the number stops mattering and the ledger says so instead of guessing
-  - id: src.portfolio_constructor.config.ConstructorConfig.min_level_touches_for_stop_honor
-    value: 5
-    status: derived
-    site: src/portfolio_constructor/config.py
-    derived_from: src.config.RiskConfig.min_level_touches_for_stop_honor
-    base_value: 5
-    note: >-
-      Mirror of src.config.RiskConfig.min_level_touches_for_stop_honor, the
-      deployed value. Recorded as `derived` rather than as a second arbitrary
-      number: it is ONE number with two definition sites, so counting it twice
-      would inflate the arbitrary total the same way this ledger's first
-      version claimed the 0.50% floor existed in one place while listing it in
-      two. Base-drift now fails the build if the pair stops agreeing, which
-      nothing previously checked.
   - base_value: 0.5
     derived_from: src.config.RiskConfig.min_position_risk_pct
     id: src.portfolio_constructor.config.ConstructorConfig.min_risk_pct

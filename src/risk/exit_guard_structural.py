@@ -63,18 +63,16 @@ def _structural_level_backing_stop(
     stop_loss: float,
     is_short: bool,
     computed_levels: list | None,
-    computed_level_touches: dict | None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    min_level_touches: int,
     level_cluster_tolerance_pct: float,
 ) -> float | None:
     """The verified structural level nearest `stop_loss`, or None.
 
     Exact same matching rule as
     `PortfolioConstructor._level_backing_stop` (side-correctness relative
-    to entry, `min_level_touches` prior touches, closest level whose own
-    ZONE contains the stop) — reimplemented here as a free function, over
+    to entry, any real level at any touch count since 2026-10-14, closest
+    level whose own ZONE contains the stop) — reimplemented here as a free function, over
     the same plain data, because that method lives on a class this module
     must not import (it would be a risk module depending on the
     constructor, backwards from every other dependency in this codebase)
@@ -93,7 +91,6 @@ def _structural_level_backing_stop(
     as the 1% zone — a claim in a different unit that only held above 4%
     ATR — see docs/WORK.md item 46 / docs/INCIDENT_HISTORY.md.
     """
-    touches_by_price = computed_level_touches or {}
     bars_by_price = computed_level_bars or {}
     best: float | None = None
     best_gap = float("inf")
@@ -107,9 +104,6 @@ def _structural_level_backing_stop(
         if is_short and price < entry_price:
             continue
         if not is_short and price > entry_price:
-            continue
-        touches = touches_by_price.get(price)
-        if touches is None or touches < min_level_touches:
             continue
         # "AT this level", not "inside its band" — docs/WORK.md item 215.
         # The stop must lie inside the high-low range of at least one BAR

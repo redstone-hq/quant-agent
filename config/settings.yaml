@@ -803,15 +803,6 @@ risk:
   # final authority. A genuine support level 0.2 ATR under entry is real
   # structure and still a guaranteed whipsaw.
   absolute_min_stop_atr_multiple: 1.0
-  # How many prior touches a computed level needs before a stop resting on it
-  # is trusted enough for the tight-stop exemption above (Phase 12.1,
-  # 2026-09-03 — docs/RESEARCH_FINDINGS.md §7). The measured real-vs-shuffled
-  # bounce-probability table only separates cleanly (non-overlapping 95% CIs)
-  # at 5+ touches: real 0.644 [0.590, 0.696] vs shuffled 0.505 [0.470, 0.539].
-  # Every lower bucket overlaps or nearly touches the shuffled range, i.e.
-  # could be noise. Below this bar the stop is not treated as level-backed
-  # and falls back to the ATR floors above, same as an unbacked stop.
-  min_level_touches_for_stop_honor: 5
   # --- Target derivation (2026-09-01) ---------------------------------------
   # The floor above used to divide a stop computed from measured volatility by
   # a target the language model guessed. The morning run of 2026-09-01 rejected

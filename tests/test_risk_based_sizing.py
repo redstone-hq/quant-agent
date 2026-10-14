@@ -991,13 +991,10 @@ def _vol_analysis(symbol, entry, stop, target, atr, setup="range", horizon=60, c
     for. `computed` is available for the level-backed tests, which say so
     in their own names.
 
-    `touches` (2026-09-03, Phase 12.1) is the per-price touch count
-    `_level_backing_stop` now requires before honouring a tight stop — see
-    `ConstructorConfig.min_level_touches_for_stop_honor` and
-    docs/RESEARCH_FINDINGS.md §7. Every price in `computed` defaults to 5
-    touches (the derived bar) so existing "honoured" fixtures keep meaning
-    "this level is verified enough" unless a test overrides it to exercise
-    the gate itself.
+    `touches` is the per-price touch count, carried as data. Since
+    2026-10-14 no touch count gates whether a level backs a stop; every
+    price in `computed` defaults to 5 touches only so the fixture looks like
+    a real analysis.
     """
     from src.models import TechReasoningChain
 
@@ -1478,15 +1475,10 @@ def test_a_level_the_model_asserted_does_not_earn_the_exemption():
     )
 
 
-def test_a_level_below_the_touch_bar_does_not_earn_the_exemption():
-    """Phase 12.1, 2026-09-03. `min_level_touches_for_stop_honor` (5, derived
-    in docs/RESEARCH_FINDINGS.md §7 from the measured touch-count table) is
-    a SEPARATE gate from `find_structural_levels`' own `MIN_TOUCHES` (2):
-    the level is real enough to appear in `computed_levels` and to be a
-    legal target, but not yet trusted enough for a tight-stop exemption.
-    Identical fixture to the flagship honoured case, except the level's
-    touch count sits below the bar — the stop is widened to the band exactly
-    as an unbacked stop would be."""
+def test_a_level_with_few_touches_still_earns_the_exemption():
+    """2026-10-14: the 5-touch bar is deleted (a 148-stock study found extra
+    touches add nothing). Identical fixture to the flagship honoured case,
+    with the stop's own level at 4 touches — it is honoured, not widened."""
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[_risk_target("MSFT", 1.0)],
@@ -1499,24 +1491,18 @@ def test_a_level_below_the_touch_bar_does_not_earn_the_exemption():
                 _UPPER_LEVEL,
                 atr=_ATR,
                 computed=[_TIGHT_STOP, _UPPER_LEVEL],
-                # stop's own level: 4 touches, one under the bar
                 touches={_TIGHT_STOP: 4, _UPPER_LEVEL: 5},
             )
         ],
         total_value=EQUITY,
         price_map={"MSFT": _ENTRY},
     )
-    # The assertion is the STOP, not a refusal (changed 2026-09-11, item
-    # 1(d) — the sub-floor ratio no longer refuses anything). A stop widened
-    # to the band edge instead of honoured at $95.00 is what proves the level
-    # was NOT treated as backing it.
     assert len(decisions) == 1
-    assert decisions[0].stop_loss == _BAND_EDGE
+    assert decisions[0].stop_loss == _TIGHT_STOP
 
 
-def test_a_level_exactly_at_the_touch_bar_earns_the_exemption():
-    """The other edge of the same gate: 5 touches — the bar itself, not one
-    more — is enough."""
+def test_a_level_with_five_touches_earns_the_exemption():
+    """Five touches is honoured too; touch count no longer decides."""
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[_risk_target("MSFT", 1.0)],
@@ -1539,12 +1525,10 @@ def test_a_level_exactly_at_the_touch_bar_earns_the_exemption():
     assert decisions[0].stop_loss == _TIGHT_STOP
 
 
-def test_a_level_with_no_touch_count_on_record_fails_closed():
-    """A level price present in `computed_levels` but absent from
-    `computed_level_touches` (an older caller, a stale fixture, a partial
-    write) must NOT be honoured by default — Invariant 2 requires the
-    deterministic layer to fail closed, not to assume a level is good
-    because its touch count is simply missing."""
+def test_a_level_with_no_touch_count_on_record_still_backs_the_stop():
+    """2026-10-14: touch count is not asked at all, so a real computed level
+    whose count is missing backs the stop like any other real level. The
+    bar-range test still fails closed on its own missing data."""
     constructor = PortfolioConstructor()
     assert (
         constructor._level_backing_stop(
@@ -1553,7 +1537,7 @@ def test_a_level_with_no_touch_count_on_record_fails_closed():
             96.0,
             is_short=False,
         )
-        is None
+        == 96.0
     )
 
 

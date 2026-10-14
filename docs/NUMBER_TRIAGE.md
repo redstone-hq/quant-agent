@@ -93,7 +93,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Touches needed before a level is honoured as a stop; settled by bounce rate per touch count on public bars.
 
-- `config.RiskConfig.min_level_touches_for_stop_honor` = 5
+- `config.RiskConfig.min_level_touches_for_stop_honor` = 5 (REMOVED 2026-10-14: a 148-stock study found a stop just beyond a real level is hit less often than one with no level, and extra touches add nothing; any real level now backs a stop)
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Exit and trailing-stop thresholds; settled by public-bar retracement/trend-resumption statistics and by recorded session-to-session noise of the exit guard's own inputs.
 

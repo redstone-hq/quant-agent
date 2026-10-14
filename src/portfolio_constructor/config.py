@@ -828,19 +828,6 @@ class ConstructorConfig:
     # 0 disables the floor entirely. Kept in sync with
     # `risk.absolute_min_stop_atr_multiple`.
     absolute_min_stop_atr_multiple: float = 1.0
-    # How many prior touches a computed level needs before `_level_backing_stop`
-    # treats a stop resting on it as verified enough for the exemption above
-    # (Phase 12.1, 2026-09-03). `find_structural_levels` already requires 2
-    # touches to register a level at all, but that was never a quality bar
-    # for trusting a TIGHT stop on it — see docs/RESEARCH_FINDINGS.md §7's
-    # measured table. Real-vs-shuffled bounce probability only separates with
-    # non-overlapping 95% CIs at 5+ touches (real 0.644 [0.590, 0.696] vs
-    # shuffled 0.505 [0.470, 0.539]); every lower bucket's CIs overlap or
-    # nearly touch, i.e. could be noise. A level below this bar is not
-    # "verified" here and the stop falls back to the ATR floors, exactly as
-    # an unbacked stop does. Kept in sync with
-    # `risk.min_level_touches_for_stop_honor`.
-    min_level_touches_for_stop_honor: int = 5
     # How far BELOW a structural level (ABOVE it for a short) the
     # protective stop sits when it must be READ from price structure
     # because there is no ATR reading -- `_derive_structural_stop_no_atr`,

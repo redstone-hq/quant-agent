@@ -232,12 +232,6 @@ def build_constructor_config(config, risk_engine_config):
             "absolute_min_stop_atr_multiple",
             1.0,
         ),
-        # Phase 12.1, 2026-09-03 — how many prior touches a computed
-        # level needs before the tight-stop exemption above trusts it.
-        # docs/RESEARCH_FINDINGS.md §7.
-        min_level_touches_for_stop_honor=int(
-            _risk_setting("min_level_touches_for_stop_honor", 5),
-        ),
         # Target derivation (2026-09-01) — the numerator of the ratio
         # above, computed from bars instead of guessed by the analyst.
         # Wired from the ratified settings, same pattern as every
