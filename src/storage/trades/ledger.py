@@ -71,6 +71,31 @@ from src.storage.trades.exit_reasons import (  # noqa: F401  re-export: defined 
 logger = logging.getLogger(__name__)
 
 
+def _apply_opening_fill(inventory: float, average_price: float, signed_qty: float, price: float) -> tuple[float, float]:
+    """Signed inventory and average entry price after a BUY (+qty) or SHORT (-qty) fill."""
+    new_inventory = inventory + signed_qty
+    if inventory * signed_qty > 1e-9:
+        # Adding to the side already open: weighted average entry.
+        return new_inventory, (abs(inventory) * average_price + abs(signed_qty) * price) / abs(new_inventory)
+    if abs(new_inventory) <= 1e-9:
+        return 0.0, 0.0
+    if new_inventory * signed_qty > 0:
+        # Opening from flat, or flipping through zero: what remains was opened at this fill.
+        return new_inventory, price
+    return new_inventory, average_price  # partly nets an open opposite side; its basis stands
+
+
+def _closing_side(action: str, inventory: float) -> str | None:
+    """Which side an exit closes: from its name, else from the position it closes."""
+    if action.startswith("SWEEP_SELL"):
+        return "long"
+    side = _exit_action_side(action)
+    if side is None:
+        # Either-side exit (STOP_OUT, TRAIL_STOP, REDUCE, ...): whichever side is open.
+        return "long" if inventory > 1e-9 else "short" if inventory < -1e-9 else None
+    return side
+
+
 class TradeLedger:
     """Trade-ledger write cluster; see module docstring."""
 
@@ -654,26 +679,11 @@ class TradeLedger:
             if action == "HOLD":
                 continue
             if action in {"BUY", "SWEEP_BUY", "SHORT"}:
-                direction = 1.0 if action != "SHORT" else -1.0
-                new_inventory = inventory + direction * actual_qty
-                if inventory * direction > 1e-9:
-                    # Adding to the side already open: weighted average entry.
-                    average_price = (abs(inventory) * average_price + actual_qty * actual_price) / abs(new_inventory)
-                elif abs(new_inventory) <= 1e-9:
-                    average_price = 0.0
-                elif new_inventory * direction > 0:
-                    # Opening from flat, or flipping through zero: the
-                    # remaining shares were opened at this fill.
-                    average_price = actual_price
-                inventory = 0.0 if abs(new_inventory) <= 1e-9 else new_inventory
+                inventory, average_price = _apply_opening_fill(
+                    inventory, average_price, -actual_qty if action == "SHORT" else actual_qty, actual_price
+                )
                 continue
-            if action.startswith("SWEEP_SELL"):
-                closing = "long"
-            else:
-                closing = _exit_action_side(action)
-                if closing is None:
-                    # Either-side exit: it closes whichever side is open.
-                    closing = "long" if inventory > 1e-9 else "short" if inventory < -1e-9 else None
+            closing = _closing_side(action, inventory)
             open_qty = inventory if closing == "long" else -inventory if closing == "short" else 0.0
             if closing is None or open_qty + 1e-9 < actual_qty:
                 pnl = None  # incomplete canonical cost basis; unknown stays unknown
