@@ -180,28 +180,6 @@ class AgentResult:
     semantic_status: str | None = None
     semantic_error: str | None = None
 
-    # No reader since answer text stopped being patched (2026-10-14): the
-    # provider's response schema makes a plain `json.loads` sufficient. Kept
-    # only because its number-ledger rows belong to another open change;
-    # delete this dict and those rows together.
-    _EXPECTED_AGENT_KEY_WEIGHTS = {
-        "decisions": 50,
-        "targets": 50,
-        "approved": 50,
-        "actions": 50,
-        "daily_summary": 40,
-        "tomorrow_outlook": 40,
-        "regime": 40,
-        "investment_implications": 40,
-        "macro_narrative": 40,
-        "analyses": 40,
-        "findings": 50,
-        "portfolio_view": 20,
-        "reasoning_chain": 20,
-        "symbol": 5,
-        "rating": 5,
-    }
-
     def parse_json(self) -> dict | list | None:
         """The answer as JSON, or None when it is not JSON.
 

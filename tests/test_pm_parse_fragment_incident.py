@@ -12,6 +12,11 @@ cost on the next 30-min tick.
 
 Fixtures are the VERBATIM recorded `full_response` payloads from the two
 killed production runs (run-cbf2adbd 17 targets, run-5dc7a354 11 targets).
+
+Since 2026-10-14 there is no candidate scoring at all: answers are plain JSON
+under a provider-enforced schema, and the key-weight table is deleted. What
+stays pinned here is the PM's own handling of a parse that is not a usable
+decision.
 """
 
 from pathlib import Path

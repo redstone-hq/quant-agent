@@ -1,21 +1,6 @@
 # Ledger rows whose status is `arbitrary` (identity = row id).
 # Shrink-only: delete an entry when it no longer qualifies (stale entries fail).
 # A new entry needs a Guard-rule-change line in the commit message.
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['actions']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['analyses']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['approved']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['daily_summary']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['decisions']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['findings']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['investment_implications']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['macro_narrative']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['portfolio_view']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['rating']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['reasoning_chain']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['regime']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['symbol']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['targets']
-src.agents.base.AgentResult._EXPECTED_AGENT_KEY_WEIGHTS['tomorrow_outlook']
 src.agents.smart_money_analyst._FRESHNESS_RANK['delayed']
 src.agents.smart_money_analyst._FRESHNESS_RANK['fresh']
 src.agents.smart_money_analyst._MAX_ACTOR_ROLES
