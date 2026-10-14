@@ -40,6 +40,7 @@ from src.notifier.markup import (
     _linkify_symbols,
 )
 from src.notifier.owner_alert_delivery import SendResult, deliver_with_outcome
+from src.notifier.send_log import PLACED_PHRASE, record_placed_lines
 
 
 def send(
@@ -229,7 +230,22 @@ def send_once(
             text=delivered_text,
             run_id=run_id,
         )
-        return reply if isinstance(reply, SendResult) else SendResult(True)
+        result = reply if isinstance(reply, SendResult) else SendResult(True)
+        if result.message_id is not None and PLACED_PHRASE in delivered_text:
+            # Owner ruling 5b: remember which line lists which working order,
+            # so its fill EDITS this message. The message already landed, so a
+            # recording fault costs only that later edit; it is recorded, not sent.
+            try:
+                record_placed_lines(message_id=result.message_id, text=delivered_text, run_id=run_id)
+            except Exception as rec_exc:  # noqa: BLE001
+                self._safe_record_send(
+                    kind="placed_lines",
+                    status="failed",
+                    text=delivered_text,
+                    detail=self._redact(rec_exc),
+                    run_id=run_id,
+                )
+        return result
     except Exception as exc:
         # Catch broadly on purpose — TelegramNotifier is a
         # best-effort side channel. A 429 rate-limit, a 5xx, a

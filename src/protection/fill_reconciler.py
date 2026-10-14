@@ -180,6 +180,15 @@ class FillReconciler:
                     fill_price=fill_price,
                     filled_at=filled_at,
                 )
+                # Owner ruling 5b: edit the message that listed this order as
+                # placed. The fill above has committed; this only starts a
+                # background edit and can never raise into reconciliation.
+                try:
+                    from src.notifier.fill_line import note_fill
+
+                    note_fill(self.db, order_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("fill edit for %s not started: %s", order_id, exc)
                 _record_broker_event(row, status, fill_qty, fill_price)
                 logger.info(
                     "Reconciled %s: filled (qty=%s, avg=$%s)",
