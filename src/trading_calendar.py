@@ -17,34 +17,32 @@ What does NOT belong here:
   live broker connection, so `is_trading_day()` stays on `AlpacaBroker`.
   Callers that only need a weekday heuristic use `is_weekday()` here.
 
-KNOWN, UNFIXED, AND LARGER THAN IT LOOKS — the session windows are wall
-clock only. `SESSION_WINDOWS` below pins every phase to a fixed minute of
-the ET day, and `scripts/run_if_et_window.sh` carries a second hand-copied
-table of the same numbers (pinned to this one by
-`tests/test_trading_calendar.py::test_wrapper_windows_match_session_windows`).
-Neither reads a calendar; the wrapper's only calendar awareness is a
-weekday short-circuit. On an early-close day (13:00 ET) the consequence is
-not a stale bar, it is that the phases run against a shut market: `midday`
-(13:00-14:30) and `close` (15:30-16:00) fire entirely AFTER the close, so
-the act-on-trigger end-of-day position review never happens while the
-desk can still trade, and `intra_check` keeps firing its paid ticks until
-16:00. On a full market holiday the wrapper fires every weekday phase.
+THE SCHEDULE HAS ONE COPY, AND IT FOLLOWS THE DAY'S REAL OPEN AND CLOSE.
+`PHASE_OFFSETS` below states every phase as minutes from the session's open or
+close. `SESSION_WINDOWS` is DERIVED from those offsets at the regular 09:30 and
+16:00 edges, so it is exactly the normal-day table and nothing is typed twice.
+`scripts/run_if_et_window.sh` no longer holds a table at all: each tick it asks
+`python -m src.session_calendar <mode> <ET date>` (see `src/session_calendar.py`)
+for that date's window, resolved against the broker's exchange calendar. On an
+early close the window moves with the bell (`midday` 10:00-11:30 and `close`
+12:30-13:00 on a 13:00 close); on a holiday the answer is "closed" and the
+wrapper runs nothing. If the calendar cannot be read the wrapper falls back to
+the normal-day windows below and logs that it did.
 
-The fix is to express each phase relative to the session's real open and
-close, resolved per day from the broker calendar that `src/market_session.py`
-already reads, and to delete the wrapper's copy of the table rather than
-keep two. That is deliberately NOT attempted piecemeal: the fixed minute
-bounds are also read by `src/scheduler.py` (intra_check trigger), both
-watchdogs (`src/silence_watchdog.py`, `src/coverage_watchdog.py`, which
-derive expected-tick counts from them) and `src/config/llm_cost.py` (the
-paid-session budget), and every one of those becomes session-dependent at
-the same moment. Sized at roughly 400-600 changed lines across those six
-modules plus the wrapper and the pinning test. Nothing here detects the
-condition, because a detector is not the fix.
+STILL ON THE FIXED NORMAL-DAY TABLE, deliberately: the readers that use
+`SESSION_WINDOWS` as an upper bound of expected activity (`src/silence_watchdog.py`,
+`src/coverage_watchdog.py`, `src/config/llm_cost.py`), the exit-adjacent deadline
+readers (`src/protection/put_off_sales.py`, `src/price_feed_preflight.py`,
+`src/intraday/gating.py`), the display helpers (`in_session_window`, the trader
+feed) and the unused APScheduler path (`src/scheduler.py`). On an early close
+every real phase ends EARLIER than its fixed window, so the first group errs
+generous, never alarming; the deadline and display readers are the remaining
+exposure and are tracked in `docs/MARKET_HOURS_BACKLOG.md`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -54,44 +52,92 @@ UTC = ZoneInfo("UTC")
 
 SessionMode = Literal["earnings_preprocess", "morning", "intra_check", "midday", "close", "evening"]
 
-# Session windows as (start_minute_of_day, end_minute_of_day) in ET.
-# These are the authoritative source. `scripts/run_if_et_window.sh` has the
-# same table hardcoded for zero-dep launchd gating; `test_trading_calendar.py`
-# asserts the two stay in sync.
-SESSION_WINDOWS: dict[str, tuple[int, int]] = {
-    "earnings_preprocess": (480, 555),  # 08:00 - 09:15 ET
-    "morning": (570, 720),  # 09:30 - 12:00 ET
-    # "no LLM" here was FALSE and is corrected 2026-09-23: intra_check is the
-    # desk's largest paid cost centre, not a deterministic tick. Measured on
-    # the production DB (llm_budget_sessions): 13-14 paid sessions a day,
-    # $0.5672 of the day's $0.7883 on 2026-09-22 (72%) and $2.3839 of $2.6478
-    # on 2026-09-21 (90%). Two separate derivations were built on the wrong
-    # label before anyone checked. Whether it SHOULD be spending that much is
-    # a live question and not settled here.
-    "intra_check": (
-        570,
-        960,
-    ),  # 09:30 - 16:00 ET  (P&L circuit-breaker + on-trigger paid review, every 30min tick; NOT subject to once-per-day guard)
-    "midday": (780, 870),  # 13:00 - 14:30 ET  (position reviewer, patient)
-    "close": (
-        930,
-        960,
-    ),  # 15:30 - 16:00 ET  (position reviewer, act-on-trigger; 30min width guarantees a 30-min launchd tick lands inside regardless of phase)
-    "evening": (1200, 1320),  # 20:00 - 22:00 ET  (reporting only)
+# US equities regular (core) trading session, minutes of day in ET:
+# 09:30-16:00. Source: NYSE "Hours & Calendars" (core trading session
+# 9:30 a.m.-4:00 p.m. ET). Early-close days (13:00 ET) are NOT modelled by
+# these two constants: the real edges of a given date come from the broker
+# calendar (`src/session_calendar.py`). For the users of THESE constants that
+# errs toward "bar not yet complete" (stale-but-labelled), never toward treating
+# a partial bar as complete.
+REGULAR_SESSION_OPEN_MIN = 570  # 09:30 ET
+REGULAR_SESSION_CLOSE_MIN = 960  # 16:00 ET
+
+Anchor = Literal["open", "close"]
+
+
+@dataclass(frozen=True)
+class PhaseOffset:
+    """One phase of the trading day, stated as minutes from a session edge.
+
+    `start_anchor`/`end_anchor` say WHICH edge each side hangs off, and the
+    deltas are signed minutes from it. Expressing the day this way is the whole
+    point: on a 13:00 early close a phase anchored at `close - 30` resolves to
+    12:30, where a phase pinned to 15:30 resolves to after the market has gone.
+    """
+
+    name: str
+    start_anchor: Anchor
+    start_delta_minutes: int
+    end_anchor: Anchor
+    end_delta_minutes: int
+
+
+# The six phases against the session edges. THE one copy of the schedule: the
+# normal-day `SESSION_WINDOWS` below is derived from it, and
+# `src/session_calendar.py` resolves it against a real date's open and close.
+#
+# Which edge a side hangs off is a meaning decision, not arithmetic:
+#   - Anything tied to the opening bell (the pre-bell earnings prep, the
+#     morning session, the start of the paid intraday tick) is open-anchored.
+#   - Anything that is an end-of-day duty (the patient midday review, the
+#     act-on-trigger close review, the end of the paid tick, the evening
+#     report) is close-anchored, because what makes it due is the market
+#     going home, not the clock reading a particular number.
+# Each comment gives the normal-day (09:30-16:00) result.
+PHASE_OFFSETS: dict[str, PhaseOffset] = {
+    # 08:00-09:15 ET: the pre-bell preparation, due a fixed run-up before the bell.
+    "earnings_preprocess": PhaseOffset("earnings_preprocess", "open", -90, "open", -15),
+    # 09:30-12:00 ET: the opening stretch, measured from the bell; wide for late-wake grace.
+    "morning": PhaseOffset("morning", "open", 0, "open", 150),
+    # 09:30-16:00 ET: from the bell to the real close, every 30 min tick (fill
+    # reconcile, stop-coverage repair, bounded scan; NOT subject to the
+    # once-per-day guard). It is the desk's largest paid cost centre, not a
+    # deterministic tick: measured on the production DB (llm_budget_sessions),
+    # 13-14 paid sessions a day, $0.5672 of the day's $0.7883 on 2026-09-22
+    # (72%) and $2.3839 of $2.6478 on 2026-09-21 (90%). Whether it SHOULD spend
+    # that much is a live question and not settled here.
+    "intra_check": PhaseOffset("intra_check", "open", 0, "close", 0),
+    # 13:00-14:30 ET: the patient position review, measured backwards from the
+    # close (three hours out to ninety minutes out), so on a 13:00 close it is
+    # 10:00-11:30, before the market shuts instead of an hour after it has.
+    "midday": PhaseOffset("midday", "close", -180, "close", -90),
+    # 15:30-16:00 ET: the act-on-trigger review that must land inside the last
+    # half hour of whatever session is actually being traded (30 min wide so a
+    # 30 min tick always lands inside).
+    "close": PhaseOffset("close", "close", -30, "close", 0),
+    # 20:00-22:00 ET: reporting only, after the market has gone home.
+    "evening": PhaseOffset("evening", "close", 240, "close", 360),
 }
 
 
-# US equities regular (core) trading session, minutes of day in ET:
-# 09:30-16:00. Source: NYSE "Hours & Calendars" (core trading session
-# 9:30 a.m.-4:00 p.m. ET), the same bounds `SESSION_WINDOWS` already uses
-# for the intra_check window. Early-close days (13:00 ET) are NOT modelled
-# here — the holiday/early-close calendar needs a broker connection (see
-# module docstring); for THIS constant's own users that errs toward "bar not
-# yet complete" (stale-but-labelled), never toward treating a partial bar as
-# complete, but read the docstring before concluding the early close is
-# handled: the session-window table above has a worse exposure than this one.
-REGULAR_SESSION_OPEN_MIN = 570  # 09:30 ET
-REGULAR_SESSION_CLOSE_MIN = 960  # 16:00 ET
+def window_minutes(offset: PhaseOffset, open_min: int, close_min: int) -> tuple[int, int]:
+    """One phase as (start, end) minutes of the ET day, given a session's edges."""
+    edges = {"open": open_min, "close": close_min}
+    return (
+        edges[offset.start_anchor] + offset.start_delta_minutes,
+        edges[offset.end_anchor] + offset.end_delta_minutes,
+    )
+
+
+# Normal-day session windows as (start_minute_of_day, end_minute_of_day) in ET,
+# DERIVED from `PHASE_OFFSETS` at the regular edges: no minute is typed here, so
+# nothing can drift from the offsets. `tests/test_session_calendar.py` pins the
+# six resulting pairs. Early closes and holidays are NOT reflected in this
+# table; see the module docstring for who still reads it and why that is safe.
+SESSION_WINDOWS: dict[str, tuple[int, int]] = {
+    name: window_minutes(offset, REGULAR_SESSION_OPEN_MIN, REGULAR_SESSION_CLOSE_MIN)
+    for name, offset in PHASE_OFFSETS.items()
+}
 
 
 def et_now() -> datetime:

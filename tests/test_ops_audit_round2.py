@@ -25,6 +25,7 @@ from src.evolution.prompt_editor import (
     load_saved_reflection,
 )
 from src.notifier import format_session_result
+from src.trading_calendar import SESSION_WINDOWS
 
 # Reuse the reflection/learning builders from the prompt-editor suite so
 # schema drift is corrected in one place.
@@ -723,6 +724,9 @@ def _wrapper_env(tmp_path, python_body: str) -> dict:
         "ET_MIN_OVERRIDE": "00",
         "ET_DATE_OVERRIDE": "2026-07-16",
         "NOW_UNIX_OVERRIDE": "1234567890",
+        # The wrapper asks the session calendar for the window; there is no
+        # broker here, so stand in the normal-day intra_check window.
+        "SESSION_WINDOW_OVERRIDE": "{} {}".format(*SESSION_WINDOWS["intra_check"]),
         "PATH": f"{tmp_path}:{os.environ['PATH']}",  # fake curl first
     }
 
@@ -755,6 +759,7 @@ def test_wrapper_non_intra_success_still_pings(tmp_path):
     env = _wrapper_env(tmp_path, "exit 0")
     env |= {"HEALTHCHECKS_URL": "https://hc-ping.example/uuid-1"}
     env |= {"ET_HOUR_OVERRIDE": "13", "ET_MIN_OVERRIDE": "30"}  # midday window
+    env |= {"SESSION_WINDOW_OVERRIDE": "{} {}".format(*SESSION_WINDOWS["midday"])}
     result = _run_wrapper(env, "midday")
     assert result.returncode == 0
     log = (tmp_path / "curl.log").read_text()

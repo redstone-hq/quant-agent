@@ -1,18 +1,34 @@
-"""Session calendar — the real open/close of one trading date, and the phase
-offsets expressed RELATIVE to those two edges.
+"""Session calendar — the real open/close of one trading date, and the desk's
+phases resolved against those two edges.
 
 Why this exists
 ---------------
-`src/trading_calendar.SESSION_WINDOWS` pins every phase of the desk's day to a
-FIXED minute of the Eastern clock (midday is 13:00-14:30, close is 15:30-16:00,
-and so on). Those minutes are only correct on a normal 09:30-16:00 session. On
-an early close the end-of-day position review fires after the market has
-already shut; on a holiday every weekday phase fires anyway; and the desk's
-most expensive paid tick keeps running against a closed market.
+A fixed minute of the Eastern clock is only correct on a normal 09:30-16:00
+session. On an early close (13:00) the end-of-day review would fire after the
+market had shut; on a holiday every weekday phase would fire anyway. The phase
+offsets (`PHASE_OFFSETS`, defined in `src/trading_calendar.py`, re-exported
+here) state every phase as minutes from that day's real open or close, and this
+module resolves them for one date from the broker's exchange calendar.
 
-This module is the SOURCE the later conversions read. It converts nothing: no
-caller is changed by this file landing, and behaviour only moves once a reader
-is switched over to `phase_window()`.
+What trunk does with it
+-----------------------
+`scripts/run_if_et_window.sh` runs `python -m src.session_calendar <mode>
+<ET date>` once per tick and fires the phase only inside the window it prints:
+`LO HI` (ET minutes of day) or `closed` on a holiday. Examples for Fri 27 Nov
+2026 (09:30-13:00): midday 600-690 (10:00-11:30), close 750-780 (12:30-13:00).
+Only the first tick of a day asks the broker; the answer is kept in
+`<last-run dir>/session-<date>` and every later tick, of every mode, reads that
+file. An outage is never cached.
+
+When the calendar cannot be read the command exits 3 and prints the NORMAL-DAY
+window for the mode (derived from the same offsets at 09:30/16:00) and the wrapper
+logs that it used it. That is today's behaviour, wrong only on a half day with the
+broker down; the desk trades paper money and does not add a refuse-to-act failure
+mode for it. `SessionCalendarUnavailable` is still raised by `session_for` /
+`phase_window` for any in-process caller that wants to decide for itself.
+
+In-process readers of the fixed `SESSION_WINDOWS` table are NOT switched by this
+module; the list and the reasoning are in the `src/trading_calendar.py` docstring.
 
 Two properties matter more than anything else here:
 
@@ -33,13 +49,23 @@ Two properties matter more than anything else here:
 
 from __future__ import annotations
 
+import argparse
+import os
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any
 
-from src.trading_calendar import ET, SESSION_WINDOWS
-
-Anchor = Literal["open", "close"]
+from src.trading_calendar import (
+    ET,
+    PHASE_OFFSETS,
+    REGULAR_SESSION_CLOSE_MIN,
+    REGULAR_SESSION_OPEN_MIN,
+    SESSION_WINDOWS,
+    window_minutes,
+)
 
 
 class SessionCalendarUnavailable(RuntimeError):
@@ -50,59 +76,6 @@ class SessionCalendarUnavailable(RuntimeError):
     (and skip real work) or as a normal session (and trade into a shut
     market). Both have happened; neither is allowed to happen quietly.
     """
-
-
-@dataclass(frozen=True)
-class PhaseOffset:
-    """One phase of the trading day, stated as minutes from a session edge.
-
-    `start_anchor`/`end_anchor` say WHICH edge each side hangs off, and the
-    deltas are signed minutes from it. Expressing the day this way is the
-    whole point of the module: on a 13:00 early close, a phase anchored at
-    `close - 30` resolves to 12:30, where a phase pinned to 15:30 resolves to
-    half an hour after the market has gone home.
-    """
-
-    name: str
-    start_anchor: Anchor
-    start_delta_minutes: int
-    end_anchor: Anchor
-    end_delta_minutes: int
-
-
-# The six phases, re-expressed against the session edges. Each one reproduces
-# its current `SESSION_WINDOWS` entry exactly on a 09:30-16:00 day; what
-# changes is that they now MOVE with a short session instead of standing still
-# while the market closes underneath them.
-#
-# Which edge a side hangs off is a meaning decision, not arithmetic:
-#   - Anything tied to the opening bell (the pre-bell earnings prep, the
-#     morning session, the start of the paid intraday tick) is open-anchored.
-#   - Anything that is an end-of-day duty (the patient midday review, the
-#     act-on-trigger close review, the end of the paid tick, the evening
-#     report) is close-anchored, because what makes it due is the market
-#     going home, not the clock reading a particular number.
-PHASE_OFFSETS: dict[str, PhaseOffset] = {
-    # 08:00-09:15 — the pre-bell preparation, due a fixed run-up before the
-    # bell whenever the bell happens to ring.
-    "earnings_preprocess": PhaseOffset("earnings_preprocess", "open", -90, "open", -15),
-    # 09:30-12:00 — the opening stretch, measured from the bell.
-    "morning": PhaseOffset("morning", "open", 0, "open", 150),
-    # 09:30-16:00 — the paid tick. Starts at the bell and, critically, STOPS
-    # at the real close rather than at 16:00; this is the phase that currently
-    # keeps spending against a shut market on a half day.
-    "intra_check": PhaseOffset("intra_check", "open", 0, "close", 0),
-    # 13:00-14:30 — the patient position review. An end-of-day duty, so it is
-    # measured backwards from the close: three hours out to ninety minutes
-    # out. On a 13:00 close that is 10:00-11:30, before the market shuts,
-    # instead of an hour after it already has.
-    "midday": PhaseOffset("midday", "close", -180, "close", -90),
-    # 15:30-16:00 — the act-on-trigger review that must land inside the last
-    # half hour of whatever session is actually being traded.
-    "close": PhaseOffset("close", "close", -30, "close", 0),
-    # 20:00-22:00 — reporting only, after the market has gone home.
-    "evening": PhaseOffset("evening", "close", 240, "close", 360),
-}
 
 
 @dataclass(frozen=True)
@@ -216,3 +189,137 @@ def et_datetime(on_date: date, minute_of_day: int) -> datetime:
     """An ET-aware instant `minute_of_day` minutes into `on_date`. Test and
     caller convenience so neither hand-rolls the timezone attachment."""
     return datetime(on_date.year, on_date.month, on_date.day, tzinfo=ET) + timedelta(minutes=minute_of_day)
+
+
+# --- the command the shell wrapper runs once per tick ------------------------
+
+#: Exit status meaning "the exchange calendar could not be read". The command
+#: still prints the normal-day window on stdout so the caller needs no numbers
+#: of its own; the reason goes to stderr.
+EXIT_CALENDAR_UNAVAILABLE = 3
+
+#: `intra_safety` is the free half of `intra_check`'s preamble on its own unit:
+#: the same work over the same hours BY CONSTRUCTION, so it takes intra_check's
+#: offsets. It is deliberately not a `PHASE_OFFSETS` / `SESSION_WINDOWS` key,
+#: because that table feeds the expected PAID-session count and this mode can
+#: never spend.
+_MODE_ALIASES = {"intra_safety": "intra_check"}
+
+_CACHE_PREFIX = "session-"
+_CLOSED = "closed"
+
+
+def _cache_file(cache_dir: str, on_date: date) -> Path:
+    return Path(cache_dir) / f"{_CACHE_PREFIX}{on_date.isoformat()}"
+
+
+def _read_cache(path: Path) -> tuple[int, int] | str | None:
+    """The day's edges as (open_min, close_min), "closed", or None when there
+    is no usable file. A corrupt file is a miss, never an answer."""
+    try:
+        text = path.read_text().strip()
+    except OSError:
+        return None
+    if text == _CLOSED:
+        return _CLOSED
+    parts = text.split()
+    if len(parts) == 2 and all(p.isdigit() for p in parts):
+        return int(parts[0]), int(parts[1])
+    return None
+
+
+def _write_cache(path: Path, edges: tuple[int, int] | None) -> None:
+    """Keep the day's answer for the later ticks, and drop earlier days' files.
+
+    Written then renamed, so a tick that races another never reads half a file.
+    A failure to write costs one more broker read on the next tick, nothing
+    else, so it is not allowed to fail the command.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(_CLOSED + "\n" if edges is None else f"{edges[0]} {edges[1]}\n")
+        os.replace(tmp, path)
+        for old in path.parent.glob(f"{_CACHE_PREFIX}????-??-??"):
+            if old.name < path.name:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _minute_of_day(moment: datetime) -> int:
+    local = moment.astimezone(ET)
+    return local.hour * 60 + local.minute
+
+
+def _build_broker() -> Any:
+    """Read-only broker handle, built the narrow way `scripts/alert_heartbeat.py`
+    does: two credential strings and the paper flag, never the whole config."""
+    from src.api.deps import get_alpaca_credentials, get_alpaca_paper
+    from src.execution.broker import AlpacaBroker
+
+    key, secret = get_alpaca_credentials()
+    return AlpacaBroker(api_key=key, secret_key=secret, paper=get_alpaca_paper())
+
+
+def _one_line(exc: BaseException) -> str:
+    return " ".join(f"{type(exc).__name__}: {exc}".split())
+
+
+def main(argv: list[str] | None = None, *, broker_factory: Callable[[], Any] | None = None) -> int:
+    """Print `LO HI` (ET minutes of day) for the mode on that date, or `closed`.
+
+    Exit 0 on an answer, 2 on a usage error, `EXIT_CALENDAR_UNAVAILABLE` when
+    the calendar cannot be read (stdout is then the normal-day window).
+    """
+    parser = argparse.ArgumentParser(prog="python -m src.session_calendar", description=(main.__doc__ or "").strip())
+    parser.add_argument("mode", help="a desk phase, e.g. midday")
+    parser.add_argument("date", help="the ET session date, YYYY-MM-DD")
+    parser.add_argument("--cache-dir", help="directory keeping one answer file per date; absent means no cache")
+    parser.add_argument("--normal-day", action="store_true", help="print the normal-day window; no broker, no cache")
+    args = parser.parse_args(argv)
+
+    offset = PHASE_OFFSETS.get(_MODE_ALIASES.get(args.mode, args.mode))
+    if offset is None:
+        print(f"unknown mode: {args.mode}", file=sys.stderr)
+        return 2
+    try:
+        on_date = date.fromisoformat(args.date)
+    except ValueError:
+        print(f"bad date: {args.date!r}", file=sys.stderr)
+        return 2
+
+    normal_lo, normal_hi = window_minutes(offset, REGULAR_SESSION_OPEN_MIN, REGULAR_SESSION_CLOSE_MIN)
+    if args.normal_day:
+        print(f"{normal_lo} {normal_hi}")
+        return 0
+
+    cache_path = _cache_file(args.cache_dir, on_date) if args.cache_dir else None
+    cached = _read_cache(cache_path) if cache_path else None
+    if cached is not None:
+        edges = None if cached == _CLOSED else cached
+    else:
+        try:
+            session = session_for((broker_factory or _build_broker)(), on_date)
+            edges = (
+                (_minute_of_day(session.open_at), _minute_of_day(session.close_at))
+                if session.is_trading_day and session.open_at and session.close_at
+                else None
+            )
+        except Exception as exc:  # any failure to read the calendar is "unavailable", said out loud on stderr
+            print(_one_line(exc), file=sys.stderr)
+            print(f"{normal_lo} {normal_hi}")
+            return EXIT_CALENDAR_UNAVAILABLE
+        if cache_path:
+            _write_cache(cache_path, edges)
+
+    if edges is None:
+        print(_CLOSED)
+        return 0
+    lo, hi = window_minutes(offset, *edges)
+    print(f"{lo} {hi}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
