@@ -14,8 +14,8 @@ the old order "replaced". Cancels can be made to stay pending.
 Refusals carry the real wire shape: like alpaca-py's APIError, `str(err)` is
 the JSON body the broker sent, `.code` and `.message` parse it, and
 `.status_code` is the HTTP status. Texts are copied from the logged bodies
-(archive-scratch/sandbox-order-test-2026-10-09/run1.log and
-session-2026-10-13/sandbox_exit_test), never composed.
+(practice-account order test and exit test logs; only the broker's fixed
+wording and fields are kept, ids and prices are invented), never composed.
 
 Offline: no network, no real broker.
 """

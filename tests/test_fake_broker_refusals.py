@@ -14,8 +14,8 @@
    -> 422 / 42210000 "cannot replace order in accepted status".
 
 Items 1, 3, 4, 5 are copied from logged broker replies on the practice
-account (sandbox-order-test-2026-10-09/run1.log; session-2026-10-13/
-sandbox_exit_test). The cancel refusal is driven through a real desk call
+account (practice-account order test and exit test logs, 9 and 13 Oct 2026;
+ids, symbols and prices are invented). The cancel refusal is driven through a real desk call
 path (AlpacaBroker.cancel_entry_order), which must report it and not assume
 the cancel worked; the amend refusals are driven through the desk's client
 seam (the desk's own amend wrappers either avoid them or, for
@@ -34,16 +34,16 @@ from src.execution.broker import AlpacaBroker
 from src.execution.broker_parts.stop_rejections import _is_held_for_orders_error
 from tests.fakes.holding_broker import NEW, OLD, SYM, ApiErr, HoldingBroker
 
-# The broker's reply to a SELL of 4 JPM shares while a stop held all 10
-# (run1.log, practice account, 2026-10-09), verbatim apart from the ids.
+# The broker's reply to a SELL of 4 shares while a stop held all 10
+# (practice account): fixed wording and fields as logged; ids and symbol invented.
 REAL_403 = {
     "available": "0",
     "code": 40310000,
     "existing_qty": "10",
     "held_for_orders": "10",
     "message": "insufficient qty available for order (requested: 4, available: 0)",
-    "related_orders": ["dadfdca1-bb40-42b8-b710-4d75a2af2ffa"],
-    "symbol": "JPM",
+    "related_orders": ["00000000-0000-4000-8000-000000000000"],
+    "symbol": "ZZZ",
 }
 
 
