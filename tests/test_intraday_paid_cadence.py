@@ -37,8 +37,11 @@ def _check(db_path: str, now: datetime) -> dict:
     p.config.risk.allow_margin = True
     _ceiling(p)
     p.portfolio_constructor.entry_stop_preview = MagicMock(return_value=(100.0, 95.0, 2.0))
+    # Stamp each last trade on the check's own clock, a minute before `now`:
+    # `_snapshot`'s default stamps the REAL today, which matched `_T0` only on
+    # 13 Oct 2026 and made the scan see no movers from the next day on.
     p.broker.get_intraday_snapshots.return_value = {
-        s: _snapshot(last=101.0 + i * 0.1, prev=100.0) for i, s in enumerate(names)
+        s: _snapshot(last=101.0 + i * 0.1, prev=100.0, trade_at=now - timedelta(minutes=1)) for i, s in enumerate(names)
     }
     p.db.get_recent_intraday_evaluations.return_value = []
     p._recently_intraday_evaluated = MagicMock(return_value=False)
