@@ -91,7 +91,9 @@ def test_record_intraday_evaluation_persists_ref_price(tmp_path):
     """The look's price is stored and read back as this session's reference;
     a later price-less write for the same run (an exit-path row) keeps it."""
     db = _real_db(tmp_path)
-    db.record_intraday_evaluation(symbol="aapl", run_id="intra_check-1", status="selected", detail="x", ref_price=187.25)
+    db.record_intraday_evaluation(
+        symbol="aapl", run_id="intra_check-1", status="selected", detail="x", ref_price=187.25
+    )
 
     row = db.conn.execute("SELECT symbol, ref_price FROM intraday_evaluations WHERE run_id='intra_check-1'").fetchone()
     assert (row[0], row[1]) == ("AAPL", 187.25)

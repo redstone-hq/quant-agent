@@ -1431,7 +1431,9 @@ def test_a_movers_ledger_row_records_the_atr_denominator(
     # row stores the live price the PM saw it at as the next reference.
     assert details[-1].endswith(";move_ref=prev_close")
     ref_prices = [
-        c.kwargs.get("ref_price") for c in p.db.record_intraday_evaluation.call_args_list if c.kwargs["symbol"] == "AAPL"
+        c.kwargs.get("ref_price")
+        for c in p.db.record_intraday_evaluation.call_args_list
+        if c.kwargs["symbol"] == "AAPL"
     ]
     assert ref_prices[-1] == 110.0
 
