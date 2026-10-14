@@ -109,6 +109,33 @@ def _clip(value: Any, limit: int = 140, *, model_prose: bool = True) -> str:
     return _clip_text(text, limit, marker="…")
 
 
+# A sentence ends at . ! or ? followed by whitespace or the end of the text.
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+# "U.S." / "e.g." / a lone initial: that full stop belongs to the word, so it
+# does not end the sentence.
+_ABBREVIATION = re.compile(r"(?:[A-Za-z]\.)*[A-Za-z]")
+
+
+def _first_sentence(value: Any) -> str:
+    """The complete first sentence of AI prose: never a cut inside a sentence,
+    never a "…" marker, and no length number.
+
+    The owner's phone showed AI reasons stopping mid-sentence ("Close the
+    held long because current…") because each field was cut to a chosen
+    length. A reason now shows its whole first sentence; if the first
+    sentence is the whole reason, all of it shows. The full reason stays in
+    the full report. Whitespace is collapsed and the garbled-number guard
+    runs, exactly as `_clip` does for model prose. Only for model prose:
+    labels, numbers, codes and desk-built text keep using `_clip`."""
+    text = _redact_malformed_numbers(" ".join(str(value or "").split()))
+    for match in _SENTENCE_END.finditer(text):
+        token = text[: match.start()].rsplit(" ", 1)[-1]
+        if match.group() == "." and _ABBREVIATION.fullmatch(token):
+            continue
+        return text[: match.end()]
+    return text
+
+
 def _number(value: Any) -> float | None:
     try:
         number = float(value)
@@ -1117,7 +1144,7 @@ def _pm_pass_reason(
             and str(row.get("symbol", "")).upper() == symbol
             and str(row.get("action", "")).upper() == "HOLD"
         ):
-            reason = _clip(row.get("reasoning"), 300)
+            reason = _first_sentence(row.get("reasoning"))
             if reason:
                 return reason, ""
     return None, ""

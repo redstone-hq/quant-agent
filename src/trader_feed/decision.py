@@ -39,6 +39,7 @@ from src.trader_feed.common import (
     _blocked_rows,
     _budgeted_sections,
     _clip,
+    _first_sentence,
     _done_rows,
     _empty_snapshot,
     _execution_rows,
@@ -169,7 +170,7 @@ def _signal_row_line(row: dict, profiles: dict[str, Any] | None = None) -> str:
     # figure, said as what it is: the reward measured in multiples of the
     # risk taken to get it.
     rr_text = f" · reward {rr:g}× the risk" if isinstance(rr, (int, float)) else ""
-    reason = _clip(row.get("reasoning"), 420)
+    reason = _first_sentence(row.get("reasoning"))
     text = f"   • {label}: {rating}/{conviction}{rr_text}"
     if reason:
         text += f" — {reason}"
@@ -250,14 +251,14 @@ def _append_pm(lines: list[str], snap: dict[str, Any]) -> None:
                 alloc_text = f" {allocation:g}% (target weight change)"
             else:
                 alloc_text = ""
-            reason = _clip(row.get("reasoning"), 420)
+            reason = _first_sentence(row.get("reasoning"))
             text = f"   • {action} {symbol}{alloc_text}"
             if reason:
                 text += f" — {reason}"
             lines.append(text)
         for row in holds[:2]:
             symbol = str(row.get("symbol", "?")).upper()
-            reason = _clip(row.get("reasoning"), 420)
+            reason = _first_sentence(row.get("reasoning"))
             text = f"   • PASS {symbol}"
             if reason:
                 text += f" — {reason}"
@@ -272,9 +273,9 @@ def _append_pm(lines: list[str], snap: dict[str, Any]) -> None:
     # rather than what it actually is: this one check's reasoning.
     portfolio_view = reasoning.get("portfolio_view") if isinstance(reasoning, dict) else None
     if portfolio_view:
-        lines.append(f"   PM view (this check): {_clip(portfolio_view, 550)}")
+        lines.append(f"   PM view (this check): {_first_sentence(portfolio_view)}")
     elif pm_summary and str(pm_summary).lower() != "no trades":
-        lines.append(f"   PM view (this check): {_clip(pm_summary, 550)}")
+        lines.append(f"   PM view (this check): {_first_sentence(pm_summary)}")
 
     # Reasoning-visibility gap (2026-09-25): "why THIS size" already reaches
     # the dashboard (`ReasoningChain.sizing_logic`, rendered generically off
@@ -285,7 +286,7 @@ def _append_pm(lines: list[str], snap: dict[str, Any]) -> None:
     chain = reasoning.get("reasoning_chain") if isinstance(reasoning, dict) else None
     sizing_logic = chain.get("sizing_logic") if isinstance(chain, dict) else None
     if actionable and sizing_logic:
-        lines.append(f"   Sizing: {_clip(sizing_logic, 300)}")
+        lines.append(f"   Sizing: {_first_sentence(sizing_logic)}")
 
 
 # `models.RiskReasonCategory`, each value in the words a person would use
@@ -345,7 +346,7 @@ def _append_risk(lines: list[str], snap: dict[str, Any]) -> None:
     )
     refused_text = f" · refused {', '.join(rej_syms)}" if rej_syms else ""
     lines.append(f"🛡️ Risk: {label} · {category}{scale_text} · {len(mods)} mod(s){refused_text}")
-    reason = _clip(risk.get("reasoning"), 550)
+    reason = _first_sentence(risk.get("reasoning"))
     if reason:
         lines.append(f"   {reason}")
 
@@ -429,7 +430,7 @@ def _append_no_trade_reason(
     elif status == "buys_unfunded" or skips:
         lines.append("⏸️ NO TRADE — decision(s) survived review but execution could not complete")
     elif isinstance(risk, dict) and risk.get("approved") is False:
-        lines.append(f"⏸️ NO TRADE — Risk rejected: {_clip(risk.get('reasoning'), 550)}")
+        lines.append(f"⏸️ NO TRADE — Risk rejected: {_first_sentence(risk.get('reasoning'))}")
     elif pm_orders and not actionable:
         lines.append("⏸️ NO TRADE — PM/constructor produced HOLD only")
     elif snap.get("pm_reasoning") or pm_summary:
@@ -609,7 +610,7 @@ def _append_done(lines: list[str], rows: list[dict], snap: dict, profiles: dict)
         # No legitimate stop is ever exactly 0.0 (the constructor rejects
         # stop_loss <= 0 for BUY/SHORT), so a positive check is safe here.
         stop_text = f" · stop ${stop:,.2f}" if stop else ""
-        reason = _clip(row.get("reasoning"), 140)
+        reason = _first_sentence(row.get("reasoning"))
         reason_text = f" — {reason}" if reason else ""
         lines.append(
             f"   • {action} {_ticker_co(symbol, profiles)} {qty_text} @ {price_text} — {state}{stop_text}{reason_text}"

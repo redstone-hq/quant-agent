@@ -721,7 +721,7 @@ class FillReconciler:
     def _surface_reconcile_outcomes(
         self,
         reco_results: list[dict] | None = None,
-        drained_count: int | None = None,
+        drained_count: list[dict] | None = None,
         *,
         run_id: str | None = None,
     ) -> None:
@@ -729,7 +729,8 @@ class FillReconciler:
 
         Item 101: both `_reconcile_stop_out_fills` (returns a per-symbol list
         of what it wrote back) and `_drain_pending_protection_restores`
-        (returns a count of re-protected naked positions) do their write-back
+        (returns one record per re-protected naked position; this parameter keeps
+        its old `drained_count` name because callers pass it by keyword) do their write-back
         silently — every call site discarded the return value, so a
         broker-side stop-out reached the owner NOWHERE and a re-protection
         was equally invisible. This is the single surfacing point the call
@@ -753,7 +754,7 @@ class FillReconciler:
 
             if drained_count:
                 try:
-                    alert_positions_reprotected(int(drained_count))
+                    alert_positions_reprotected(list(drained_count))
                     record_fill_pass(self.db, "surface.reprotect_alert")
                 except Exception as exc:  # noqa: BLE001
                     record_fill_pass(self.db, "surface.reprotect_alert", exc)

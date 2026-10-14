@@ -524,10 +524,11 @@ def test_morning_pm_rationale_survives_past_old_105_char_clip(tmp_path, monkeypa
     assert long_reasoning in msg
 
 
-def test_morning_pm_rationale_past_new_limit_clips_on_word_boundary(tmp_path, monkeypatch):
-    """Even past the new (much larger) 420-char ceiling, a clip must still
-    land on a word boundary with a visible ellipsis — never a bare
-    mid-word chop like the original defect."""
+def test_morning_pm_rationale_shows_its_whole_first_sentence(tmp_path, monkeypatch):
+    """A long rationale shows its complete first sentence: never a cut inside
+    a sentence and never a "…" marker. This replaces the old 420-char
+    ceiling, which clipped on a word boundary with an ellipsis and left the
+    owner's phone showing reasons that stopped mid-sentence."""
     db = _make_db(tmp_path, monkeypatch)
     run = "run-crm-overlong"
     very_long_reasoning = "accumulation volume confirms the breakout thesis. " * 15
@@ -547,22 +548,12 @@ def test_morning_pm_rationale_past_new_limit_clips_on_word_boundary(tmp_path, mo
         20.0,
     )
 
-    assert very_long_reasoning not in msg  # it DID need clipping this time
-    assert "…" in msg  # and says so
-    # `_clip` collapses whitespace before clipping (see its docstring) —
-    # compare against that collapsed form, not the raw repeated string.
-    collapsed = " ".join(very_long_reasoning.split())
+    assert very_long_reasoning not in msg  # only the first sentence is shown
+    assert "…" not in msg  # and nothing is cut, so there is no marker
     line = next(line for line in msg.splitlines() if "BUY CRM" in line)
-    reasoning_part = line.split(" — ", 1)[1]
-    core = reasoning_part[: -len("…")].rstrip() if reasoning_part.endswith("…") else reasoning_part
-    assert collapsed.startswith(core)
-    # A prefix check ALONE is trivially true for any left-truncation,
-    # including the old buggy hard character cut — it proves nothing about
-    # boundary-awareness. The real test: the character immediately after
-    # `core` in the source must be whitespace or end-of-string, never a
-    # letter, which is what a mid-word chop would leave behind.
-    tail = collapsed[len(core) : len(core) + 1]
-    assert tail in ("", " ")
+    # Exactly the first sentence, ending with its own full stop.
+    assert line.endswith(" — accumulation volume confirms the breakout thesis.")
+    assert line.count("breakout thesis") == 1
 
 
 def test_trader_feed_reads_database_without_mutating_it(tmp_path, monkeypatch):
