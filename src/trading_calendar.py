@@ -82,8 +82,10 @@ class PhaseOffset:
     end_delta_minutes: int
 
 
-# The six phases against the session edges. THE one copy of the schedule: the
-# normal-day `SESSION_WINDOWS` below is derived from it, and
+# The six phases against the session edges: (start edge, start minutes, end
+# edge, end minutes). THE one copy of the schedule, kept as plain tuples so the
+# number ledger sees and sources every offset (`PHASE_OFFSETS` below wraps them).
+# The normal-day `SESSION_WINDOWS` is derived from it, and
 # `src/session_calendar.py` resolves it against a real date's open and close.
 #
 # Which edge a side hangs off is a meaning decision, not arithmetic:
@@ -94,11 +96,11 @@ class PhaseOffset:
 #     report) is close-anchored, because what makes it due is the market
 #     going home, not the clock reading a particular number.
 # Each comment gives the normal-day (09:30-16:00) result.
-PHASE_OFFSETS: dict[str, PhaseOffset] = {
+_PHASE_SPECS: dict[str, tuple[Anchor, int, Anchor, int]] = {
     # 08:00-09:15 ET: the pre-bell preparation, due a fixed run-up before the bell.
-    "earnings_preprocess": PhaseOffset("earnings_preprocess", "open", -90, "open", -15),
+    "earnings_preprocess": ("open", -90, "open", -15),
     # 09:30-12:00 ET: the opening stretch, measured from the bell; wide for late-wake grace.
-    "morning": PhaseOffset("morning", "open", 0, "open", 150),
+    "morning": ("open", 0, "open", 150),
     # 09:30-16:00 ET: from the bell to the real close, every 30 min tick (fill
     # reconcile, stop-coverage repair, bounded scan; NOT subject to the
     # once-per-day guard). It is the desk's largest paid cost centre, not a
@@ -106,18 +108,21 @@ PHASE_OFFSETS: dict[str, PhaseOffset] = {
     # 13-14 paid sessions a day, $0.5672 of the day's $0.7883 on 2026-09-22
     # (72%) and $2.3839 of $2.6478 on 2026-09-21 (90%). Whether it SHOULD spend
     # that much is a live question and not settled here.
-    "intra_check": PhaseOffset("intra_check", "open", 0, "close", 0),
+    "intra_check": ("open", 0, "close", 0),
     # 13:00-14:30 ET: the patient position review, measured backwards from the
     # close (three hours out to ninety minutes out), so on a 13:00 close it is
     # 10:00-11:30, before the market shuts instead of an hour after it has.
-    "midday": PhaseOffset("midday", "close", -180, "close", -90),
+    "midday": ("close", -180, "close", -90),
     # 15:30-16:00 ET: the act-on-trigger review that must land inside the last
     # half hour of whatever session is actually being traded (30 min wide so a
     # 30 min tick always lands inside).
-    "close": PhaseOffset("close", "close", -30, "close", 0),
+    "close": ("close", -30, "close", 0),
     # 20:00-22:00 ET: reporting only, after the market has gone home.
-    "evening": PhaseOffset("evening", "close", 240, "close", 360),
+    "evening": ("close", 240, "close", 360),
 }
+
+
+PHASE_OFFSETS: dict[str, PhaseOffset] = {name: PhaseOffset(name, *spec) for name, spec in _PHASE_SPECS.items()}
 
 
 def window_minutes(offset: PhaseOffset, open_min: int, close_min: int) -> tuple[int, int]:

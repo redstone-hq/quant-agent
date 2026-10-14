@@ -53,6 +53,7 @@ import argparse
 import os
 import sys
 from collections.abc import Callable
+from enum import IntEnum
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -193,10 +194,17 @@ def et_datetime(on_date: date, minute_of_day: int) -> datetime:
 
 # --- the command the shell wrapper runs once per tick ------------------------
 
-#: Exit status meaning "the exchange calendar could not be read". The command
-#: still prints the normal-day window on stdout so the caller needs no numbers
-#: of its own; the reason goes to stderr.
-EXIT_CALENDAR_UNAVAILABLE = 3
+
+class ExitStatus(IntEnum):
+    """What the command's exit status says (the wrapper reads these)."""
+
+    ANSWERED = 0
+    USAGE_ERROR = 2
+    #: The exchange calendar could not be read. The command still prints the
+    #: normal-day window on stdout so the caller needs no numbers of its own;
+    #: the reason goes to stderr.
+    CALENDAR_UNAVAILABLE = 3
+
 
 #: `intra_safety` is the free half of `intra_check`'s preamble on its own unit:
 #: the same work over the same hours BY CONSTRUCTION, so it takes intra_check's
@@ -253,13 +261,13 @@ def _minute_of_day(moment: datetime) -> int:
 
 
 def _build_broker() -> Any:
-    """Read-only broker handle, built the narrow way `scripts/alert_heartbeat.py`
-    does: two credential strings and the paper flag, never the whole config."""
-    from src.api.deps import get_alpaca_credentials, get_alpaca_paper
-    from src.execution.broker import AlpacaBroker
+    """The read-only broker handle the API's broker reads already build, from the
+    narrow credential accessors. `src.execution` is the broker seam and the set of
+    modules importing it must not widen, so this module reaches it through the
+    one listed importer rather than adding a second."""
+    from src.api.broker_reads import _get_broker
 
-    key, secret = get_alpaca_credentials()
-    return AlpacaBroker(api_key=key, secret_key=secret, paper=get_alpaca_paper())
+    return _get_broker()
 
 
 def _one_line(exc: BaseException) -> str:
@@ -269,7 +277,7 @@ def _one_line(exc: BaseException) -> str:
 def main(argv: list[str] | None = None, *, broker_factory: Callable[[], Any] | None = None) -> int:
     """Print `LO HI` (ET minutes of day) for the mode on that date, or `closed`.
 
-    Exit 0 on an answer, 2 on a usage error, `EXIT_CALENDAR_UNAVAILABLE` when
+    Exit 0 on an answer, 2 on a usage error, `ExitStatus.CALENDAR_UNAVAILABLE` when
     the calendar cannot be read (stdout is then the normal-day window).
     """
     parser = argparse.ArgumentParser(prog="python -m src.session_calendar", description=(main.__doc__ or "").strip())
@@ -309,7 +317,7 @@ def main(argv: list[str] | None = None, *, broker_factory: Callable[[], Any] | N
         except Exception as exc:  # any failure to read the calendar is "unavailable", said out loud on stderr
             print(_one_line(exc), file=sys.stderr)
             print(f"{normal_lo} {normal_hi}")
-            return EXIT_CALENDAR_UNAVAILABLE
+            return ExitStatus.CALENDAR_UNAVAILABLE
         if cache_path:
             _write_cache(cache_path, edges)
 

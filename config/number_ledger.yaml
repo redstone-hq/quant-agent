@@ -128,7 +128,8 @@ numbers:
     source: >-
       src/scheduler.py::TradingScheduler._build_intra_check_trigger (`for tick_min in range(lo_min, hi_min + 1, 30)` in
       `_build_intra_check_trigger`, the authority for how often the intraday
-      control actually fires) and src/trading_calendar.py::SESSION_WINDOWS (the window those
+      control actually fires) and src/trading_calendar.py::REGULAR_SESSION_OPEN_MIN and
+      REGULAR_SESSION_CLOSE_MIN (the 09:30-16:00 span the intra_check phase covers, which those
       ticks span). Not an independent number: it is pinned in config only so
       the cost circuit's transient-latch cooldown can be derived from the gap
       between consecutive PAID runs instead of chosen, and
@@ -8344,68 +8345,30 @@ numbers:
       the ET day (16*60). The exchange's published hour, converted to minutes.
       Early-close days (13:00 ET) are NOT modelled; the module docstring at
       src/trading_calendar.py says so and that exposure is unchanged here.
-  - id: src.trading_calendar.SESSION_WINDOWS['intra_check'][0]
-    value: 570
-    status: derived
-    site: src/trading_calendar.py
-    derived_from: src.trading_calendar.REGULAR_SESSION_OPEN_MIN
-    base_value: 570
-    note: >-
-      The same exchange bound (09:30 ET) as the regular-session constant below
-      it in the same file, written out a second time in the window table. One
-      number, two definition sites: if the exchange bound moves this must move
-      with it, and the build fails if the base moves and this does not.
-  - id: src.trading_calendar.SESSION_WINDOWS['intra_check'][1]
-    value: 960
-    status: derived
-    site: src/trading_calendar.py
-    derived_from: src.trading_calendar.REGULAR_SESSION_CLOSE_MIN
-    base_value: 960
-    note: >-
-      The same exchange bound (16:00 ET) as the regular-session constant below
-      it in the same file, written out a second time in the window table. One
-      number, two definition sites: if the exchange bound moves this must move
-      with it, and the build fails if the base moves and this does not.
-  - id: src.trading_calendar.SESSION_WINDOWS['morning'][0]
-    value: 570
-    status: derived
-    site: src/trading_calendar.py
-    derived_from: src.trading_calendar.REGULAR_SESSION_OPEN_MIN
-    base_value: 570
-    note: >-
-      The same exchange bound (09:30 ET) as the regular-session constant below
-      it in the same file, written out a second time in the window table. One
-      number, two definition sites: if the exchange bound moves this must move
-      with it, and the build fails if the base moves and this does not.
-  - id: src.trading_calendar.SESSION_WINDOWS['close'][1]
-    value: 960
-    status: derived
-    site: src/trading_calendar.py
-    derived_from: src.trading_calendar.REGULAR_SESSION_CLOSE_MIN
-    base_value: 960
-    note: >-
-      The same exchange bound (16:00 ET) as the regular-session constant below
-      it in the same file, written out a second time in the window table. One
-      number, two definition sites: if the exchange bound moves this must move
-      with it, and the build fails if the base moves and this does not.
-  - id: src.trading_calendar.SESSION_WINDOWS['close'][0]
-    value: 930
+  - id: src.trading_calendar._PHASE_SPECS['close'][1]
+    value: -30
     status: derived
     derived_from: src.config.INTRA_CHECK_TICK_MINUTES
     base_value: 30
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session close (close -30 minutes), so the normal-day
+      15:30 ET (minute 930) is derived from it, not typed. Moved from SESSION_WINDOWS['close'][0]; source and
+      classification unchanged.
       15:30 ET = the 16:00 close minus one intraday tick. The width is not a
       taste: a 30-minute launchd tick lands inside a 30-minute window whatever
       its phase, so a narrower window could miss the close run entirely. The
       derivation is written at the definition site. If the tick interval
       changes, this window must widen with it or the close run becomes
       skippable.
-  - id: src.trading_calendar.SESSION_WINDOWS['morning'][1]
-    value: 720
+  - id: src.trading_calendar._PHASE_SPECS['morning'][3]
+    value: 150
     status: arbitrary
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session open (open +150 minutes), so the normal-day
+      12:00 ET (minute 720) is derived from it, not typed. Moved from SESSION_WINDOWS['morning'][1]; source and
+      classification unchanged.
       UNSOURCED. 12:00 ET (720 minutes of the ET day) is the end of the morning research window; it is a round
       clock time with no derivation at the definition site and no measurement
       behind it. Brought into scope 2026-10-05 with the rest of the module. NOT
@@ -8438,11 +8401,14 @@ numbers:
         a measured value or by a read-at-run-time rule. The backtest engine
         cannot close it: that engine steps daily bars and models no intraday
         session clock, so these minutes never reach code it runs.
-  - id: src.trading_calendar.SESSION_WINDOWS['midday'][0]
-    value: 780
+  - id: src.trading_calendar._PHASE_SPECS['midday'][1]
+    value: -180
     status: arbitrary
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session close (close -180 minutes), so the normal-day
+      13:00 ET (minute 780) is derived from it, not typed. Moved from SESSION_WINDOWS['midday'][0]; source and
+      classification unchanged.
       UNSOURCED. 13:00 ET (780 minutes of the ET day) is the start of the midday position review; it is a round
       clock time with no derivation at the definition site and no measurement
       behind it. Brought into scope 2026-10-05 with the rest of the module. NOT
@@ -8475,11 +8441,14 @@ numbers:
         a measured value or by a read-at-run-time rule. The backtest engine
         cannot close it: that engine steps daily bars and models no intraday
         session clock, so these minutes never reach code it runs.
-  - id: src.trading_calendar.SESSION_WINDOWS['midday'][1]
-    value: 870
+  - id: src.trading_calendar._PHASE_SPECS['midday'][3]
+    value: -90
     status: arbitrary
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session close (close -90 minutes), so the normal-day
+      14:30 ET (minute 870) is derived from it, not typed. Moved from SESSION_WINDOWS['midday'][1]; source and
+      classification unchanged.
       UNSOURCED. 14:30 ET (870 minutes of the ET day) is the end of the midday position review; it is a round
       clock time with no derivation at the definition site and no measurement
       behind it. Brought into scope 2026-10-05 with the rest of the module. NOT
@@ -8512,11 +8481,14 @@ numbers:
         a measured value or by a read-at-run-time rule. The backtest engine
         cannot close it: that engine steps daily bars and models no intraday
         session clock, so these minutes never reach code it runs.
-  - id: src.trading_calendar.SESSION_WINDOWS['earnings_preprocess'][0]
-    value: 480
+  - id: src.trading_calendar._PHASE_SPECS['earnings_preprocess'][1]
+    value: -90
     status: arbitrary
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session open (open -90 minutes), so the normal-day
+      08:00 ET (minute 480) is derived from it, not typed. Moved from SESSION_WINDOWS['earnings_preprocess'][0]; source and
+      classification unchanged.
       UNSOURCED. 08:00 ET (480 minutes of the ET day) is the start of the pre-open earnings preprocessing window; it is a round
       clock time with no derivation at the definition site and no measurement
       behind it. Brought into scope 2026-10-05 with the rest of the module. NOT
@@ -8549,11 +8521,14 @@ numbers:
         a measured value or by a read-at-run-time rule. The backtest engine
         cannot close it: that engine steps daily bars and models no intraday
         session clock, so these minutes never reach code it runs.
-  - id: src.trading_calendar.SESSION_WINDOWS['earnings_preprocess'][1]
-    value: 555
+  - id: src.trading_calendar._PHASE_SPECS['earnings_preprocess'][3]
+    value: -15
     status: arbitrary
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session open (open -15 minutes), so the normal-day
+      09:15 ET (minute 555) is derived from it, not typed. Moved from SESSION_WINDOWS['earnings_preprocess'][1]; source and
+      classification unchanged.
       UNSOURCED. 09:15 ET (555 minutes of the ET day) is the end of the pre-open earnings preprocessing window; it is a round
       clock time with no derivation at the definition site and no measurement
       behind it. Brought into scope 2026-10-05 with the rest of the module. NOT
@@ -8586,21 +8561,27 @@ numbers:
         a measured value or by a read-at-run-time rule. The backtest engine
         cannot close it: that engine steps daily bars and models no intraday
         session clock, so these minutes never reach code it runs.
-  - id: src.trading_calendar.SESSION_WINDOWS['evening'][0]
-    value: 1200
+  - id: src.trading_calendar._PHASE_SPECS['evening'][1]
+    value: 240
     status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session close (close +240 minutes), so the normal-day
+      20:00 ET (minute 1200) is derived from it, not typed. Moved from SESSION_WINDOWS['evening'][0]; source and
+      classification unchanged.
       20:00 ET, a bound of the evening window. The evening session is reporting
       only -- the comment at the definition site says so and no order, size,
       price or exit is produced in it; the market is shut for the whole window
       in any case. Moving this bound changes when a report is written and
       nothing a broker sees.
-  - id: src.trading_calendar.SESSION_WINDOWS['evening'][1]
-    value: 1320
+  - id: src.trading_calendar._PHASE_SPECS['evening'][3]
+    value: 360
     status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      Now held as an offset from the session close (close +360 minutes), so the normal-day
+      22:00 ET (minute 1320) is derived from it, not typed. Moved from SESSION_WINDOWS['evening'][1]; source and
+      classification unchanged.
       22:00 ET, a bound of the evening window. The evening session is reporting
       only -- the comment at the definition site says so and no order, size,
       price or exit is produced in it; the market is shut for the whole window
