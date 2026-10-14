@@ -96,7 +96,19 @@ def test_a_pm_sell_of_holding_that_passes_bar_is_refused():
 
 def test_a_pm_sale_path_is_decided_by_the_gate_not_the_claim_check():
     src = (ROOT / "src" / "stage_risk.py").read_text()
-    assert "judge_holding(views_from_pipeline(" in src
+    import ast
+
+    # Formatting-proof: the gate is CALLED on this run's views.
+    gate_calls = [
+        n
+        for n in ast.walk(ast.parse(src))
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "judge_holding"
+    ]
+    assert any(
+        isinstance(a, ast.Call) and getattr(a.func, "id", None) == "views_from_pipeline"
+        for c in gate_calls
+        for a in c.args
+    )
     assert "holding_discipline_claim_check" not in src
     assert "veto_contradicted_exit" not in src
 
@@ -340,6 +352,8 @@ def test_half_hour_rotation_closes_holding_that_fails_full_bar(tmp_path):
     pipeline.portfolio_manager.last_blocked = {}
     ctx = RunContext(run_id="run-1", session="morning")
     ctx.seat_verdicts = [_v("technical", "OLD", "neutral"), _v("news", "OLD", "bullish"), *_passing("KEEP")]
+    # The manager ran this run: its record, in each holding's direction.
+    ctx.held_bar_record = {"OLD": ("R2 neutral rating",), "KEEP": ()}
     decision = _decision(_buy_new())
     _apply_rotation_execution(pipeline, ctx, decision, [_pos("OLD"), _pos("KEEP")], HISTORY)
     assert [t.symbol for t in decision.targets if t.is_close] == ["OLD"]
@@ -529,3 +543,129 @@ def test_t15_a_gate_decided_sale_is_not_dropped_by_a_second_hold_check():
     assert loop.gate_decided("acme", "SELL")
     assert not loop.gate_decided("ACME", "TRAIL_STOP")
     assert not loop.gate_decided("OTHER", "SELL")
+
+
+# ---------------------------------------------------------------------------
+# Change 1 completion (14 Oct): carried refusals, the one view builder's
+# freshness rule and held-name macro view, macro in the gate, failed fetch.
+# ---------------------------------------------------------------------------
+
+
+def test_t4_a_refusal_carried_from_an_earlier_run_is_not_this_runs_record():
+    constructor = SimpleNamespace(last_refusals={"ACME": {"refusal": "agreement_net_at_or_below_zero"}})
+    carried = _g.set_aside_carried_refusals(constructor)
+    assert constructor.last_refusals == {}
+    constructor.last_refusals["NEW"] = {"refusal": "risk_budget_exhausted"}  # this run's preview
+    this_run = dict(constructor.last_refusals)
+    _g.restore_carried_refusals(constructor, carried)
+    assert "ACME" not in this_run
+    # Restored, so the durable filing still happens exactly once.
+    assert constructor.last_refusals == {
+        "ACME": {"refusal": "agreement_net_at_or_below_zero"},
+        "NEW": {"refusal": "risk_budget_exhausted"},
+    }
+    src = (ROOT / "src" / "stage_decision.py").read_text()
+    aside, snapshot, restore = (
+        src.index("set_aside_carried_refusals(_constructor)"),
+        src.index("constructor_refusals_by_symbol = {"),
+        src.index("restore_carried_refusals(_constructor, _carried_refusals)"),
+    )
+    assert aside < snapshot < restore
+
+
+def _earnings_item(filing_date):
+    from tests.test_analyst_verdict import _earnings
+
+    raw = _earnings(sentiment="bearish").model_dump(mode="json")
+    raw["filing_date"] = filing_date
+    return {"symbol": "AAPL", "filing_date": filing_date, "analysis": raw}
+
+
+def test_t6_buy_side_view_builder_drops_a_stale_earnings_stance():
+    from src.agents.portfolio_manager import PortfolioManagerAgent
+    from src.agents.portfolio_manager.evidence_prompting import earnings_filing_is_stale
+    from src.trading_calendar import et_today
+
+    def build(item):
+        return PortfolioManagerAgent._collect_seat_verdicts(
+            analyses=[], news_intel=None, macro_analysis=None, earnings_analyses=[item], smart_money_findings=None
+        )
+
+    assert [v.seat for v in build(_earnings_item(et_today().isoformat()))] == ["earnings"]
+    assert [v.seat for v in build(_earnings_item("2026-01-02"))] == []
+    assert earnings_filing_is_stale("") and earnings_filing_is_stale(None)
+
+
+def test_t9_macro_view_reaches_a_holding_the_scan_did_not_read():
+    from src.agents.portfolio_manager import PortfolioManagerAgent
+    from tests.test_macro_double_count import Position, _energy_row, _macro_analysis
+
+    macro = _macro_analysis(equity_outlook="bullish", sector_guidance=[_energy_row()])
+    positions = [
+        Position(
+            symbol="XOM",
+            qty=10,
+            avg_entry=100.0,
+            current_price=104.0,
+            market_value=1040.0,
+            unrealized_pnl=40.0,
+            sector="Energy",
+        )
+    ]
+    verdicts = PortfolioManagerAgent._collect_seat_verdicts(
+        analyses=[],
+        news_intel=None,
+        macro_analysis=macro.model_dump(),
+        earnings_analyses=[],
+        smart_money_findings=None,
+        positions=positions,
+    )
+    assert [v.symbol for v in verdicts if v.seat == "macro"] == ["XOM"]
+
+
+def _sector_macro(symbol, direction):
+    return SimpleNamespace(
+        seat="macro",
+        symbol=symbol,
+        direction=direction,
+        conviction="medium",
+        invalidation="the sector call reverses",
+        evidence=[SimpleNamespace(label="sector_stance:Energy", text="a checkable observed fact")],
+    )
+
+
+def test_t10_sector_macro_opposition_sells_only_when_every_name_seat_is_known():
+    names = (
+        _v("technical", "ACME", "bullish"),
+        _v("news", "ACME", "neutral"),
+        _v("earnings", "ACME", "neutral"),
+        _v("smart_money", "ACME", "neutral"),
+    )
+    known = _g.judge_holding(_held_views("ACME", (*names, _sector_macro("ACME", "bearish")), {"ACME": ()}))
+    assert known.sell_allowed and "macro opposed" in known.detail
+    missing = _g.judge_holding(_held_views("ACME", (*names[:3], _sector_macro("ACME", "bearish")), {"ACME": ()}))
+    assert not missing.sell_allowed
+
+
+def test_t14_failed_bar_fetch_reads_chart_unreadable_not_no_chart_level():
+    from unittest.mock import MagicMock
+
+    from src.exits.structural_protection import StructuralProtection
+
+    market = MagicMock()
+    market.get_ohlcv.side_effect = RuntimeError("feed down")
+    db = MagicMock()
+    db.get_recent_holding_protection_breaks.return_value = []
+    reader = StructuralProtection(
+        voice_structural_protection_break=MagicMock(),
+        config=SimpleNamespace(trading=SimpleNamespace(lookback_days=250)),
+        db=db,
+        market=market,
+        risk_engine=None,
+    )
+    check = reader._structural_protection_for_holding(
+        symbol="ACME", thesis_invalid_if=None, entry_price=100.0, stop_loss=90.0, is_short=False, run_id="r"
+    )
+    assert check.protected is False and check.basis == "chart_unreadable"
+    assert not _g.is_protective(check.basis)
+    assert _g.is_protective("no_chart_level")

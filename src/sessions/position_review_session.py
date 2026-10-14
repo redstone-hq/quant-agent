@@ -215,7 +215,7 @@ class PositionReviewSession:
                 is_short=bool(p.qty < 0),
                 seat_verdicts=tuple(verdicts),
                 eligibility_reasons=None,
-                failed_seats=() if news_ok else ("news",),
+                unknown_seats=() if news_ok else ("news",),
                 bought_today=bought_today_from_db(self._db, sym),
                 stale_earnings=stale_earnings,
             )

@@ -214,6 +214,7 @@ class CandidateRanking:
         smart_money_findings: list[SmartMoneyFinding] | None,
         symbol_sectors: dict[str, str] | None = None,
         positions: list[Position] | None = None,
+        asof: date | None = None,
     ) -> list[AnalystVerdict]:
         """Every seat's Phase 13 verdict, best-effort, one bad entry never
         drops another's or the run's.
@@ -328,7 +329,14 @@ class CandidateRanking:
                     list(positions or []),
                     symbol_sectors,
                 )
-                symbols = {a.symbol.upper() for a in analyses}
+                # Analysed names PLUS every holding (owner 2026-10-13, same
+                # rules): a held name the scan did not read still gets this
+                # run's macro view, from the same sector resolution.
+                symbols = {a.symbol.upper() for a in analyses} | {
+                    str(getattr(p, "symbol", "") or "").strip().upper()
+                    for p in positions or []
+                    if str(getattr(p, "symbol", "") or "").strip()
+                }
                 for symbol in symbols:
                     try:
                         verdicts.append(
@@ -355,6 +363,17 @@ class CandidateRanking:
                 # review 2026-09-03: the mismatch check below only fires
                 # when BOTH sides are present, which silently let an
                 # unverified symbol through when the wrapper's was blank.
+                continue
+            # §9.4 freshness, the same rule the tally uses: a stance with no,
+            # or an over-age, filing date is dropped HERE, before any rule
+            # reads it — buys and judgement sales alike.
+            from src.agents.portfolio_manager.evidence_prompting import earnings_filing_is_stale
+
+            if earnings_filing_is_stale(
+                str(item.get("filing_date") or raw.get("filing_date") or "").strip(),
+                asof,  # the session being decided; None = today (ET)
+            ):
+                logger.info("Phase 13: earnings stance for %s is stale — not a view", wrapper_symbol)
                 continue
             try:
                 earnings = EarningsAnalysis.model_validate(raw)
@@ -458,6 +477,7 @@ class CandidateRanking:
             smart_money_findings=smart_money_findings,
             symbol_sectors=symbol_sectors,
             positions=positions,
+            asof=asof,
         )
         eligible_verdicts = [v for v in all_verdicts if not eligibility.get(v.symbol.upper(), ["no eligibility row"])]
         # The desk's own real, structure-derived ratio and each candidate's

@@ -233,11 +233,10 @@ class DecisionStage:
         # holds only THIS run's refusals. A refusal carried from an earlier
         # run (not yet drained by entry orders) is set aside before the
         # preview and restored after it, so it is still filed exactly once.
+        from src.exits.same_rules_gate import restore_carried_refusals, set_aside_carried_refusals
+
         _constructor = getattr(pipeline, "portfolio_constructor", None)
-        _live_refusals = getattr(_constructor, "last_refusals", None)
-        _carried_refusals = dict(_live_refusals) if isinstance(_live_refusals, dict) else {}
-        if _carried_refusals:
-            _live_refusals.clear()
+        _carried_refusals = set_aside_carried_refusals(_constructor)
         for _a in analyses:
             _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
             try:
@@ -278,9 +277,7 @@ class DecisionStage:
                 or {}
             ).items()
         }
-        if _carried_refusals:
-            for _sym, _refusal in _carried_refusals.items():
-                _live_refusals.setdefault(_sym, _refusal)
+        restore_carried_refusals(_constructor, _carried_refusals)
 
         # Margin capacity for the PM prompt — WORDING ONLY. Reuses the
         # EXACT §11.2 computation the execution submit loop uses to size

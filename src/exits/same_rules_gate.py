@@ -192,7 +192,7 @@ class HoldingViews:
     eligibility_reasons: tuple[str, ...] | None = None
     #: Extra seats whose reading for this name is unknown this run, on top of
     #: every non-technical seat with no verdict for it.
-    failed_seats: tuple[str, ...] = ()
+    unknown_seats: tuple[str, ...] = ()
     #: True/False from today's trade record; `None` = unreadable.
     bought_today: bool | None = False
     #: Symbols whose earnings stance is stale (no, or an over-age, filing date).
@@ -313,7 +313,7 @@ def judge_holding(views: HoldingViews) -> SameRulesVerdict:
         return SameRulesVerdict(sym, False, BASIS_BOUGHT_TODAY, (), "bought today — never sold by judgement")
     verdicts = fresh_verdicts(views.seat_verdicts, sym, views.stale_earnings)
     has_tech = any(v.seat == "technical" for v in verdicts)
-    readings = seat_readings(verdicts, sym, views.failed_seats)
+    readings = seat_readings(verdicts, sym, views.unknown_seats)
     definite, unknown = _judge_bar(views, verdicts, has_tech, readings)
     if definite:
         return SameRulesVerdict(
@@ -363,6 +363,25 @@ def bought_today_from_db(db, symbol: str) -> bool | None:
         logger.warning("same-rules gate: today's trades for %s unreadable (%s)", symbol, exc)
         return None
     return any(str(r.get("action") or "").upper() in _OPENING_ACTIONS for r in (rows or ()))
+
+
+def set_aside_carried_refusals(constructor) -> dict:
+    """Empty the constructor's refusal record before this run's preview and
+    return what an earlier run left in it (not yet drained by entry orders)."""
+    live = getattr(constructor, "last_refusals", None)
+    carried = dict(live) if isinstance(live, dict) else {}
+    if carried:
+        live.clear()
+    return carried
+
+
+def restore_carried_refusals(constructor, carried: dict) -> None:
+    """Put the carried refusals back after the snapshot, this run's winning,
+    so the durable filing still happens exactly once."""
+    live = getattr(constructor, "last_refusals", None)
+    if carried and isinstance(live, dict):
+        for symbol, refusal in carried.items():
+            live.setdefault(symbol, refusal)
 
 
 def build_held_bar_record(positions, analyses, blocked) -> dict[str, tuple[str, ...]]:
