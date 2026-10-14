@@ -128,9 +128,8 @@ numbers:
     source: >-
       src/scheduler.py::TradingScheduler._build_intra_check_trigger (`for tick_min in range(lo_min, hi_min + 1, 30)` in
       `_build_intra_check_trigger`, the authority for how often the intraday
-      control actually fires) and src/trading_calendar.py::REGULAR_SESSION_OPEN_MIN and
-      REGULAR_SESSION_CLOSE_MIN (the 09:30-16:00 span the intra_check phase covers, which those
-      ticks span). Not an independent number: it is pinned in config only so
+      control actually fires), stepping across the regular 09:30-16:00 session
+      the intra_check phase covers. Not an independent number: it is pinned in config only so
       the cost circuit's transient-latch cooldown can be derived from the gap
       between consecutive PAID runs instead of chosen, and
       tests/test_cost_circuit.py asserts the two agree by building the real
