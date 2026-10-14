@@ -652,8 +652,9 @@ def get_recent_daily_pnl(limit: int = 30) -> list[dict]:
 
 
 def get_clean_record_baseline_rows() -> tuple[dict | None, dict | None]:
-    """`(first, prev)` daily_pnl rows around the clean-record date, or
-    `(None, None)` on any read failure.
+    """`(first, prev)` daily_pnl rows around the P&L start (`pnl_start`: the
+    clean-record date, or the latest account reset), or `(None, None)` on any
+    read failure.
 
     Same queries as `Database.get_clean_record_baseline_rows`
     (src/storage/db.py), which the Telegram feed's "Total P&L since" line
@@ -662,13 +663,16 @@ def get_clean_record_baseline_rows() -> tuple[dict | None, dict | None]:
     read-only connection because `src/api` may not import the Database class
     (tests/test_api_safety.py).
     """
-    from src.clean_record_baseline import CLEAN_BASELINE_FIRST_SQL, CLEAN_BASELINE_PREV_SQL, CLEAN_RECORD_DATE
+    from src.clean_record_baseline import CLEAN_BASELINE_FIRST_SQL, CLEAN_BASELINE_PREV_SQL
+    from src.storage.analytics.calibration import pnl_start
 
     conn = None
     try:
         conn = _connect()
-        first = conn.execute(CLEAN_BASELINE_FIRST_SQL, (CLEAN_RECORD_DATE,)).fetchone()
-        prev = conn.execute(CLEAN_BASELINE_PREV_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+        start, after_reset = pnl_start(conn)
+        first = conn.execute(CLEAN_BASELINE_FIRST_SQL, (start,)).fetchone()
+        # After a reset the previous row belongs to the old account: its close is not this account's start.
+        prev = None if after_reset else conn.execute(CLEAN_BASELINE_PREV_SQL, (start,)).fetchone()
         return (dict(first) if first else None, dict(prev) if prev else None)
     except sqlite3.Error:
         return None, None
