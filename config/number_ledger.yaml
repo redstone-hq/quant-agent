@@ -7478,6 +7478,26 @@ numbers:
       Cap on one backoff wait (a quarter hour, the screen_deadline_s default)
       so a throttle that lifts is noticed well inside the 03:00-08:00 night.
       Pacing only, never a verdict. Derivation at src/config/research.py.
+  - id: src.config.UniverseScreenConfig.morning_budget_usd
+    value: 0.33
+    status: owner-ruled
+    ruled_on: '2026-10-14'
+    ruling_summary: "Owner approved on 2026-10-14 sending screened names to the AI each morning in score order instead of rotating 3 at a time, with $7 a month of NEW AI money for it; $7 / 21 trading sessions a month = $0.33 a session, added to llm_cost_circuit.daily_cost_limit_usd (2.75 -> 3.08) rather than taken from other calls."
+    ruling_record: owner approval 2026-10-14 relayed by the coordinating session, "$7 a month"; 21 = 252 trading days a year / 12 months
+    site: src/config/research.py
+  - id: src.config.UniverseScreenConfig.morning_cost_per_name_usd
+    value: 0.0033
+    status: sourced
+    site: src/config/research.py
+    source: docs/ARCHITECTURE.md@`Per-name cost c = $0.0033 is the slope of settled cost against names analysed`
+    note: >-
+      Marginal cost of one more analysed name in the paid morning
+      portfolio-manager call: the slope of settled cost against names analysed
+      over the 26 morning PM calls 2026-08-25..2026-10-14 (agent_logs on the
+      production database), measured by the coordinating session on
+      2026-10-14 and NOT re-run in this change. It counts the PM call only;
+      the Tech seat's per-name cost is not in it. With morning_budget_usd it
+      sets N = floor(0.33 / 0.0033) = 100 screened names a morning.
   - id: src.universe_screen.HISTORY_FETCH_DAYS
     value: 400
     status: not-trade-governing

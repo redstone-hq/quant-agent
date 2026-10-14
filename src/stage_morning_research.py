@@ -216,28 +216,27 @@ class MorningResearchStage:
                 record_morning_fault(self, "smart_money_admission", exc)
                 ctx.admitted_symbols = set()
                 ctx.smart_money_admissions = {}
+        configured_symbols = [
+            str(symbol).strip().upper() for symbol in self.config.trading.universe if str(symbol).strip()
+        ]
+        ranked, screened_details = [], {}
         if self._admit_screened_universe:
             try:
-                screened, screened_details = self._admit_screened_universe(
+                ranked, screened_details = self._admit_screened_universe(
                     getattr(ctx, "positions", None) or [],
                 )
             except Exception as exc:  # noqa: BLE001
                 # Fails closed: no screened name this session, nothing else lost.
                 record_morning_fault(self, "screened_admission", exc)
-                screened, screened_details = set(), {}
-            for symbol in sorted(screened):
-                if symbol in ctx.admitted_symbols:
-                    continue
-                ctx.admitted_symbols.add(symbol)
-                ctx.smart_money_admissions[symbol] = screened_details.get(symbol, {})
-        configured_symbols = [
-            str(symbol).strip().upper() for symbol in self.config.trading.universe if str(symbol).strip()
-        ]
-        # Fresh run-scoped SEC admissions are the reason this session has an
-        # expanded research surface.  Put them first so a large configured
-        # universe cannot strand the transient opportunity in the final Tech
-        # chunk after earlier chunks consume the bounded recovery budget.
-        effective_symbols = list(dict.fromkeys(sorted(ctx.admitted_symbols) + configured_symbols))
+                ranked, screened_details = [], {}
+        effective_symbols = order_morning_symbols(
+            self,
+            ctx,
+            configured_symbols=configured_symbols,
+            ranked=ranked,
+            screened_details=screened_details,
+            top_n=int(self.config.universe_screen.morning_top_n) if screened_details else 0,
+        )
 
         # FULL-BOOK SEARCH THROTTLE (src/research_throttle.py, owner ask
         # 2026-09-30). Hunting for new trades costs paid model and paid
@@ -463,12 +462,12 @@ class MorningResearchStage:
             # news fetches (tech/nomination candidates don't exist yet; news
             # and tech run concurrently in this same fan-out). Both lists
             # are already in a stable, non-set order — ctx.positions is the
-            # broker snapshot's own order, admitted_symbols is sorted()
-            # rather than iterated as a raw set — so the selection is
-            # reproducible in the offline rehearsal rig.
+            # broker snapshot's own order, admitted names follow the research
+            # order (SEC admissions, then screened names best score first) —
+            # so the selection is reproducible in the offline rehearsal rig.
             held = [str(getattr(p, "symbol", "")).strip().upper() for p in ctx.positions if getattr(p, "qty", 0)]
             held = [s for s in held if s]
-            candidates = sorted(ctx.admitted_symbols)
+            candidates = [s for s in effective_symbols if s in ctx.admitted_symbols]
             # Board item 152: remember WHICH names this seat was asked about,
             # so that if its answer comes back unreadable the loss can be
             # filed per-stock rather than as a bare log line and a count.
@@ -1822,3 +1821,66 @@ class MorningResearchStage:
             responder_resolved=sorted(a.symbol for a in resolved),
             responder_cost_usd=responder_cost,
         )
+
+
+def order_morning_symbols(owner, ctx, *, configured_symbols, ranked, screened_details, top_n) -> list[str]:
+    """The morning research order (owner ruling 2026-10-14) and the screened send.
+
+    Order: held names, then this run's SEC admissions, then the configured
+    universe, then screened names best score K first. The Tech seat splits its
+    batch in this order, so a budget cut always falls on the weakest screened
+    names. Of the screened passers (``ranked`` = scored, best first;
+    ``screened_details`` = every passer): a held passer is coverage and is
+    admitted uncapped; the top ``top_n`` others by K are admitted and sent;
+    every other passer is recorded with `record_dropped_name` —
+    ``not_sent_weaker_rank`` with its rank, or ``not_sent_unscored`` with the
+    record's reason when K is None (never ranked on a guess).
+    """
+    from src.intraday.candidates import record_dropped_name
+
+    held_symbols = [
+        str(getattr(p, "symbol", "")).strip().upper()
+        for p in (getattr(ctx, "positions", None) or [])
+        if getattr(p, "qty", 0)
+    ]
+    held_symbols = [s for s in held_symbols if s]
+    sec_symbols = sorted(ctx.admitted_symbols)
+    configured_set, held_set = set(configured_symbols), set(held_symbols)
+    for symbol, details in screened_details.items():
+        if symbol in configured_set or symbol in ctx.admitted_symbols:
+            continue
+        if symbol in held_set:
+            ctx.admitted_symbols.add(symbol)
+            ctx.smart_money_admissions[symbol] = details
+        elif details.get("k") is None:
+            record_dropped_name(
+                owner,
+                ctx,
+                symbol,
+                "not_sent_unscored",
+                score_reason=details.get("score_reason"),
+                detail="no score K in last night's record; never ranked on a guess",
+            )
+    screened_order: list[str] = []
+    rank = 0
+    for symbol in ranked:
+        if symbol in configured_set or symbol in ctx.admitted_symbols:
+            continue
+        rank += 1
+        details = screened_details.get(symbol, {})
+        if rank <= top_n:
+            ctx.admitted_symbols.add(symbol)
+            ctx.smart_money_admissions[symbol] = details
+            screened_order.append(symbol)
+            continue
+        record_dropped_name(
+            owner,
+            ctx,
+            symbol,
+            "not_sent_weaker_rank",
+            rank=rank,
+            k=details.get("k"),
+            nightly_rank=details.get("nightly_rank"),
+            detail=f"only the top {top_n} screened passers by score K are sent each morning",
+        )
+    return list(dict.fromkeys(held_symbols + sec_symbols + list(configured_symbols) + screened_order))
