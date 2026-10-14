@@ -315,7 +315,7 @@ class TradeLedger:
             if opening:
                 row = self.conn.execute(
                     "SELECT id, stop_loss, initial_stop_loss, position_id, action "
-                    "FROM trades "
+                    "FROM current_account_trades "
                     "WHERE symbol = ? AND action = ? "
                     f"AND {predicate} "
                     "ORDER BY timestamp DESC, id DESC LIMIT 1",
@@ -324,7 +324,7 @@ class TradeLedger:
             else:
                 row = self.conn.execute(
                     "SELECT id, stop_loss, initial_stop_loss, position_id, action "
-                    "FROM trades "
+                    "FROM current_account_trades "
                     "WHERE symbol = ? AND action IN ('BUY', 'SHORT') "
                     f"AND {predicate} "
                     "ORDER BY timestamp DESC, id DESC LIMIT 1",
@@ -404,10 +404,14 @@ class TradeLedger:
         `timestamp` / `filled_at` come from callers that already know them
         (`insert_stop_out_trade`: the broker's fill time); otherwise the
         placeholder is stamped now and sorts after every row already written.
+
+        The walk reads `current_account_trades`, so the account epoch is a
+        forced flat point: a BUY on a new broker account never joins a
+        position (or an unmatched lot) left on the old one.
         """
         rows = self.conn.execute(
             "SELECT id, action, qty, fill_qty, fill_status, filled_at, position_id, timestamp "
-            "FROM trades WHERE symbol = ? ORDER BY timestamp, id",
+            "FROM current_account_trades WHERE symbol = ? ORDER BY timestamp, id",
             (symbol,),
         ).fetchall()
         history = [dict(r) for r in rows]
@@ -446,7 +450,7 @@ class TradeLedger:
             dict(r)
             for r in self.conn.execute(
                 "SELECT id, action, qty, fill_qty, fill_status, filled_at, position_id, timestamp "
-                "FROM trades WHERE symbol = ? ORDER BY id",
+                "FROM current_account_trades WHERE symbol = ? ORDER BY id",
                 (symbol,),
             ).fetchall()
         ]
@@ -652,7 +656,7 @@ class TradeLedger:
         """
         rows = self.conn.execute(
             "SELECT id, action, qty, price, fill_status, fill_qty, fill_price "
-            "FROM trades WHERE symbol = ? AND id <= ? ORDER BY id",
+            "FROM current_account_trades WHERE symbol = ? AND id <= ? ORDER BY id",
             (symbol, through_id),
         ).fetchall()
         inventory = 0.0  # signed: long > 0, short < 0
@@ -761,7 +765,7 @@ class TradeLedger:
         """
         with self._lock:
             rows = self.conn.execute(
-                "SELECT symbol, action, qty, fill_qty, fill_status FROM trades "
+                "SELECT symbol, action, qty, fill_qty, fill_status FROM current_account_trades "
                 f"WHERE {self._executed_trade_predicate()} ORDER BY id",
             ).fetchall()
         net: dict[str, float] = {}
@@ -993,7 +997,7 @@ class TradeLedger:
         where = " AND ".join(conditions)
         with self._lock:
             rows = self.conn.execute(
-                f"SELECT * FROM trades WHERE {where}",
+                f"SELECT * FROM current_account_trades WHERE {where}",
                 tuple(params),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -1019,7 +1023,7 @@ class TradeLedger:
         """
         with self._lock:
             rows = self.conn.execute(
-                "SELECT * FROM trades WHERE fill_status = 'pending_submit' "
+                "SELECT * FROM current_account_trades WHERE fill_status = 'pending_submit' "
                 "AND broker_order_id IS NULL "
                 "AND timestamp < ? "
                 "ORDER BY timestamp ASC",
@@ -1064,7 +1068,7 @@ class TradeLedger:
         where = " AND ".join(conditions)
         with self._lock:
             row = self.conn.execute(
-                f"SELECT 1 FROM trades WHERE {where} LIMIT 1",
+                f"SELECT 1 FROM current_account_trades WHERE {where} LIMIT 1",
                 tuple(params),
             ).fetchone()
         return row is not None
@@ -1244,7 +1248,7 @@ class TradeLedger:
                 sql = "UPDATE trades SET take_profit = ? WHERE symbol = ? AND UPPER(action) = ?"
                 params = [target, symbol.upper(), act]
             sql += (
-                " AND position_id = (SELECT position_id FROM trades "
+                " AND position_id = (SELECT position_id FROM current_account_trades "
                 "WHERE symbol = ? AND UPPER(action) IN ('BUY', 'SHORT') "
                 "ORDER BY id DESC LIMIT 1)"
             )

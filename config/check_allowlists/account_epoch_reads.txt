@@ -1,0 +1,40 @@
+# Raw `FROM/JOIN trades` and `FROM/JOIN daily_pnl` readers under src/ (minus src/api/) that are
+# deliberately NOT cut at the account epoch. Read by scripts/check_account_epoch_reads.py.
+# FIXED list: adding an entry needs a `Guard-rule-change:` line in the commit message.
+# Every other reader goes through current_account_trades / current_account_daily_pnl.
+
+# The epoch module itself: the view definitions, and the newest-history stamp a new account must postdate.
+src/storage/account_epoch.py::<module>  # defines the two views over the raw tables
+src/storage/account_epoch.py::newest_history_stamp  # must see every account to prove the new one is newer
+
+# Order-id idempotency: an order id is unique across accounts, so these must see every row.
+src/storage/trades/ledger.py::TradeLedger.update_trade_fill  # looks a fill up by broker_order_id
+src/storage/trades/ledger.py::TradeLedger.get_known_broker_order_ids  # dedupes broker fills by order id
+src/storage/trades/ledger.py::TradeLedger.insert_stop_out_trade._do  # stop-out idempotency by order id
+
+# Generic accessor and maintenance.
+src/storage/trades/ledger.py::TradeLedger.get_trades  # generic history accessor (dashboard, reports); callers filter
+src/storage/trades/backfills.py::backfill_position_ids._do  # one-off backfill over all history
+src/storage/trades/backfills.py::backfill_conviction_ledger._do  # one-off backfill over all history
+
+# Analytics already cut at CLEAN_RECORD_START_UTC, owned by the clean-record change (do not edit here).
+src/storage/analytics/calibration.py::<module>  # clean-record baseline SQL constants
+src/storage/analytics/calibration.py::TradeAnalytics.get_daily_pnl  # uncut analytics copy; Database.get_daily_pnl reads the view
+src/storage/analytics/calibration.py::TradeAnalytics.get_earliest_daily_pnl  # total-P&L "since" start, owned elsewhere
+src/storage/analytics/calibration.py::TradeAnalytics.compute_trade_calibration  # calibration analytics
+src/storage/analytics/calibration.py::TradeAnalytics.get_proposal_funnel_rows  # proposal-funnel analytics
+src/storage/analytics/target_scorecard.py::target_scorecard  # scorecard analytics
+# Newest-row reads: a current-account BUY is always newer than any old-account row. Re-cut them
+# when the clean-record change points its cut at the epoch.
+src/storage/analytics/calibration.py::TradeAnalytics.get_symbol_last_buy  # newest BUY of a symbol
+src/storage/analytics/calibration.py::TradeAnalytics.get_position_open_row  # opening row of a position_id
+
+# Windowed or run-scoped reads: they never reach back across an account change.
+src/trader_feed/common.py::_read_run  # one run's rows
+src/trader_feed/intraday.py::_read_hour_trades  # the last hour's rows
+
+src/refusal_signature.py::load_sessions  # distinct run ids, decides nothing about the book
+
+# Full position history shown to the trader. Old positions stay closed history: the forced flat point
+# gives every new-account position its own position_id. Outside this change; review with the clean-record cut.
+src/trader_feed/trade_block.py::_read_trade_rows  # position history grouped by position_id

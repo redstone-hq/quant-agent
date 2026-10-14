@@ -559,8 +559,12 @@ def select_position_chain_rows(conn, opening_row: dict | None, predicate: str) -
     symbol = opening_row.get("symbol")
     if not symbol or str(opening_row.get("action") or "").upper() not in POSITION_OPEN_ACTIONS:
         return None
+    from src.storage.account_epoch import install_guard
+
+    # The dashboard hands its own connection: register the view's guard there too (still raises with no epoch).
+    install_guard(conn)
     rows = conn.execute(
-        f"SELECT * FROM trades WHERE symbol = ? AND {predicate} ORDER BY timestamp ASC, id ASC",
+        f"SELECT * FROM current_account_trades WHERE symbol = ? AND {predicate} ORDER BY timestamp ASC, id ASC",
         (symbol,),
     ).fetchall()
     return [dict(r) for r in rows]

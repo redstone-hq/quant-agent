@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from src.storage.account_epoch import ensure_account_epoch
 from src.storage.schema.owner_intent_tables import apply as _owner_intents
 from src.storage.schema.pending_stop_amend_tables import ensure_pending_stop_amend_table
 from src.storage.schema.trend_tick_tables import ensure_trend_tick_table
@@ -390,6 +391,9 @@ class DatabaseSchema:
         """)
         self.conn.commit()
         self._migrate()
+        # After the migrations: the views select `trades.*` / `daily_pnl.*`, and the
+        # no-cut first epoch row is written only when the table is first created.
+        ensure_account_epoch(self.conn)
         # The cost circuit also initializes itself independently because it
         # must work before the main Database object exists. Creating the same
         # additive schema here makes read-only API health available after any
