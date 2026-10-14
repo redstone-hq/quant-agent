@@ -791,6 +791,8 @@ class ScreenSources:
     get_filings(symbol) -> [(form, filing_date, items[, locator])] | None (None = no SEC issuer)
     get_role(locator) -> "target" | "bidder" | "not_target" | "undetermined"
         (None = no role reader; an open takeover filing is then undetermined)
+    get_fund_category(symbol) -> str | None   (Yahoo's category for a fund the
+        profile has none for; None = no reader, the fund stays undecided)
     """
 
     get_asset: Callable[[str], Any]
@@ -798,6 +800,27 @@ class ScreenSources:
     get_profile: Callable[[str], dict | None]
     get_filings: Callable[[str], list | None]
     get_role: Callable[[Any], str] | None = None
+    get_fund_category: Callable[[str], str | None] | None = None
+
+
+def _fill_fund_category(symbol: str, profile, read: Callable[[str], str | None] | None):
+    """A fund with no category on record gets one read here, after the free
+    bar checks passed, so every path through the screen (the weekly scan and
+    the side doors) decides a fund instead of leaving it undecided (board
+    item "weekly market scan, with funds", 2026-10-14). No reader, an error
+    or a blank answer leaves it undecided: never admitted."""
+    if read is None or not isinstance(profile, dict) or not profile.get("fund_category_not_listed"):
+        return profile
+    try:
+        category = str(read(symbol) or "").strip()
+    except Exception as exc:  # noqa: BLE001 -- could not read: the fund stays undecided
+        logger.warning("universe screen: fund category read failed for %s: %s", symbol, exc)
+        return profile
+    if not category:
+        return profile
+    filled = {k: v for k, v in profile.items() if k != "fund_category_not_listed"}
+    filled["category"] = category
+    return filled
 
 
 def screen_symbol(
@@ -848,6 +871,7 @@ def screen_symbol(
     if failures:
         result.failures = failures
         return result
+    profile = _fill_fund_category(symbol, profile, sources.get_fund_category)
     failures, measured = check_profile(profile, th, _field(asset, "name", "") or "")
     result.measured.update(measured)
     if failures or measured.get("fund"):
@@ -916,7 +940,7 @@ class UniverseStore:
 
     admitted[SYM]  = {admitted_on, status: active|flagged, flagged_on,
                       last_screen_week, last_screened_on, failures,
-                      measured, last_offered_on}
+                      measured}
     screened[SYM]  = {week, failures}   (candidates that did not pass)
     removed[SYM]   = {removed_on, reason}
     events         = changes not yet shown in a morning message
@@ -1005,7 +1029,6 @@ def apply_result(
                 "last_screened_on": today.isoformat(),
                 "failures": [],
                 "measured": dict(result.measured),
-                "last_offered_on": None,
             }
             state["screened"].pop(symbol, None)
             state["removed"].pop(symbol, None)
@@ -1197,32 +1220,17 @@ def run_screen(
 
 
 # --------------------------------------------------------------------------
-# Per-run selection (the cap on what reaches the portfolio manager)
+# Per-run selection (what reaches the portfolio manager: every admitted name)
 # --------------------------------------------------------------------------
 
 
-def select_for_run(state: dict, *, held: Iterable[str], cap: int, today: date) -> dict[str, dict]:
-    """Admitted names that join THIS run's research surface.
+def select_for_run(state: dict, *, held: Iterable[str]) -> dict[str, dict]:
+    """Admitted names that join THIS run's research surface: all of them.
 
-    Every held admitted name (coverage, not discovery — never capped), plus
-    at most `cap` others, least-recently-offered first so the whole admitted
-    set is rotated through rather than the same few names every morning.
-    Stamps `last_offered_on` on the ones chosen.
+    No per-run cap (owner board item "no 3-a-day cap", 2026-10-14): the
+    screen's whole admitted set reaches the session, held names marked held.
     """
     held_set = {str(s).strip().upper() for s in held}
-    admitted = state.get("admitted", {})
-    chosen: dict[str, dict] = {}
-    for symbol in sorted(admitted):
-        if symbol in held_set:
-            chosen[symbol] = admitted[symbol]
-    others = sorted(
-        (s for s in admitted if s not in held_set),
-        key=lambda s: (admitted[s].get("last_offered_on") or "", admitted[s].get("admitted_on") or "", s),
-    )
-    for symbol in others[: max(0, int(cap))]:
-        chosen[symbol] = admitted[symbol]
-    for symbol in chosen:
-        admitted[symbol]["last_offered_on"] = today.isoformat()
     return {
         symbol: {
             "temporary": True,
@@ -1232,7 +1240,7 @@ def select_for_run(state: dict, *, held: Iterable[str], cap: int, today: date) -
             "held": symbol in held_set,
             **{k: v for k, v in (record.get("measured") or {}).items()},
         }
-        for symbol, record in chosen.items()
+        for symbol, record in sorted(state.get("admitted", {}).items())
     }
 
 

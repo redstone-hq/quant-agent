@@ -226,16 +226,17 @@ class AdmissionService:
         from src.data.fund_category import FundCategoryStore
         from src.data.nasdaq_fetch import fetch_json
         from src.data.nasdaq_listing import ListingUnavailable, load_listing
-        from src.universe_daily import _profile_reader
+        from src.universe_daily import _profile_reader, fund_category_reader
 
         try:
             listing = load_listing(fetch=fetch_json)
         except ListingUnavailable as exc:
             logger.warning("universe screen: Nasdaq listing unavailable: %s", exc)
             listing = None
-        # A fund's category is what the nightly pass kept in the desk database
-        # (src/data/fund_category.py); the side door never reads Yahoo. No
-        # database (a stand-alone service) leaves every fund inconclusive.
+        # A fund's category is what is kept in the desk database
+        # (src/data/fund_category.py); a fund with none kept gets one Yahoo
+        # read at the screen's profile stage, kept for next time, so this path
+        # decides funds too (2026-10-14). A failed read leaves it undecided.
         store = FundCategoryStore(getattr(getattr(self.config, "storage", None), "db_path", None))
         _profile = _profile_reader(listing, _canonicalize_sector, store)
 
@@ -257,6 +258,7 @@ class AdmissionService:
             get_profile=_profile,
             get_filings=_filings,
             get_role=get_role,
+            get_fund_category=fund_category_reader(store),
         )
 
     def _evaluate_screened_admission(
@@ -333,29 +335,18 @@ class AdmissionService:
     def _admit_screened_universe_symbols(self, positions=None) -> tuple[set[str], dict[str, dict]]:
         """This session's share of the screened universe (screen on only).
 
-        Every held admitted name, plus at most `nominations.
-        max_per_seat_per_run` others, rotated least-recently-offered first —
-        the screen is one more source of candidates and is capped like one
-        seat, so the portfolio manager's bill is a number that is set.
+        Every admitted name, held or not: no per-run cap (owner board item
+        "no 3-a-day cap", 2026-10-14).
         """
         if not self._universe_screen_enabled():
             return set(), {}
         from src.universe_screen import UniverseStore, select_for_run
-        from src.util.time import et_today
 
-        store = UniverseStore(self.config.universe_screen.data_dir)
-        state = store.load()
+        state = UniverseStore(self.config.universe_screen.data_dir).load()
         held = {str(getattr(p, "symbol", "") or "").strip().upper() for p in (positions or [])}
         configured = {str(s).strip().upper() for s in self.config.trading.universe}
-        chosen = select_for_run(
-            state,
-            held=held,
-            cap=int(self.config.nominations.max_per_seat_per_run),
-            today=et_today(),
-        )
+        chosen = select_for_run(state, held=held)
         chosen = {s: d for s, d in chosen.items() if s not in configured}
-        if chosen:
-            store.save(state)
         return set(chosen), chosen
 
     def _run_universe_screen(self, run_id: str) -> dict | None:

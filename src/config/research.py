@@ -74,9 +74,9 @@ class UniverseScreenConfig(BaseModel):
 
     The spread and volatility thresholds have no field here on purpose: they
     are DERIVED at run time from `execution.max_entry_slippage_bps` and
-    `risk.min_stop_atr_multiple` (see the module docstring), and the cap on
-    screened names per session is `nominations.max_per_seat_per_run` — the
-    screen is one more source of candidates, capped like one seat.
+    `risk.min_stop_atr_multiple` (see the module docstring). Screened names
+    reach each session uncapped (owner board item "no 3-a-day cap",
+    2026-10-14).
 
     The daily record-only run (`src/universe_daily.py`, owner ruling
     2026-10-09, step A) reads `data_dir`, `screen_deadline_s` and
