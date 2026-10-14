@@ -1781,7 +1781,7 @@ def test_drain_pending_protection_restores_replays_finalize_when_terminal(tmp_pa
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipeline.broker._restore_stop_orders.assert_called_once()
     args = pipeline.broker._restore_stop_orders.call_args
     assert args[0][0] == "NVDA"
@@ -1897,7 +1897,7 @@ def test_drain_narrows_row_to_failed_specs_after_partial_restore(tmp_path):
 
     # Drain returned 0 (coverage not fully rebuilt) but the row still exists,
     # narrowed to just spec_b.
-    assert drained == 0
+    assert len(drained) == 0
     rows = db.get_pending_protection_restores()
     assert len(rows) == 1
     persisted_now = _json.loads(rows[0]["specs_json"])
@@ -2279,7 +2279,7 @@ def test_drain_keeps_row_when_restore_submits_zero_stops(tmp_path):
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     # Row must STILL be there — coverage wasn't rebuilt.
     rows = db.get_pending_protection_restores()
     assert len(rows) == 1
@@ -2314,7 +2314,7 @@ def test_drain_keeps_row_when_restore_raises(tmp_path):
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     rows = db.get_pending_protection_restores()
     assert len(rows) == 1
     db.close()
@@ -2348,7 +2348,7 @@ def test_drain_keeps_row_when_reprotect_raises_for_partial_fill(tmp_path):
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     rows = db.get_pending_protection_restores()
     assert len(rows) == 1
     db.close()
@@ -2419,7 +2419,7 @@ def test_drain_leaves_row_when_sell_still_non_terminal(tmp_path):
 
     drained = pipeline._drain_pending_protection_restores()
 
-    assert drained == 0
+    assert len(drained) == 0
     pipeline.broker._restore_stop_orders.assert_not_called()
     # Row NOT deleted — still pending.
     assert len(db.get_pending_protection_restores()) == 1
@@ -3739,7 +3739,7 @@ def test_drain_sentinel_restores_when_position_intact(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe.broker._restore_stop_orders.assert_called_once()
     a = pipe.broker._restore_stop_orders.call_args
     assert a[0][0] == "NVDA" and a[0][1] == specs
@@ -3765,7 +3765,7 @@ def test_drain_sentinel_noop_when_position_flat(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe.broker._restore_stop_orders.assert_not_called()
     assert db.get_pending_protection_restores() == []
 
@@ -3791,7 +3791,7 @@ def test_drain_sentinel_collapses_when_position_reduced(tmp_path):
 
     drained = pipe._drain_pending_protection_restores()
 
-    assert drained == 1
+    assert len(drained) == 1
     pipe._reprotect_residual_after_partial_sell.assert_called_once_with(
         "NVDA",
         4.0,

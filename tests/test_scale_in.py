@@ -880,7 +880,7 @@ def test_drain_scale_in_rearms_broker_full_short_qty_on_the_buy_side(tmp_path):
     }
 
     drained = pipeline._drain_pending_protection_restores()
-    assert drained == 1
+    assert len(drained) == 1
     kwargs = pipeline.broker._submit_protective_stop_retrying.call_args.kwargs
     assert kwargs["qty"] == 13.0  # full enlarged short, not the add
     assert kwargs["stop_price"] == 110.0  # LOWEST stored = most protective
@@ -914,7 +914,7 @@ def test_drain_classifies_short_from_qty_sign_not_the_side_column(tmp_path):
     }
 
     drained = pipeline._drain_pending_protection_restores()
-    assert drained == 1
+    assert len(drained) == 1
     kwargs = pipeline.broker._submit_protective_stop_retrying.call_args.kwargs
     assert kwargs["side"] == "buy"  # short, despite side="sell" column
     assert kwargs["qty"] == 13.0
@@ -1086,7 +1086,7 @@ def test_drain_scale_in_rearms_broker_full_qty(tmp_path):
     }
 
     drained = pipeline._drain_pending_protection_restores()
-    assert drained == 1
+    assert len(drained) == 1
     kwargs = pipeline.broker._submit_protective_stop_retrying.call_args.kwargs
     assert kwargs["qty"] == 13.0
     assert kwargs["stop_price"] == 90.0

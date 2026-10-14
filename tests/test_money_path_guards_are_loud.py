@@ -92,7 +92,7 @@ def test_the_drain_makes_a_broker_query_programming_error_loud(tmp_path, caplog)
     )
     drain = _drain(db, _BrokerRaisingTypeError())
     with caplog.at_level(logging.ERROR):
-        assert drain._drain_pending_protection_restores() == 0
+        assert len(drain._drain_pending_protection_restores()) == 0
     assert _status(db, "drain.broker_fill_query") == DISAGREED
     assert "TypeError" in _detail(db, "drain.broker_fill_query")
     assert any(r.exc_info for r in caplog.records if r.levelno >= logging.ERROR)
@@ -111,5 +111,5 @@ def test_an_unparseable_row_is_counted_and_the_sentinel_row_does_not_crash(tmp_p
         side="sell",
     )
     drain = _drain(db, _BrokerRaisingTypeError())
-    assert drain._drain_pending_protection_restores() == 0
+    assert len(drain._drain_pending_protection_restores()) == 0
     assert _status(db, "drain.wal_specs_parse") == DISAGREED
