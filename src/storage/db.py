@@ -1802,6 +1802,10 @@ class Database:
         """Thin shim: lifted into TradeLedger (db rebuild instalment 3); built per call."""
         return self._trades().confirm_trade_submitted(row_id, broker_order_id)
 
+    def set_trade_client_order_id(self, row_id: int, client_order_id: str) -> int:
+        """Thin shim: body in TradeLedger; built per call."""
+        return self._trades().set_trade_client_order_id(row_id, client_order_id)
+
     def repoint_trade_broker_order_id(
         self,
         row_id: int,

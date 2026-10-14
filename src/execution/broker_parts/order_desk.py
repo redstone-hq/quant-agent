@@ -24,6 +24,7 @@ import logging
 
 from src.execution.broker_parts import order_desk_reads as _reads
 from src.execution.broker_parts.order_desk_effects import mark, ok
+from src.sentinel.guarded import record_guarded_pass
 import math
 import time
 
@@ -57,6 +58,22 @@ from src.execution.broker_parts.submission_rejection import _is_terminal_submiss
 
 # The one order-terminal ceiling lives with the cancel confirmation (the lower module) so neither imports the other back.
 from src.execution.broker_parts.cancel_confirm import ORDER_TERMINAL_CEILING_S  # noqa: E402,F401 (re-export)
+
+
+def entry_client_order_id(symbol: str, side: str, qty: float, limit_price: float | None) -> str:
+    """The idempotency key `OrderDesk.submit_order` sends for this order today.
+
+    The one derivation (symbol and price normalized exactly as the submit
+    does), so a caller can record the key on its write-ahead row BEFORE the
+    submit and the orphan sweep can find the order by it on either side."""
+    return _client_order_id(
+        purpose="ENT",
+        symbol=_alpaca_symbol(_internal_symbol(symbol)),
+        side=side,
+        session_date=_idem._session_date_key(),
+        qty=qty,
+        price=_quantize_price(limit_price),
+    )
 
 
 class OrderDesk:
@@ -680,14 +697,7 @@ class OrderDesk:
 
         # Idempotency key (src/execution/order_idempotency.py): a retried
         # submission reuses it and the broker refuses the duplicate.
-        client_order_id = _client_order_id(
-            purpose="ENT",
-            symbol=alpaca_symbol,
-            side=side,
-            session_date=_idem._session_date_key(),
-            qty=qty,
-            price=limit_price,
-        )
+        client_order_id = entry_client_order_id(symbol, side, qty, limit_price)
         if limit_price is not None:
             request = LimitOrderRequest(
                 symbol=alpaca_symbol,
@@ -752,7 +762,15 @@ class OrderDesk:
                     "symbol": internal_symbol,
                     "detail": str(exc),
                 }
-            raise
+            # No refusal: a timeout or dropped connection proves nothing
+            # either way, and the order may be live. Ask the broker for it by
+            # its own key. Found -> it IS placed and takes the normal accepted
+            # path below. Not found, or the read failed -> the submit's own
+            # failure propagates (outcome UNKNOWN): an order not yet visible
+            # is never read as "not placed".
+            order = self._read_back_after_unknown_submit(exc, client_order_id, side, symbol)
+            if order is None:
+                raise  # the submit's own failure, unchanged: outcome UNKNOWN
         bracket_info = f" [SL=${stop_loss_price} to be placed on fill]" if use_stop else ""
         logger.info(
             "Order submitted: %s %s %s @ %s%s — status: %s",
@@ -788,6 +806,18 @@ class OrderDesk:
             # (see _place_entry_protection). Absent/None => nothing to place.
             "pending_stop_price": stop_loss_price if use_stop else None,
         }
+
+    def _read_back_after_unknown_submit(self, exc, client_order_id: str, side: str, symbol: str):
+        """The order the broker holds under this submit's key, or None (outcome UNKNOWN, noted on `exc`)."""
+        context = {"side": side, "symbol": symbol, "client_order_id": client_order_id}
+        try:
+            order = _idem._existing_order_for_client_id(self.client, client_order_id)
+        except Exception as lookup_exc:  # noqa: BLE001
+            record_guarded_pass(self.client, "order_desk.submit_order_unknown", lookup_exc, log=logger, context=context)
+            exc.add_note(f"read-back by client_order_id={client_order_id!r} failed ({lookup_exc}); outcome UNKNOWN")
+            return None
+        record_guarded_pass(self.client, "order_desk.submit_order_read_back", exc, log=logger, context=context)
+        return order
 
     def cancel_entry_order(self, order_id: str) -> bool:
         """Cancel one order by id. True when the broker accepted the cancel.

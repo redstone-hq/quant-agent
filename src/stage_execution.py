@@ -1070,6 +1070,15 @@ class ExecutionStage:
                     is_scale_in=_is_scale_in,
                 )
 
+                # The order's own idempotency key, on the write-ahead row BEFORE
+                # the submit: a submit that ends UNKNOWN (timeout, crash) is
+                # then found by the orphan sweep by this key, on either side —
+                # a SHORT entry is a sell order a buy-side search never sees.
+                from src.execution.broker_parts.order_desk import entry_client_order_id
+
+                pipeline.db.set_trade_client_order_id(
+                    pending_row_id, entry_client_order_id(decision.symbol, entry_side, qty, limit_price)
+                )
                 try:
                     # Set BEFORE the call: if submit raises, the broker may
                     # still have accepted the BUY. Restoring the cancelled

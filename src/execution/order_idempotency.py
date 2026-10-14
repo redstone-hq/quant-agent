@@ -163,18 +163,32 @@ def _is_dead_stop_result(result: object, holds_shares_statuses: frozenset) -> bo
     return status.lower() not in holds_shares_statuses
 
 
-def _existing_order_for_client_id(client, client_order_id: str, duplicate_exc: BaseException):
-    """Fetch the order the broker says already holds `client_order_id`.
+def _is_no_such_order(exc: BaseException) -> bool:
+    """True when a read-back by key got the broker's own "no order holds this
+    key" answer: Alpaca replies HTTP 404 ("order not found") to
+    GET /v2/orders:by_client_order_id for an unknown key. Any other failure
+    is a failed read, never proof that nothing was placed."""
+    return getattr(exc, "status_code", None) == 404
 
-    Called only after `_is_duplicate_client_order_id_rejection` — the
-    broker has just asserted the order EXISTS, so the only honest
+
+def _existing_order_for_client_id(client, client_order_id: str, duplicate_exc: BaseException | None = None):
+    """Fetch the order the broker holds under `client_order_id`.
+
+    With `duplicate_exc`: called after `_is_duplicate_client_order_id_rejection`
+    — the broker has just asserted the order EXISTS, so the only honest
     outcomes are "here it is" or an exception that says it exists but
     could not be read back (never a quiet None, which a caller would
     read as "nothing was placed" — the exact mistake the key prevents).
+
+    Without it (a submit that raised with no refusal, or the orphan sweep):
+    nothing has been asserted, so a failed or empty read-back propagates
+    unchanged and the caller decides what it means.
     """
     try:
         return client.get_order_by_client_id(client_order_id)
     except Exception as lookup_exc:  # noqa: BLE001
+        if duplicate_exc is None:
+            raise
         raise RuntimeError(
             f"broker reports an order already exists for "
             f"client_order_id={client_order_id!r} but it could not be "

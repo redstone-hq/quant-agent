@@ -832,6 +832,8 @@ These are not implementation suggestions; they define the currently authorized s
 - directional capability must remain inside the supported instrument/risk contracts and must not bypass deterministic safety;
 - keep the system small enough to understand, operate and evaluate rather than turning it into a bespoke platform.
 
+A submit that fails without the broker refusing it (a timeout or dropped connection) proves nothing either way, so the desk asks the broker for the order by its own idempotency key. Found: it is placed, and the order takes the normal accepted path (an exit keeps its stops cleared and is finalized on its fill). Not found or the read failed: the outcome is UNKNOWN, never "not placed" — an exit puts protection back only over what is held now and alerts the owner, and an entry stays pending with its key stored on the row, so the next session's orphan sweep finds it by that key on either side (a short entry is a sell order).
+
 ## Every money number is expressed against the stock's own movement
 
 **Owner ruling, 2026-10-04:** *"The 2.5 is not a made up number, it is
