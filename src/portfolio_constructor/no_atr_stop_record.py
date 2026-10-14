@@ -139,7 +139,6 @@ def build_row(
     level=None,
     stop_price=None,
     touches=None,
-    min_touches=None,
     candidate_levels: int = 0,
 ) -> dict:
     """The payload for ONE placement decision. Pure; holds no state."""
@@ -176,7 +175,6 @@ def build_row(
         "signal_bar_range": bar_range,
         "buffer_in_bar_ranges": buffer_in_bar_ranges,
         "level_touches": touches,
-        "min_touches_required": min_touches,
         "candidate_levels": int(candidate_levels),
     }
 
@@ -239,7 +237,7 @@ def summarise(rows) -> dict[str, object]:
     }
 
 
-def recorder(analysis, is_short, entry_price, buffer_pct, min_touches):
+def recorder(analysis, is_short, entry_price, buffer_pct):
     """A one-call row writer bound to ONE no-ATR derivation.
 
     Positional deliberately: the caller is the single site inside
@@ -265,7 +263,6 @@ def recorder(analysis, is_short, entry_price, buffer_pct, min_touches):
                 level=level,
                 stop_price=stop_price,
                 touches=touches,
-                min_touches=min_touches,
                 candidate_levels=candidate_levels,
             )
         )
