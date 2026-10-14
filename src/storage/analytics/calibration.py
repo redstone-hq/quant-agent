@@ -378,6 +378,15 @@ class TradeAnalytics:
             "positions": positions,
         }
 
+    def get_clean_record_baseline_rows(self) -> tuple[dict | None, dict | None]:
+        """`(first, prev)` daily_pnl rows around the clean-record date; see src/clean_record_baseline.py."""
+        from src.clean_record_baseline import CLEAN_BASELINE_FIRST_SQL, CLEAN_BASELINE_PREV_SQL, CLEAN_RECORD_DATE
+
+        with self._lock:
+            first = self.conn.execute(CLEAN_BASELINE_FIRST_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+            prev = self.conn.execute(CLEAN_BASELINE_PREV_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+        return (dict(first) if first else None, dict(prev) if prev else None)
+
     def get_earliest_daily_pnl(self) -> dict | None:
         """The oldest row this table actually has.
 
