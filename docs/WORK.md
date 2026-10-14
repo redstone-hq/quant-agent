@@ -95,7 +95,7 @@ DONE WHEN:
 (prose moved: docs/board_notes/item-063.md)
 detail: docs/board_notes/item-063.md
 
-**70. One underived `1.0` does two exit jobs — OPEN, filed 2026-09-14. [7 of 15 ticked; the two SOURCE boxes below are actionable, and neither may be closed by inventing a value; the over-refusal re-measure follows whichever change lands.]** The noise-band ATR multiple sets when an adverse move stops being noise and is reused as the margin in the structural-protection check; a separate absolute minimum stop multiple, also 1.0, sets how tight a stop may be.
+**70. One underived `1.0` does two exit jobs — OPEN, filed 2026-09-14. [7 of 15 ticked; the two SOURCE boxes below are actionable, and neither may be closed by inventing a value; the over-refusal re-measure follows whichever change lands.]** CORRECTED 2026-10-14: the 1.0 noise band was removed 2026-10-09; `src/risk/exit_guard.py` says "the noise band (removed 2026-10-09; ...)". The two 1.0 numbers still in code are the break margin `BREAK_CONFIRMATION_ATR_MULTIPLE` (how far a daily close must sit beyond a structural level in the structural-protection check; split from the noise band 2026-09-26) and the absolute minimum stop multiple `absolute_min_stop_atr_multiple` (sets how tight a stop may be).
 
 DONE WHEN:
   - [ ] the noise-band ATR multiple carries a published measurement of the quantity it actually bounds — the adverse move at which a move stops being ordinary daily wobble — or a named derivation, recorded in `config/number_ledger.yaml` with that source
@@ -129,11 +129,11 @@ DONE WHEN:
   - [ ] nothing here is fitted to the desk's own trading record, and nothing ships alone
 detail: docs/board_notes/item-075.md
 
-**78. Delete the blank-falsifier isolate once Tech and the PM demonstrably produce a real falsifier — DEFECT (patch), instance of the missing-data standing principle. [BOARD STATE: 2 of 3 ticked (the never-blank path is BUILT; the blank-rate condition CLOSED 2026-10-09, blanks are neutral-only by design); the other box need live-session proof and a live-database measurement, which the desk running again since 2026-10-09 makes actionable now.]** The isolate is live and declares itself TEMPORARY: `_isolate_empty_soft_exit_entries` (`src/pipeline_stages.py:2817`) drops any constructed BUY/SHORT whose falsifier is blank. Heal outcome now recorded durably (recording only, 2026-10-01); the "68% blank" reading was wrong: blanks occur only on neutral ratings, where the prompt asks for none (measured 2026-10-09); the isolate stays until the live-session box is ticked.
+**78. Delete the blank-falsifier isolate once Tech and the PM demonstrably produce a real falsifier — DEFECT (patch), instance of the missing-data standing principle. [BOARD STATE: 2 of 3 ticked (the never-blank path is BUILT; the blank-rate condition CLOSED 2026-10-09, blanks are neutral-only by design); the other box need live-session proof and a live-database measurement, which the desk running again since 2026-10-09 makes actionable now.]** The isolate is live and declares itself TEMPORARY: `_isolate_empty_soft_exit_entries` (`src/pipeline_soft_exit_records.py:225`, imported at `src/stage_risk.py:33`, called at `src/stage_risk.py:196`) drops any constructed BUY/SHORT whose falsifier is blank. Heal outcome now recorded durably (recording only, 2026-10-01); the "68% blank" reading was wrong: blanks occur only on neutral ratings, where the prompt asks for none (measured 2026-10-09); the isolate stays until the live-session box is ticked.
 
 DONE WHEN:
   - [x] the never-blank path is live: a falsifier blanked by a later wipe is healed back from the sentence the model already wrote, the seat is re-asked once (paid), and a still-blank name is REFUSED before the book — never invented, and never with skip-and-continue as the product
-  - [ ] LIVE-BLOCKED, the same shape item 86 was before a live log line retired it on 2026-09-26: `_isolate_empty_soft_exit_entries` (`src/pipeline_stages.py`) is deleted only once a real live session records the seats filling the box, and the item stays OPEN until a live session proves it
+  - [ ] LIVE-BLOCKED, the same shape item 86 was before a live log line retired it on 2026-09-26: `_isolate_empty_soft_exit_entries` (`src/pipeline_soft_exit_records.py`) is deleted only once a real live session records the seats filling the box, and the item stays OPEN until a live session proves it
   - [x] CLOSED 2026-10-09, the blank-rate condition was a misreading: measured on production agent_logs since 2026-09-25, the technical seat leaves `thesis_invalid_if` blank ONLY on NEUTRAL ratings (231 of 231), where its prompt says to leave it empty, and fills it on every buy/sell/strong rating (173 of 173); the earlier 54-68% figures counted neutrals. Detail in the note.
 detail: docs/board_notes/item-078.md
 
@@ -164,12 +164,12 @@ DONE WHEN:
   - [x] spend and actions re-measured — 2026-09-26, against the production cost circuit read-only. …(rest: docs/board_notes/item-177.md)
 detail: docs/board_notes/item-177.md
 
-**186. Risk ceilings are made-up — filed 2026-09-25. [5 of 8 ticked; BLOCKED ON A LIVE EVENT: evidence the desk does not record yet: the short-side haircut needs adverse overnight gaps on closed shorts (0 of 5 shorts ever taken carry one), `short_gap_risk_multiple` needs stored daily bars]**
+**186. Risk ceilings are made-up — filed 2026-09-25. [9 of 9 ticked; the haircut box was superseded 2026-10-04 by the haircut's deletion. Awaiting the owner's closure.]**
 
 DONE WHEN:
   - [x] the three already-ratified ceilings (25 / 90 / 40) stay ratified, and the remaining three are researched to a definite verdict rather than left unexamined
   - [x] WITHDRAWN 2026-09-30 — the pairwise-correlation appetite question is moot: the cutoff is removed, not set. Cluster membership is now read from the book's own correlation-distance tree (Mantegna MST cut at its widest gap), per the owner's ruling that risk tolerance is never a global dial. Still transitive, still rationing only.
-  - [ ] the short-side haircut CLOSES ON RECORDED EVIDENCE, NOT ON A THIRD DERIVATION. — full text: docs/board_notes/item-186.md
+  - [x] SUPERSEDED 2026-10-04: the short-side haircut was deleted (commit "Delete the short-side gap haircut: a short is sized exactly like a long", 2026-10-04), so there is no haircut left to close on recorded evidence. Was: the short-side haircut CLOSES ON RECORDED EVIDENCE, NOT ON A THIRD DERIVATION. — full text: docs/board_notes/item-186.md
   - [x] RULED OUT 2026-10-04, not pending: this was filed as an owner-appetite dial and the owner has now answered it more than once -- "if the mark — full text: docs/board_notes/item-186.md
   - [x] 2026-09-30 OWNER RULING APPLIED: risk is never a global dial, so no appetite number on this item is routed to the owner any more; each remaining ceiling is either replaced by a per-name read or recorded as blocked with its blocker named. Both previously routed questions are WITHDRAWN, not pending
   - [x] `short_gap_risk_multiple` (1.5) is DELETED, not re-derived — owner ruling 2026-10-04: "A short is not riskier than long. 1.5 is a made up number so throw that out completely... A short should be treated the same as a long, no different math no different behavior." The constant, the config fields, the ledger rows and the application site are all gone, so there is no neutral dial left to re-tune
@@ -179,13 +179,15 @@ DONE WHEN:
   - [x] the portfolio and cluster ceilings (25 total at-risk, 90 terminal sector and its constructor mirror, 40 cluster share) each end in a definit — full text: docs/board_notes/item-186.md
 detail: docs/board_notes/
 
-**187. FRED fetch reliability — the chronic `fetch_deadline_exceeded` failure and required series left un-fetched — OPEN, filed 2026-09-25, carried out of item 175. Item 175 covered the weekend/holiday overdue-date roll; this is the separate, still-open half. Detail: `docs/board_notes/` ("item 187"). [BOARD STATE: 2 of 4 ticked; both open boxes read real runs (a morning open with full FRED coverage, and the deadline-exceeded rate), which exist again since the 2026-10-09 restart, so reading them is actionable.]** Every FRED failure in the retained log is `fetch_deadline_exceeded`; 4 of 12 runs reached full coverage, worst 5 of 15 [measured 09-17..23]. Owned by the approved fetch redesign.
+**187. FRED fetch reliability — the chronic `fetch_deadline_exceeded` failure and required series left un-fetched — OPEN, filed 2026-09-25, carried out of item 175. Item 175 covered the weekend/holiday overdue-date roll; this is the separate, still-open half. Detail: `docs/board_notes/` ("item 187"). [BOARD STATE: 3 of 4 ticked; the one open box (the deadline-exceeded rate) reads real runs, which exist again since the 2026-10-09 restart, so reading it is actionable.]** Every FRED failure in the retained log is `fetch_deadline_exceeded`; 4 of 12 runs reached full coverage, worst 5 of 15 [measured 09-17..23]. Owned by the approved fetch redesign.
 
 DONE WHEN:
   - [ ] the `fetch_deadline_exceeded` rate is understood and either brought down or shown to recover cleanly inside the existing time ceiling, measured against real runs rather than a healthy mid-morning batch
+    Every recorded morning open since the redesign reached full coverage (5 of 5) [measured 2026-10-14 18:05 UTC, read-only query of the live table]; the per-call deadline-exceeded count was not measured.
   - [x] the FRED SERIES half is fixed and live: fair-share reserves plus the pre-open series cache; the deployed box ran 2026-09-30 with no series skipped.
   - [x] the EVENT-CALENDAR half is fixed here: the seven `/fred/release/dates` calls move off the trading path onto the existing pre-open prefetch timer and are served from `data/macro/release_schedule_cache.json` at the open; a release in neither cache nor wire stays a named failure and is never defaulted.
-  - [ ] ONE morning open (N = 1, the number this item already stated) recorded in the production table `fred_fetch_coverage_runs` with `full_coverage = 1`: all configured series returned, `series_not_attempted` empty, and every configured release returned with `releases_from_cache` equal to `releases_configured`. Check: `SELECT * FROM fred_fetch_coverage_runs ORDER BY id DESC`. Rows exist only from the first open after this deploys; a row with `full_coverage = 0` does not count, and a missing row is not a pass.
+  - [x] ONE morning open (N = 1, the number this item already stated) recorded in the production table `fred_fetch_coverage_runs` with `full_coverage = 1`: all configured series returned, `series_not_attempted` empty, and every configured release returned with `releases_from_cache` equal to `releases_configured`. Check: `SELECT * FROM fred_fetch_coverage_runs ORDER BY id DESC`. Rows exist only from the first open after this deploys; a row with `full_coverage = 0` does not count, and a missing row is not a pass.
+    EVIDENCE [measured 2026-10-14 18:05 UTC, read-only query of the live table]: rows 1-5 (morning opens 2026-10-01, 10-09, 10-12, 10-13, 10-14) each show 15/15 series and 7/7 releases from cache, full_coverage = 1.
 detail: docs/board_notes/item-187.md
 
 **201. Rest of the cancel+resubmit stop path — filed 2026-09-30. Detail: `docs/board_notes/` ("item 201"). OPEN: no production proof of a two-leg amend. [7 of 9 ticked; BLOCKED ON A LIVE EVENT: a fractional position's two hybrid stop legs both amending in place in production.]** The ex-dividend shift and the trailing re-price now share BOTH the measured-safe shape test and the failure classification, amend every resting leg in place, confirm each replacement id, and record the per-leg outcome as a durable row; a partial or an unanswered amend carries no order id, so nothing is written back and the owner is told. 2026-10-02: stop-LIMIT, bracket child and whole-share coverage repair now amend in place; a FRACTIONAL quantity change and lot consolidation still cancel, each recorded as a `stop_unprotected_window` row.
@@ -303,6 +305,8 @@ detail: docs/board_notes/item-233.md
 
 **234. Kept shares are unprotected during a part-sale — filed 2026-10-09. IN PROGRESS (refused-sales build under review).** When the desk sells part of a holding, the stop is cancelled and the kept shares carry no stop until it is replaced. Owner ruling 2026-10-13: a few minutes without a stop while a cancel completes is accepted ("an irrelevant concern"), so the old test of "under a stop at every moment" is superseded.
 
+Built: PR #1758 merged to trunk 2026-10-14 (refused sales wait for the broker-confirmed stop cancel; put-back in src/protection/protected_sell.py and src/protection/put_off_sales.py). Not yet observed on a real refused sale.
+
 DONE WHEN:
 - [ ] after a part-sale the kept shares are put back under a stop covering exactly the shares held, once the broker confirms the cancel; a put-back that fails is written to the recovery log the half-hourly safety run retries; proven by a test that fails on today's trunk
 
@@ -311,7 +315,7 @@ DONE WHEN:
 DONE WHEN:
 - [ ] entry orders are market orders sized off the ask (buy) or bid (short), proven by a test
 
-**236. The test fake broker accepts what the real broker refuses — filed 2026-10-09. OPEN.** The fake broker the tests use never refuses an order, so a change the real broker would reject passes every test.
+**236. The test fake broker accepts what the real broker refuses — filed 2026-10-09. OPEN.** Until PR #1645 (merged 2026-10-09; `tests/fakes/holding_broker.py`, `tests/test_fake_broker_refusals.py`) the fake refused neither of these two kinds of order, and now refuses them: wash trades, and orders larger than the shares held. Still open: the fake does not model the other real broker rejections, so a change the real broker would reject for any other reason still passes every test.
 
 DONE WHEN:
 - [ ] the fake broker models the real broker's refusals, each with a test that a refused order is reported, not assumed filled
