@@ -301,10 +301,10 @@ DONE WHEN:
 - [ ] both replays assert the captured verdicts, including proposals, refusals and reasons, Portfolio Manager decisions, exits and protection outcomes where present; every missing captured input stops the replay rather than being fabricated or degraded, with a red test proving each newly closed gap.
 detail: docs/board_notes/item-233.md
 
-**234. Kept shares are unprotected during a part-sale — filed 2026-10-09. IN PROGRESS (build under way).** When the desk sells part of a holding, the stop is cancelled and the kept shares carry no stop until it is replaced.
+**234. Kept shares are unprotected during a part-sale — filed 2026-10-09. IN PROGRESS (refused-sales build under review).** When the desk sells part of a holding, the stop is cancelled and the kept shares carry no stop until it is replaced. Owner ruling 2026-10-13: a few minutes without a stop while a cancel completes is accepted ("an irrelevant concern"), so the old test of "under a stop at every moment" is superseded.
 
 DONE WHEN:
-- [ ] a part-sale leaves the kept shares under a stop at every moment, proven by a test that fails on today's trunk
+- [ ] after a part-sale the kept shares are put back under a stop covering exactly the shares held, once the broker confirms the cancel; a put-back that fails is written to the recovery log the half-hourly safety run retries; proven by a test that fails on today's trunk
 
 **235. Entries are market orders sized off the ask/bid — filed 2026-10-09. IN PROGRESS (build under way).** Entries go in as market orders, sized off the ask for a buy and the bid for a short.
 
