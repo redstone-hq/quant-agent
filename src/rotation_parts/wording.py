@@ -77,9 +77,10 @@ def rotation_sell_reason(
     review can grade it.
 
     Kept compact (the rule list is capped at 100 characters, the protection
-    detail at 60) because `PortfolioConstructor._build_sell` appends the
-    thesis condition and then truncates the order's reasoning at 500; the
-    untruncated detail lives in the `rotation` pipeline_event.
+    detail at 60) to stay inside `ROTATION_REASON_MAX_CHARS`, a length this
+    module sets for itself: `PortfolioConstructor._build_sell` no longer
+    truncates the order's reasoning (#1766). The untruncated detail lives
+    in the `rotation` pipeline_event.
     """
     if opportunity.tier == "ranked_margin":
         # Board item 39. The ranked-margin tier sells a position that still
@@ -181,8 +182,8 @@ def _ranked_margin_sell_reason(
         sequenced behind the buy's gates rather than ahead of them (board
         item 39).
 
-    Kept compact for the same 500-character truncation in
-    `PortfolioConstructor._build_sell`.
+    Kept compact for the same `ROTATION_REASON_MAX_CHARS` ceiling; the
+    constructor no longer truncates the order's reasoning (#1766).
     """
     seats = ("; ".join(opportunity.shared_seats) or "none")[:40]
     held_shared = opportunity.held_shared_score
@@ -213,12 +214,13 @@ def _ranked_margin_sell_reason(
         f"intact ({protection_basis}: {protection_detail[:40]}). "
         f"{constraint_clause} {tail}"
     )
-    # `PortfolioConstructor._build_sell` appends the thesis condition and
-    # truncates the order's reasoning at 500 characters, and the clause
-    # that makes a CONTINGENT proposal honest is the last one — so it is
-    # the first thing a long seat list or a long protection detail would
-    # eat. The two variable-length clauses are capped above, and this
-    # asserts the result rather than trusting the caps
+    # `PortfolioConstructor._build_sell` used to truncate the order's
+    # reasoning at 500 characters (removed in #1766), and the clause that
+    # makes a CONTINGENT proposal honest is the last one, so a long seat
+    # list or a long protection detail would have eaten it first. The
+    # ceiling is now this module's own. The two variable-length clauses
+    # are capped above, and this asserts the result rather than trusting
+    # the caps
     # (`tests/test_rotation_sequencing.py` pins the worst case).
     if len(reason) > ROTATION_REASON_MAX_CHARS:
         raise ValueError(
