@@ -6,6 +6,7 @@ import threading
 import uuid
 from datetime import date, datetime, time, timedelta
 
+from src.storage import account_epoch as _account_epoch
 from src.storage.schema import DatabaseSchema
 from src.storage.sector_weights import (
     record_realised_sector_weights as _record_realised_sector_weights,
@@ -2137,8 +2138,14 @@ class Database:
         return self._analytics().get_clean_record_baseline_rows()
 
     def get_daily_pnl(self, limit: int = 30, before_date: str | None = None) -> list[dict]:
-        """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
-        return self._analytics().get_daily_pnl(limit, before_date)
+        """The daily_pnl rows since the latest account reset, newest first.
+
+        Reads the `current_account_daily_pnl` view (src/storage/account_epoch.py),
+        so the drawdown ladder, the high-water mark and the review facts never
+        measure against an old account's peak. Raises when no epoch is recorded.
+        """
+        with self._lock:
+            return _account_epoch.current_account_daily_pnl(self.conn, limit, before_date)
 
     def save_insights(
         self,

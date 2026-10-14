@@ -528,11 +528,13 @@ Install: `cp scripts/systemd/quant-agent-alert-heartbeat.* ~/.config/systemd/use
 
 ### Resetting the desk (`scripts/desk_reset.py`)
 
+**Default: the keep-history reset**, for resetting the paper account to a fresh balance after hours. `python scripts/desk_reset.py` is a dry run; `--execute --yes` does it. It runs the same paper-account, market-hours and session-window checks, and refuses unless the broker book is empty with no open orders. It then records the reset time (the account epoch, `src/storage/account_epoch.py`), so every money reader sees only the rows since the reset, and clears only the write-ahead queues and the positions mirror. It deletes no history and never flattens. The rest of this section describes the older flatten-and-delete path, which now needs `--delete-history`.
+
 While the trade logic is still being stabilised the book is wiped and restarted **daily**, so the wipe is a tool with guardrails rather than a sequence someone remembers at 07:00. It is **dry-run by default** — the plain invocation reads the broker and the database, prints every position, every open order and every table with its row count, and changes nothing:
 
 ```bash
-python scripts/desk_reset.py                 # dry run: prints the plan, touches nothing
-python scripts/desk_reset.py --execute       # actually do it
+python scripts/desk_reset.py --delete-history                    # dry run: prints the plan, touches nothing
+python scripts/desk_reset.py --delete-history --execute --owner-approved   # actually do it
 ```
 
 `--execute` is the confirmation flag. On a TTY it additionally asks you to type `reset`; scripted use must pass `--yes` explicitly (an `--execute` with no TTY and no `--yes` is refused, so a cron line can never half-confirm).

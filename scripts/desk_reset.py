@@ -8,11 +8,26 @@ owner's ruling is to exclude history rather than delete it, so every
 it refuses to touch a live account, it backs up before it deletes, and it
 prints a before/after summary you can paste into a log.
 
-    # See exactly what would happen (default — touches nothing):
-    ./scripts/desk_reset.py
+KEEP-HISTORY RESET (the default) — after the owner has made a new, empty
+paper account and the desk's keys point at it:
+
+    ./scripts/desk_reset.py                    # dry run: lists every refusal
+    ./scripts/desk_reset.py --execute --yes
+
+    It deletes no history. It refuses unless the broker book is empty and
+    there are no open orders. Then, in one transaction, it records the reset
+    time (now) as the account epoch (from then on every money reader sees only
+    the rows since it; src/storage/account_epoch.py) and clears only the
+    write-ahead queues and the positions mirror (KEEP_HISTORY_CLEAR). It never
+    flattens and never touches SQLite's -wal file.
+
+DELETE-HISTORY RESET (--delete-history; the owner's explicit yes required):
+
+    # See exactly what would happen (touches nothing):
+    ./scripts/desk_reset.py --delete-history
 
     # Do it:
-    ./scripts/desk_reset.py --execute --owner-approved
+    ./scripts/desk_reset.py --delete-history --execute --owner-approved
 
 WHAT IT DOES
     1. Proves the account is a PAPER account (four independent checks,
@@ -138,8 +153,13 @@ KEEP_TABLES = (
     "fred_fetch_coverage_runs",  # data-provider coverage, not a decision
     "intraday_symbol_health",  # data-feed miss counters + alert timing
     "owner_intents",  # owner instructions: not ours to delete
+    "account_epoch",  # when the paper account was reset; append-only
     "sqlite_sequence",  # sqlite-managed; handled surgically below
 )
+
+# --keep-history (the default): the ONLY tables it clears. Write-ahead queues that
+# hold the old book's order ids / stop specs, and the local positions mirror.
+KEEP_HISTORY_CLEAR = ("pending_protection_restores", "pending_repegs", "pending_stop_amends", "positions")
 
 EVIDENCE_TABLE = "specialist_evidence"
 
@@ -939,7 +959,133 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--settle-seconds", type=float, default=20.0, help="How long to wait for liquidations to fill (default 20)."
     )
+    p.add_argument(
+        "--delete-history",
+        action="store_true",
+        help="The old flatten-and-delete reset (needs --owner-approved). Without it the reset keeps history: "
+        "it records the reset time as the account epoch and clears only the write-ahead queues "
+        "and the positions mirror.",
+    )
     return p
+
+
+# --------------------------------------------------------------------------
+# --keep-history (default): reset the paper account without deleting history
+# --------------------------------------------------------------------------
+
+
+def keep_history_refusals(book: dict) -> list[str]:
+    """Why the reset is unsafe (empty when safe)."""
+    refusals = []
+    if book.get("positions"):
+        refusals.append("the broker book is not empty")
+    if book.get("orders"):
+        refusals.append("the broker has open orders")
+    return refusals
+
+
+def record_reset_and_clear(conn: sqlite3.Connection) -> dict:
+    """Record the reset time and clear KEEP_HISTORY_CLEAR in ONE transaction. Never touches history."""
+    from src.storage import account_epoch as ae
+
+    kept = ("trades", "daily_pnl")
+    before = {t: _count(conn, t) for t in kept}
+    present = set(list_tables(conn))
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        new = ae.record_reset(conn)
+        deleted = {t: conn.execute(f'DELETE FROM "{t}"').rowcount for t in KEEP_HISTORY_CLEAR if t in present}
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    left = {t: _count(conn, t) for t in KEEP_HISTORY_CLEAR if t in present}
+    after = {t: _count(conn, t) for t in kept}
+    if any(left.values()) or after != before:
+        raise ResetRefused(f"post-check failed: cleared tables still hold {left}; history {before} -> {after}")
+    return {"epoch": new, "deleted": deleted, "history_rows": after}
+
+
+def run_keep_history(args) -> int:
+    overrides = [
+        flag
+        for flag, on in (
+            ("--skip-db", args.skip_db),
+            ("--skip-broker", args.skip_broker),
+            ("--allow-market-open", args.allow_market_open),
+            ("--allow-session-window", args.allow_session_window),
+        )
+        if on
+    ]
+    if overrides:
+        print(f"REFUSING: the keep-history reset never runs with {', '.join(overrides)}.", file=sys.stderr)
+        return 7
+    _load_env_file()
+    from src.config import load_config
+
+    cfg = load_config(Path(args.config))
+    db_path = _resolve_db_path(args, cfg)
+    if not db_path.exists():
+        print(f"ERROR: database not found: {db_path}", file=sys.stderr)
+        return 2
+    api_key = os.environ.get("ALPACA_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not api_key or not secret_key:
+        print("ERROR: ALPACA_API_KEY / ALPACA_SECRET_KEY not set", file=sys.stderr)
+        return 2
+    from alpaca.trading.client import TradingClient
+
+    client = TradingClient(api_key, secret_key, paper=bool(cfg.alpaca.paper))
+    book = read_book(client)
+    try:
+        assert_paper_account(
+            config_paper=cfg.alpaca.paper,
+            config_base_url=cfg.alpaca.base_url,
+            endpoint=resolve_endpoint(client),
+            account=book["account"],
+            live_probe=None if args.no_live_probe else probe_live_endpoint(api_key, secret_key),
+        )
+    except ResetRefused as exc:
+        print(f"\n{exc}\n", file=sys.stderr)
+        return 3
+    window = check_trading_window(market_open=book["market_open"], allow_market_open=False, allow_session_window=False)
+    # A fresh decision checkpoint could re-offer the old book's plan: a refusal here, not a warning.
+    refusals = list(window["refusals"]) + check_live_checkpoints(db_path.parent)
+    conn = _connect(db_path, read_only=False)
+    try:
+        refusals += keep_history_refusals(book)
+        label = "REFUSING TO RUN" if args.execute else "WOULD REFUSE (dry run)"
+        print(f"Keep-history reset: record the reset time now; clear {KEEP_HISTORY_CLEAR}.")
+        if refusals:
+            print(f"\n{label}:", file=sys.stderr)
+            for r in refusals:
+                print(f"  - {r}", file=sys.stderr)
+            return 4 if args.execute else 0
+        if not args.execute:
+            return 0
+        if not args.yes:
+            print("ERROR: --execute needs --yes for the keep-history reset", file=sys.stderr)
+            return 2
+        stamp = _utc_stamp()
+        backup_dir = (Path(args.backup_root) if args.backup_root else db_path.parent / "resets") / stamp
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        (backup_dir / "book_before.json").write_text(json.dumps(book, indent=2))
+        db_backup = backup_database(db_path, backup_dir / db_path.name)
+        manifest = {"mode": "keep-history", "timestamp_utc": stamp, "db_backup": db_backup}
+        try:
+            manifest["reset"] = record_reset_and_clear(conn)
+        except ResetRefused as exc:
+            print(f"\n{exc}\n", file=sys.stderr)
+            return 5
+    finally:
+        conn.close()
+    (backup_dir / "reset_manifest.json").write_text(json.dumps(manifest, indent=2))
+    done = manifest["reset"]
+    print(
+        f"Reset recorded at {done['epoch']['epoch_utc']} UTC; daily_pnl from {done['epoch']['daily_pnl_from']}; "
+        f"cleared {done['deleted']}; history kept {done['history_rows']}."
+    )
+    return 0
 
 
 def _resolve_db_path(args, cfg) -> Path:
@@ -951,6 +1097,8 @@ def _resolve_db_path(args, cfg) -> Path:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if not args.delete_history:
+        return run_keep_history(args)
     if args.execute and not args.owner_approved:
         print(
             "REFUSING: --execute deletes trading history, which needs the owner's explicit yes. "

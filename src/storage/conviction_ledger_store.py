@@ -223,7 +223,7 @@ class ConvictionLedgerStore:
             rows = self.conn.execute(
                 "SELECT id, position_id, symbol, action, qty, price, fill_qty, "
                 "fill_price, fill_status, filled_at, stop_loss, initial_stop_loss, decision_id, run_id, "
-                "timestamp FROM trades ORDER BY symbol, id",
+                "timestamp FROM current_account_trades ORDER BY symbol, id",
             ).fetchall()
         chains, unordered = _fill_walk_chains(rows)
 

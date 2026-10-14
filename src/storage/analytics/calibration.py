@@ -60,11 +60,30 @@ CLEAN_RECORD_START_UTC = "2026-10-12T13:30:00"
 CLEAN_RECORD_DATE = CLEAN_RECORD_START_UTC[:10]
 
 #: The account total's baseline rows (src/clean_record_baseline.py): the first
-#: daily_pnl row on/after the clean-record date, and the row just before it.
-#: Bind parameter: CLEAN_RECORD_DATE. Defined here, beside the constant, so this
+#: daily_pnl row on/after the start date, and the row just before it.
+#: Bind parameter: the date from `pnl_start`. Defined here, beside the constant, so this
 #: module never imports the baseline module (no import cycle).
 CLEAN_BASELINE_FIRST_SQL = "SELECT * FROM daily_pnl WHERE date >= ? ORDER BY date ASC LIMIT 1"
 CLEAN_BASELINE_PREV_SQL = "SELECT * FROM daily_pnl WHERE date < ? ORDER BY date DESC LIMIT 1"
+
+
+def pnl_start(conn: sqlite3.Connection) -> tuple[str, bool]:
+    """`(first daily_pnl date counted, True when an account reset sets it)` for "Total P&L since".
+
+    The LATER of CLEAN_RECORD_START_UTC and the latest recorded account reset
+    (`account_epoch`, src/storage/account_epoch.py). A reset's date is the first
+    session close after it, the same cut the current-account daily_pnl view uses.
+    With no reset recorded, or only one before the clean record, this is
+    `(CLEAN_RECORD_DATE, False)`: nothing changes.
+    """
+    row = None
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_epoch'").fetchone():
+        row = conn.execute(
+            "SELECT epoch_utc, daily_pnl_from FROM account_epoch WHERE epoch_utc IS NOT NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if row and str(row[0]).replace(" ", "T") > CLEAN_RECORD_START_UTC:
+        return row[1], True
+    return CLEAN_RECORD_DATE, False
 
 
 def _opened_before_clean_record(open_ts) -> bool:
@@ -387,10 +406,12 @@ class TradeAnalytics:
         }
 
     def get_clean_record_baseline_rows(self) -> tuple[dict | None, dict | None]:
-        """`(first, prev)` daily_pnl rows around the clean-record date; see src/clean_record_baseline.py."""
+        """`(first, prev)` daily_pnl rows around the P&L start (`pnl_start`); see src/clean_record_baseline.py."""
         with self._lock:
-            first = self.conn.execute(CLEAN_BASELINE_FIRST_SQL, (CLEAN_RECORD_DATE,)).fetchone()
-            prev = self.conn.execute(CLEAN_BASELINE_PREV_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+            start, after_reset = pnl_start(self.conn)
+            first = self.conn.execute(CLEAN_BASELINE_FIRST_SQL, (start,)).fetchone()
+            # After a reset the previous row belongs to the old account: its close is not this account's start.
+            prev = None if after_reset else self.conn.execute(CLEAN_BASELINE_PREV_SQL, (start,)).fetchone()
         return (dict(first) if first else None, dict(prev) if prev else None)
 
     def get_earliest_daily_pnl(self) -> dict | None:
