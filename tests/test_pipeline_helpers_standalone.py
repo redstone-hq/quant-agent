@@ -64,8 +64,11 @@ def test_live_constructor_cfg_or_none_needs_no_pipeline():
 def test_parse_logged_agent_response_needs_no_pipeline():
     from src.agents.logged_response import parse_logged_agent_response
 
-    row = {"full_response": 'Here you go:\n```json\n{"action": "HOLD", "n": 2}\n```', "model": "synthetic"}
+    row = {"full_response": '{"action": "HOLD", "n": 2}', "model": "synthetic"}
     assert parse_logged_agent_response(row) == {"action": "HOLD", "n": 2}
+    # Answer text is never patched: a fenced or prose-wrapped answer is not JSON.
+    fenced = {"full_response": 'Here you go:\n```json\n{"action": "HOLD", "n": 2}\n```', "model": "synthetic"}
+    assert parse_logged_agent_response(fenced) is None
     assert parse_logged_agent_response({}) is None
 
 
