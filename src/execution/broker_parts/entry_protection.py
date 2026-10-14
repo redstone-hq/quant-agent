@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 
 from src.execution.held_qty import cover_qty_for_rearm
-from src.execution.broker_parts.stop_place import _STOP_PLACEMENT_MAX_ATTEMPTS
 from src.sentinel.guarded import record_guarded_pass
 
 # The moved body logs under the broker's logger name, and the move must not
@@ -359,13 +358,12 @@ def place_entry_protection(
     if stop_order is None:
         logger.error(
             "entry protection FAILED for %s (%.4f shares held, stop $%.2f) "
-            "after %d attempt(s) — position is UNPROTECTED; the caller must "
+            "— position is UNPROTECTED; the caller must "
             "raise an OWNER alert (spec §11.1 guard 2) and the coverage "
             "reconcile must repair it",
             symbol,
             filled_qty,
             stop_price,
-            _STOP_PLACEMENT_MAX_ATTEMPTS,
         )
         return None
     return stop_order

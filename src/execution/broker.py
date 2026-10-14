@@ -49,8 +49,6 @@ from src.execution.broker_parts.stop_place import (  # noqa: F401 (re-exports ke
     StopPlacer,
     PROTECTIVE_ORDER_PLACEMENT_PENDING_STATUSES,
     PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES,
-    _STOP_PLACEMENT_MAX_ATTEMPTS,
-    _STOP_PLACEMENT_BACKOFF_S,
     _FRACTIONAL_QTY_EPSILON,
     PROTECTIVE_ORDER_ACTIVE_STATUSES,
     _is_held_for_orders_error,
@@ -150,9 +148,6 @@ logger = logging.getLogger(__name__)
 # finalized, so this is a conservative ceiling, not a blind per-order sleep
 # added to every order.
 _ENTRY_FILL_TIMEOUT_S = 90.0
-
-# `_STOP_PLACEMENT_MAX_ATTEMPTS` moved to src/execution/broker_parts/stop_place.py (re-exported above).
-# `_STOP_PLACEMENT_BACKOFF_S` moved to src/execution/broker_parts/stop_place.py (re-exported above).
 
 # `_FRACTIONAL_QTY_EPSILON` moved to src/execution/broker_parts/stop_place.py (re-exported above).
 
