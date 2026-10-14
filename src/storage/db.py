@@ -2133,6 +2133,9 @@ class Database:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_earliest_daily_pnl()
 
+    def get_clean_record_baseline_rows(self) -> tuple[dict | None, dict | None]:
+        return self._analytics().get_clean_record_baseline_rows()
+
     def get_daily_pnl(self, limit: int = 30, before_date: str | None = None) -> list[dict]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_daily_pnl(limit, before_date)

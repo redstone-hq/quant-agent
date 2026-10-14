@@ -651,33 +651,27 @@ def get_recent_daily_pnl(limit: int = 30) -> list[dict]:
             conn.close()
 
 
-def get_earliest_daily_pnl() -> dict | None:
-    """SELECT * FROM daily_pnl ORDER BY date ASC LIMIT 1 — the oldest row
-    this table actually has.
+def get_clean_record_baseline_rows() -> tuple[dict | None, dict | None]:
+    """`(first, prev)` daily_pnl rows around the clean-record date, or
+    `(None, None)` on any read failure.
 
-    Same query and same "never reconstructed from an archive" posture as
-    `Database.get_earliest_daily_pnl` (src/storage/db.py), which the
-    Telegram feed's own "Total P&L since <date>" line already uses
-    (`TradingPipeline._total_pnl_since_reset`). Duplicated here rather than
-    imported — `src/api` is forbidden by a ratified structural guardrail
-    (tests/test_api_safety.py) from importing the trading/risk stack — the
-    same reason `get_recent_daily_pnl` above re-states its own SQL instead
-    of calling the Database class.
-
-    Used by `routes_live.get_account` for the dashboard's own total-P&L
-    figure, read-only, on the same `mode=ro` connection as every other
-    query in this module. Returns `None` on any read failure — never a
-    fabricated baseline.
+    Same queries as `Database.get_clean_record_baseline_rows`
+    (src/storage/db.py), which the Telegram feed's "Total P&L since" line
+    uses; both feed `src.clean_record_baseline.clean_record_baseline`, so the
+    dashboard and Telegram share one rule. Re-stated over this module's
+    read-only connection because `src/api` may not import the Database class
+    (tests/test_api_safety.py).
     """
+    from src.clean_record_baseline import CLEAN_BASELINE_FIRST_SQL, CLEAN_BASELINE_PREV_SQL, CLEAN_RECORD_DATE
+
     conn = None
     try:
         conn = _connect()
-        row = conn.execute(
-            "SELECT * FROM daily_pnl ORDER BY date ASC LIMIT 1",
-        ).fetchone()
-        return dict(row) if row else None
+        first = conn.execute(CLEAN_BASELINE_FIRST_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+        prev = conn.execute(CLEAN_BASELINE_PREV_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+        return (dict(first) if first else None, dict(prev) if prev else None)
     except sqlite3.Error:
-        return None
+        return None, None
     finally:
         if conn is not None:
             conn.close()

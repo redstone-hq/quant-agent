@@ -537,28 +537,28 @@ def get_account() -> AccountResponse:
             record_dashboard_fault("get_account.1")
             history = []
 
-        # Total P&L since the board's own tracked start — deliberately NOT
-        # derived from `history` above, which is capped at 30 rows and may
-        # be truncated. Reads the table's own earliest row directly, same
-        # baseline `TradingPipeline._total_pnl_since_reset` already uses for
-        # the Telegram feed's "Total P&L since <date>" line (see
-        # `get_earliest_daily_pnl`'s docstring). Degrades to `None` on any
-        # read failure or missing/non-positive baseline — never a
-        # fabricated total.
+        # Total P&L since the CLEAN RECORD (owner ruling 2026-10-09: earlier
+        # trading is not evidence) — deliberately NOT derived from `history`
+        # above, which is capped at 30 rows. Baseline and label come from
+        # `clean_record_baseline`, the same function the Telegram feed's
+        # "Total P&L since" line uses. Degrades to `None` ("unknown") on a
+        # read failure or an unverifiable baseline — never a fabricated total.
         total_pnl = None
         total_pnl_pct = None
         total_pnl_since = None
         try:
-            from src.api.db_reads import get_earliest_daily_pnl
+            from src.api.db_reads import get_clean_record_baseline_rows
+            from src.clean_record_baseline import clean_record_baseline
 
-            earliest = get_earliest_daily_pnl()
-            if earliest and portfolio_value is not None:
-                baseline = float(earliest["total_value"]) - float(earliest["daily_pnl"])
+            first, prev = get_clean_record_baseline_rows()
+            resolved = clean_record_baseline(first, prev)
+            if resolved is not None and portfolio_value is not None:
+                baseline, since_label = resolved
                 tv = float(portfolio_value)
-                if baseline > 0 and math.isfinite(baseline) and math.isfinite(tv):
+                if math.isfinite(tv):
                     total_pnl = tv - baseline
                     total_pnl_pct = total_pnl / baseline * 100
-                    total_pnl_since = str(earliest.get("date") or "") or None
+                    total_pnl_since = since_label
         except Exception as exc:
             record_dashboard_fault("get_account.2", exc)
             total_pnl = None

@@ -276,7 +276,7 @@ export function HeroBand({
         </span>
         <span
           className={`font-mono text-[length:var(--fs-meta)] tabular-nums ${pnlClass(account.total_pnl)}`}
-          title={account.total_pnl_since ? `Since the board's earliest tracked day, ${account.total_pnl_since}` : undefined}
+          title={account.total_pnl_since ? `Since the clean record: ${account.total_pnl_since}` : undefined}
         >
           {totalPnlLabel}
         </span>
@@ -399,7 +399,7 @@ export function HeroBand({
                 ? undefined
                 : `${fmtPct(account.total_pnl_pct)}${account.total_pnl_since ? ` since ${account.total_pnl_since}` : ""}`
             }
-            tooltip={account.total_pnl_since ? `Since the board's earliest tracked day, ${account.total_pnl_since}` : undefined}
+            tooltip={account.total_pnl_since ? `Since the clean record: ${account.total_pnl_since}` : undefined}
           />
           <StatTile
             label="Interest this week"
@@ -466,7 +466,7 @@ export function HeroBand({
         <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs">
           <span
             className={`font-mono font-semibold tabular-nums ${pnlClass(account.total_pnl)}`}
-            title={account.total_pnl_since ? `Since the board's earliest tracked day, ${account.total_pnl_since}` : undefined}
+            title={account.total_pnl_since ? `Since the clean record: ${account.total_pnl_since}` : undefined}
           >
             {totalPnlLabel}
           </span>
