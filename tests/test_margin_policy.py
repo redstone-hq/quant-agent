@@ -918,7 +918,7 @@ def test_pm_prompt_margin_headroom_wired_from_entry_deployment_budget():
 
     import src.pipeline_stages as ps
 
-    src = inspect.getsource(ps.DecisionStage.run)
+    src = inspect.getsource(__import__(ps.DecisionStage.__module__, fromlist=["_"]).build_pm_decide_inputs)
     # Layout-insensitive: the pin is the call and its arguments, not where a formatter wraps them.
     squeezed = "".join(src.split())
     assert "_entry_deployment_budget(pipeline,ctx,positions,total_value,cash" in squeezed

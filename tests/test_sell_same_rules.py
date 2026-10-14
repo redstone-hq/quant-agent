@@ -138,7 +138,7 @@ def test_b_reviewer_session_routes_sales_through_the_gate(monkeypatch):
         staticmethod(lambda **kw: [_v("news", "AAPL", "neutral")]),
     )
     db = _DB()
-    fake = SimpleNamespace(_db=db)
+    fake = SimpleNamespace(_db=db, _todays_technical_reads=lambda positions: [])
     gated = PositionReviewSession._gate_reviewer_sales(
         fake,
         _review("AAPL", "SELL", "medium-grade adverse headline"),
@@ -700,7 +700,12 @@ def test_t16_reviewer_never_blocks_an_unprotected_holdings_sale():
 
     def _run(read, history):
         db = _DB()
-        fake = SimpleNamespace(_db=db, _structural_protection_for_holding=read, _build_position_history=history)
+        fake = SimpleNamespace(
+            _db=db,
+            _structural_protection_for_holding=read,
+            _build_position_history=history,
+            _todays_technical_reads=lambda positions: [],
+        )
         return PositionReviewSession._gate_reviewer_sales(
             fake,
             _review("AAPL", "SELL", "the level broke"),
