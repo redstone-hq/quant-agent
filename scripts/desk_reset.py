@@ -14,13 +14,12 @@ paper account and the desk's keys point at it:
     ./scripts/desk_reset.py                    # dry run: lists every refusal
     ./scripts/desk_reset.py --execute --yes
 
-    It deletes no history. It refuses unless the broker book is empty, there
-    are no open orders, the account id differs from the one the desk recorded,
-    and the account was created after the newest trades/daily_pnl row. Then,
-    in one transaction, it records the new account's epoch (from then on every
-    money reader sees only the new account's rows; src/storage/account_epoch.py)
-    and clears only the write-ahead queues and the positions mirror
-    (KEEP_HISTORY_CLEAR). It never flattens and never touches SQLite's -wal file.
+    It deletes no history. It refuses unless the broker book is empty and
+    there are no open orders. Then, in one transaction, it records the reset
+    time (now) as the account epoch (from then on every money reader sees only
+    the rows since it; src/storage/account_epoch.py) and clears only the
+    write-ahead queues and the positions mirror (KEEP_HISTORY_CLEAR). It never
+    flattens and never touches SQLite's -wal file.
 
 DELETE-HISTORY RESET (--delete-history; the owner's explicit yes required):
 
@@ -154,7 +153,7 @@ KEEP_TABLES = (
     "fred_fetch_coverage_runs",  # data-provider coverage, not a decision
     "intraday_symbol_health",  # data-feed miss counters + alert timing
     "owner_intents",  # owner instructions: not ours to delete
-    "account_epoch",  # which broker account the history belongs to; append-only
+    "account_epoch",  # when the paper account was reset; append-only
     "sqlite_sequence",  # sqlite-managed; handled surgically below
 )
 
@@ -704,7 +703,6 @@ def read_book(client) -> dict:
             "non_marginable_buying_power",
             "multiplier",
             "pattern_day_trader",
-            "created_at",
         )
     }
 
@@ -965,45 +963,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--delete-history",
         action="store_true",
         help="The old flatten-and-delete reset (needs --owner-approved). Without it the reset keeps history: "
-        "it records the new account's epoch and clears only the write-ahead queues and the positions mirror.",
+        "it records the reset time as the account epoch and clears only the write-ahead queues "
+        "and the positions mirror.",
     )
     return p
 
 
 # --------------------------------------------------------------------------
-# --keep-history (default): switch the desk to a new, empty broker account
+# --keep-history (default): reset the paper account without deleting history
 # --------------------------------------------------------------------------
 
 
-def keep_history_refusals(conn: sqlite3.Connection, book: dict) -> list[str]:
-    """Why the account switch is unsafe (empty when safe). Never raises: a failed read is a refusal."""
+def keep_history_refusals(book: dict) -> list[str]:
+    """Why the reset is unsafe (empty when safe)."""
+    refusals = []
+    if book.get("positions"):
+        refusals.append("the broker book is not empty")
+    if book.get("orders"):
+        refusals.append("the broker has open orders")
+    return refusals
+
+
+def record_reset_and_clear(conn: sqlite3.Connection) -> dict:
+    """Record the reset time and clear KEEP_HISTORY_CLEAR in ONE transaction. Never touches history."""
     from src.storage import account_epoch as ae
 
-    acct = book.get("account") or {}
-    try:
-        return ae.account_change_problems(
-            conn,
-            account_id=acct.get("id") or None,
-            created_at=acct.get("created_at") or None,
-            book_empty=not book.get("positions"),
-            open_orders_empty=not book.get("orders"),
-        )
-    except Exception as exc:  # noqa: BLE001 - any doubt about the recorded epoch is a refusal
-        return [f"could not read the recorded account epoch: {exc}"]
-
-
-def switch_account(conn: sqlite3.Connection, book: dict) -> dict:
-    """Record the new account's epoch and clear KEEP_HISTORY_CLEAR in ONE transaction. Never touches history."""
-    from src.storage import account_epoch as ae
-
-    acct = book["account"]
     kept = ("trades", "daily_pnl")
     before = {t: _count(conn, t) for t in kept}
     present = set(list_tables(conn))
     conn.execute("BEGIN IMMEDIATE")
     try:
-        old = ae.current_epoch(conn)
-        new = ae.record_account_change(conn, account_id=acct["id"], created_at=acct["created_at"])
+        new = ae.record_reset(conn)
         deleted = {t: conn.execute(f'DELETE FROM "{t}"').rowcount for t in KEEP_HISTORY_CLEAR if t in present}
         conn.execute("COMMIT")
     except Exception:
@@ -1013,7 +1003,7 @@ def switch_account(conn: sqlite3.Connection, book: dict) -> dict:
     after = {t: _count(conn, t) for t in kept}
     if any(left.values()) or after != before:
         raise ResetRefused(f"post-check failed: cleared tables still hold {left}; history {before} -> {after}")
-    return {"old_account": old["account_id"], "epoch": new, "deleted": deleted, "history_rows": after}
+    return {"epoch": new, "deleted": deleted, "history_rows": after}
 
 
 def run_keep_history(args) -> int:
@@ -1063,10 +1053,9 @@ def run_keep_history(args) -> int:
     refusals = list(window["refusals"]) + check_live_checkpoints(db_path.parent)
     conn = _connect(db_path, read_only=False)
     try:
-        refusals += keep_history_refusals(conn, book)
+        refusals += keep_history_refusals(book)
         label = "REFUSING TO RUN" if args.execute else "WOULD REFUSE (dry run)"
-        target = book["account"].get("id")
-        print(f"Keep-history reset: switch the desk to account {target}; clear {KEEP_HISTORY_CLEAR}.")
+        print(f"Keep-history reset: record the reset time now; clear {KEEP_HISTORY_CLEAR}.")
         if refusals:
             print(f"\n{label}:", file=sys.stderr)
             for r in refusals:
@@ -1084,17 +1073,17 @@ def run_keep_history(args) -> int:
         db_backup = backup_database(db_path, backup_dir / db_path.name)
         manifest = {"mode": "keep-history", "timestamp_utc": stamp, "db_backup": db_backup}
         try:
-            manifest["switch"] = switch_account(conn, book)
+            manifest["reset"] = record_reset_and_clear(conn)
         except ResetRefused as exc:
             print(f"\n{exc}\n", file=sys.stderr)
             return 5
     finally:
         conn.close()
     (backup_dir / "reset_manifest.json").write_text(json.dumps(manifest, indent=2))
-    sw = manifest["switch"]
+    done = manifest["reset"]
     print(
-        f"Account {sw['old_account']} -> {sw['epoch']['account_id']}; epoch {sw['epoch']['epoch_utc']} UTC; "
-        f"daily_pnl from {sw['epoch']['daily_pnl_from']}; cleared {sw['deleted']}; history kept {sw['history_rows']}."
+        f"Reset recorded at {done['epoch']['epoch_utc']} UTC; daily_pnl from {done['epoch']['daily_pnl_from']}; "
+        f"cleared {done['deleted']}; history kept {done['history_rows']}."
     )
     return 0
 

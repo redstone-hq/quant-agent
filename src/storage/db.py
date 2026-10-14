@@ -2138,7 +2138,7 @@ class Database:
         return self._analytics().get_clean_record_baseline_rows()
 
     def get_daily_pnl(self, limit: int = 30, before_date: str | None = None) -> list[dict]:
-        """The CURRENT broker account's daily_pnl rows, newest first.
+        """The daily_pnl rows since the latest account reset, newest first.
 
         Reads the `current_account_daily_pnl` view (src/storage/account_epoch.py),
         so the drawdown ladder, the high-water mark and the review facts never
@@ -2146,11 +2146,6 @@ class Database:
         """
         with self._lock:
             return _account_epoch.current_account_daily_pnl(self.conn, limit, before_date)
-
-    def observe_broker_account(self, account: dict, positions) -> dict:
-        """Check the broker account just read against the recorded epoch; raises AccountEpochRefused."""
-        with self._lock:
-            return _account_epoch.observe_broker_account(self.conn, account=account, positions=positions)
 
     def save_insights(
         self,

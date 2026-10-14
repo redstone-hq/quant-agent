@@ -1080,7 +1080,7 @@ def test_skip_db_leaves_the_database_alone(dr, wired, tmp_path):
 
 
 # ===========================================================================
-# KEEP-HISTORY RESET (the default): switch to a new, empty account; delete no history
+# KEEP-HISTORY RESET (the default): record the reset time, clear the old book; delete no history
 # ===========================================================================
 
 _KEEP_QUEUES = ("pending_protection_restores", "pending_repegs", "pending_stop_amends", "positions")
@@ -1093,28 +1093,20 @@ def _keep_argv(db_path, backup_root):
 
 @pytest.fixture
 def keep(dr, wired, monkeypatch):
-    """`wired`, bound to an OLD recorded account, with a new empty account at the broker and an idle clock."""
-    from datetime import timedelta
-
-    from src.trading_calendar import utc_now
-
-    conn = sqlite3.connect(wired.db_path)
-    conn.execute("UPDATE account_epoch SET account_id = 'old-acct-uuid' WHERE account_id IS NULL")
-    conn.commit()
-    conn.close()
-    account = _account(number="PA00000000", equity="10000", cash="10000")
-    account.id = "new-acct-uuid"
-    account.created_at = utc_now() + timedelta(minutes=1)
-    wired.client = FakeClient(account=account, positions=[], orders=[])
+    """`wired`, with an empty paper book at the broker and an idle clock."""
+    wired.client = FakeClient(
+        account=_account(number="PA00000000", equity="10000", cash="10000"), positions=[], orders=[]
+    )
     monkeypatch.setattr(dr, "check_trading_window", lambda **k: {"refusals": [], "warnings": []})
     monkeypatch.setattr(dr, "check_live_checkpoints", lambda *_a, **_k: [])
     return wired
 
 
 def _epoch_rows(path):
+    """One bool per epoch row: does it carry a reset time? (The first, no-cut row does not.)"""
     conn = sqlite3.connect(path)
     try:
-        return [tuple(r) for r in conn.execute("SELECT account_id, epoch_utc IS NOT NULL FROM account_epoch")]
+        return [bool(r[0]) for r in conn.execute("SELECT epoch_utc FROM account_epoch ORDER BY id")]
     finally:
         conn.close()
 
@@ -1123,7 +1115,7 @@ def _history(counts):
     return {t: n for t, n in counts.items() if t not in _KEEP_QUEUES and t not in _EPOCH_BOOKKEEPING}
 
 
-def test_keep_history_is_the_default_and_switches_the_account_without_deleting_history(dr, keep, tmp_path):
+def test_keep_history_is_the_default_and_records_the_reset_without_deleting_history(dr, keep, tmp_path):
     before = _counts(keep.db_path)
     assert before["pending_repegs"] and before["positions"] and before["trades"] and before["daily_pnl"]
     rc = dr.run(_keep_argv(keep.db_path, tmp_path / "resets") + ["--execute", "--yes"])
@@ -1131,7 +1123,7 @@ def test_keep_history_is_the_default_and_switches_the_account_without_deleting_h
     after = _counts(keep.db_path)
     assert all(after[t] == 0 for t in _KEEP_QUEUES if t in after)
     assert _history(after) == _history(before)
-    assert _epoch_rows(keep.db_path) == [("old-acct-uuid", 0), ("new-acct-uuid", 1)]
+    assert _epoch_rows(keep.db_path) == [False, True]
     assert keep.client.writes == []  # never flattens, never cancels
     assert list((tmp_path / "resets").glob("*/quant_agent.db"))  # backed up first
 
@@ -1140,7 +1132,7 @@ def test_keep_history_dry_run_changes_nothing(dr, keep, tmp_path):
     before = _counts(keep.db_path)
     assert dr.run(_keep_argv(keep.db_path, tmp_path / "resets")) == 0
     assert _counts(keep.db_path) == before
-    assert _epoch_rows(keep.db_path) == [("old-acct-uuid", 0)]
+    assert _epoch_rows(keep.db_path) == [False]
 
 
 @pytest.mark.parametrize(
@@ -1148,18 +1140,16 @@ def test_keep_history_dry_run_changes_nothing(dr, keep, tmp_path):
     [
         (lambda c: setattr(c, "_positions", [_position("MSFT", 1, 1, 1)]), "book is not empty"),
         (lambda c: setattr(c, "_orders", [_order("o-1", "MSFT")]), "open orders"),
-        (lambda c: setattr(c._account, "id", "old-acct-uuid"), "keys were not swapped"),
-        (lambda c: setattr(c._account, "created_at", "2020-01-01T00:00:00+00:00"), "not later than the newest"),
     ],
 )
-def test_keep_history_refuses_an_unsafe_switch_and_touches_nothing(dr, keep, tmp_path, capsys, setup, why):
+def test_keep_history_refuses_an_unsafe_reset_and_touches_nothing(dr, keep, tmp_path, capsys, setup, why):
     setup(keep.client)
     before = _counts(keep.db_path)
     rc = dr.run(_keep_argv(keep.db_path, tmp_path / "resets") + ["--execute", "--yes"])
     assert rc == 4
     assert why in capsys.readouterr().err
     assert _counts(keep.db_path) == before
-    assert _epoch_rows(keep.db_path) == [("old-acct-uuid", 0)]
+    assert _epoch_rows(keep.db_path) == [False]
 
 
 @pytest.mark.parametrize("flag", ["--skip-db", "--skip-broker", "--allow-market-open", "--allow-session-window"])

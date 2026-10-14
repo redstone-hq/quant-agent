@@ -1,4 +1,4 @@
-"""Account epoch: after a broker account reset the desk keeps history but reads only the new account's rows.
+"""Account epoch: after a paper account reset the desk keeps history but reads only the rows since the reset.
 
 Owner ruling 9 Oct 2026: history is excluded by date, never deleted. These pin
 the readers that decide what the desk holds and how far it is in drawdown.
@@ -7,31 +7,23 @@ the readers that decide what the desk holds and how far it is in drawdown.
 from __future__ import annotations
 
 import sqlite3
-import sys
 from datetime import datetime
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 import src.trading_calendar as trading_calendar
+from src.clean_record_baseline import clean_record_baseline
 from src.risk.book_exposure import peak_to_trough_pct
+from src.storage.account_epoch import first_session_close_after, record_reset
+from src.storage.analytics.calibration import CLEAN_RECORD_DATE, pnl_start
 from src.storage.db import Database
 from src.trading_calendar import UTC, sql_utc_stamp_ago
 
-ROOT = Path(__file__).resolve().parent.parent
-OLD, NEW = "old-acct-uuid", "new-acct-uuid"
-
 
 @pytest.fixture
-def db(tmp_path, monkeypatch):
-    alerts: list[str] = []
-    import src.storage.account_epoch as ae
-
-    monkeypatch.setattr(ae, "_default_alert", alerts.append)
+def db(tmp_path):
     d = Database(str(tmp_path / "desk.db"))
     d.initialize()
-    d.alerts = alerts
     return d
 
 
@@ -44,50 +36,40 @@ def _old_buy(db, symbol="AAPL", qty=10.0, *, days_ago=2.0, position_id="pos-olda
     db.conn.commit()
 
 
-def _pnl(db, day, total, stamp):
+def _pnl(db, day, total, stamp, change=0.0):
     db.conn.execute(
-        "INSERT INTO daily_pnl (date, total_value, daily_pnl, daily_return_pct, timestamp) VALUES (?, ?, 0, 0, ?)",
-        (day, total, stamp),
+        "INSERT INTO daily_pnl (date, total_value, daily_pnl, daily_return_pct, timestamp) VALUES (?, ?, ?, 0, ?)",
+        (day, total, change, stamp),
     )
     db.conn.commit()
 
 
-def _bind_old(db):
-    db.observe_broker_account({"account_id": OLD, "account_created_at": "2025-01-02 00:00:00"}, [object()])
-
-
-def _switch(db, *, created_at=None, positions=()):
-    created = created_at or sql_utc_stamp_ago(minutes=1)
-    return db.observe_broker_account({"account_id": NEW, "account_created_at": created}, list(positions))
+def _reset(db, now=None):
+    epoch = record_reset(db.conn, now=now)
+    db.conn.commit()
+    return epoch
 
 
 def test_first_run_records_a_no_cut_epoch_so_nothing_changes_today(db):
     _old_buy(db)
-    row = db.conn.execute("SELECT account_id, epoch_utc, daily_pnl_from FROM account_epoch").fetchall()
-    assert [tuple(r) for r in row] == [(None, None, None)]
-    assert db.get_symbols_with_open_ledger_qty() == {"AAPL": 10.0}
-    _bind_old(db)
-    _bind_old(db)  # same id again: a no-op, not a change
-    rows = db.conn.execute("SELECT account_id, epoch_utc FROM account_epoch").fetchall()
-    assert [tuple(r) for r in rows] == [(OLD, None)]
+    rows = db.conn.execute("SELECT epoch_utc, daily_pnl_from FROM account_epoch").fetchall()
+    assert [tuple(r) for r in rows] == [(None, None)]
     assert db.get_symbols_with_open_ledger_qty() == {"AAPL": 10.0}
 
 
 # (a)
-def test_after_an_account_change_the_held_shares_belief_is_empty(db):
+def test_after_a_reset_the_held_shares_belief_is_empty(db):
     _old_buy(db)
-    _bind_old(db)
-    _switch(db)
+    _reset(db)
     assert db.conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == 1  # kept, not deleted
     assert db.get_symbols_with_open_ledger_qty() == {}
 
 
 # (b)
-def test_a_new_account_buy_of_an_old_name_opens_a_new_position(db):
+def test_a_new_buy_of_an_old_name_opens_a_new_position(db):
     _old_buy(db)
-    _bind_old(db)
-    _switch(db)
-    new_id = db.insert_trade("AAPL", "BUY", 5, 101.0, "new account entry", "run-new", stop_loss=95.0)
+    _reset(db)
+    new_id = db.insert_trade("AAPL", "BUY", 5, 101.0, "post-reset entry", "run-new", stop_loss=95.0)
     rows = dict(db.conn.execute("SELECT id, position_id FROM trades").fetchall())
     old_id = next(i for i in rows if i != new_id)
     assert rows[old_id] == "pos-oldaccount1"
@@ -101,10 +83,9 @@ def test_the_ladder_drawdown_ignores_the_old_peak_even_for_a_late_evening_reset(
     _pnl(db, "2026-10-12", 100000.0, "2026-10-13 00:30:00")
     _pnl(db, "2026-10-13", 100500.0, "2026-10-14 00:30:00")
     _pnl(db, "2026-10-14", 99000.0, "2026-10-15 01:00:00")
-    _bind_old(db)
     # Reset at 23:00 ET on 14 Oct (03:00 UTC on 15 Oct): the same ET date as the old final row.
     monkeypatch.setattr(trading_calendar, "utc_now", lambda: datetime(2026, 10, 15, 3, 0, tzinfo=UTC))
-    epoch = _switch(db, created_at="2026-10-15T02:50:00+00:00")
+    epoch = _reset(db)
     assert epoch["epoch_utc"] == "2026-10-15 03:00:00"
     assert epoch["daily_pnl_from"] == "2026-10-15"
     _pnl(db, "2026-10-15", 10050.0, "2026-10-16 00:30:00")
@@ -133,61 +114,21 @@ def test_a_reader_with_no_epoch_row_raises(db):
 
 
 # (e)
-@pytest.mark.parametrize(
-    "case",
-    [
-        {"positions": [SimpleNamespace(symbol="MSFT")], "why": "book is not empty"},
-        {"created_at": "2020-01-01 00:00:00", "why": "not later than the newest history"},
-    ],
-)
-def test_an_unsafe_account_change_is_refused_loudly(db, case):
-    from src.storage.account_epoch import AccountEpochRefused
+def test_after_a_recorded_reset_the_pnl_start_is_the_reset(db, monkeypatch):
+    _pnl(db, "2026-10-13", 100500.0, "2026-10-14 00:30:00", change=500.0)
+    _pnl(db, "2026-10-14", 99000.0, "2026-10-15 00:30:00", change=-1500.0)
+    assert pnl_start(db.conn) == (CLEAN_RECORD_DATE, False)  # no reset yet: unchanged
+    first, prev = db.get_clean_record_baseline_rows()
+    assert first["date"] == "2026-10-13" and prev is None  # nothing before the clean record in this table
 
-    _old_buy(db)
-    _bind_old(db)
-    with pytest.raises(AccountEpochRefused, match=case["why"]):
-        _switch(db, created_at=case.get("created_at"), positions=case.get("positions", ()))
-    assert len(db.alerts) == 1 and case["why"] in db.alerts[0]
-    assert db.conn.execute("SELECT COUNT(*) FROM account_epoch").fetchone()[0] == 1
-    assert db.get_symbols_with_open_ledger_qty() == {"AAPL": 10.0}
+    _reset(db, now=datetime(2026, 10, 1, 12, 0, tzinfo=UTC))  # earlier than the clean record: no move
+    assert pnl_start(db.conn) == (CLEAN_RECORD_DATE, False)
 
-
-def test_a_change_with_old_write_ahead_rows_is_refused(db):
-    from src.storage.account_epoch import AccountEpochRefused
-
-    _bind_old(db)
-    db.conn.execute("INSERT INTO pending_repegs(symbol, old_order_id, new_order_id) VALUES ('X', 'o1', 'o2')")
-    db.conn.commit()
-    with pytest.raises(AccountEpochRefused, match="write-ahead"):
-        _switch(db)
-
-
-# (f)
-def _check_module():
-    sys.path.insert(0, str(ROOT / "scripts"))
-    try:
-        import check_account_epoch_reads
-    finally:
-        sys.path.pop(0)
-    return check_account_epoch_reads
-
-
-def test_the_check_fails_on_a_new_raw_read_and_passes_once_allowlisted(tmp_path):
-    check = _check_module()
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "sizer.py").write_text(
-        'def held(conn):\n    """Reads FROM trades in prose: not SQL."""\n'
-        '    conn.execute("DELETE FROM trades WHERE 0")\n'
-        '    return conn.execute("SELECT symbol, qty FROM trades").fetchall()\n'
-    )
-    allow = tmp_path / "allow.txt"
-    allow.write_text("# nothing yet\n")
-    assert check.main(["--root", str(tmp_path), "--allowlist", str(allow)]) == 1
-    allow.write_text("src/sizer.py::held  # reason\n")
-    assert check.main(["--root", str(tmp_path), "--allowlist", str(allow)]) == 0
-    allow.write_text("src/sizer.py::held\nsrc/gone.py::f\n")
-    assert check.main(["--root", str(tmp_path), "--allowlist", str(allow)]) == 1  # stale entry
-
-
-def test_the_repo_passes_its_own_check():
-    assert _check_module().main(["--root", str(ROOT)]) == 0
+    monkeypatch.setattr(trading_calendar, "utc_now", lambda: datetime(2026, 10, 15, 3, 0, tzinfo=UTC))
+    epoch = _reset(db)
+    assert pnl_start(db.conn) == (first_session_close_after(epoch["epoch_utc"]), True) == ("2026-10-15", True)
+    _pnl(db, "2026-10-15", 10050.0, "2026-10-16 00:30:00", change=50.0)
+    first, prev = db.get_clean_record_baseline_rows()
+    assert first["date"] == "2026-10-15"
+    assert prev is None  # the old account's close is not this account's start
+    assert clean_record_baseline(first, prev) == (10000.0, "Thu 15 Oct")

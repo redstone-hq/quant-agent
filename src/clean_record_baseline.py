@@ -3,7 +3,8 @@
 Owner ruling 2026-10-09: trading before the clean record is not evidence. The
 total therefore starts at the equity going INTO the first daily_pnl row dated
 on/after the clean-record date (`total_value - daily_pnl`), not at the table's
-oldest row. Older rows stay in the database, only uncounted.
+oldest row. Older rows stay in the database, only uncounted. After a paper
+account reset the start is the reset instead (`pnl_start`, the later of the two).
 
 Pure functions over plain row dicts so `src/api` (which may not import the
 trading stack, tests/test_api_safety.py) and the pipeline share ONE rule; each
@@ -20,6 +21,7 @@ from src.storage.analytics.calibration import (  # noqa: F401 - re-exported for 
     CLEAN_BASELINE_FIRST_SQL,
     CLEAN_BASELINE_PREV_SQL,
     CLEAN_RECORD_DATE,
+    pnl_start,
 )
 
 # The broker read falls back to last_equity = portfolio_value when it returns

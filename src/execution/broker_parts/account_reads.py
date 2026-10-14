@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import logging
 from src.execution.stop_read import StopReadUnavailable, classify_stop_orders
-from datetime import date, datetime
-from uuid import UUID
+from datetime import date
 
 from alpaca.trading.enums import QueryOrderStatus
 
@@ -21,7 +20,6 @@ from src.execution.broker_parts.stop_place import _alpaca_symbol, _internal_symb
 # No ledger handle on this per-call object: traceback is logged, the counted row is skipped until
 # one is lent (flagged, no new channel).
 from src.sentinel.guarded import record_guarded_pass
-from src.trading_calendar import sql_utc_stamp
 from src.execution.broker_parts.account_asset_eligibility import AssetEligibilityReads
 
 # Same log channel as before the move: operators and tests filter on the
@@ -77,20 +75,11 @@ class AccountReads(AssetEligibilityReads):
         # 08-19 SGOV/deployable-liquidity forensic).
         raw_nmbp = getattr(acct, "non_marginable_buying_power", None)
         non_marginable_buying_power = float(raw_nmbp) if raw_nmbp is not None else float(acct.cash)
-        # Which account this is and when the broker opened it: the desk's
-        # account epoch (src/storage/account_epoch.py) is keyed on them.
-        # Plain text only (the dict is JSON-dumped downstream); anything else reads as absent.
-        raw_id = getattr(acct, "id", None)
-        raw_created = getattr(acct, "created_at", None)
-        if isinstance(raw_created, datetime):
-            raw_created = sql_utc_stamp(raw_created)
         return {
             "cash": float(acct.cash),
             "portfolio_value": portfolio_value,
             "last_equity": last_equity,
             "non_marginable_buying_power": non_marginable_buying_power,
-            "account_id": str(raw_id) if isinstance(raw_id, (str, UUID)) and str(raw_id) else None,
-            "account_created_at": raw_created if isinstance(raw_created, str) and raw_created else None,
         }
 
     def get_margin_interest_activities(self, after: str | None = None) -> list[dict]:
