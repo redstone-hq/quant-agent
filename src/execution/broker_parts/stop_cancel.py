@@ -90,8 +90,7 @@ def snapshot_protective_stops(
     )
     if errors:
         logger.error(
-            "snapshot_protective_stops: could not READ %s's protective "
-            "stops (%s) — reporting UNKNOWN, not 'no stop'.",
+            "snapshot_protective_stops: could not READ %s's protective stops (%s) — reporting UNKNOWN, not 'no stop'.",
             symbol,
             "; ".join(errors),
         )

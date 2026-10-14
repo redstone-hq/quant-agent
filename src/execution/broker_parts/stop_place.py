@@ -270,8 +270,7 @@ class StopPlacer:
         if _is_dead_stop_result(order, PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES):
             # Adversary 2026-10-01: a dead-status response holds no shares.
             logger.error(
-                "protective stop [%s] for %s came back with status %r — not a "
-                "live stop; not reporting it as placed.",
+                "protective stop [%s] for %s came back with status %r — not a live stop; not reporting it as placed.",
                 leg,
                 symbol,
                 order.get("status"),
