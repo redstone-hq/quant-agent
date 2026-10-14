@@ -731,7 +731,7 @@ class IntradayScanBody:
 
         None calls the PM. With no room but a possible judgement sale, the
         call runs and the existing headroom clamp and minimum-risk floor
-        refuse any buy (12 Oct AMD sale at $34.80 of room). Every judged
+        refuse any buy. Every judged
         check leaves one `buying_room` pipeline event with the room figures.
         An unreadable assessment, or none (ranked-margin rotation switched
         on can free room), calls the PM as before.
@@ -744,7 +744,7 @@ class IntradayScanBody:
         if room is None:
             return None
         record = room.as_record()
-        sales = [] if room.has_room else judgement_sale_reasons(self, ctx, analyses)
+        sales = [] if room.has_room else judgement_sale_reasons(self)
         outcome = "room" if room.has_room else "pm_called_buys_blocked" if sales else "pm_call_skipped"
         _record_pipeline_event(
             self,

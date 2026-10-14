@@ -174,9 +174,11 @@ def assess_buying_room(pipeline, ctx, analyses, mover_symbols, sold_symbols=()) 
     return BuyingRoom(headroom, note, bool(ladder_backed), floor, ceiling_x, rows)
 
 
-#: the seats whose fresh read can justify a sale by judgement
-_RESEARCH_SEATS = ("news_analyst", "earnings_analyst")
-_BUY_CLASS = {"long": ("buy", "strong_buy"), "short": ("sell", "strong_sell")}
+#: The news seat logs as `news_analyst_<session>` (src/sessions/news_update_session.py
+#: writes `f"news_analyst_{session}"`), so it is matched by prefix, never by a copied
+#: list of sessions. The earnings seat writes no agent_logs row: it records evidence
+#: once, in the morning research stage, before that morning's PM call.
+_NEWS_SEAT = "news_analyst"
 
 
 def _stamp(text) -> datetime | None:
@@ -189,34 +191,28 @@ def _stamp(text) -> datetime | None:
     return when if when.tzinfo else when.replace(tzinfo=timezone.utc)  # SQLite and broker stamps are UTC
 
 
-def judgement_sale_reasons(pipeline, ctx, analyses) -> list[str]:
+def judgement_sale_reasons(pipeline) -> list[str]:
     """Why a paid PM call could still SELL by judgement when no new position fits; empty when nothing can.
 
-    Selling uses the same rules as buying (owner 2026-10-13): a holding whose
-    latest chart read is no longer in its own side's buy class, a news or
-    earnings read since the last PM call, or an exit fill (stop or sale)
-    since the last PM call that freed cash. A record that cannot be read
-    counts as a reason: the call then runs, the behaviour before this skip.
+    A news read since the last PM call, or an exit fill (stop or sale) since
+    the last PM call that freed cash. A chart read is NOT a reason: a holding
+    whose read turns against it fails the same-rules bar and the free
+    below-entry-bar sale sells it with no PM call; a neutral read does not
+    sell (owner Option A, 14 Oct). A record that cannot be read counts as a
+    reason: the call then runs, the behaviour before this skip.
     """
     from src.trade_actions import is_position_exit_action
 
-    reasons: list[str] = []
-    rating = {str(a.symbol).upper(): a.rating for a in analyses or ()}
-    for p in ctx.positions or []:
-        mv = _num(p.get("market_value") if isinstance(p, dict) else getattr(p, "market_value", None))
-        side = "long" if mv is not None and mv > 0 else "short" if mv is not None and mv < 0 else None
-        read = rating.get(_sym(p))
-        if side and read is not None and read not in _BUY_CLASS[side]:
-            reasons.append(f"held {_sym(p)} chart read now {read}")
     db = pipeline.db
     try:
         row = db.execute("SELECT MAX(timestamp) FROM agent_logs WHERE agent_name = 'portfolio_manager'").fetchone()
         last_pm = _stamp(row[0] if row else None)
         if last_pm is None:
-            return reasons
+            return []
         research = db.execute(
-            "SELECT agent_name, timestamp FROM agent_logs WHERE agent_name IN (?, ?) ORDER BY id DESC LIMIT 20",
-            _RESEARCH_SEATS,
+            "SELECT agent_name, timestamp FROM agent_logs WHERE agent_name = ? OR agent_name GLOB ? "
+            "ORDER BY id DESC LIMIT 20",
+            (_NEWS_SEAT, f"{_NEWS_SEAT}_*"),
         ).fetchall()
         fills = db.execute(
             "SELECT symbol, action, COALESCE(filled_at, timestamp) FROM current_account_trades "
@@ -224,8 +220,8 @@ def judgement_sale_reasons(pipeline, ctx, analyses) -> list[str]:
         ).fetchall()
     except Exception as exc:  # noqa: BLE001 -- unreadable: call the PM as before
         logger.warning("buying room: judgement-sale record unreadable (%s); the PM call runs", exc)
-        return [*reasons, f"judgement-sale record unreadable: {exc}"]
-    reasons += [f"{seat} read at {when}" for seat, when in research if (_stamp(when) or last_pm) > last_pm]
+        return [f"judgement-sale record unreadable: {exc}"]
+    reasons = [f"{seat} read at {when}" for seat, when in research if (_stamp(when) or last_pm) > last_pm]
     reasons += [
         f"{action} {symbol} filled at {when}"
         for symbol, action, when in fills
