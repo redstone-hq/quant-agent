@@ -143,7 +143,7 @@ def _format_position_review(mode: str, result: dict, elapsed: float) -> str:
         # the plain session message say the same words about a revision.
         from src.notifier import describe_target_revisions
 
-        lines.extend(describe_target_revisions(result))
+        lines.extend(describe_target_revisions(result, held_symbols=held_symbols))
 
     _new_block(lines, _render_target_revisions)
 

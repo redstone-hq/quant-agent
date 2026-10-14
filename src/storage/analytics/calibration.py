@@ -57,6 +57,14 @@ _CONVICTION_OUTCOME_MIN_N = 20
 #: 09:30 America/New_York (EDT, UTC-4) = 13:30 UTC. A dated ruling, not a
 #: tunable: no config knob. Older rows stay in the database, only uncounted.
 CLEAN_RECORD_START_UTC = "2026-10-12T13:30:00"
+CLEAN_RECORD_DATE = CLEAN_RECORD_START_UTC[:10]
+
+#: The account total's baseline rows (src/clean_record_baseline.py): the first
+#: daily_pnl row on/after the clean-record date, and the row just before it.
+#: Bind parameter: CLEAN_RECORD_DATE. Defined here, beside the constant, so this
+#: module never imports the baseline module (no import cycle).
+CLEAN_BASELINE_FIRST_SQL = "SELECT * FROM daily_pnl WHERE date >= ? ORDER BY date ASC LIMIT 1"
+CLEAN_BASELINE_PREV_SQL = "SELECT * FROM daily_pnl WHERE date < ? ORDER BY date DESC LIMIT 1"
 
 
 def _opened_before_clean_record(open_ts) -> bool:
@@ -377,6 +385,13 @@ class TradeAnalytics:
             "payload": payload,
             "positions": positions,
         }
+
+    def get_clean_record_baseline_rows(self) -> tuple[dict | None, dict | None]:
+        """`(first, prev)` daily_pnl rows around the clean-record date; see src/clean_record_baseline.py."""
+        with self._lock:
+            first = self.conn.execute(CLEAN_BASELINE_FIRST_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+            prev = self.conn.execute(CLEAN_BASELINE_PREV_SQL, (CLEAN_RECORD_DATE,)).fetchone()
+        return (dict(first) if first else None, dict(prev) if prev else None)
 
     def get_earliest_daily_pnl(self) -> dict | None:
         """The oldest row this table actually has.

@@ -1168,28 +1168,28 @@ def test_paid_suspension_does_not_mark_non_morning_sessions():
     write_status.assert_not_called()
 
 
-def test_total_pnl_since_reset_uses_earliest_row_prior_equity(tmp_path):
-    """The Telegram feed's 'total P&L' baseline: the earliest surviving
-    `daily_pnl` row's account equity BEFORE that day's own P&L
-    (total_value - daily_pnl) — the broker's own last_equity going into
-    the first post-reset trading day, a value already recorded on that
-    row, not reconstructed. Total P&L is current equity vs. that baseline;
-    total return % is over the same baseline."""
+def test_total_pnl_since_reset_starts_at_the_clean_record_not_the_oldest_row(tmp_path):
+    """The Telegram 'total P&L' baseline is the equity going into the first
+    daily_pnl row on/after the clean-record date (total_value - daily_pnl),
+    verified against the previous row's close. Older rows are ignored."""
     from src.storage.db import Database
 
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
     db.insert_daily_pnl(date="2026-09-02", total_value=9862.74, daily_pnl=44.70, daily_return_pct=0.46)
-    db.insert_daily_pnl(date="2026-09-16", total_value=9717.05, daily_pnl=-147.81, daily_return_pct=-1.50)
+    db.insert_daily_pnl(
+        date="2026-10-09", total_value=10029.62, daily_pnl=10.0, daily_return_pct=0.1, equity_close=10029.62
+    )
+    db.insert_daily_pnl(date="2026-10-12", total_value=9928.22, daily_pnl=-101.40, daily_return_pct=-1.0)
 
     pipeline = build_pipeline(db=db)
 
-    total_pnl, total_return_pct, since = pipeline._total_pnl_since_reset(9900.00)
+    total_pnl, total_return_pct, since = pipeline._total_pnl_since_reset(10100.00)
 
-    baseline = 9862.74 - 44.70  # equity going into the first post-reset day
-    assert since == "2026-09-02"
-    assert total_pnl == pytest.approx(9900.00 - baseline)
-    assert total_return_pct == pytest.approx((9900.00 - baseline) / baseline * 100)
+    baseline = 10029.62
+    assert since == "Fri 9 Oct close"
+    assert total_pnl == pytest.approx(10100.00 - baseline)
+    assert total_return_pct == pytest.approx((10100.00 - baseline) / baseline * 100)
     db.close()
 
 
