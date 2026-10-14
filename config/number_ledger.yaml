@@ -6668,11 +6668,16 @@ numbers:
       unchanged, moved to a named constant 14 Oct so every cancel-then-act site waits on this one
       number instead of the 5 s and 10 s site literals it replaced). Same class as
       src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk waits for the broker
-      to report. Since 14 Oct it also decides how long a pass waits for a protected sale's
-      cancelled legs (one deadline shared across all legs, cancel_confirm.settle_legs) before
-      handing the sale to the intra_safety drain as OWED on its recovery row. It never decides
-      whether the sale happens or its size: the drain decides that, after the legs are dead and
-      the position re-checks.
+      to report. Since 14 Oct it also decides how long one pass waits for a protected sale's
+      cancelled legs (one deadline shared across all legs, cancel_confirm.settle_legs) before the
+      sale is PUT OFF: nothing is sent that pass, the write-ahead restore row puts the stop back
+      once the cancel is terminal, and the deciding run re-checks the sale before it ends
+      (src/protection/put_off_sales.py) -- or, for the trend tick, the sale is deferred to the
+      next tick. The re-check waits in steps of this same wait and is bounded by the run's own
+      existing deadline (its SESSION_WINDOWS end or the unit's hard kill, SESSION_DEADLINE_EPOCH,
+      whichever is earlier); it admits a step only while one whole wait still fits. This number
+      never decides whether the sale happens or its size: the re-check decides that, after the
+      legs are dead and the position re-reads.
   - id: src.execution.broker_parts.trade_stream._TradeUpdatesHub.wait(poll_interval)
     value: 1
     status: not-trade-governing

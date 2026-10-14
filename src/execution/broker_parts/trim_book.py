@@ -148,7 +148,7 @@ class TrimAmend:
                 return False, [], None, None
             # The cancel above waited for the broker to confirm the sliver
             # dead (one shared deadline); the protected sell sends nothing
-            # until it has, and owes the sale when it has not.
+            # until it has, and puts the sale off when it has not.
         self._state.set("_last_stop_clear_refusal", "")
         return True, cancelled, wal_row_id, kept_leg
 

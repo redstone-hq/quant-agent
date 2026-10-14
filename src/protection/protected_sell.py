@@ -8,7 +8,6 @@ Host attributes a body reads with a defaulted getattr or ASSIGNS go through `sta
 (a live get/set view the shim hands in), never a copy.
 """
 
-import json
 import logging
 
 from src.execution.broker_parts.cancel_confirm import settle_legs
@@ -72,7 +71,10 @@ class ProtectedSell:
         the order never reaches the broker.
 
         Returns ``(order, pending_protection)`` on broker acceptance, or
-        ``None`` when the symbol must be skipped — stop-clear failed, the
+        ``None`` when the symbol must be skipped (including a sale PUT OFF
+        because a cancelled leg was not confirmed dead in the wait: then
+        ``_last_stop_clear_refusal`` names it and the deciding run's seam,
+        src/protection/put_off_sales.py, re-checks it) — stop-clear failed, the
         submit raised, or the broker rejected. In every skip case the
         protective stops are already restored (or were never cancelled), so
         the caller just ``continue``s with no naked-position window.
@@ -167,15 +169,44 @@ class ProtectedSell:
             # ladder, which would then trim less than it reports.
             self._alert_owner_exit_declined(symbol, side=side, why=why)
             return None
-        if self._owe_if_unconfirmed(
-            symbol,
-            side,
-            wal_row_id,
-            {"label": label, "qty": abs(float(qty)), "full_exit": full_exit, "limit_price": limit_price}
-            | {"reference_price": reference_price},
-            stop_specs,
-        ):
+        sale = {
+            "symbol": symbol,
+            "qty": abs(float(qty)),
+            "limit_price": limit_price,
+            "reference_price": reference_price,
+            "position_qty_before_sell": position_qty_before_sell,
+            "label": label,
+            "side": side,
+            "escalate_to_market_on_reject": escalate_to_market_on_reject,
+            "full_exit": full_exit,
+            "stop_specs": stop_specs,
+            "wal_row_id": wal_row_id,
+            "kept_leg": kept_leg,
+        }
+        if self._put_off_if_unconfirmed(sale):
             return None
+        return self._send_cleared(**sale)
+
+    def _send_cleared(
+        self,
+        *,
+        symbol,
+        qty,
+        limit_price,
+        reference_price,
+        position_qty_before_sell,
+        label,
+        side,
+        escalate_to_market_on_reject,
+        full_exit,
+        stop_specs,
+        wal_row_id,
+        kept_leg,
+    ):
+        """Tail half: every cancelled leg is terminal, so size to held and send, or put the stops back.
+
+        Called by the pass once its legs settled, and by the deciding run's
+        re-check (src/protection/put_off_sales.py) for a sale it put off."""
 
         def _put_back_protection() -> None:
             # Cancelled legs are restored; a stop shrunk in place for a trim
@@ -438,13 +469,17 @@ class ProtectedSell:
         self._state.set("_entry_legs", [])
         return _q(abs(float(qty))) >= _q(abs(float(position_qty_before_sell)))
 
-    def _owe_if_unconfirmed(self, symbol: str, side: str, wal_row_id, sale: dict, stop_specs) -> bool:
-        """True when a cancelled leg is not confirmed dead, so nothing may sell.
+    def _put_off_if_unconfirmed(self, sale: dict) -> bool:
+        """True when a cancelled leg is not confirmed dead inside the pass's wait: the sale is PUT OFF.
 
         The shares may still be held by a dying stop: a SELL now is refused
         (403 40310000, ETN and NET 13 Oct) and a new stop is refused too.
-        Nothing is sent and nothing is put back; the sale is OWED on the
-        recovery row and the intra_safety drain sends it."""
+        Nothing is sent and nothing is put back this pass. The write-ahead
+        restore row stays, so the restore drain puts the stop back once the
+        cancel is terminal; the run that decided re-checks the sale before it
+        ends (src/protection/put_off_sales.py). Covers a leg still live or
+        `replaced` (cancel_unconfirmed, incl. a stop part-filled and still
+        working) and an unreadable leg (cancel_read_failed)."""
         settlement = self._held_legs("_leg_settlement")
         if settlement is None and self._held_legs("_entry_legs"):
             # No stop was cancelled: the entry / leftover order cancels alone.
@@ -452,11 +487,18 @@ class ProtectedSell:
             self._state.set("_leg_settlement", settlement)
         if settlement is None or settlement.settled:
             return False
-        record_owed_sale(self.db, wal_row_id, symbol, dict(sale, reason=settlement.reason), stop_specs)
+        from src.protection import put_off_sales
+
+        legs = [dict(x, side=sale["side"], kind="stop") for x in sale["stop_specs"] or [] if x.get("id")]
+        legs += self._held_legs("_entry_legs") or []
         self._last_stop_clear_refusal = settlement.reason
         why = _OWN_REASONS[settlement.reason]
-        logger.warning("%s: no order for %s this pass — %s", sale["label"], symbol, why)
-        self._alert_owner_exit_declined(symbol, side=side, why=why)
+        logger.warning("%s: no order for %s this pass — %s", sale["label"], sale["symbol"], why)
+        record = put_off_sales.PutOff(sale=dict(sale), legs=legs, reason=settlement.reason, seller=self)
+        if not put_off_sales.put_off(record):
+            # No run owns it (no seam is open): nothing will re-check it, so say so now.
+            why = put_off_sales.not_sold_why(None, settlement.reason)
+            self._alert_owner_exit_declined(sale["symbol"], side=sale["side"], why=why)
         return True
 
     def _size_to_held(self, label, symbol, side, qty, position_qty_before_sell, wal_row_id, put_back, *, full_exit):
@@ -555,11 +597,12 @@ _OWN_REASONS = {
     ),
     "cancel_unconfirmed": (
         "the broker had not confirmed the protective stop's cancel, so the shares may still be held by it "
-        "and a sale would be refused; no order was sent and the sale is owed to the next safety tick"
+        "and a sale would be refused; no order was sent this pass and the run that decided re-checks it "
+        "before it ends"
     ),
     "cancel_read_failed": (
         "the read of the cancelled stop's status failed, so whether it still holds the shares is unknown; "
-        "no order was sent and the sale is owed to the next safety tick"
+        "no order was sent this pass and the run that decided re-checks it before it ends"
     ),
     "position_disagrees": (
         "the position the broker now reports does not match what was held less the stop fills, or is "
@@ -569,19 +612,11 @@ _OWN_REASONS = {
         "the protective stop filled in part while it was being cancelled, so this trim was decided on a "
         "position that no longer exists; no order was sent, the stops were put back, and the next pass decides again"
     ),
-    "shares_free_unknown": (
-        "the broker reported no free-share figure, so whether the sale would be refused is unknown; "
-        "no order was sent and the sale stays owed to the next safety tick"
-    ),
     "shares_reserved": (
         "fewer shares are free than the order needs (other open orders reserve the rest); a smaller sale "
         "is never sent in its place, so no order was sent and the stops were put back"
     ),
 }
-
-#: A recovery row whose sale is OWED carries this prefix in its sell_order_id
-#: (the write-ahead sentinel's place) followed by the sale as JSON.
-OWED_SALE_PREFIX = "__OWED_SALE__"
 
 
 def _legs_of(cancelled) -> list[dict]:
@@ -625,159 +660,3 @@ def sale_refusal(intended, held, free, *, full_exit, snapshot=None, net_change=N
     if free is not None and _q(want) > _q(free):
         return "shares_reserved"
     return ""
-
-
-def record_owed_sale(db, wal_row_id, symbol: str, sale: dict, specs=None) -> bool:
-    """Write the unsent sale onto its recovery row, so the drain sends it."""
-    if wal_row_id is None:
-        logger.error("owed sale for %s has no recovery row; the coverage audit is its only repair", symbol)
-        return False
-    try:
-        extra = {"specs_json": json.dumps(specs)} if specs else {}
-        db.update_pending_protection_restore(wal_row_id, sell_order_id=OWED_SALE_PREFIX + json.dumps(sale), **extra)
-        record_guarded_pass(db, "protected_sell.owe_sale", context={"symbol": symbol})
-        return True
-    except Exception as exc:  # noqa: BLE001
-        record_guarded_pass(db, "protected_sell.owe_sale", exc, context={"symbol": symbol})
-        logger.error("owed sale for %s could not be recorded on row %s: %s", symbol, wal_row_id, exc)
-        return False
-
-
-def owed_sale(row: dict) -> dict | None:
-    """The owed sale a recovery row carries, or None when it carries none."""
-    order_id = str(row.get("sell_order_id") or "")
-    if not order_id.startswith(OWED_SALE_PREFIX):
-        return None
-    try:
-        return json.loads(order_id[len(OWED_SALE_PREFIX) :])
-    except ValueError:
-        return {}
-
-
-def drain_owed_sales(host) -> int:
-    """Send each owed sale whose cancelled legs are now dead; return how many went.
-
-    Runs in the intra_safety preamble, before the restore drain reads the same
-    rows. Per owed row: a leg still live (or unread) keeps the sale owed for
-    the next tick. Otherwise the position is re-checked (held on the row's
-    side, exactly the intended size, against the shares free now); a refusal
-    is logged by symbol and the row goes back to the write-ahead sentinel so
-    the restore drain puts the stops back at held. A sale that may go is sent
-    through the protected sell, and the row then tracks that SELL, so the
-    restore drain re-protects any residual once it is terminal."""
-    from src.protection.sell_finalization import _WAL_SELL_SENTINEL
-
-    try:
-        rows = host.db.get_pending_protection_restores()
-    except Exception as exc:  # noqa: BLE001
-        record_guarded_pass((host.broker, host.db), "owed_sales.read_rows", exc)
-        return 0
-    sent = 0
-    for row in rows:
-        sale = owed_sale(row)
-        if sale is not None and _drain_one_owed_sale(host, row, sale, _WAL_SELL_SENTINEL):
-            sent += 1
-    return sent
-
-
-def _owed_sale_refusal(host, row: dict, sale: dict) -> str | None:
-    """None while a leg is still live or the position is unreadable (stay
-    owed); otherwise the per-symbol refusal, empty when the sale may go."""
-    symbol, label, side = row["symbol"], sale.get("label") or "SELL", row.get("side") or "sell"
-    try:
-        specs = json.loads(row["specs_json"])
-    except ValueError:
-        specs = []
-    settlement = settle_legs(host.broker, specs)
-    if settlement.any_live:
-        logger.warning("owed %s for %s still not sent — %s", label, symbol, _OWN_REASONS[settlement.reason])
-        return None
-    try:
-        held, free = closable_and_free(host.broker, symbol, side)
-    except Exception as exc:  # noqa: BLE001
-        record_guarded_pass((host.broker, host.db), "owed_sales.position_read", exc, context={"symbol": symbol})
-        logger.warning("owed %s for %s still not sent — %s", label, symbol, _OWN_REASONS["position_unreadable"])
-        return None
-    sale["held"] = held
-    if held <= 0:
-        return "stop_fired"
-    if free is None:
-        logger.warning("owed %s for %s still not sent — %s", label, symbol, _OWN_REASONS["shares_free_unknown"])
-        return None
-    full_exit = bool(sale.get("full_exit"))
-    reason = sale_refusal(sale.get("qty") or 0, held, free, full_exit=full_exit, stops_filled=settlement.filled_qty)
-    if reason:
-        logger.warning(
-            "owed %s for %s not sent — %s (held %s, free %s, owed %s)",
-            label,
-            symbol,
-            _OWN_REASONS[reason],
-            held,
-            free,
-            sale.get("qty"),
-        )
-    return reason
-
-
-def _drain_one_owed_sale(host, row: dict, sale: dict, sentinel: str) -> bool:
-    """One owed row: True when its sale was sent."""
-    symbol, row_id, side = row["symbol"], row["id"], row.get("side") or "sell"
-    label = sale.get("label") or "SELL"
-    reason = _owed_sale_refusal(host, row, sale)
-    if reason is None:
-        return False
-    if reason == "stop_fired":
-        host.db.delete_pending_protection_restore(row_id)  # nothing held: nothing to sell or protect
-        return False
-    host.db.update_pending_protection_restore(row_id, sell_order_id=sentinel)
-    if reason:
-        return False  # the restore drain puts the stops back at held this tick
-    held = sale["held"]
-    qty = held if sale.get("full_exit") else abs(float(sale["qty"]))
-    # Priced now, the way the plain exit path prices (src/exit_quote.py): a
-    # DAY MARKET order, the live quote read only as the reference. The limit
-    # recorded when the sale was owed is stale and is not reused.
-    from src.exit_quote import read_exit_quote
-
-    quote = read_exit_quote(host.broker, symbol) or {}
-    sale["reference_price"] = quote.get("bid" if side == "sell" else "ask") or sale.get("reference_price")
-    result = host._submit_protected_sell(
-        symbol=symbol,
-        qty=qty,
-        limit_price=None,
-        reference_price=sale["reference_price"],
-        position_qty_before_sell=held,
-        label=label,
-        side=side,
-    )
-    if result is None:
-        return False  # the protected sell logged its own reason; the restore drain re-protects
-    order, prot = result
-    logger.warning("owed %s for %s SENT: %s after its stop cancel confirmed", label, symbol, qty)
-    _record_owed_trade(host, row, sale, order, qty)
-    if prot.get("specs") or prot.get("kept_leg") is not None:
-        # This sale cleared stops of its own: its own row protects the
-        # residual, so the owed row's older specs are spent.
-        host.db.delete_pending_protection_restore(row_id)
-        host._finalize_pending_protections([prot], context="Owed sale")
-    else:
-        host.db.update_pending_protection_restore(row_id, sell_order_id=str(order.get("id")))
-    return True
-
-
-def _record_owed_trade(host, row: dict, sale: dict, order: dict, qty: float) -> None:
-    symbol = row["symbol"]
-    try:
-        host.db.insert_trade(
-            symbol=symbol,
-            action=sale.get("label") or "SELL",
-            qty=qty,
-            price=sale.get("reference_price"),
-            reasoning=f"owed sale, sent once its stop cancel was confirmed ({sale.get('reason')})",
-            run_id=row.get("run_id"),
-            broker_order_id=order.get("id"),
-            fill_status="submitted",
-        )
-        record_guarded_pass((host.broker, host.db), "owed_sales.insert_trade", context={"symbol": symbol})
-    except Exception as exc:  # noqa: BLE001
-        record_guarded_pass((host.broker, host.db), "owed_sales.insert_trade", exc, context={"symbol": symbol})

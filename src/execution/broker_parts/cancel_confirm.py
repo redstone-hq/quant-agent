@@ -85,7 +85,8 @@ def _confirm_cancels_status(broker: Any, specs: list[dict]) -> tuple[str, str]:
 
 
 #: Why a sale waiting on cancelled legs is not sent this pass. Each is
-#: per symbol and leaves the sale owed (see protected_sell.record_owed_sale).
+#: per symbol and puts the sale off to its deciding run's re-check
+#: (src/protection/put_off_sales.py).
 CANCEL_UNCONFIRMED = "cancel_unconfirmed"
 CANCEL_READ_FAILED = "cancel_read_failed"
 

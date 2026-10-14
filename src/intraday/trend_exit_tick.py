@@ -195,7 +195,10 @@ def trend_exit_on_tick(
         for symbol in symbols:
             mark(symbol, OUTCOME_ERROR)
         raise SellPathError(f"sell path raised for {symbols}: {exc}", symbols) from exc
-    _settle(symbols, orders, set(final_today(firing) or set()), mark, summary, completed_bar_date)
+    from src.protection.put_off_sales import claim_put_offs
+
+    put_off = claim_put_offs(symbols)  # the tick retries these itself; the run's re-check does not
+    _settle(symbols, orders, set(final_today(firing) or set()), mark, summary, completed_bar_date, put_off)
     summary["no_trail"] = list(summary["sold"])
     return summary
 
@@ -243,12 +246,24 @@ def _not_busy(cleared: list, open_orders_checked, mark, summary: dict, bar_date:
     return firing
 
 
-def _settle(symbols: list, orders: list, final: set, mark, summary: dict, bar_date: str) -> None:
-    """Mark each routed holding sold, refused or refused_final; none of these is retried this session."""
+def _settle(symbols: list, orders: list, final: set, mark, summary: dict, bar_date: str, put_off=frozenset()) -> None:
+    """Mark each routed holding sold, deferred, refused or refused_final.
+
+    A sale PUT OFF because its stop's cancel was not confirmed in the wait is
+    `deferred` (retried next tick, 9 Oct ruling), never `refused`, which is
+    not retried that day."""
     ordered = {_order_symbol(order) for order in orders}
     for symbol in symbols:
         if symbol in ordered:
             outcome = OUTCOME_SOLD
+        elif symbol in put_off:
+            outcome = OUTCOME_DEFERRED
+            logger.warning(
+                "tick trend exit: %s cleared on the %s close but its stop's cancel was not confirmed; "
+                "no order this tick, deferred to the next tick",
+                symbol,
+                bar_date,
+            )
         elif symbol in final:
             outcome = OUTCOME_REFUSED_FINAL
         else:

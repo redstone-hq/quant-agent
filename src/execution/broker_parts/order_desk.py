@@ -56,9 +56,10 @@ logger = logging.getLogger("src.execution.broker")
 from src.execution.broker_parts.submission_rejection import _is_terminal_submission_rejection  # noqa: F401 (re-export)
 
 #: The one ceiling on waiting for an order to reach a terminal state. Every
-#: cancel-then-act site waits on this (no per-site literal), and a cancel not
-#: confirmed inside it defers the sale to the owed-sale drain rather than
-#: sending into a stop still holding the shares (refused sales, 13 Oct).
+#: cancel-then-act site waits on this (no per-site literal). A cancel not
+#: confirmed inside it puts the sale off: nothing is sent into a stop still
+#: holding the shares, and the deciding run re-checks it before it ends
+#: (src/protection/put_off_sales.py; the trend tick defers it to its next tick).
 ORDER_TERMINAL_CEILING_S = 15.0
 
 
@@ -375,7 +376,11 @@ class OrderDesk:
                 ok(self, "poll_order_status", order=order_id)
             except Exception as exc:
                 mark(self, "poll_order_status", exc, order=order_id)
-                return last_status
+                # The read failed: the status is UNKNOWN now, whatever an
+                # earlier read said. Returning the stale one made a REST
+                # hiccup look like a live order (cancel_unconfirmed) instead
+                # of a failed read (cancel_read_failed).
+                return None
 
             last_status = status or last_status
             if status in stop_states:

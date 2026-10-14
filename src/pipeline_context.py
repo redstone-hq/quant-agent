@@ -375,6 +375,9 @@ class RunContext:
         rid_prefix = "run" if session == "morning" else session
         run_id = f"{rid_prefix}-{uuid.uuid4().hex[:8]}"
         open_restore_run(run_id)  # run-scoped; see that module
+        from src.protection.put_off_sales import note_run_id
+
+        note_run_id(run_id)  # a re-checked put-off sale is recorded under this run
         return cls(run_id=run_id, session=session)
 
 
