@@ -52,6 +52,9 @@ class LLMCostCircuitConfig(BaseModel):
     enabled: bool = True
     require_telegram_alerts: bool = True
     session_cost_limit_usd: float = Field(default=0.90, gt=0, allow_inf_nan=False)
+    # The close session ("close") is exempt from THIS cap only (owner ruling
+    # 2026-10-14; src/cost_circuit/free_route.py DAILY_CAP_EXEMPT_MODES). Its
+    # session cap and the call-count backstop above still apply to it.
     daily_cost_limit_usd: float = Field(default=1.50, gt=0, allow_inf_nan=False)
     # Last OpenRouter top-up (amount, ET date). Only used when the provider
     # will not report a balance; see src/llm_balance_runway.py.

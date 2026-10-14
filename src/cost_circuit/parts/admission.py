@@ -15,7 +15,7 @@ from src.cost_circuit.refusal import (
     _fmt_settled,
 )
 from src.cost_circuit.clock import _et_day_and_utc_bounds, _sql_stamp
-from src.cost_circuit.free_route import admit_free_route_locked
+from src.cost_circuit.free_route import admit_free_route_locked, daily_cap_applies
 
 
 class Admission:
@@ -121,7 +121,7 @@ class Admission:
                 session_cost=session,
                 daily_cost=daily,
             )
-        elif daily >= float(self.config.daily_cost_limit_usd):
+        elif daily >= float(self.config.daily_cost_limit_usd) and daily_cap_applies(mode):
             self._trip_locked(
                 conn,
                 code="daily_cost_limit",
