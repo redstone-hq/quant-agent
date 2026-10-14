@@ -745,23 +745,20 @@ def _exit_pipe():
     return pipe
 
 
-def test_a_listing_failure_is_retried_before_it_can_refuse_an_exit():
-    """The listers had NO retry: one exception and the answer was "I cannot
-    ask", which now costs a skipped exit. Reuses the desk's own derived
-    stop-path retry constants, so no new number is invented — and a read
-    cannot double-place anything, which is why retrying it is safer than
-    retrying the write those constants were written for."""
+def test_a_listing_failure_is_not_retried_by_the_desk():
+    """2026-10-14: the read's retry loop borrowed the stop-placement attempt
+    count and backoff, which were arbitrary and are deleted. alpaca-py's
+    client retries 429/504 itself; the desk asks once and a failure is
+    UNKNOWN at once, with no sleep."""
     from src.execution import broker as _broker
 
     calls = {"n": 0}
 
     def _lister(self, symbol, *, side="sell", errors=None):
         calls["n"] += 1
-        if calls["n"] < _broker._STOP_PLACEMENT_MAX_ATTEMPTS:
-            if errors is not None:
-                errors.append("open-order listing failed: 503")
-            return []
-        return [{"id": "s1", "qty": 5.0, "stop_price": 10.0}]
+        if errors is not None:
+            errors.append("open-order listing failed: 503")
+        return []
 
     b = _broker.AlpacaBroker.__new__(_broker.AlpacaBroker)
     with (
@@ -770,11 +767,11 @@ def test_a_listing_failure_is_retried_before_it_can_refuse_an_exit():
             "_list_open_protective_stop_orders",
             _lister,
         ),
-        patch.object(_broker.time, "sleep"),
+        patch.object(_broker.time, "sleep") as sleep,
     ):
         ok, specs = _broker.AlpacaBroker.snapshot_protective_stops(b, "AAPL")
-    assert calls["n"] == _broker._STOP_PLACEMENT_MAX_ATTEMPTS
-    assert ok is True, "a transient failure must not cost the exit"
+    assert (calls["n"], sleep.call_count) == (1, 0)
+    assert ok is False and specs == []
 
 
 def test_a_listing_that_fails_every_attempt_still_reports_unknown():

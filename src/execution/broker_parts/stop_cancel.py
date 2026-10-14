@@ -5,17 +5,14 @@
 functions taking the broker first. `AlpacaBroker` keeps a same-named one-line
 shim for each, and every other broker member (including the composed calls
 between these four) is reached through `broker.<name>`, so a class-level patch
-on `AlpacaBroker` still bites. `time.sleep` is the shared `time` module's, so
-patching `src.execution.broker.time.sleep` still reaches the retry backoff.
+on `AlpacaBroker` still bites.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 
 from src.stop_cancel_outcome import StopCancelOutcome, StopCoverageLost, settle_cancel
-from src.execution.broker_parts.stop_place import _STOP_PLACEMENT_MAX_ATTEMPTS, _STOP_PLACEMENT_BACKOFF_S
 from src.sentinel.guarded import record_guarded_pass
 
 # The moved bodies log under the broker's logger name, and the move must not
@@ -78,47 +75,23 @@ def snapshot_protective_stops(
     inherited. What it does now is decided at that call site and
     documented there.
 
-    THE READ IS RETRIED before it reports UNKNOWN. The listers have had
-    no retry at all: one exception and the answer was "I cannot ask",
-    which now costs a skipped exit. The desk's own derived retry shape
-    for the stop path — `_STOP_PLACEMENT_MAX_ATTEMPTS` attempts with
-    `_STOP_PLACEMENT_BACKOFF_S` backoff — is justified on the grounds
-    that "every failure worth retrying is transient: a 429, a 5xx, a
-    dropped connection". That argument is STRONGER for a read than for
-    the write it was written for: a retried read cannot double-place
-    anything. Same constants, so there is no new number here.
+    THE READ IS NOT RETRIED BY THE DESK (2026-10-14). Its retry loop
+    borrowed the stop-placement attempt count and backoff, which were
+    arbitrary and are deleted; it had no number of its own. alpaca-py's
+    REST client already retries 429 and 504 itself (`RESTClient`
+    `DEFAULT_RETRY_ATTEMPTS` 3, 3 s wait). Any other listing failure
+    reports UNKNOWN at once, exactly as the last failed attempt did.
     """
     errors: list = []
-    stops: list = []
-    for attempt in range(_STOP_PLACEMENT_MAX_ATTEMPTS):
-        errors = []
-        stops = broker._list_open_protective_stop_orders(
-            symbol,
-            side=side,
-            errors=errors,
-        )
-        if not errors:
-            break
-        if attempt + 1 < _STOP_PLACEMENT_MAX_ATTEMPTS:
-            delay = _STOP_PLACEMENT_BACKOFF_S[min(attempt, len(_STOP_PLACEMENT_BACKOFF_S) - 1)]
-            logger.warning(
-                "snapshot_protective_stops: listing %s's protective "
-                "stops failed (%s) — retrying in %.1fs (attempt %d of "
-                "%d).",
-                symbol,
-                "; ".join(errors),
-                delay,
-                attempt + 2,
-                _STOP_PLACEMENT_MAX_ATTEMPTS,
-            )
-            time.sleep(delay)
+    stops = broker._list_open_protective_stop_orders(
+        symbol,
+        side=side,
+        errors=errors,
+    )
     if errors:
         logger.error(
-            "snapshot_protective_stops: could not READ %s's protective "
-            "stops after %d attempts (%s) — reporting UNKNOWN, not "
-            "'no stop'.",
+            "snapshot_protective_stops: could not READ %s's protective stops (%s) — reporting UNKNOWN, not 'no stop'.",
             symbol,
-            _STOP_PLACEMENT_MAX_ATTEMPTS,
             "; ".join(errors),
         )
         return False, []
