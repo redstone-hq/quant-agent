@@ -849,3 +849,40 @@ def test_morning_message_is_silent_about_the_screen_when_it_is_off():
 
     text = format_session_result("morning", {"status": "ok", "run_id": "m"}, 1.0)
     assert "Stock list" not in text
+
+
+def test_select_for_run_caps_non_held_and_always_includes_held():
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC", "DDD"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    chosen = us.select_for_run(state, held={"DDD"}, cap=2, today=TODAY)
+    assert set(chosen) == {"AAA", "BBB", "DDD"}
+    assert chosen["DDD"]["held"] is True
+
+
+def test_select_for_run_rotates_least_recently_offered_first():
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    first = us.select_for_run(state, held=set(), cap=2, today=TODAY)
+    second = us.select_for_run(state, held=set(), cap=2, today=TODAY + timedelta(days=1))
+    assert set(first) == {"AAA", "BBB"}
+    assert "CCC" in second
+
+
+# ------------------------------------------------------- pipeline wiring ----
+
+
+def test_screened_universe_reaches_the_session_capped(tmp_path):
+    pipeline = _pipeline(tmp_path)
+    store = us.UniverseStore(tmp_path)
+    state = us.empty_state()
+    for sym in ("AAA", "BBB", "CCC", "DDD", "EEE"):
+        us.apply_result(state, _pass(sym), today=TODAY, held=set())
+    store.save(state)
+    symbols, details = pipeline.admission._admit_screened_universe_symbols(
+        [SimpleNamespace(symbol="EEE")],
+    )
+    assert "EEE" in symbols
+    assert len(symbols - {"EEE"}) == 3  # nominations.max_per_seat_per_run
+    assert details["AAA"]["reason"] == "universe_screen_admission"

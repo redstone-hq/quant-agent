@@ -117,13 +117,3 @@ def test_weekly_scan_refuses_leveraged_and_inverse_funds(tmp_path):
 def test_weekly_scan_does_not_refuse_a_company_for_ultra_in_its_name(tmp_path):
     state = _weekly_pass(tmp_path, ["UCTT"])
     assert "UCTT" in state["admitted"], state["screened"]
-
-
-def test_more_than_three_admitted_names_reach_the_session(tmp_path):
-    state = us.empty_state()
-    symbols = ("AAA", "BBB", "CCC", "DDD", "EEE")
-    for symbol in symbols:
-        us.apply_result(state, us.ScreenResult(symbol=symbol), today=date(2026, 10, 14), held=set())
-    us.UniverseStore(tmp_path).save(state)
-    chosen, _ = _service(tmp_path, [])._admit_screened_universe_symbols([])
-    assert chosen == set(symbols)

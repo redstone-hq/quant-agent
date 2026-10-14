@@ -335,18 +335,29 @@ class AdmissionService:
     def _admit_screened_universe_symbols(self, positions=None) -> tuple[set[str], dict[str, dict]]:
         """This session's share of the screened universe (screen on only).
 
-        Every admitted name, held or not: no per-run cap (owner board item
-        "no 3-a-day cap", 2026-10-14).
+        Every held admitted name, plus at most `nominations.
+        max_per_seat_per_run` others, rotated least-recently-offered first —
+        the screen is one more source of candidates and is capped like one
+        seat, so the portfolio manager's bill is a number that is set.
         """
         if not self._universe_screen_enabled():
             return set(), {}
         from src.universe_screen import UniverseStore, select_for_run
+        from src.util.time import et_today
 
-        state = UniverseStore(self.config.universe_screen.data_dir).load()
+        store = UniverseStore(self.config.universe_screen.data_dir)
+        state = store.load()
         held = {str(getattr(p, "symbol", "") or "").strip().upper() for p in (positions or [])}
         configured = {str(s).strip().upper() for s in self.config.trading.universe}
-        chosen = select_for_run(state, held=held)
+        chosen = select_for_run(
+            state,
+            held=held,
+            cap=int(self.config.nominations.max_per_seat_per_run),
+            today=et_today(),
+        )
         chosen = {s: d for s, d in chosen.items() if s not in configured}
+        if chosen:
+            store.save(state)
         return set(chosen), chosen
 
     def _run_universe_screen(self, run_id: str) -> dict | None:
