@@ -31,4 +31,5 @@ src/soft_exit_never_blank.py
 src/stage_decision.py
 src/stage_execution
 src/stage_risk
+src/storage/event_journal.py
 src/storage/target_revisions.py
