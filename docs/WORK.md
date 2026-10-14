@@ -164,7 +164,7 @@ DONE WHEN:
   - [x] spend and actions re-measured — 2026-09-26, against the production cost circuit read-only. …(rest: docs/board_notes/item-177.md)
 detail: docs/board_notes/item-177.md
 
-**186. Risk ceilings are made-up — filed 2026-09-25. [9 of 9 ticked; no box is open since the haircut box was superseded 2026-10-04. Closing this item is not recorded here and needs a decision.]**
+**186. Risk ceilings are made-up — filed 2026-09-25. [9 of 9 ticked; the haircut box was superseded 2026-10-04 by the haircut's deletion. Awaiting the owner's closure.]**
 
 DONE WHEN:
   - [x] the three already-ratified ceilings (25 / 90 / 40) stay ratified, and the remaining three are researched to a definite verdict rather than left unexamined
