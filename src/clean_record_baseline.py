@@ -16,19 +16,16 @@ from __future__ import annotations
 import math
 from datetime import date
 
-from src.storage.analytics.calibration import CLEAN_RECORD_START_UTC
+from src.storage.analytics.calibration import (  # noqa: F401 - re-exported for the API reader
+    CLEAN_BASELINE_FIRST_SQL,
+    CLEAN_BASELINE_PREV_SQL,
+    CLEAN_RECORD_DATE,
+)
 
-CLEAN_RECORD_DATE = CLEAN_RECORD_START_UTC[:10]
-
-#: First row on/after the clean-record date, and the row just before it.
-#: Bind parameter: CLEAN_RECORD_DATE.
-CLEAN_BASELINE_FIRST_SQL = "SELECT * FROM daily_pnl WHERE date >= ? ORDER BY date ASC LIMIT 1"
-CLEAN_BASELINE_PREV_SQL = "SELECT * FROM daily_pnl WHERE date < ? ORDER BY date DESC LIMIT 1"
-
-#: The broker read falls back to last_equity = portfolio_value when it returns
-#: nothing, which records daily_pnl = 0 and a baseline equal to that day's
-#: close. A real baseline must equal the previous row's recorded close.
-_CLOSE_MATCH_TOLERANCE = 0.05
+# The broker read falls back to last_equity = portfolio_value when it returns
+# nothing, which records daily_pnl = 0 and a baseline equal to that day's
+# close. A real baseline must equal the previous row's recorded close to the
+# cent (dollar amounts carry cents; the subtraction leaves float dust below).
 
 
 def _label(day: str, *, close: bool) -> str | None:
@@ -65,7 +62,7 @@ def clean_record_baseline(first: dict | None, prev: dict | None) -> tuple[float,
         close = float(close)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(close) or abs(baseline - close) > _CLOSE_MATCH_TOLERANCE:
+    if not math.isfinite(close) or round(baseline, 2) != round(close, 2):
         return None
     label = _label(prev.get("date"), close=True)
     return (baseline, label) if label else None
