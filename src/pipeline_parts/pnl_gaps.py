@@ -1,6 +1,7 @@
 import logging
 import math
 
+from src.clean_record_baseline import clean_record_baseline
 from src.data.news import NewsCoverage
 from src.models import (
     NewsIntelligenceReport,
@@ -16,50 +17,36 @@ def _total_pnl_since_reset(
     pipeline,
     total_value: float,
 ) -> tuple[float | None, float | None, str | None]:
-    """`(total_pnl, total_return_pct, since_date)` for the Telegram
+    """`(total_pnl, total_return_pct, since_label)` for the Telegram
     feed's "total P&L" line.
 
-    **Why "since reset" and not "since inception".** The desk's
-    2026-09-02 book-wide liquidation archived every prior trade/
-    daily_pnl row (see docs/INCIDENT_HISTORY.md); the live `daily_pnl`
-    table has held no row earlier than that date since. A "total"
-    spanning that boundary would silently splice pre-reset and
-    post-reset history into one number the owner would act on as if it
-    were continuous — exactly the defect he flagged. So the baseline
-    is the EARLIEST row this table actually has, never reconstructed
-    from the archive.
+    The baseline starts at the CLEAN RECORD (owner ruling 2026-10-09:
+    earlier trading is not evidence; rows stay, only uncounted), not the
+    table's oldest row. Baseline, verification against the previous close
+    and the "Fri 9 Oct close" label all live in
+    `src.clean_record_baseline.clean_record_baseline`, shared with the
+    dashboard.
 
-    **Why that row's `total_value - daily_pnl`, not its `equity_close`.**
-    `equity_close` is that day's OWN 4pm close — already one day inside
-    the post-reset period, which would drop that first day's P&L from
-    the total. `total_value - daily_pnl` recovers the broker's
-    last_equity going into that day (the same basis `daily_pnl` itself
-    is built from everywhere else in this file), i.e. the account's
-    equity immediately before the first post-reset trading day —
-    a value already recorded on that row, not invented here.
-
-    Returns `(None, None, None)` when no `daily_pnl` row exists yet
-    (fresh DB) or the recorded baseline is non-finite/non-positive —
-    never a fabricated 0.
+    Returns `(None, None, None)` when the baseline is missing or cannot be
+    verified — never a fabricated 0.
     """
     try:
-        earliest = pipeline.db.get_earliest_daily_pnl()
+        first, prev = pipeline.db.get_clean_record_baseline_rows()
     except Exception as exc:  # noqa: BLE001
         logger.warning("total P&L baseline lookup failed: %s", exc)
         return None, None, None
-    if not earliest:
+    resolved = clean_record_baseline(first, prev)
+    if resolved is None:
         return None, None, None
+    baseline, since_label = resolved
     try:
-        baseline = float(earliest["total_value"]) - float(earliest["daily_pnl"])
         tv = float(total_value)
-    except (TypeError, ValueError, KeyError):
+    except (TypeError, ValueError):
         return None, None, None
-    if not (baseline > 0) or not math.isfinite(baseline) or not math.isfinite(tv):
+    if not math.isfinite(tv):
         return None, None, None
     total_pnl = tv - baseline
-    total_return_pct = total_pnl / baseline * 100
-    since_date = str(earliest.get("date") or "") or None
-    return total_pnl, total_return_pct, since_date
+    return total_pnl, total_pnl / baseline * 100, since_label
 
 
 def _forced_close_side_and_qty(position_qty: float) -> tuple[str, float] | None:

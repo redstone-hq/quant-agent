@@ -173,11 +173,11 @@ class IntradayScanBody:
         Runs on the existing intra_check cadence — no new systemd timer,
         no full morning research stack. One cheap bulk current-session
         snapshot call flags symbols that moved materially since the last
-        close; those movers (capped, cooldown-deduped against repeat churn)
-        PLUS currently held investable names get real daily bars/indicators
+        close (or since the desk's last look at the name this session);
+        the strongest of those movers PLUS currently held investable names get real daily bars/indicators
         and a real tech_analyst call. Held names join the batch so an
         increase on a quiet hold has current-run Technical and can ground;
-        they do not consume the mover cap or the mover cooldown. Then the
+        they do not consume the mover batch. Then the
         SAME DecisionStage -> RiskStage -> ExecutionStage chain morning
         uses — no separate/duplicated decision logic, so PM's sizing rules,
         RM's veto authority and the deterministic gate all apply exactly
@@ -252,8 +252,8 @@ class IntradayScanBody:
         # Owner ruling 2026-10-13: the paid portfolio-manager call runs at
         # most once per `pm_min_interval_minutes`. Inside the interval the
         # check runs the same free held-book path as a no-mover check. The
-        # movers are recorded, and get no cooldown row, so the next paid
-        # call can still see them.
+        # movers are recorded, and get no evaluation row, so the next paid
+        # call still measures them from their old reference.
         last_pm = self._minutes_since_last_intraday_pm_call()
         if last_pm is not None and last_pm < cfg.pm_min_interval_minutes:
             logger.info(
@@ -338,16 +338,16 @@ class IntradayScanBody:
         # No movers: a held-book check only (below-entry-bar sale, no PM).
         held_only = not symbols
         logger.info(
-            "Intraday scan: %d symbol(s) ranked by move/ATR, outside the %.1fh cooldown, within budget: %s",
+            "Intraday scan: %d symbol(s) ranked by move/ATR since the desk last looked, within budget: %s",
             len(symbols),
-            cfg.cooldown_hours,
             symbols,
         )
         move_by_symbol = dict(candidates)
-        # The cooldown row is written only once the PM has actually seen the
-        # movers (adversary review 2026-10-12): a check that skipped the PM
-        # for no room, or stopped before it, must not hide them for
-        # `cooldown_hours` unseen. See `_record_mover_cooldown`.
+        # The evaluation row (the price the PM saw the mover at) is written
+        # only once the PM has actually seen the movers (adversary review
+        # 2026-10-12): a check that skipped the PM for no room, or stopped
+        # before it, must not reset their reference unseen. See
+        # `_record_mover_evaluation`.
         for symbol in symbols:
             _record_pipeline_event(
                 self,
@@ -357,11 +357,12 @@ class IntradayScanBody:
                 "discovered",
                 "intraday_move_threshold",
                 move_pct=move_by_symbol[symbol],
+                move_ref=(ctx.__dict__.get("_mover_rank_basis") or {}).get(symbol.upper(), {}).get("move_ref"),
             )
 
         # Produce Technical for quiet holds on the same paid call. Discovery
         # stays mover-capped; coverage for names the PM can increase does
-        # not compete with that cap and does not consume mover cooldown.
+        # not compete with the mover batch and writes no evaluation row.
         # Dropping an ungrounded hold is not the product for missing Tech.
         held_for_tech = (
             [s for s in self._intraday_held_tech_symbols(ctx) if s not in {x.upper() for x in symbols}]
@@ -652,7 +653,7 @@ class IntradayScanBody:
         self.decision_stage.run(ctx)
         no_room = getattr(ctx, "pm_room_skip", None)
         if not held_only and not getattr(ctx, "pm_skip_reason", None):
-            self._record_mover_cooldown(ctx, symbols, move_by_symbol)
+            self._record_mover_evaluation(ctx, symbols, move_by_symbol)
         if not ctx.portfolio_decision and (held_only or no_room is not None):
             return {
                 "status": NO_BUYING_ROOM if no_room is not None else "intraday_scan_no_opportunity",
@@ -706,10 +707,13 @@ class IntradayScanBody:
             "run_id": ctx.run_id,
         }
 
-    def _record_mover_cooldown(self, ctx: RunContext, symbols, move_by_symbol) -> None:
-        """Start each mover's cooldown, now that the PM has seen it. Every PM
-        outcome (a decision, no target, or a model failure) consumes it."""
+    def _record_mover_evaluation(self, ctx: RunContext, symbols, move_by_symbol) -> None:
+        """Record each mover the PM has now seen, with the live price it was
+        ranked at (`ref_price`). Every PM outcome (a decision, no target, or a
+        model failure) records it. The next scan this session ranks the name by
+        its move since that price, in its own ATR; nothing locks it out."""
         stamped = ctx.__dict__.get("_mover_ledger_detail") or {}
+        basis = ctx.__dict__.get("_mover_rank_basis") or {}
         for symbol in symbols:
             try:
                 self.db.record_intraday_evaluation(
@@ -717,6 +721,7 @@ class IntradayScanBody:
                     run_id=ctx.run_id,
                     status="selected",
                     detail=stamped.get(symbol.upper()) or f"move_pct={move_by_symbol[symbol]:.4f}",
+                    ref_price=(basis.get(symbol.upper()) or {}).get("last"),
                 )
             except Exception as exc:  # noqa: BLE001
                 _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
@@ -843,7 +848,6 @@ class IntradayMixin:
             retired_cash_park_symbol=getattr(self, "_retired_cash_park_symbol", None),
             intraday_opportunity_scan_body=getattr(self, "_intraday_opportunity_scan_body", None),
             intraday_scan_process_lock=getattr(self, "_intraday_scan_process_lock", None),
-            recently_intraday_evaluated=getattr(self, "_recently_intraday_evaluated", None),
             track_intraday_snapshot_ok=getattr(self, "_track_intraday_snapshot_ok", None),
             track_intraday_snapshot_miss=getattr(self, "_track_intraday_snapshot_miss", None),
             blocking_owner_session=getattr(self, "_blocking_owner_session", None),
@@ -916,11 +920,6 @@ class IntradayMixin:
     def _run_intra_check_body(self, *args, **kwargs):
         """Thin shim: body moved to src/intraday/session.py."""
         return self._intraday_session()._run_intra_check_body(*args, **kwargs)
-
-    @_shim
-    def _recently_intraday_evaluated(self, *args, **kwargs):
-        """Thin shim: body moved to src/intraday/gating.py."""
-        return self._intraday_gating()._recently_intraday_evaluated(*args, **kwargs)
 
     @_shim
     def _blocking_owner_session(self, *args, **kwargs):

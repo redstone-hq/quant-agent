@@ -3,8 +3,8 @@ trigger, and sends ONE paid batch per check: the strongest-ranked five
 (owner ruling 2026-10-12). The paid-analysis budget is a backstop.
 
 ATR is expressed as a percent of the prior close (prev=100 here, so an ATR
-of 8.0 is an 8%/day name). Every name is outside its cooldown unless a test
-says otherwise.
+of 8.0 is an 8%/day name). No name has been looked at this session, so
+every move is measured from the prior close.
 """
 
 import json
@@ -17,7 +17,6 @@ from tests.test_intraday_scan import _intraday_pipeline, _snapshot
 _DROP_REASONS = {
     "no_atr",
     "budget_refused",
-    "cooling_down",
     "over_name_cap",
     "below_move_threshold",
     "not_sent_weaker_rank",
@@ -28,8 +27,7 @@ def _scan(moves: dict, atrs: dict, *, require_paid=None):
     """Run one scan; return (submitted symbols in order, {symbol: dropped event})."""
     p = _intraday_pipeline(universe=list(moves))
     p.broker.get_intraday_snapshots.return_value = {s: _snapshot(last=100.0 + m, prev=100.0) for s, m in moves.items()}
-    p.db.get_recent_intraday_evaluations.return_value = []
-    p._recently_intraday_evaluated = MagicMock(return_value=False)
+    p.db.get_session_reference_price.return_value = None
     p._atr_for_symbol = MagicMock(side_effect=lambda s: atrs.get(s))
     if require_paid is not None:
         p._require_paid_analysis = require_paid
