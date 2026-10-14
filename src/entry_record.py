@@ -18,6 +18,10 @@ from typing import Any
 from src.entry_evidence import resolve_entry_pins
 from src.recording_accessors import pinned_evidence
 
+#: `stop_basis` when no rule is on the decision (a lane that never ran the
+#: constructor stop rules). Explicit, so a blank can never mean "nobody asked".
+STOP_BASIS_UNKNOWN = "stop_rule_not_determined"
+
 __all__ = ["insert_pending_entry"]
 
 
@@ -105,7 +109,7 @@ def insert_pending_entry(
         # lanes that carry no analysis — the row then records no
         # ATR rather than a reconstructed one.
         entry_atr=pinned_evidence(entry_analysis, "atr_14"),
-        stop_basis=pinned_evidence(decision, "stop_rule"),
+        stop_basis=pinned_evidence(decision, "stop_rule") or STOP_BASIS_UNKNOWN,
         # Item 55 RECORDING, no behaviour: what that stop was
         # BASED on — which level, how many turns made it, how
         # wide its zone was, how far the stop sat from it. Set

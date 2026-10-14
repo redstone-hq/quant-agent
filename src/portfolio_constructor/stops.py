@@ -79,6 +79,11 @@ from src.portfolio_constructor.stop_width import stop_atr_multiple
 from src.portfolio_constructor import no_atr_stop_record as no_atr_rows
 from src.portfolio_constructor.reward_risk_at import reward_risk_at
 
+#: `stop_basis` when no rule explains the shipped stop. The same string as
+#: `src.entry_record.STOP_BASIS_UNKNOWN`; restated because this package may not
+#: import the recording module (tests/test_stop_rule_recorded.py pins them equal).
+STOP_RULE_UNKNOWN = "stop_rule_not_determined"
+
 
 class StopRules:
     """Stop and reward-to-risk rules, HELD by `PortfolioConstructor` (bodies moved verbatim).
@@ -365,44 +370,90 @@ class StopRules:
         entry_price: float,
         stop_loss: float,
         direction: str = "long",
-    ) -> str | None:
-        """Which rule the SHIPPING stop answers to, for `TradeDecision`.
+    ) -> str:
+        """Which rule the SHIPPING stop answers to, for `TradeDecision`. Never None.
 
-        Asks `_level_backing_stop` — the same function, the same
-        `computed_levels`, no second data path — whether the final rounded
-        stop sits at a level the system computed. That is deliberately the
-        question about the stop as it ships, not about the stop as it
-        arrived: what the execution stage needs to know is whether the
-        number it is holding is defended by structure.
+        Two readers use the answer. The execution stage asks only whether it
+        is in `LEVEL_BACKED_STOP_RULES` (so it does not re-widen a stop the
+        constructor honoured at a computed level); the `trades` row stores it
+        as `stop_basis`. Until 2026-10-14 this returned a name ONLY for a
+        level-backed stop and None for everything else, so every ATR-band stop
+        (all of them so far) recorded a blank `stop_basis`.
 
-        Returns `STOP_RULE_LEVEL_HONOURED` when it is, None when it is not
-        or cannot be judged. Fails to the SAFE side: None means the
-        execution-time ATR floor in `src/pipeline_stages.py` still applies,
-        which is the pre-existing behaviour.
+        The rule is the one `EntryStopResolver._widen_stop_past_noise` named
+        when it placed the stop. That function returns only the price, so the
+        rule is recovered from the shipped price with the SAME inputs and the
+        same names, to the half cent the stop was rounded to:
+
+          * the final stop sits at a computed level -> `STOP_RULE_LEVEL_HONOURED`
+            (unchanged, and the only value that skips the execution-time ATR
+            floor: behaviour is identical to before);
+          * it sits at the fallback edge -> `STOP_RULE_SIGNAL_BAR` or
+            `STOP_RULE_ATR_BAND`;
+          * it sits at or beyond the ATR band -> `STOP_RULE_OUTSIDE_BAND`;
+          * no ATR: `STOP_RULE_STRUCTURAL_NO_ATR` / `STOP_RULE_PRIOR_BAR_NO_ATR`.
+
+        Anything else (including a stop pulled to the absolute ATR floor,
+        which this recording deliberately does not name because naming it
+        would also switch off the execution-time floor) is
+        `STOP_RULE_UNKNOWN`: an explicit "not determined", never a blank.
         """
-        # The ATR check below is NOT the match tolerance any more (item 46
-        # made that a percentage of the level's own price). It is kept as a
-        # precondition because what this function REPORTS is an exemption
-        # from an ATR floor: with no usable ATR there is no floor to be
-        # exempt from, and claiming the exemption would be answering a
-        # question nobody can evaluate. Unchanged behaviour, different
-        # reason.
+        is_short = direction == "short"
+        try:
+            entry_price, stop_loss = float(entry_price), float(stop_loss)
+        except (TypeError, ValueError):
+            return STOP_RULE_UNKNOWN
+        if not all(math.isfinite(x) and x > 0 for x in (entry_price, stop_loss)):
+            return STOP_RULE_UNKNOWN
+        tol = 0.005 + 1e-9  # the stop is rounded to the cent before it ships
+
+        def _edge(name: str) -> float | None:
+            raw = getattr(analysis, name, None) if analysis else None
+            try:
+                edge = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                return None
+            if edge is None or not math.isfinite(edge) or edge <= 0:
+                return None
+            return edge if (edge > entry_price if is_short else edge < entry_price) else None
+
+        bar_edge = _edge("signal_bar_high" if is_short else "signal_bar_low")
         atr = getattr(analysis, "atr_14", None) if analysis else None
         try:
             atr = float(atr) if atr is not None else None
         except (TypeError, ValueError):
-            return None
+            atr = None
         if atr is None or not math.isfinite(atr) or atr <= 0:
-            return None
-        if not math.isfinite(entry_price) or entry_price <= 0 or not math.isfinite(stop_loss) or stop_loss <= 0:
-            return None
-        level = self._level_backing_stop(
-            analysis,
-            entry_price,
-            stop_loss,
-            direction == "short",
-        )
-        return STOP_RULE_LEVEL_HONOURED if level is not None else None
+            # No-ATR branch: the stop was read from structure, one buffer past
+            # a computed level (tier 1) or past the signal bar's edge (tier 2).
+            buffer_pct = self.cfg.structural_stop_buffer_pct
+
+            def _beyond(level_price: float) -> float:
+                return level_price * (1.0 + buffer_pct) if is_short else level_price * (1.0 - buffer_pct)
+
+            for raw in getattr(analysis, "computed_levels", None) or []:
+                try:
+                    level_price = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                protective = level_price > entry_price if is_short else level_price < entry_price
+                if math.isfinite(level_price) and level_price > 0 and protective:
+                    if abs(stop_loss - _beyond(level_price)) <= tol:
+                        return STOP_RULE_STRUCTURAL_NO_ATR
+            if bar_edge is not None and abs(stop_loss - _beyond(bar_edge)) <= tol:
+                return STOP_RULE_PRIOR_BAR_NO_ATR
+            return STOP_RULE_UNKNOWN
+        if self._level_backing_stop(analysis, entry_price, stop_loss, is_short) is not None:
+            return STOP_RULE_LEVEL_HONOURED
+        multiple = self._stop_atr_multiple()
+        band_edge = entry_price + multiple * atr if is_short else entry_price - multiple * atr
+        bar_wins = bar_edge is not None and (bar_edge > band_edge if is_short else bar_edge < band_edge)
+        fallback_edge = bar_edge if bar_wins else band_edge
+        if abs(stop_loss - fallback_edge) <= tol:
+            return STOP_RULE_SIGNAL_BAR if bar_wins else STOP_RULE_ATR_BAND
+        if stop_loss >= band_edge - tol if is_short else (band_edge <= 0 or stop_loss <= band_edge + tol):
+            return STOP_RULE_OUTSIDE_BAND
+        return STOP_RULE_UNKNOWN
 
     def shipped_stop_level_basis(
         self,

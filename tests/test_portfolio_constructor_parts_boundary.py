@@ -48,7 +48,7 @@ def test_stop_rules_exercised_from_stubs_alone():
     )
     assert rules._reward_risk_at(10.0, 9.0, 12.0, False) == pytest.approx(2.0)
     assert rules._reward_risk_at(10.0, float("nan"), 12.0, False) is None  # malformed geometry refuses
-    assert rules.shipped_stop_rule(None, 10.0, 9.0) is None  # no analysis -> no rule named
+    assert rules.shipped_stop_rule(None, 10.0, 9.0) == "stop_rule_not_determined"  # no analysis -> explicit unknown, never a blank
 
 
 def test_stop_rules_reads_the_config_live_and_builds_the_resolver_per_call():
