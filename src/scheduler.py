@@ -9,6 +9,7 @@ from src.config import AppConfig
 from src.notifier import CATEGORY_OPERATIONAL, TelegramNotifier
 from src.notifier.owner_alert_funnel import build_default_notifier
 from src.pipeline import TradingPipeline
+from src.protection import put_off_sales
 from src.trader_feed import format_session_result
 from src.trading_calendar import ET, SESSION_WINDOWS
 
@@ -170,7 +171,9 @@ class TradingScheduler:
             if not self.pipeline.broker.is_trading_day():
                 logger.info("[%s] Skipped: market closed for non-trading day", name)
                 return
-            result = func()
+            # THE seam every session run ends in (the one-shot main.py runs
+            # through the same one): the run re-checks the sales it put off.
+            result = put_off_sales.run_owning_put_offs(self.pipeline, func, name)
             logger.info("[%s] Completed: %s", name, result.get("status", "unknown"))
         except Exception as exc:
             error = exc
@@ -191,6 +194,7 @@ class TradingScheduler:
                         elapsed,
                         error=error,
                     )
+                    message = put_off_sales.annotate_message(message, result)
                     # Parity with main.py's finally: every session proves
                     # the alert path it is about to shout over and records
                     # the verdict where Mission Control can read it. Same

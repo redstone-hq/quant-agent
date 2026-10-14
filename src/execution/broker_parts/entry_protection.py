@@ -203,10 +203,7 @@ def place_entry_protection(
             )
         try:
             status = (
-                broker.wait_for_order_terminal(
-                    order_id,
-                    timeout_seconds=10.0,
-                )
+                broker.wait_for_order_terminal(order_id)  # the one order-terminal ceiling
                 or status
             )
             record_guarded_pass(

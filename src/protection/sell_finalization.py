@@ -321,8 +321,8 @@ class SellFinalization:
             try:
                 if not self.broker.cancel_entry_order(order_id):
                     raise RuntimeError("lingering order not cancelled (failed, or refused by an owner flag)")
-                # Cancel propagates fast; a tighter 5s wait is enough.
-                self.broker.wait_for_order_terminal(order_id, timeout_seconds=5.0)
+                # The one order-terminal ceiling, not a site literal.
+                self.broker.wait_for_order_terminal(order_id)
             except Exception as exc:
                 logger.warning(
                     "Failed to cancel lingering %s on %s (order %s): %s "

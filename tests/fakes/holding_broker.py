@@ -123,7 +123,7 @@ class HoldingBroker:
         self.orders[o.id] = o
         return {"id": o.id, "status": "accepted", "symbol": symbol, "qty": qty}
 
-    def wait_terminal(self, oid):
+    def wait_terminal(self, oid, **_kw):
         return self.orders[oid].status
 
     def by_side(self, symbol):

@@ -78,7 +78,7 @@ COVER = TradeDecision(
 
 def _run(position, decision, order_id):
     pipeline = _pipeline(position, order_id)
-    with patch("src.stage_execution._record_pipeline_event") as events:
+    with patch("src.stage_execution_parts.sell_loop._record_pipeline_event") as events:
         ExecutionStage(pipeline=pipeline).run(_ctx(position, decision))
     return pipeline, events
 
@@ -106,7 +106,7 @@ def test_decided_cover_is_a_market_order_with_its_quote_recorded():
 def test_a_failed_quote_read_still_sells():
     pipeline = _pipeline(LONG, "sell-1")
     pipeline.broker.get_latest_quote.side_effect = RuntimeError("feed down")
-    with patch("src.stage_execution._record_pipeline_event") as events:
+    with patch("src.stage_execution_parts.sell_loop._record_pipeline_event") as events:
         ExecutionStage(pipeline=pipeline).run(_ctx(LONG, _sell("NET")))
     pipeline.broker.submit_order.assert_called_once()
     assert pipeline.broker.submit_order.call_args.kwargs["limit_price"] is None

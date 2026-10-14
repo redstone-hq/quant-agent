@@ -146,20 +146,9 @@ class TrimAmend:
             )
             if not ok:
                 return False, [], None, None
-            status, detail = _confirm_cancels_status(self.broker, cancelled)
-            if status == "filled":
-                logger.error(
-                    "%s: a protective stop of %s FILLED during the sliver cancel; the trim is not sent", PATH, symbol
-                )
-                return self._refuse("stop_fired")
-            if status == "unconfirmed":
-                logger.warning(
-                    "%s: %s sliver cancel not yet confirmed (%s); the sell is sent and the broker "
-                    "refuses it if the hold stands",
-                    PATH,
-                    symbol,
-                    detail,
-                )
+            # The cancel above waited for the broker to confirm the sliver
+            # dead (one shared deadline); the protected sell sends nothing
+            # until it has, and puts the sale off when it has not.
         self._state.set("_last_stop_clear_refusal", "")
         return True, cancelled, wal_row_id, kept_leg
 

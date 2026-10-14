@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from src.execution.broker_parts.cancel_confirm import _confirm_cancels_status
+from src.execution.broker_parts.cancel_confirm import _confirm_cancels_status, settle_legs
 from src.execution.broker_parts.stop_window import UnprotectedWindow
 from src.execution.order_gates import _FRACTIONAL_QTY_EPSILON, _split_protective_qty
 from src.sentinel.guarded import record_guarded_pass
@@ -401,3 +401,63 @@ class _Invariant:
         if status != "accepted":
             out["status"] = status
         return out
+
+
+def _held_on(placer, symbol: str, side: str) -> float:
+    """Shares a `side` protective stop must cover now: the long for 'sell',
+    the short for 'buy'; 0 when none. Raises when the read fails."""
+    want = symbol.strip().upper().replace("/", "")
+    signed = sum(float(p.qty) for p in placer.get_positions() if str(p.symbol).strip().upper().replace("/", "") == want)
+    held = signed if side == "sell" else -signed
+    return _r(held) if _r(held) > 0 else 0.0
+
+
+def _unsold_legs(placer, symbol: str, specs: list[dict] | None) -> list[dict]:
+    """The legs that did not sell. A leg the broker reports filled is nothing to put
+    back (`_restore_stop_orders` skips it), so held must go to the others, never to it."""
+    with_id = [s for s in specs or [] if s.get("id")]
+    if not with_id:
+        return list(specs or [])
+    try:
+        settled = settle_legs(placer, with_id)
+    except Exception as exc:  # noqa: BLE001
+        record_guarded_pass(placer, "cover_to_held.leg_read", exc, log=logger, context={"symbol": symbol})
+        return list(specs or [])
+    return [s for s in specs or [] if not s.get("id") or getattr(settled.leg(s["id"]), "status", None) != "filled"]
+
+
+def cover_to_held(placer, symbol: str, specs: list[dict], *, side: str = "sell") -> bool:
+    """Put protective cover back UP TO what is held now, never above it.
+
+    Fresh held read; the cancelled legs are restored in order, the last cut
+    to fit, and any shortfall (an entry filled mid-cancel) is added to the
+    largest leg at its level. Restored with idempotency on, so a stop still
+    dying (pending_cancel, or a cancelled id not yet read dead) is never
+    counted as cover and never placed over. A held read that fails restores
+    the legs as they were. False, with an ERROR line the health report's
+    `stop_missing_or_failed` check reads, when cover is short of held."""
+    kwargs = {} if side == "sell" else {"side": side}
+    try:
+        held = _held_on(placer, symbol, side)
+    except Exception as exc:  # noqa: BLE001
+        record_guarded_pass(placer, "cover_to_held.held_read", exc, log=logger, context={"symbol": symbol})
+        held = None
+    if held == 0:
+        return True
+    sized: list[dict] = []
+    room = held
+    for spec in _unsold_legs(placer, symbol, specs):
+        take = _qty(spec) if room is None else min(_qty(spec), room)
+        if take > 0:
+            sized.append(spec if take == _qty(spec) else {**spec, "qty": take})
+            room = None if room is None else _r(room - take)
+    if room and sized:
+        big = max(range(len(sized)), key=lambda i: _qty(sized[i]))
+        sized[big] = {**sized[big], "qty": _r(_qty(sized[big]) + room)}
+    outcome = placer._restore_stop_orders(symbol, sized, check_idempotency=True, **kwargs)
+    failed = list(outcome[1]) if isinstance(outcome, tuple) else []
+    if failed:
+        cover = _r(sum(_qty(x) for x in sized) - sum(_qty(x) for x in failed))
+        logger.error("cover_to_held: protective stop put-back FAILED for %s — cover %s of held %s", symbol, cover, held)
+        return False
+    return True

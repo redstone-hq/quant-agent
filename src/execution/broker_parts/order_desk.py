@@ -55,6 +55,9 @@ logger = logging.getLogger("src.execution.broker")
 
 from src.execution.broker_parts.submission_rejection import _is_terminal_submission_rejection  # noqa: F401 (re-export)
 
+# The one order-terminal ceiling lives with the cancel confirmation (the lower module) so neither imports the other back.
+from src.execution.broker_parts.cancel_confirm import ORDER_TERMINAL_CEILING_S  # noqa: E402,F401 (re-export)
+
 
 class OrderDesk:
     """The broker's order-submission and order-read cluster, standalone.
@@ -155,7 +158,9 @@ class OrderDesk:
             if symbol:
                 req_kwargs["symbols"] = [_alpaca_symbol(symbol)]
             orders = self.client.get_orders(filter=GetOrdersRequest(**req_kwargs))
-            count = 0
+            from src.execution.broker_parts.cancel_confirm import CancelledEntries, now_iso
+
+            legs: list[dict] = []
             for order in orders or []:
                 order_id = getattr(order, "id", None)
                 order_side = str(getattr(getattr(order, "side", None), "value", getattr(order, "side", ""))).lower()
@@ -166,12 +171,14 @@ class OrderDesk:
                     continue
                 if "stop" in order_type:
                     continue  # protective leg on either side — preserve it
+                sent_at = now_iso()
                 self.client.cancel_order_by_id(order_id)
-                count += 1
-            if count:
-                logger.info("Cancelled %d open entry order(s)", count)
+                legs.append({"id": str(order_id), "side": order_side, "kind": "order", "cancel_sent_at": sent_at})
+            if legs:
+                logger.info("Cancelled %d open entry order(s)", len(legs))
             ok(self, "cancel_open_entry_orders", symbol=symbol)
-            return count
+            # Still the count every caller reads; `.legs` lets a sale wait on them.
+            return CancelledEntries(legs)
         except Exception as exc:
             mark(self, "cancel_open_entry_orders", exc, symbol=symbol)
             return 0
@@ -255,7 +262,7 @@ class OrderDesk:
     def wait_for_order_terminal(
         self,
         order_id: str,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float = ORDER_TERMINAL_CEILING_S,
         poll_interval: float = 1.0,
         use_stream: bool = True,
     ) -> str | None:
@@ -365,7 +372,11 @@ class OrderDesk:
                 ok(self, "poll_order_status", order=order_id)
             except Exception as exc:
                 mark(self, "poll_order_status", exc, order=order_id)
-                return last_status
+                # The read failed: the status is UNKNOWN now, whatever an
+                # earlier read said. Returning the stale one made a REST
+                # hiccup look like a live order (cancel_unconfirmed) instead
+                # of a failed read (cancel_read_failed).
+                return None
 
             last_status = status or last_status
             if status in stop_states:

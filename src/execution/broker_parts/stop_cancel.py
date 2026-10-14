@@ -235,6 +235,9 @@ def cancel_snapshotted_stops(
             untouched.append(spec)
             continue
         try:
+            from src.execution.broker_parts.cancel_confirm import now_iso
+
+            spec["cancel_sent_at"] = now_iso()
             broker.client.cancel_order_by_id(sid)
             cancelled.append(spec)
             record_guarded_pass(broker, "cancel_snapshotted_stops.cancel", context={"symbol": symbol, "order": sid})

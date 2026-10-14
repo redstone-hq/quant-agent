@@ -34,6 +34,7 @@ from src.pipeline import TradingPipeline
 from src.pipeline_context import RunContext
 from src.pipeline_stages import ExecutionStage
 from tests.pipeline_factory import build_pipeline
+from tests.fakes.confirmed_cancel import confirm_cancels
 
 
 def _pos(symbol: str, qty: float, entry: float, price: float) -> Position:
@@ -65,6 +66,7 @@ def _wire_broker_seams(broker, events: list[tuple[str, str]]) -> None:
     broker.cancel_snapshotted_stops.side_effect = _cancel
     broker.submit_order.side_effect = _submit
     broker.wait_for_order_terminal.return_value = "filled"
+    confirm_cancels(broker)  # the broker confirms each stop cancel before the sale
 
 
 def _recording_finalize(events: list[tuple[str, str]]) -> MagicMock:
@@ -258,6 +260,7 @@ def test_execution_stage_sell_loop_restores_each_stop_before_the_next_name():
     assert len(orders) == 3 and touched == ["NVDA", "AMD", "MSFT"], events
     # Each SELL's terminal status is still recorded for the rotation gate.
     waited = [c.args[0] for c in pipeline.broker.wait_for_order_terminal.call_args_list]
+    waited = [oid for oid in waited if oid not in pipeline.broker.cancelled_stop_ids]  # SELL waits only
     assert waited == ["ord-NVDA", "ord-AMD", "ord-MSFT"]
 
 

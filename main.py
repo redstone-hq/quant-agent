@@ -12,6 +12,7 @@ from src.credentials import report_startup_credentials
 from src.notifier import TelegramNotifier
 from src.notifier.owner_alert_funnel import send_owner_alert_with_outcome
 from src.pipeline import TradingPipeline
+from src.protection import put_off_sales
 from src.scheduler import TradingScheduler
 from src.trader_feed import format_session_result
 
@@ -317,26 +318,27 @@ def main():
 
         pipeline = TradingPipeline(config)
         pipeline.pickup_owner_intents()
-        if args.mode == "once" or args.mode == "morning":
-            result = pipeline.run_morning()
-        elif args.mode == "midday":
-            result = pipeline.run_midday()
-        elif args.mode == "close":
-            result = pipeline.run_close()
-        elif args.mode == "evening":
-            result = pipeline.run_evening()
-        elif args.mode == "intra_check":
-            result = pipeline.run_intra_check()
-        elif args.mode == "intra_safety":
+        runners = {
+            "once": lambda: pipeline.run_morning(),
+            "morning": lambda: pipeline.run_morning(),
+            "midday": lambda: pipeline.run_midday(),
+            "close": lambda: pipeline.run_close(),
+            "evening": lambda: pipeline.run_evening(),
+            "intra_check": lambda: pipeline.run_intra_check(),
             # Board item 177: the FREE safety preamble on its own schedule,
             # independent of whether the paid intraday tick runs.
-            result = pipeline.run_intra_safety()
-        elif args.mode == "earnings_preprocess":
-            result = pipeline.run_earnings_preprocess()
-        elif args.mode == "meta":
-            result = pipeline.run_quarterly_meta_reflection(force=args.force)
-        elif args.mode == "daily":
-            result = pipeline.run_daily()
+            "intra_safety": lambda: pipeline.run_intra_safety(),
+            "earnings_preprocess": lambda: pipeline.run_earnings_preprocess(),
+            "meta": lambda: pipeline.run_quarterly_meta_reflection(force=args.force),
+            "daily": lambda: pipeline.run_daily(),
+        }
+        runner = runners.get(args.mode)
+        if runner is not None:
+            # THE seam every session run ends in (the scheduler's `_run_safe`
+            # runs through the same one): the run re-checks the sales it put
+            # off, bounded by its own window end or this unit's hard kill.
+            session = "morning" if args.mode == "once" else args.mode
+            result = put_off_sales.run_owning_put_offs(pipeline, runner, session)
     except BaseException as exc:
         # Catch broadly (incl. SystemExit / KeyboardInterrupt) so a
         # wrapper-kill, a config-load crash, or ctrl-C still gets a
@@ -362,6 +364,7 @@ def main():
         # Wrap so the original `error` always propagates intact.
         try:
             message = format_session_result(args.mode, result, elapsed, error=error)
+            message = put_off_sales.annotate_message(message, result)
         except Exception as exc:  # noqa: BLE001
             logger.exception("format_session_result raised in finally: %s", exc)
             message = None

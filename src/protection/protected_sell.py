@@ -9,7 +9,9 @@ Host attributes a body reads with a defaulted getattr or ASSIGNS go through `sta
 """
 
 import logging
+
 from src.protection.trim_amend import refusal_reason, trim_book_call
+from src.quantities import ORDER_QTY_DECIMALS
 from src.sentinel.guarded import record_guarded_pass
 
 #: The moved code logged under `src.pipeline` before the move and still does;
@@ -61,13 +63,19 @@ class ProtectedSell:
         label: str,
         side: str = "sell",
         escalate_to_market_on_reject: bool = False,
+        book=None,
     ) -> tuple[dict, dict] | None:
         """Head half of the SELL/COVER discipline: clear protective stops
         (write-ahead) → submit the order → guarantee stops are restored if
         the order never reaches the broker.
 
         Returns ``(order, pending_protection)`` on broker acceptance, or
-        ``None`` when the symbol must be skipped — stop-clear failed, the
+        ``None`` when the symbol must be skipped (including a sale PUT OFF
+        because a cancelled leg was not confirmed dead in the wait: then
+        ``_last_stop_clear_refusal`` names it and the deciding run's seam,
+        src/protection/put_off_sales.py, re-checks it; ``book(order, qty)``, when
+        given, is the caller's own record of a sent sale, which that re-check
+        writes if it sends the sale later) — stop-clear failed, the
         submit raised, or the broker rejected. In every skip case the
         protective stops are already restored (or were never cancelled), so
         the caller just ``continue``s with no naked-position window.
@@ -114,9 +122,11 @@ class ProtectedSell:
         # still-live SHORT entry from re-opening the position it just
         # covered (previously flagged, fixed alongside the review-path
         # COVER gap).
+        full_exit = self._begin_sale(label, position_qty_before_sell, qty)
         if label in ("SELL", "EMERGENCY_SELL", "EMERGENCY_COVER", "FORCE_DELEVER"):
             try:
-                self.broker.cancel_open_entry_orders(symbol=symbol)
+                # Kept as legs: the sale waits for these cancels too.
+                self._state.set("_entry_legs", _legs_of(self.broker.cancel_open_entry_orders(symbol=symbol)))
                 record_guarded_pass((self.broker, self.db), "protected_sell.entry_cancel", context={"symbol": symbol})
             except Exception as exc:  # noqa: BLE001
                 record_guarded_pass(
@@ -160,26 +170,87 @@ class ProtectedSell:
             # ladder, which would then trim less than it reports.
             self._alert_owner_exit_declined(symbol, side=side, why=why)
             return None
+        sale = {
+            "symbol": symbol,
+            "qty": abs(float(qty)),
+            "limit_price": limit_price,
+            "reference_price": reference_price,
+            "position_qty_before_sell": position_qty_before_sell,
+            "label": label,
+            "side": side,
+            "escalate_to_market_on_reject": escalate_to_market_on_reject,
+            "full_exit": full_exit,
+            "stop_specs": stop_specs,
+            "wal_row_id": wal_row_id,
+            "kept_leg": kept_leg,
+        }
+        if self._put_off_if_unconfirmed(sale, book):
+            return None
+        return self._send_cleared(**sale)
+
+    def _put_back(self, sale: dict) -> bool:
+        """Put a sale's cleared protection back: cancelled legs up to what is held now, a trim's shrunk stop grown back.
+
+        False when the cover is short of held (the broker part logs it for the health report),
+        or a trim's book did not settle covered (a kept leg gone, or not grown back)."""
+        ok = True
+        if sale["stop_specs"]:
+            covered = trim_book_call(self, "cover_to_held", sale["symbol"], sale["stop_specs"], side=sale["side"])
+            ok = covered is not False
+        if sale["kept_leg"] is not None:
+            status = trim_book_call(self, "settle_trim_book", sale["symbol"], sale["side"])
+            ok = ok and status in ("accepted", "flat")
+        return ok
+
+    def _resale_size(self, sale: dict, settlement) -> tuple[float, float, str]:
+        """A put-off sale's ``(qty, position_qty_before_sell, refusal)`` once its legs settled.
+
+        The pass's snapshot plus every leg's fill during the cancel is what is
+        held now, so the re-sale is decided on that, by the pass's own rules
+        (`sale_refusal`): a full exit sells all of it, a trim keeps its size,
+        and a trim whose stop filled in part is refused. ``refusal`` is the
+        owner wording, empty when the sale may go."""
+        held = _q(abs(float(sale["position_qty_before_sell"])) + settlement.closable_change(sale["side"]))
+        if held <= 0:
+            return 0.0, 0.0, _OWN_REASONS["stop_fired"]
+        if not sale["full_exit"] and _q(settlement.filled_qty) > 0:
+            return 0.0, held, _OWN_REASONS["stop_filled_in_part"]
+        return (held if sale["full_exit"] else abs(float(sale["qty"]))), held, ""
+
+    def _send_cleared(
+        self,
+        *,
+        symbol,
+        qty,
+        limit_price,
+        reference_price,
+        position_qty_before_sell,
+        label,
+        side,
+        escalate_to_market_on_reject,
+        full_exit,
+        stop_specs,
+        wal_row_id,
+        kept_leg,
+    ):
+        """Tail half: every cancelled leg is terminal, so size to held and send, or put the stops back.
+
+        Called by the pass once its legs settled, and by the deciding run's
+        re-check (src/protection/put_off_sales.py) for a sale it put off."""
 
         def _put_back_protection() -> None:
             # Cancelled legs are restored; a stop shrunk in place for a trim
             # is grown back by the quantity invariant (nothing was sold).
-            if stop_specs:
-                self.broker._restore_stop_orders(
-                    symbol,
-                    stop_specs,
-                    check_idempotency=False,
-                    **stop_side_kwargs,
-                )
-            if kept_leg is not None:
-                trim_book_call(self, "settle_trim_book", symbol, side)
+            self._put_back({"symbol": symbol, "side": side, "stop_specs": stop_specs, "kept_leg": kept_leg})
 
         # The caller sized `qty` from a position read taken BEFORE the stops
         # were cleared. A resting stop can fill (fully or partly) in between,
         # so the order is re-sized against a FRESH read taken now that no stop
         # can fill any more: selling the old size would open a short (and a
         # cover would open a long). Nothing held -> no order at all.
-        sized = self._size_to_held(label, symbol, side, qty, position_qty_before_sell, wal_row_id, _put_back_protection)
+        sized = self._size_to_held(
+            label, symbol, side, qty, position_qty_before_sell, wal_row_id, _put_back_protection, full_exit=full_exit
+        )
         if sized is None:
             return None
         qty, position_qty_before_sell = sized
@@ -405,12 +476,66 @@ class ProtectedSell:
             self._last_stop_clear_refusal = "stop_fired" if gone else "cancel_rolled_back"
             return False, [], None
         self._last_stop_clear_refusal = ""
+        # Wait for the broker to confirm every cancel before anything sells:
+        # these stops and the entry / leftover orders, one shared deadline.
+        legs = [dict(x, side=side, kind="stop") for x in specs if x.get("id")]
+        legs += self._held_legs("_entry_legs") or []
+        self._state.set("_leg_settlement", trim_book_call(self, "settle_legs", legs))
         return True, specs, wal_row_id
 
-    def _size_to_held(self, label, symbol, side, qty, position_qty_before_sell, wal_row_id, put_back):
-        """``(qty, position_qty_before_sell)`` re-sized to a fresh read, or None when no order goes."""
-        held = self._closable_now(symbol, side)
-        if held is None:
+    def _held_legs(self, name: str):
+        """This sale's per-call state (cancelled legs, their settlement); None before a sale set it."""
+        try:
+            return self._state.get(name)
+        except AttributeError:
+            return None
+
+    def _begin_sale(self, label: str, position_qty_before_sell: float, qty: float) -> bool:  # noqa: ARG002
+        """Reset this call's leg settlement; True when the sale is a full exit."""
+        self._state.set("_leg_settlement", None)
+        self._state.set("_entry_legs", [])
+        return _q(abs(float(qty))) >= _q(abs(float(position_qty_before_sell)))
+
+    def _put_off_if_unconfirmed(self, sale: dict, book=None) -> bool:
+        """True when a cancelled leg is not confirmed dead inside the pass's wait: the sale is PUT OFF.
+
+        The shares may still be held by a dying stop: a SELL now is refused
+        (403 40310000, ETN and NET 13 Oct) and a new stop is refused too.
+        Nothing is sent and nothing is put back this pass. The write-ahead
+        restore row stays, so the restore drain puts the stop back once the
+        cancel is terminal; the run that decided re-checks the sale before it
+        ends (src/protection/put_off_sales.py). Covers a leg still live or
+        `replaced` (cancel_unconfirmed, incl. a stop part-filled and still
+        working) and an unreadable leg (cancel_read_failed)."""
+        settlement = self._held_legs("_leg_settlement")
+        if settlement is None and self._held_legs("_entry_legs"):
+            # No stop was cancelled: the entry / leftover order cancels alone.
+            settlement = trim_book_call(self, "settle_legs", self._held_legs("_entry_legs"))
+            self._state.set("_leg_settlement", settlement)
+        if settlement is None or settlement.settled:
+            return False
+        from src.protection import put_off_sales
+
+        legs = [dict(x, side=sale["side"], kind="stop") for x in sale["stop_specs"] or [] if x.get("id")]
+        legs += self._held_legs("_entry_legs") or []
+        self._last_stop_clear_refusal = settlement.reason
+        why = _OWN_REASONS[settlement.reason]
+        logger.warning("%s: no order for %s this pass — %s", sale["label"], sale["symbol"], why)
+        record = put_off_sales.PutOff(sale=dict(sale), legs=legs, reason=settlement.reason, seller=self, book=book)
+        if not put_off_sales.put_off(record):
+            # No run owns it (no seam is open): nothing will re-check it, so say so now.
+            why = put_off_sales.not_sold_why(None, settlement.reason)
+            self._alert_owner_exit_declined(sale["symbol"], side=sale["side"], why=why)
+        return True
+
+    def _size_to_held(self, label, symbol, side, qty, position_qty_before_sell, wal_row_id, put_back, *, full_exit):
+        """``(qty, position_qty_before_sell)`` from a fresh read, or None when no order goes.
+
+        Exactly the intended size or nothing: a full exit sells all that is
+        held; a trim sells its own size. A shortfall is never cut down to a
+        different size; it is a per-symbol reason, and the stops go back."""
+        read = self._closable_now(symbol, side)
+        if read is None:
             put_back()
             self._last_stop_clear_refusal = "position_unreadable"
             why = _OWN_REASONS["position_unreadable"]
@@ -423,6 +548,7 @@ class ProtectedSell:
                 self._state.set("_position_reread_alerted", True)
                 self._alert_owner_exit_declined(symbol, side=side, why=why + " (further names this outage: log only)")
             return None
+        held, free = read
         if held <= 0:
             self._discharge_wal(symbol, wal_row_id)
             self._last_stop_clear_refusal = "stop_fired"
@@ -430,26 +556,34 @@ class ProtectedSell:
             logger.warning("%s: no order for %s — %s", label, symbol, why)
             self._alert_owner_exit_declined(symbol, side=side, why=why)
             return None
-        if held < abs(float(qty)):
-            logger.warning(
-                "%s: %s holds %s now, not the %s the exit was sized from (stop filled in part) — order re-sized",
-                label,
-                symbol,
-                held,
-                qty,
-            )
-            qty = held
+        settlement = self._held_legs("_leg_settlement")
+        legs = settlement is not None and settlement.legs
+        reason = sale_refusal(
+            qty,
+            held,
+            free,
+            full_exit=full_exit,
+            snapshot=position_qty_before_sell,
+            net_change=settlement.closable_change(side) if legs else None,
+            stops_filled=settlement.filled_qty if legs else 0.0,
+        )
+        if reason:
+            put_back()
+            self._last_stop_clear_refusal = reason
+            why = _OWN_REASONS[reason]
+            logger.warning("%s: no order for %s — %s (held %s, free %s, asked %s)", label, symbol, why, held, free, qty)
+            self._alert_owner_exit_declined(symbol, side=side, why=why)
+            return None
+        qty = held if full_exit else abs(float(qty))
         position_qty_before_sell = held if held < position_qty_before_sell else position_qty_before_sell
         return qty, position_qty_before_sell
 
-    def _closable_now(self, symbol: str, side: str) -> float | None:
-        """What a `side` order can close right now, from a fresh broker read:
-        the long for a 'sell', the short for a 'buy'. 0 when nothing is held on
-        that side; None when the read fails."""
-        want = symbol.strip().upper().replace("/", "")
+    def _closable_now(self, symbol: str, side: str) -> tuple[float, float | None] | None:
+        """``(closable, free)`` for a `side` order from a fresh broker read: the
+        long for a 'sell', the short for a 'buy'; free is the broker's own
+        qty_available (None when not reported). None when the read fails."""
         try:
-            positions = list(self.broker.get_positions())
-            signed = sum(float(p.qty) for p in positions if str(p.symbol).strip().upper().replace("/", "") == want)
+            read = closable_and_free(self.broker, symbol, side)
             record_guarded_pass((self.broker, self.db), "protected_sell.position_reread", context={"symbol": symbol})
             self._state.set("_position_reread_alerted", False)
         except Exception as exc:  # noqa: BLE001
@@ -457,8 +591,7 @@ class ProtectedSell:
                 (self.broker, self.db), "protected_sell.position_reread", exc, context={"symbol": symbol}
             )
             return None
-        closable = signed if side == "sell" else -signed
-        return closable if closable > 1e-9 else 0.0
+        return read
 
     def _reread_alerted(self) -> bool:
         """True once this outage's single unreadable-position alert has gone out."""
@@ -489,4 +622,68 @@ _OWN_REASONS = {
         "the broker position read failed after the stops were cleared, so the exit could not be "
         "sized to what is held; the stops were put back and no order was sent"
     ),
+    "cancel_unconfirmed": (
+        "the broker had not confirmed the protective stop's cancel, so the shares may still be held by it "
+        "and a sale would be refused; no order was sent this pass and the run that decided re-checks it "
+        "before it ends"
+    ),
+    "cancel_read_failed": (
+        "the read of the cancelled stop's status failed, so whether it still holds the shares is unknown; "
+        "no order was sent this pass and the run that decided re-checks it before it ends"
+    ),
+    "position_disagrees": (
+        "the position the broker now reports does not match what was held less the stop fills, or is "
+        "smaller than the order; no order was sent, the stops were put back, and the next pass decides again"
+    ),
+    "stop_filled_in_part": (
+        "the protective stop filled in part while it was being cancelled, so this trim was decided on a "
+        "position that no longer exists; no order was sent, the stops were put back, and the next pass decides again"
+    ),
+    "shares_reserved": (
+        "fewer shares are free than the order needs (other open orders reserve the rest); a smaller sale "
+        "is never sent in its place, so no order was sent and the stops were put back"
+    ),
 }
+
+
+def _legs_of(cancelled) -> list[dict]:
+    """The cancelled orders `cancel_open_entry_orders` carries as legs."""
+    return list(getattr(cancelled, "legs", ()) or ())
+
+
+def _q(value) -> float:
+    """A quantity on the broker's own grid, so equality has no tolerance."""
+    return round(float(value), ORDER_QTY_DECIMALS)
+
+
+def closable_and_free(broker, symbol: str, side: str) -> tuple[float, float | None]:
+    """``(closable, free)`` for a `side` order from a fresh position read.
+
+    closable = the long for a 'sell', the short for a 'buy' (0 when nothing
+    is held on that side); free = the broker's qty_available magnitude, None
+    when the broker did not report it. Raises when the read fails."""
+    want = symbol.strip().upper().replace("/", "")
+    mine = [p for p in broker.get_positions() if str(p.symbol).strip().upper().replace("/", "") == want]
+    signed = sum(float(p.qty) for p in mine)
+    closable = signed if side == "sell" else -signed
+    reported = [getattr(p, "qty_available", None) for p in mine]
+    free = abs(sum(float(v) for v in reported)) if mine and None not in reported else None
+    return (_q(closable) if _q(closable) > 0 else 0.0), free
+
+
+def sale_refusal(intended, held, free, *, full_exit, snapshot=None, net_change=None, stops_filled=0.0) -> str:
+    """Why exactly-the-intended sale may not go now; empty when it may.
+
+    Checked after every cancelled leg is terminal. ``snapshot`` plus
+    ``net_change`` (every leg's fill during the cancel, signed by its own
+    side) gives the cross-check: it must equal what is held now."""
+    if snapshot is not None and net_change is not None and _q(abs(float(snapshot)) + net_change) != _q(held):
+        return "position_disagrees"
+    if not full_exit and _q(stops_filled) > 0:
+        return "stop_filled_in_part"
+    want = held if full_exit else abs(float(intended))
+    if _q(want) > _q(held):
+        return "position_disagrees"
+    if free is not None and _q(want) > _q(free):
+        return "shares_reserved"
+    return ""

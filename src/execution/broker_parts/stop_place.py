@@ -84,6 +84,10 @@ from src.execution.broker_parts.stop_symbols import (  # noqa: E402,F401
 # The protective-order status vocabulary lives in src/execution/order_statuses.py (re-exported above).
 
 
+#: Listed statuses of a stop the broker is already killing.
+_DYING = frozenset({"pending_cancel", "pending_replace"})
+
+
 class StopPlacer:
     """Place, submit, restore and replace protective stops. Every collaborator is explicit.
 
@@ -766,9 +770,14 @@ class StopPlacer:
         the caller's perspective, coverage is intact either way).
         """
         existing_alive: list[dict] = []
+        # Ids the caller cancelled: listed under them, a stop is dying, never alive.
+        cancelled_ids = {str(s["id"]) for s in stop_specs if s.get("id")}
         if check_idempotency:
             try:
                 for order in self._list_open_protective_stop_orders(symbol, side=side):
+                    status = str(getattr(getattr(order, "status", None), "value", getattr(order, "status", "")))
+                    if status.lower() in _DYING or str(getattr(order, "id", "")) in cancelled_ids:
+                        continue
                     snap = self._snapshot_stop_order(order)
                     if snap is not None:
                         existing_alive.append(snap)
@@ -800,7 +809,19 @@ class StopPlacer:
         restored = 0
         skipped_already_alive = 0
         failed_specs: list[dict] = []
+        settled = None
+        if check_idempotency and cancelled_ids:
+            from src.execution.broker_parts.cancel_confirm import settle_legs
+
+            # Each cancelled id read by id within one shared deadline.
+            settled = settle_legs(self, [s for s in stop_specs if s.get("id")])
         for spec in stop_specs:
+            leg = settled.leg(spec["id"]) if settled is not None and spec.get("id") else None
+            if leg is not None and leg.status == "filled":
+                continue  # it sold: nothing to put back for it; cover_to_held re-reads held
+            if leg is not None and leg.status not in ("canceled", "cancelled", "expired", "rejected"):
+                failed_specs.append(spec)  # still live: neither placed nor counted (the drain finishes it)
+                continue
             if existing_alive and any(_spec_matches(spec, alive) for alive in existing_alive):
                 # Already alive at broker (likely landed in a prior
                 # drain pass). Treat as restored from the caller's

@@ -34,6 +34,23 @@ desk!!"*
   losing positions, biggest loss first, and only when no loser is left the
   weakest-rated winner, whole (owner, 12 Oct). Selling whole may take the
   book below the new limit; that is accepted.
+- **Cancel, wait for the broker to confirm, then sell (owner, 13 Oct).** A
+  sale that must first cancel its protective stop waits until the broker
+  reports every cancelled stop dead; a few minutes without a stop while a
+  cancel completes is accepted, and the 30 Sep "never cancel, amend in place"
+  doctrine no longer binds. The sale is exactly the intended size or nothing,
+  with a per-symbol reason (`cancel_unconfirmed`, `cancel_read_failed`,
+  `shares_reserved`, `position_disagrees`, `stop_filled_in_part`). A sale
+  whose cancel is not confirmed inside the pass's one wait is PUT OFF (14
+  Oct): nothing is sent that pass, and the run that decided it owns it. Every
+  session run ends in one seam that re-checks its put-off sales — legs
+  terminal, position re-read, the sale sized to what is held now, priced as a
+  plain exit — bounded by the run's own window end or its unit's hard kill.
+  Past that bound nothing is sold, the write-ahead row puts the stop back once
+  the broker confirms, one alert names the stock, and its decider decides
+  again at its next run. The trend tick defers a put-off sale to its next
+  tick. Stops put back after a sale that did not go are sized up to what is
+  held, never placed over or counted from a stop still dying.
 - **No risk-tolerance number is asked of the owner.** *"I don't want to make
   up numbers."* Every risk number is derived from the two goals above plus
   each name's own volatility, or adopted from published practice; a limit that

@@ -1031,7 +1031,23 @@ def _apply_repeg(
             new_id,
             ancestor_filled,
         )
+        from src.execution.broker import now_iso, settle_legs
+
+        sent_at = now_iso()
         pipeline.broker.cancel_entry_order(str(new_id))
+        # The replacement can fill while its cancel lands: wait for the broker
+        # to confirm it dead, and count what it bought.
+        settled = settle_legs(pipeline.broker, [{"id": str(new_id), "side": "buy", "cancel_sent_at": sent_at}])
+        if not settled.settled:
+            logger.warning(
+                "re-peg %s: replacement %s cancel not confirmed (%s) — still tracked; reconciliation and "
+                "entry protection follow it",
+                symbol,
+                new_id,
+                settled.reason,
+            )
+            return str(new_id), ancestor_filled, "replacement_unconfirmed"
+        ancestor_filled += sum(leg.filled_qty for leg in settled.legs)
         _record_pipeline_event(
             pipeline,
             ctx,

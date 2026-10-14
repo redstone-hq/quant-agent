@@ -6658,15 +6658,37 @@ numbers:
       (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). Same class as
       src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk
       waits for the broker to report, never whether or how much to trade.
-  - id: src.execution.broker_parts.order_desk.OrderDesk.wait_for_order_terminal(timeout_seconds)
+  - id: src.execution.broker_parts.cancel_confirm.ORDER_TERMINAL_CEILING_S
     value: 15
     status: not-trade-governing
-    site: src/execution/broker_parts/order_desk.py
+    site: src/execution/broker_parts/cancel_confirm.py
     note: >-
-      Poll interval or wait deadline on an order-status lookup
-      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). Same class as
-      src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk
-      waits for the broker to report, never whether or how much to trade.
+      Wait ceiling on an order reaching a terminal state
+      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal's default; value
+      unchanged, moved to a named constant 14 Oct so every cancel-then-act site waits on this one
+      number instead of the 5 s and 10 s site literals it replaced). Same class as
+      src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk waits for the broker
+      to report. Since 14 Oct it also decides how long one pass waits for a protected sale's
+      cancelled legs (one deadline shared across all legs, cancel_confirm.settle_legs) before the
+      sale is PUT OFF: nothing is sent that pass, the write-ahead restore row puts the stop back
+      once the cancel is terminal, and the deciding run re-checks the sale before it ends
+      (src/protection/put_off_sales.py) -- or, for the trend tick, the sale is deferred to the
+      next tick. The re-check waits in steps of this same wait and is bounded by the run's own
+      existing deadline (its SESSION_WINDOWS end or the unit's hard kill, SESSION_DEADLINE_EPOCH,
+      whichever is earlier); it admits a step only while one whole wait still fits. This number
+      never decides whether the sale happens or its size: the re-check decides that, after the
+      legs are dead and the position re-reads.
+  - id: src.execution.broker_parts.order_desk.OrderDesk.wait_for_order_terminal(timeout_seconds)
+    value: 15
+    status: derived
+    site: src/execution/broker_parts/order_desk.py
+    derived_from: src.execution.broker_parts.cancel_confirm.ORDER_TERMINAL_CEILING_S
+    base_value: 15
+    note: >-
+      Parameter default bound to the imported ORDER_TERMINAL_CEILING_S
+      (src/execution/broker_parts/order_desk.py::OrderDesk.wait_for_order_terminal). The constant
+      moved to cancel_confirm on 14 Oct so cancel_confirm no longer imports order_desk back (the
+      import cycle the layering test refuses); the default is that one ceiling, not a second number.
   - id: src.execution.broker_parts.trade_stream._TradeUpdatesHub.wait(poll_interval)
     value: 1
     status: not-trade-governing

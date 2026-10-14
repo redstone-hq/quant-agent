@@ -9,6 +9,7 @@ still resolves to this same object.
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING
 
 from src.delever.risk_number import _optional_risk_number
@@ -28,7 +29,7 @@ from src.stage_execution_parts.entry_sizing import entry_qty
 from src.stage_execution_parts.protect_entry_stops import protect_pending_entry_stops
 from src.stage_execution_parts.sell_loop import (
     await_sell_and_finalize,
-    record_rotation_close,
+    book_exit,
     sell_qty_and_label,
 )
 from src.stage_execution_parts.state import SKIP, EntryLeg, EntryRun, SellLeg
@@ -265,6 +266,12 @@ class ExecutionStage:
                 # accept → restore-on-failure) lives in one helper so this path
                 # can't skip a step; defer reprotect/restore to the post-sell
                 # wait below, which resolves the actual fill_qty.
+                # One record, written when the sale is sent: now, or by the
+                # run's re-check if the stop's cancel is unconfirmed (put off).
+                book = functools.partial(
+                    book_exit, pipeline, ctx, orders, decision, action_label, sell_price, exit_quote, "sell",
+                    rotation_final_reason,
+                )  # fmt: skip
                 sale = pipeline._submit_protected_sell(
                     symbol=decision.symbol,
                     qty=qty,
@@ -272,49 +279,12 @@ class ExecutionStage:
                     reference_price=sell_price,
                     position_qty_before_sell=position_qty,
                     label=action_label,
+                    book=book,
                 )
                 if sale is None:
                     continue
                 order, prot = sale
-                orders.append(order)
-                pipeline.db.insert_trade(
-                    symbol=decision.symbol,
-                    action=action_label,
-                    qty=qty,
-                    price=sell_price,
-                    reasoning=decision.reasoning,
-                    run_id=run_id,
-                    broker_order_id=order.get("id"),
-                    fill_status="submitted",
-                    decision_id=decision_id,
-                )
-                _record_pipeline_event(
-                    pipeline,
-                    ctx,
-                    decision.symbol,
-                    "order",
-                    "submitted",
-                    "broker_accepted",
-                    broker_order_id=order.get("id"),
-                    qty=qty,
-                    limit_price=sell_limit,
-                    side="sell",
-                    quote_bid=exit_quote["bid"],
-                    quote_ask=exit_quote["ask"],
-                )
-                record_rotation_close(
-                    pipeline,
-                    ctx,
-                    SellLeg(decision, qty, sell_price, rotation_final_reason),
-                    order,
-                )
-                logger.info(
-                    "Executed: %s %s %s @ %s",
-                    action_label.lower(),
-                    pipeline._format_qty(qty),
-                    decision.symbol,
-                    "market",
-                )
+                book(order, qty)
             except Exception as e:
                 logger.error("Order failed for %s %s: %s", decision.action, decision.symbol, e)
             if prot is None:
@@ -342,6 +312,9 @@ class ExecutionStage:
                 # live quote read only to measure the fill.
                 cover_limit = None
                 exit_quote = read_exit_quote(pipeline.broker, decision.symbol)
+                book = functools.partial(
+                    book_exit, pipeline, ctx, orders, decision, action_label, cover_price, exit_quote, "buy", None
+                )
                 sale = pipeline._submit_protected_sell(
                     symbol=decision.symbol,
                     qty=qty,
@@ -350,43 +323,12 @@ class ExecutionStage:
                     position_qty_before_sell=held_qty,
                     label=action_label,
                     side="buy",
+                    book=book,
                 )
                 if sale is None:
                     continue
                 order, prot = sale
-                orders.append(order)
-                pipeline.db.insert_trade(
-                    symbol=decision.symbol,
-                    action=action_label,
-                    qty=qty,
-                    price=cover_price,
-                    reasoning=decision.reasoning,
-                    run_id=run_id,
-                    broker_order_id=order.get("id"),
-                    fill_status="submitted",
-                    decision_id=decision_id,
-                )
-                _record_pipeline_event(
-                    pipeline,
-                    ctx,
-                    decision.symbol,
-                    "order",
-                    "submitted",
-                    "broker_accepted",
-                    broker_order_id=order.get("id"),
-                    qty=qty,
-                    limit_price=cover_limit,
-                    side="buy",
-                    quote_bid=exit_quote["bid"],
-                    quote_ask=exit_quote["ask"],
-                )
-                logger.info(
-                    "Executed: %s %s %s @ %s",
-                    action_label.lower(),
-                    pipeline._format_qty(qty),
-                    decision.symbol,
-                    "market",
-                )
+                book(order, qty)
             except Exception as e:
                 logger.error("Order failed for %s %s: %s", decision.action, decision.symbol, e)
             if prot is None:

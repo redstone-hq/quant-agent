@@ -26,6 +26,7 @@ from src.models import (
     TechReasoningChain,
 )
 from tests.pipeline_factory import build_pipeline
+from tests.fakes.confirmed_cancel import confirm_cancels
 
 
 def _news_stub():
@@ -1476,6 +1477,7 @@ def test_partial_trim_reprotects_residual_after_partial_trim_fills(tmp_path):
     _mock_stop_seam(pipeline.broker, specs=cancelled)
     # Limit fills at exactly the trim qty.
     pipeline.broker.wait_for_order_terminal.return_value = "filled"
+    confirm_cancels(pipeline.broker)  # the broker confirms the stop cancel before the trim
     pipeline.broker.get_order_fill_info.return_value = {
         "status": "filled",
         "filled_qty": "15",
@@ -3813,6 +3815,7 @@ def test_midday_emergency_writes_wal_before_submit_survives_submit_crash(tmp_pat
 
     specs = [{"id": "s1", "qty": 51, "stop_price": 200.0, "limit_price": 196.0}]
     _mock_stop_seam(pipe.broker, specs=specs)
+    confirm_cancels(pipe.broker)  # the broker confirms the stop cancel before the sale
     pipe.broker.submit_order.side_effect = RuntimeError("SIGKILL-ish at submit")
     pipe._full_sell_qty = lambda q: q
     pipe.db.has_pending_action_for_symbol = lambda *a, **k: False
@@ -4063,7 +4066,7 @@ def test_submit_protected_sell_restores_stops_on_reject():
     pipe.broker._restore_stop_orders.assert_called_once_with(
         "NVDA",
         [{"id": "s1", "qty": 10}],
-        check_idempotency=False,
+        check_idempotency=True,  # put back up to held; a dying stop is never alive
     )
 
 
@@ -4084,7 +4087,7 @@ def test_submit_protected_sell_restores_stops_on_submit_throw():
     pipe.broker._restore_stop_orders.assert_called_once_with(
         "NVDA",
         [{"id": "s1", "qty": 10}],
-        check_idempotency=False,
+        check_idempotency=True,  # put back up to held; a dying stop is never alive
     )
 
 
