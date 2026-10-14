@@ -12,7 +12,8 @@ wiring into `run_intra_check`:
   2. A material move (bullish OR via an inverse ETF, bearish) that clears
      the threshold reaches the SAME DecisionStage -> RiskStage ->
      ExecutionStage chain morning uses.
-  3. A move below threshold, or a symbol still in cooldown, is skipped.
+  3. Movers rank by move / own ATR; a name already looked at this session
+     ranks by its move since that look (tests/test_intraday_relook_rank.py).
   4. A daily-loss breach suppresses the scan even when there was nothing
      to force-liquidate.
   5. The scan backs off while another session is mid-flight. `intra_check`
@@ -115,9 +116,7 @@ def _todays_news_dump():
 def _intraday_pipeline(
     universe=("SPY", "SQQQ", "AAPL"),
     enabled=True,
-    cooldown_hours=3.0,
     atr=2.0,
-    cooldown_rows=None,
     db_path=None,
 ):
     # REAL constructor, production settings; the scan's advisory flock gets a per-test temp dir.
@@ -126,7 +125,6 @@ def _intraday_pipeline(
         storage={"db_path": str(db_path or (Path(tempfile.mkdtemp()) / "t.db"))},
         intraday_scan=IntradayScanConfig(
             enabled=enabled,
-            cooldown_hours=cooldown_hours,
         ).model_dump(),
     )
     broker = MagicMock()
@@ -137,7 +135,7 @@ def _intraday_pipeline(
         "non_marginable_buying_power": 10_000.0,
     }
     broker.get_positions.return_value = []
-    db = MagicMock(**{"get_trades.return_value": cooldown_rows or []})
+    db = MagicMock()
     market = MagicMock(**{"get_ohlcv.return_value": [MagicMock()]})  # non-empty; indicators patched
     macro_store = MagicMock(**{"load_last_state.return_value": _todays_macro_state()})
     news_store = MagicMock(**{"load_daily_report.return_value": _todays_news_dump()})
@@ -297,69 +295,20 @@ def test_bearish_move_surfaces_through_inverse_etf(mock_compute_indicators):
     assert submitted_symbols == ["SQQQ"], "SPY has no ATR, so it is not ranked"
 
 
-# ---------- cooldown / dedup ----------
+# ---------- no re-look clock ----------
 
 
 @patch("src.pipeline_intraday.compute_indicators")
-def test_cooldown_suppresses_repeat_scan_of_same_symbol(mock_compute_indicators):
-    """A symbol already evaluated by an intra_check-triggered scan within
-    the cooldown window must not be re-submitted to tech_analyst on the
-    very next tick, even though it's still moved past threshold —
-    otherwise a slow-developing move churns the same setup every 30 min."""
-    from datetime import datetime, timedelta, timezone
-
+def test_a_name_looked_at_30_minutes_ago_is_not_locked_out(mock_compute_indicators):
+    """The 3h re-look cooldown is deleted (2026-10-13). A name the desk
+    looked at 30 minutes ago is NOT suppressed by elapsed time: it is
+    measured from the price at that look and competes in the one ranking.
+    Here it moved 10% since the look, so it is re-submitted."""
     mock_compute_indicators.return_value = MagicMock()
-    # Aged 30 min (not "now"): `_recently_intraday_evaluated`'s
-    # legacy-fallback cooldown lookup reads `db.get_trades`. 30 min stays
-    # well inside the 3h cooldown window under test.
-    aged_ts = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-    p = _intraday_pipeline(
-        universe=["AAPL"],
-        cooldown_hours=3.0,
-        cooldown_rows=[
-            {
-                "symbol": "AAPL",
-                "action": "HOLD",
-                "run_id": "intra_check-abcd1234",
-                "timestamp": aged_ts,
-                "reasoning": "prior intraday scan",
-            }
-        ],
-    )
+    p = _intraday_pipeline(universe=["AAPL"])
+    p.db.get_session_reference_price.return_value = 100.0
     p.broker.get_intraday_snapshots.return_value = {
-        "AAPL": _snapshot(last=110.0, prev=100.0),  # still 10% — well past threshold
-    }
-
-    ctx = RunContext.start("intra_check")
-    result = p._run_intraday_opportunity_scan(ctx)
-
-    assert result == {"status": "intraday_scan_no_opportunity", "run_id": ctx.run_id}
-    p.tech_analyst.analyze_batch.assert_not_called()
-
-
-@patch("src.pipeline_intraday.compute_indicators")
-def test_cooldown_expired_allows_rescan(mock_compute_indicators):
-    """A prior intraday-scan row OLDER than the cooldown window must not
-    suppress a fresh scan — the dedup is time-bounded, not permanent."""
-    from datetime import datetime, timedelta, timezone
-
-    mock_compute_indicators.return_value = MagicMock()
-    stale_ts = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
-    p = _intraday_pipeline(
-        universe=["AAPL"],
-        cooldown_hours=3.0,
-        cooldown_rows=[
-            {
-                "symbol": "AAPL",
-                "action": "HOLD",
-                "run_id": "intra_check-abcd1234",
-                "timestamp": stale_ts,
-                "reasoning": "prior intraday scan",
-            }
-        ],
-    )
-    p.broker.get_intraday_snapshots.return_value = {
-        "AAPL": _snapshot(last=110.0, prev=100.0),
+        "AAPL": _snapshot(last=110.0, prev=109.0),
     }
     p.tech_analyst.analyze_batch.return_value = ({}, None)
 
@@ -367,42 +316,8 @@ def test_cooldown_expired_allows_rescan(mock_compute_indicators):
     p._run_intraday_opportunity_scan(ctx)
 
     p.tech_analyst.analyze_batch.assert_called_once()
-
-
-@patch("src.pipeline_intraday.compute_indicators")
-def test_non_intra_check_trades_do_not_count_toward_cooldown(mock_compute_indicators):
-    """A morning-run HOLD/BUY for the symbol must not suppress the
-    intraday scan — the symbol cooldown is specifically about repeat
-    INTRADAY scans, not about any historical trade row.
-
-    The row is aged 30 min so it sits OUTSIDE the 15-min concurrent-session
-    guard but well INSIDE the 3h symbol cooldown window — isolating the
-    cooldown behavior under test from the separate concurrency guard."""
-    from datetime import datetime, timedelta, timezone
-
-    mock_compute_indicators.return_value = MagicMock()
-    morning_ts = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-    p = _intraday_pipeline(
-        universe=["AAPL"],
-        cooldown_rows=[
-            {
-                "symbol": "AAPL",
-                "action": "HOLD",
-                "run_id": "run-abcd1234",
-                "timestamp": morning_ts,
-                "reasoning": "morning run",
-            }
-        ],
-    )
-    p.broker.get_intraday_snapshots.return_value = {
-        "AAPL": _snapshot(last=110.0, prev=100.0),
-    }
-    p.tech_analyst.analyze_batch.return_value = ({}, None)
-
-    ctx = RunContext.start("intra_check")
-    p._run_intraday_opportunity_scan(ctx)
-
-    p.tech_analyst.analyze_batch.assert_called_once()
+    assert [s["symbol"] for s in p.tech_analyst.analyze_batch.call_args.args[0]] == ["AAPL"]
+    assert ctx._mover_rank_basis["AAPL"]["move_ref"] == "last_look"
 
 
 def _held_position(symbol: str) -> Position:
@@ -461,7 +376,7 @@ def test_held_quiet_name_joins_intraday_tech_batch(mock_compute_indicators):
     assert result["candidates"] == ["AAPL"], "quiet holds are coverage, not movers"
     assert {a.symbol for a in ctx.analyses} == {"AAPL", "MSFT"}
     ledgered = [call.kwargs["symbol"] for call in p.db.record_intraday_evaluation.call_args_list]
-    assert "MSFT" not in ledgered, "hold coverage must not consume mover cooldown"
+    assert "MSFT" not in ledgered, "hold coverage must not write a mover evaluation row"
 
 
 @patch("src.pipeline_intraday.compute_indicators")
@@ -1512,6 +1427,15 @@ def test_a_movers_ledger_row_records_the_atr_denominator(
     assert "move_atr=5.0000" in details[-1]
     # The selection-time field every existing reader parses is untouched.
     assert details[-1].startswith("move_pct=10.0000")
+    # Never looked at this session: measured from the prior close, and the
+    # row stores the live price the PM saw it at as the next reference.
+    assert details[-1].endswith(";move_ref=prev_close")
+    ref_prices = [
+        c.kwargs.get("ref_price")
+        for c in p.db.record_intraday_evaluation.call_args_list
+        if c.kwargs["symbol"] == "AAPL"
+    ]
+    assert ref_prices[-1] == 110.0
 
 
 @patch("src.pipeline_intraday.compute_indicators")
@@ -1519,8 +1443,8 @@ def test_the_atr_stamp_reuses_the_selection_row_and_never_adds_one(
     mock_compute_indicators,
 ):
     """`record_intraday_evaluation` upserts on (symbol, run_id), so the
-    stamp updates the row the cooldown already counts. A second ROW would
-    be a second cooldown fact for one paid look."""
+    stamp updates the one row that records the look. A second ROW would be
+    a second evaluation fact for one paid look."""
     mock_compute_indicators.return_value = SimpleNamespace(atr_14=2.0)
     p = _intraday_pipeline(universe=["AAPL"])
     p.broker.get_intraday_snapshots.return_value = {
@@ -1554,7 +1478,7 @@ def test_the_atr_stamp_reuses_the_selection_row_and_never_adds_one(
 def test_a_held_name_gets_no_trigger_measurement(mock_compute_indicators):
     """Held-book coverage never passed through `move_threshold_pct`, so
     stamping it would contaminate the very measurement meant to answer for
-    that trigger — and would give a quiet hold a mover cooldown."""
+    that trigger — and would give a quiet hold a mover reference price."""
     mock_compute_indicators.return_value = SimpleNamespace(atr_14=2.0)
     p = _intraday_pipeline(universe=["AAPL", "MSFT"], atr={"AAPL": 2.0})
     p.broker.get_intraday_snapshots.return_value = {

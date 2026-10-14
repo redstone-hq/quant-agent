@@ -71,6 +71,31 @@ from src.storage.trades.exit_reasons import (  # noqa: F401  re-export: defined 
 logger = logging.getLogger(__name__)
 
 
+def _apply_opening_fill(inventory: float, average_price: float, signed_qty: float, price: float) -> tuple[float, float]:
+    """Signed inventory and average entry price after a BUY (+qty) or SHORT (-qty) fill."""
+    new_inventory = inventory + signed_qty
+    if inventory * signed_qty > 1e-9:
+        # Adding to the side already open: weighted average entry.
+        return new_inventory, (abs(inventory) * average_price + abs(signed_qty) * price) / abs(new_inventory)
+    if abs(new_inventory) <= 1e-9:
+        return 0.0, 0.0
+    if new_inventory * signed_qty > 0:
+        # Opening from flat, or flipping through zero: what remains was opened at this fill.
+        return new_inventory, price
+    return new_inventory, average_price  # partly nets an open opposite side; its basis stands
+
+
+def _closing_side(action: str, inventory: float) -> str | None:
+    """Which side an exit closes: from its name, else from the position it closes."""
+    if action.startswith("SWEEP_SELL"):
+        return "long"
+    side = _exit_action_side(action)
+    if side is None:
+        # Either-side exit (STOP_OUT, TRAIL_STOP, REDUCE, ...): whichever side is open.
+        return "long" if inventory > 1e-9 else "short" if inventory < -1e-9 else None
+    return side
+
+
 class TradeLedger:
     """Trade-ledger write cluster; see module docstring."""
 
@@ -609,14 +634,29 @@ class TradeLedger:
             return cur.rowcount or 0
 
     def _realized_pnl_through_trade(self, symbol: str, through_id: int) -> float | None:
-        """Average-cost P&L for one confirmed exit; caller holds ``_lock``."""
+        """Average-cost P&L for one confirmed exit; caller holds ``_lock``.
+
+        Walks SIGNED inventory (long positive, short negative) with the
+        average ENTRY price of the open side. BUY / SWEEP_BUY add shares;
+        SHORT / SELL / PARTIAL_SELL / REDUCE / SWEEP_SELL subtract; COVER adds.
+        An exit that reduces |inventory| realises P&L: a long exit is
+        ``(exit - avg) * qty``, a short cover is ``(avg - cover) * qty``.
+
+        The trades table has no side column, so direction comes from the
+        action name (`exit_action_side`: SELL* long, COVER* short) and, for
+        either-side exits (STOP_OUT, TRAIL_STOP, REDUCE, ...), from the sign
+        of the position being closed. Direction that cannot be known, or an
+        exit larger than the open inventory, stays None: unknown stays
+        unknown. Opening rows (BUY / SHORT) realise nothing, so the target
+        row's P&L is only ever set by an exit.
+        """
         rows = self.conn.execute(
             "SELECT id, action, qty, price, fill_status, fill_qty, fill_price "
             "FROM trades WHERE symbol = ? AND id <= ? ORDER BY id",
             (symbol, through_id),
         ).fetchall()
-        inventory = 0.0
-        average_cost = 0.0
+        inventory = 0.0  # signed: long > 0, short < 0
+        average_price = 0.0  # average entry price of the open side
         target_pnl: float | None = None
         for row in rows:
             status = str(row["fill_status"] or "").lower()
@@ -635,24 +675,32 @@ class TradeLedger:
             ):
                 continue
             actual_price = float(actual_price)
-            if row["action"] in {"BUY", "SWEEP_BUY"}:
-                new_inventory = inventory + actual_qty
-                average_cost = (
-                    (inventory * average_cost + actual_qty * actual_price) / new_inventory if new_inventory > 0 else 0.0
+            action = str(row["action"] or "").upper()
+            if action == "HOLD":
+                continue
+            if action in {"BUY", "SWEEP_BUY", "SHORT"}:
+                inventory, average_price = _apply_opening_fill(
+                    inventory, average_price, -actual_qty if action == "SHORT" else actual_qty, actual_price
                 )
-                inventory = new_inventory
                 continue
-            if row["action"] == "HOLD":
-                continue
-            if inventory + 1e-9 < actual_qty:
+            closing = _closing_side(action, inventory)
+            open_qty = inventory if closing == "long" else -inventory if closing == "short" else 0.0
+            if closing is None or open_qty + 1e-9 < actual_qty:
                 pnl = None  # incomplete canonical cost basis; unknown stays unknown
-                inventory = max(0.0, inventory - actual_qty)
-            else:
-                pnl = round((actual_price - average_cost) * actual_qty, 6)
-                inventory -= actual_qty
-                if inventory <= 1e-9:
+                if open_qty > 0:
+                    # Oversize exit: the open side is gone, the excess is unknowable.
                     inventory = 0.0
-                    average_cost = 0.0
+                    average_price = 0.0
+            else:
+                pnl = round(
+                    ((actual_price - average_price) if closing == "long" else (average_price - actual_price))
+                    * actual_qty,
+                    6,
+                )
+                inventory += -actual_qty if closing == "long" else actual_qty
+                if abs(inventory) <= 1e-9:
+                    inventory = 0.0
+                    average_price = 0.0
             if row["id"] == through_id:
                 target_pnl = pnl
         return target_pnl

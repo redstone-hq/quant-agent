@@ -96,10 +96,7 @@ def _pipeline(*, enabled=True, universe=("AAPL",), other_session_rows=None):
         storage=SimpleNamespace(
             db_path=str(Path(tempfile.mkdtemp()) / "t.db"),
         ),
-        intraday_scan=IntradayScanConfig(
-            enabled=enabled,
-            cooldown_hours=3.0,
-        ),
+        intraday_scan=IntradayScanConfig(enabled=enabled),
     )
     p.broker.get_account.return_value = {
         "cash": 10_000.0,

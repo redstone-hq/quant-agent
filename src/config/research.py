@@ -31,11 +31,6 @@ class IntradayScanConfig(BaseModel):
     reviewed in production — flip on deliberately after reviewing the PR,
     the same rollout pattern cash_sweep followed."""
 
-    cooldown_hours: float = Field(default=3.0, ge=0.5, le=24)
-    """Minimum hours between two intraday-scan decisions for the SAME
-    symbol — prevents repeated scans from churning the same setup every
-    30-minute tick while a move is still developing."""
-
     pm_min_interval_minutes: float = Field(default=60.0, ge=0, le=390)
     """Owner ruling 2026-10-13: the PAID portfolio-manager ("what to buy")
     call runs at most once per this many minutes during the intraday cycle,

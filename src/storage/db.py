@@ -1212,30 +1212,45 @@ class Database:
         run_id: str,
         status: str,
         detail: str = "",
+        ref_price: float | None = None,
     ) -> None:
+        """Upsert one (symbol, run_id) evaluation row.
+
+        `ref_price` is the live price the mover scan ranked the name at; the
+        next scan this session ranks the name by its move since that price
+        (`get_session_reference_price`). A later write for the same run with
+        no price (an exit-path row) keeps the price already stored.
+        """
+
         def _do():
             self.conn.execute(
-                "INSERT INTO intraday_evaluations(symbol, run_id, status, detail) "
-                "VALUES (?, ?, ?, ?) ON CONFLICT(symbol, run_id) DO UPDATE SET "
-                "status=excluded.status, detail=excluded.detail",
-                (symbol.upper(), run_id, status, detail),
+                "INSERT INTO intraday_evaluations(symbol, run_id, status, detail, ref_price) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT(symbol, run_id) DO UPDATE SET "
+                "status=excluded.status, detail=excluded.detail, "
+                "ref_price=COALESCE(excluded.ref_price, intraday_evaluations.ref_price)",
+                (symbol.upper(), run_id, status, detail, ref_price),
             )
             self.conn.commit()
 
         self._locked_write(_do, label="record_intraday_evaluation")
 
-    def get_recent_intraday_evaluations(
-        self,
-        symbol: str,
-        *,
-        cooldown_hours: float,
-    ) -> list[dict]:
+    def get_session_reference_price(self, symbol: str) -> float | None:
+        """The price recorded at this name's latest intraday look THIS session, else None.
+
+        "This session" is the current US/Eastern trading day. A row with no
+        stored price (written before the column existed, or by an exit path)
+        is not a reference; the caller then ranks the name from the prior
+        close, exactly as for a name the desk has not looked at today.
+        """
+        session_start = sql_utc_stamp(datetime.combine(et_today(), time.min, tzinfo=ET))
         with self._lock:
-            rows = self.conn.execute(
-                "SELECT * FROM intraday_evaluations WHERE symbol=? AND timestamp >= ? ORDER BY timestamp DESC",
-                (symbol.upper(), sql_utc_stamp_ago(hours=float(cooldown_hours))),
-            ).fetchall()
-        return [dict(row) for row in rows]
+            row = self.conn.execute(
+                "SELECT ref_price FROM intraday_evaluations "
+                "WHERE symbol=? AND timestamp >= ? AND ref_price IS NOT NULL "
+                "ORDER BY timestamp DESC, id DESC LIMIT 1",
+                (symbol.upper(), session_start),
+            ).fetchone()
+        return float(row[0]) if row is not None else None
 
     # --- Intraday snapshot health (2026-09-10) --------------------------
     #
