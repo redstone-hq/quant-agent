@@ -31,7 +31,8 @@ restated:
     opposed — the 25 Sep rule that a bearish news seat refuses a buy — and a
     supported non-technical thesis). A new buy still needs timing confirmed
     (`own_bar_block_reason`, unchanged).
-  * A BROKEN chart structure is the protective sale below, never gated.
+  * A CONFIRMED chart-structure break is the protective sale below, never
+    gated.
 
 Every refusal code is classified ONCE (`COUNTS_CODES`, `NEVER_CODES`,
 `UNKNOWN_CODES`). Only a definite failure about the stock itself sells.
@@ -51,9 +52,12 @@ Two readings of "unknown", each used where it means something:
 A failure a missing reading could undo is not definite.
 
 A PROTECTIVE sale is not judgement: a holding whose structural-protection
-read is `protected=False` sells ungated, as on trunk. A failed bar fetch
-reads `chart_unreadable` (`NOT_PROTECTIVE_BASES`), which is unknown, not
-broken, so it goes to the gate.
+read is a CONFIRMED chart break (`PROTECTIVE_BREAK_BASES`) sells ungated, as
+on trunk. Every other `protected=False` read goes to the gate: a loser with
+no chart level under its stop (`no_chart_level` — owner 14 Oct 2026: its
+sale must pass the buy-rule check; if it still passes, it is held and its
+stop caps the loss), a failed bar fetch (`chart_unreadable`, unknown, not
+broken), and any basis added later.
 
 Three rules sit around the bar:
 
@@ -104,16 +108,20 @@ BASIS_EVIDENCE_MISSING = "evidence_missing"
 BASIS_BOUGHT_TODAY = "bought_today"
 BASIS_PROTECTIVE = "protective_structure_broken"
 
-#: A structural-protection read of `protected=False` is a PROTECTIVE sale and
-#: sells UNGATED, as on trunk (the structure broke, or the position is losing
-#: with no chart level under it) — except these bases, which are UNKNOWN, not
-#: broken: a failed or empty bar fetch. Unknown never sells.
-NOT_PROTECTIVE_BASES = frozenset({"chart_unreadable"})
+#: The ONLY `protected=False` bases that are a PROTECTIVE sale and sell
+#: UNGATED: a structure break confirmed on its required closes is a chart
+#: fact ("cut losers at pre-defined structure", docs/OUTCOME.md). These are
+#: `src/risk/exit_guard.py`'s confirmed-break bases. An ALLOWLIST, so every
+#: other unprotected basis is judged on the buy rules: `no_chart_level` (a
+#: loser with no chart level under the stop — owner 14 Oct 2026),
+#: `chart_unreadable` (a failed bar fetch; unknown never sells), and any
+#: basis added later.
+PROTECTIVE_BREAK_BASES = frozenset({"structural_level_broken", "thesis_invalid_if_triggered"})
 
 
 def is_protective(unprotected_basis: str | None) -> bool:
-    """True for the basis of a `protected=False` read that is a real break."""
-    return unprotected_basis is not None and unprotected_basis not in NOT_PROTECTIVE_BASES
+    """True only for the basis of a CONFIRMED chart break (sold ungated)."""
+    return unprotected_basis in PROTECTIVE_BREAK_BASES
 
 
 #: Non-technical seats; each is `known` per stock only with a verdict this run.
@@ -216,7 +224,7 @@ class HoldingViews:
     #: Symbols whose earnings stance is stale (no, or an over-age, filing date).
     stale_earnings: frozenset = frozenset()
     #: Basis of a `protected=False` structural read (None when protected or
-    #: unread); `is_protective(basis)` = sold ungated.
+    #: unread); only a confirmed break (`is_protective(basis)`) sells ungated.
     protection_basis: str | None = None
 
 
@@ -327,7 +335,7 @@ def _judge_bar(views: HoldingViews, verdicts: list, has_tech: bool, readings: di
 
 def judge_holding(views: HoldingViews) -> SameRulesVerdict:
     """Would a buy of this holding be REFUSED right now? Only then may it be
-    sold by judgement. A protective sale passes ungated."""
+    sold by judgement. A confirmed chart break passes ungated."""
     sym = str(views.symbol or "").strip().upper()
     if is_protective(views.protection_basis):
         return SameRulesVerdict(

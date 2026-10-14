@@ -213,8 +213,8 @@ class PositionReviewSession:
             logger.warning("same-rules gate: reviewer seat views unavailable (%s) — no judgement sale", exc)
             verdicts = []
         stale_earnings = frozenset(str(s).upper() for s, seats in stale.items() if "earnings" in set(seats or ()))
-        # The same protection read the morning path makes (stage_risk): an
-        # UNPROTECTED holding's sale is protective and passes ungated here too.
+        # The same protection read the morning path makes (stage_risk): only
+        # a CONFIRMED chart break's sale is protective and passes ungated.
         protection_bases = _reviewer_protection_bases(self, review, positions, run_id=run_id)
         views = {}
         for p in positions or []:
@@ -973,9 +973,10 @@ class PositionReviewSession:
 def _reviewer_protection_bases(session, review, positions, *, run_id: str) -> dict:
     """Per proposed judgement sale, the basis of an UNPROTECTED read — the
     same `_structural_protection_for_holding` read the morning path makes
-    (`src/stage_risk.py`) — so an unprotected holding's reviewer sale passes
-    the same-rules gate as protective. A failed or absent read leaves the
-    holding judged on the bar; a failed bar fetch is never protective."""
+    (`src/stage_risk.py`) — so a reviewer sale of a holding whose structure
+    broke on confirmed closes passes the same-rules gate as protective. Any
+    other basis (a loser with no chart level, a failed bar fetch), and a
+    failed or absent read, leaves the holding judged on the bar."""
     from src.exits.same_rules_gate import is_judgement_sale
 
     selling = {

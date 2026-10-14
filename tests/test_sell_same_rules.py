@@ -522,7 +522,7 @@ def test_t11_short_with_buy_rating_fails_r2_in_the_holding_direction():
     assert "(short)" in verdict.detail
 
 
-@_pytest.mark.parametrize("basis", ["structural_level_broken", "thesis_invalid_if_triggered", "no_chart_level"])
+@_pytest.mark.parametrize("basis", ["structural_level_broken", "thesis_invalid_if_triggered"])
 def test_t13_protective_sale_is_never_gated(basis):
     views = _g.HoldingViews(
         symbol="ACME", is_short=False, seat_verdicts=_all_known("ACME"), eligibility_reasons=(), protection_basis=basis
@@ -683,7 +683,7 @@ def test_t14_failed_bar_fetch_reads_chart_unreadable_not_no_chart_level():
     )
     assert check.protected is False and check.basis == "chart_unreadable"
     assert not _g.is_protective(check.basis)
-    assert _g.is_protective("no_chart_level")
+    assert not _g.is_protective("no_chart_level")
 
 
 # (t16) SAFETY, coordinator 14 Oct defect 1: the reviewer's gate reads
@@ -696,7 +696,7 @@ def test_t16_reviewer_never_blocks_an_unprotected_holdings_sale():
 
     def _read(**kw):
         calls.append(kw)
-        return SimpleNamespace(protected=False, basis="thesis_level_broken", detail="closed below the level twice")
+        return SimpleNamespace(protected=False, basis="structural_level_broken", detail="closed below the level twice")
 
     def _run(read, history):
         db = _DB()
