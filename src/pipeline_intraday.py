@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from src.agents.base import agent_log_kwargs, seat_acceptance_kwargs
 from src.cost_circuit import PaidAnalysisSuspended
 from src.data.technical import compute_indicators
-from src.intraday.buying_room import NO_BUYING_ROOM, assess_buying_room
+from src.intraday.buying_room import NO_BUYING_ROOM, assess_buying_room, judgement_sale_reasons
 from src.intraday.candidates import IntradayCandidates, record_dropped_name
 from src.intraday.gating import IntradayGating
 from src.intraday.safety import IntradaySafety
@@ -727,8 +727,12 @@ class IntradayScanBody:
                 _site(self, "evaluation_ledger", exc, context={"symbol": symbol}, log=logger)
 
     def _intraday_no_buying_room(self, ctx: RunContext, analyses, symbols, sold=()) -> dict | None:
-        """The durable skip record when no mover can be opened, else None (the PM is called).
+        """The durable skip record when no mover can be opened AND no sale by judgement is possible, else None.
 
+        None calls the PM. With no room but a possible judgement sale, the
+        call runs and the existing headroom clamp and minimum-risk floor
+        refuse any buy. Every judged
+        check leaves one `buying_room` pipeline event with the room figures.
         An unreadable assessment, or none (ranked-margin rotation switched
         on can free room), calls the PM as before.
         """
@@ -737,11 +741,25 @@ class IntradayScanBody:
         except Exception as exc:  # noqa: BLE001
             _site(self, "buying_room", exc, log=logger)
             return None
-        if room is None or room.has_room:
+        if room is None:
             return None
         record = room.as_record()
+        sales = [] if room.has_room else judgement_sale_reasons(self)
+        outcome = "room" if room.has_room else "pm_called_buys_blocked" if sales else "pm_call_skipped"
+        _record_pipeline_event(
+            self,
+            ctx,
+            None,
+            "buying_room",
+            outcome,
+            "; ".join(sales) if sales else ("" if room.has_room else "no room and no sale by judgement possible"),
+            **{k: v for k, v in record.items() if k != "pm_call_skipped"},
+            fits=[row["symbol"] for row in room.candidates if row["fits"]],
+        )
+        if room.has_room or sales:
+            return None
         logger.info(
-            "Intraday scan: no paid PM call -- no room to open any mover (%s; candidates %s)",
+            "Intraday scan: no paid PM call -- no room to open any mover and no sale by judgement (%s; candidates %s)",
             record["limit"],
             record["candidates_considered"],
         )
