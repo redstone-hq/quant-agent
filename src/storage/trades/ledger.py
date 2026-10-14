@@ -609,14 +609,29 @@ class TradeLedger:
             return cur.rowcount or 0
 
     def _realized_pnl_through_trade(self, symbol: str, through_id: int) -> float | None:
-        """Average-cost P&L for one confirmed exit; caller holds ``_lock``."""
+        """Average-cost P&L for one confirmed exit; caller holds ``_lock``.
+
+        Walks SIGNED inventory (long positive, short negative) with the
+        average ENTRY price of the open side. BUY / SWEEP_BUY add shares;
+        SHORT / SELL / PARTIAL_SELL / REDUCE / SWEEP_SELL subtract; COVER adds.
+        An exit that reduces |inventory| realises P&L: a long exit is
+        ``(exit - avg) * qty``, a short cover is ``(avg - cover) * qty``.
+
+        The trades table has no side column, so direction comes from the
+        action name (`exit_action_side`: SELL* long, COVER* short) and, for
+        either-side exits (STOP_OUT, TRAIL_STOP, REDUCE, ...), from the sign
+        of the position being closed. Direction that cannot be known, or an
+        exit larger than the open inventory, stays None: unknown stays
+        unknown. Opening rows (BUY / SHORT) realise nothing, so the target
+        row's P&L is only ever set by an exit.
+        """
         rows = self.conn.execute(
             "SELECT id, action, qty, price, fill_status, fill_qty, fill_price "
             "FROM trades WHERE symbol = ? AND id <= ? ORDER BY id",
             (symbol, through_id),
         ).fetchall()
-        inventory = 0.0
-        average_cost = 0.0
+        inventory = 0.0  # signed: long > 0, short < 0
+        average_price = 0.0  # average entry price of the open side
         target_pnl: float | None = None
         for row in rows:
             status = str(row["fill_status"] or "").lower()
@@ -635,24 +650,47 @@ class TradeLedger:
             ):
                 continue
             actual_price = float(actual_price)
-            if row["action"] in {"BUY", "SWEEP_BUY"}:
-                new_inventory = inventory + actual_qty
-                average_cost = (
-                    (inventory * average_cost + actual_qty * actual_price) / new_inventory if new_inventory > 0 else 0.0
-                )
-                inventory = new_inventory
+            action = str(row["action"] or "").upper()
+            if action == "HOLD":
                 continue
-            if row["action"] == "HOLD":
+            if action in {"BUY", "SWEEP_BUY", "SHORT"}:
+                direction = 1.0 if action != "SHORT" else -1.0
+                new_inventory = inventory + direction * actual_qty
+                if inventory * direction > 1e-9:
+                    # Adding to the side already open: weighted average entry.
+                    average_price = (abs(inventory) * average_price + actual_qty * actual_price) / abs(new_inventory)
+                elif abs(new_inventory) <= 1e-9:
+                    average_price = 0.0
+                elif new_inventory * direction > 0:
+                    # Opening from flat, or flipping through zero: the
+                    # remaining shares were opened at this fill.
+                    average_price = actual_price
+                inventory = 0.0 if abs(new_inventory) <= 1e-9 else new_inventory
                 continue
-            if inventory + 1e-9 < actual_qty:
-                pnl = None  # incomplete canonical cost basis; unknown stays unknown
-                inventory = max(0.0, inventory - actual_qty)
+            if action.startswith("SWEEP_SELL"):
+                closing = "long"
             else:
-                pnl = round((actual_price - average_cost) * actual_qty, 6)
-                inventory -= actual_qty
-                if inventory <= 1e-9:
+                closing = _exit_action_side(action)
+                if closing is None:
+                    # Either-side exit: it closes whichever side is open.
+                    closing = "long" if inventory > 1e-9 else "short" if inventory < -1e-9 else None
+            open_qty = inventory if closing == "long" else -inventory if closing == "short" else 0.0
+            if closing is None or open_qty + 1e-9 < actual_qty:
+                pnl = None  # incomplete canonical cost basis; unknown stays unknown
+                if open_qty > 0:
+                    # Oversize exit: the open side is gone, the excess is unknowable.
                     inventory = 0.0
-                    average_cost = 0.0
+                    average_price = 0.0
+            else:
+                pnl = round(
+                    ((actual_price - average_price) if closing == "long" else (average_price - actual_price))
+                    * actual_qty,
+                    6,
+                )
+                inventory += -actual_qty if closing == "long" else actual_qty
+                if abs(inventory) <= 1e-9:
+                    inventory = 0.0
+                    average_price = 0.0
             if row["id"] == through_id:
                 target_pnl = pnl
         return target_pnl
