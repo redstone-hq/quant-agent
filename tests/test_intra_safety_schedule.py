@@ -72,15 +72,19 @@ def test_standalone_mode_is_wired_through_main():
     assert "pipeline.run_intra_safety()" in main_src
 
 
-def test_wrapper_gives_intra_safety_the_same_window_as_intra_check():
-    text = WRAPPER.read_text()
-    bounds = dict(
-        (m.group(1), (int(m.group(2)), int(m.group(3))))
-        for m in re.finditer(r"^\s*(\w+)\)\s+LO=(\d+);\s*HI=(\d+)", text, re.MULTILINE)
-    )
-    assert bounds["intra_safety"] == bounds["intra_check"], (
+def test_wrapper_gives_intra_safety_the_same_window_as_intra_check(capsys):
+    """The wrapper holds no minutes; the command it calls answers for both modes.
+    Same work, same hours: the free half's window is intra_check's by construction."""
+    from src.session_calendar import main
+
+    answers = {}
+    for mode in ("intra_check", "intra_safety"):
+        assert main([mode, "2026-11-27", "--normal-day"]) == 0
+        answers[mode] = capsys.readouterr().out.strip()
+    assert answers["intra_safety"] == answers["intra_check"] != "", (
         "the free half runs over exactly the hours the work already ran over"
     )
+    assert "intra_safety" in WRAPPER.read_text(), "the wrapper must still accept the mode"
 
 
 def test_wrapper_exempts_intra_safety_from_the_once_per_day_and_session_locks():

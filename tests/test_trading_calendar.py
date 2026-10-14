@@ -1,5 +1,5 @@
 """Tests for src.trading_calendar — the single source of truth for trading-day
-semantics. Also locks the bash wrapper's hardcoded windows to this module.
+semantics. Also asserts the bash wrapper holds no copy of the window minutes.
 """
 
 import re
@@ -135,22 +135,32 @@ def test_format_window_human_readable():
     assert format_window("evening") == "20:00-22:00 ET"
 
 
-def test_bash_wrapper_windows_match_python():
-    """Locks the bash wrapper's hardcoded LO/HI values to SESSION_WINDOWS.
-
-    If someone edits one, the other must move too — otherwise launchd gating
-    drifts from in-process checks.
+def test_bash_wrapper_holds_no_minute_literals():
+    """The wrapper used to carry its own LO/HI table, pinned to SESSION_WINDOWS
+    by a test that made two copies agree. The rule now removes the second copy:
+    the wrapper asks `python -m src.session_calendar` for the day's window, so
+    drift cannot happen, and this test fails if anyone types a minute back in.
     """
     wrapper = Path(__file__).resolve().parent.parent / "scripts" / "run_if_et_window.sh"
     text = wrapper.read_text()
 
-    pattern = re.compile(r"^\s*(\w+)\)\s+LO=(\d+);\s*HI=(\d+)", re.MULTILINE)
-    seen = {m.group(1): (int(m.group(2)), int(m.group(3))) for m in pattern.finditer(text)}
+    literal = re.compile(r"\b(?:LO|HI)=[\"']?\d")
+    assert not [ln for ln in text.splitlines() if literal.search(ln)], "the wrapper holds a LO=/HI= minute literal"
+    assert not re.search(r"^\s*\w+\)\s+LO=", text, re.MULTILINE), "the wrapper has a per-mode LO/HI case table"
+    assert "src.session_calendar" in text, "the wrapper must ask the session calendar for the window"
 
-    # Every mode in SESSION_WINDOWS must appear in the wrapper with matching bounds
-    for mode, (lo, hi) in SESSION_WINDOWS.items():
-        assert mode in seen, f"{mode} missing from bash wrapper"
-        assert seen[mode] == (lo, hi), f"Window drift for {mode}: python={lo}-{hi}, bash={seen[mode]}"
+
+def test_phase_offsets_live_here_and_derive_the_normal_day_table():
+    """One copy of the schedule: the offsets are defined in this module and the
+    fixed normal-day table is derived from them at the regular 09:30/16:00 edges."""
+    from src import session_calendar
+    from src import trading_calendar as tc
+
+    assert session_calendar.PHASE_OFFSETS is tc.PHASE_OFFSETS
+    assert set(tc.PHASE_OFFSETS) == set(tc.SESSION_WINDOWS)
+    for name, offset in tc.PHASE_OFFSETS.items():
+        derived = tc.window_minutes(offset, tc.REGULAR_SESSION_OPEN_MIN, tc.REGULAR_SESSION_CLOSE_MIN)
+        assert tc.SESSION_WINDOWS[name] == derived, name
 
 
 def test_quarter_of_maps_months_correctly():

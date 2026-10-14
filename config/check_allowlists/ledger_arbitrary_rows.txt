@@ -104,11 +104,11 @@ src.risk.trailing.PIVOT_WINDOW
 src.rotation.evaluate_rotation(margin_pct)
 src.rotation.evaluate_rotation_opportunity(margin_pct)
 src.rotation_parts.types.ROTATION_MARGIN_PCT
-src.trading_calendar.SESSION_WINDOWS['earnings_preprocess'][0]
-src.trading_calendar.SESSION_WINDOWS['earnings_preprocess'][1]
-src.trading_calendar.SESSION_WINDOWS['midday'][0]
-src.trading_calendar.SESSION_WINDOWS['midday'][1]
-src.trading_calendar.SESSION_WINDOWS['morning'][1]
+src.trading_calendar._PHASE_SPECS['earnings_preprocess'][1]
+src.trading_calendar._PHASE_SPECS['earnings_preprocess'][3]
+src.trading_calendar._PHASE_SPECS['midday'][1]
+src.trading_calendar._PHASE_SPECS['midday'][3]
+src.trading_calendar._PHASE_SPECS['morning'][3]
 src.verdicts.SEAT_WEIGHT['earnings']
 src.verdicts.SEAT_WEIGHT['macro']
 src.verdicts.SEAT_WEIGHT['smart_money']

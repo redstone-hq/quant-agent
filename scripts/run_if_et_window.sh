@@ -107,36 +107,124 @@ if [[ "$ET_DOW" -gt 5 ]]; then
     exit 0
 fi
 
+# Load the desk's secrets into this shell's environment. Defined before the
+# window lookup because the session-calendar command needs the broker keys too,
+# and run again at the fire site: one copy of this logic, two callers.
+load_desk_environment() {
+    # Load API keys from .env — single source of truth for secrets.
+    # Keeps the plist files free of keys (they're world-readable in
+    # ~/Library/LaunchAgents; .env is chmod 600). Key rotation then means
+    # editing one file, not five.
+    if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+        # shellcheck disable=SC1091
+        set -a
+        source "${PROJECT_ROOT}/.env"
+        set +a
+    fi
+
+    # systemd-delivered broker credentials WIN over .env, and must be applied AFTER
+    # it — .env carries the placeholder the credential gateway substitutes on REST,
+    # so sourcing it later would silently put the stand-in back. PR #458 shipped the
+    # delivery half (SetCredential= stand-in, LoadCredential= real file) and nothing
+    # read $CREDENTIALS_DIRECTORY, so a delivered key was ignored: the desk still
+    # reported PLACEHOLDER CREDENTIAL with both files present and correct.
+    # Absent directory or absent file is the normal, supported state — the gateway
+    # keeps REST working and the placeholder alert says the socket cannot authenticate.
+    if [[ -n "${CREDENTIALS_DIRECTORY:-}" ]]; then
+        if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_api_key" ]]; then
+            ALPACA_API_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_api_key")"
+            export ALPACA_API_KEY
+        fi
+        if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_secret_key" ]]; then
+            ALPACA_SECRET_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_secret_key")"
+            export ALPACA_SECRET_KEY
+        fi
+    fi
+}
+
 # === Window per mode (minutes past ET midnight) ===
-# WALL CLOCK ONLY, and known to be wrong on an early close or a holiday: the
-# weekday short-circuit above is this wrapper's entire calendar. See the
-# src/trading_calendar.py module docstring for what that costs on a 13:00
-# close and for why the repair is sized across six modules, not patched here.
-# Python authoritative source: src/trading_calendar.py SESSION_WINDOWS.
-# tests/test_trading_calendar.py asserts this table matches that one —
-# don't edit one without the other.
-# earnings_preprocess: 08:00-09:15 ET (pre-market, analyze fresh filings)
-# morning            : 09:30-12:00 ET (pre-market / early session, wide for late-wake grace)
-# intra_check        : 09:30-16:00 ET (fill reconcile + stop-coverage repair + bounded scan; fires every 30min tick — at :15/:45, deliberately offset from every other session's shared :00/:30 tick since 2026-09-17; NOT subject to once-per-day guard — stateless, all actions idempotent)
-# midday             : 13:00-14:30 ET (position reviewer, afternoon patience)
-# close              : 15:30-16:00 ET (position reviewer, act-on-trigger before overnight; 30min width so launchd StartInterval=1800 always lands one tick inside regardless of phase)
-# evening            : 20:00-22:00 ET (post-market, insights written before next morning)
+# THIS WRAPPER HOLDS NO MINUTES. The schedule has one copy, in Python:
+# `PHASE_OFFSETS` in src/trading_calendar.py states each phase as minutes from
+# the day's real open or close, and `python -m src.session_calendar <mode>
+# <ET date>` resolves it for this date against the broker's exchange calendar,
+# printing `LO HI` (ET minutes of day) or `closed`. On a normal day that is the
+# familiar table (morning 09:30-12:00, midday 13:00-14:30, close 15:30-16:00 ...);
+# on a 13:00 early close midday becomes 10:00-11:30 and close 12:30-13:00; on a
+# holiday it is `closed` and nothing runs. Only the first tick of a day asks the
+# broker; the answer is kept in $LAST_RUN_DIR/session-<date>.
+# intra_safety is intra_check's twin (same work, same hours) and the command
+# knows that; it is deliberately not a mode of the paid-session count table.
 case "$MODE" in
-    earnings_preprocess) LO=480; HI=555  ;;
-    morning)             LO=570; HI=720  ;;
-    intra_check)         LO=570; HI=960  ;;
-    # intra_safety is the FREE half of intra_check's preamble on its own unit
-    # (board item 177). Its window is intra_check's window BY CONSTRUCTION —
-    # the same work, the same hours — so these bounds are copied, not chosen.
-    # It is deliberately NOT a src/trading_calendar.py SESSION_WINDOWS mode:
-    # that table feeds src/config.py's expected PAID-session count, and this
-    # mode can never spend.
-    intra_safety)        LO=570; HI=960  ;;
-    midday)              LO=780; HI=870  ;;
-    close)               LO=930; HI=960  ;;
-    evening)             LO=1200; HI=1320 ;;
+    earnings_preprocess|morning|intra_check|intra_safety|midday|close|evening) ;;
     *) echo "unknown mode: $MODE" >&2; exit 2 ;;
 esac
+
+# Bound on the one calendar read. Only the first tick of the day can pay it.
+SESSION_CAL_TIMEOUT_SEC="${SESSION_CAL_TIMEOUT_SEC_OVERRIDE:-60}"
+
+session_calendar_cmd() {
+    # Runs in a subshell: own cwd (the command imports from the project) and own
+    # copy of the secrets, neither leaking into the rest of the script.
+    (
+        cd "$PROJECT_ROOT" &&
+            load_desk_environment &&
+            exec "$TIMEOUT" --kill-after=5 "$SESSION_CAL_TIMEOUT_SEC" \
+                "$PYTHON" -m src.session_calendar "$@"
+    )
+}
+
+session_calendar_failed() {
+    # No usable answer (python missing, crashed, or printing nonsense). There is
+    # no fallback number in the shell: the phase itself is Python and would fail
+    # the same way, so the tick fails loudly instead.
+    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${MODE} not run: session calendar command failed: $1" >&2
+    exit 1
+}
+
+# SESSION_WINDOW_OVERRIDE ("LO HI" or "closed") stands in for the command, the
+# way ET_HOUR_OVERRIDE stands in for the clock: for tests, which have no broker.
+CAL_REASON=""
+CAL_STATUS=0
+if [[ -n "${SESSION_WINDOW_OVERRIDE:-}" ]]; then
+    WINDOW="$SESSION_WINDOW_OVERRIDE"
+else
+    CAL_ERR_FILE="$(mktemp "${LAST_RUN_DIR}/session-cal-err.XXXXXX")"
+    if WINDOW="$(session_calendar_cmd "$MODE" "$ET_DATE" --cache-dir "$LAST_RUN_DIR" 2>"$CAL_ERR_FILE")"; then
+        CAL_STATUS=0
+    else
+        CAL_STATUS=$?
+    fi
+    CAL_REASON="$(tail -n 1 "$CAL_ERR_FILE" 2>/dev/null || true)"
+    rm -f "$CAL_ERR_FILE"
+    WINDOW="$(printf '%s\n' "$WINDOW" | tail -n 1)"
+    case "$CAL_STATUS" in
+        0) ;;
+        3)
+            # Calendar unreadable: the command printed the normal-day window.
+            echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${MODE}: session calendar unavailable (${CAL_REASON:-no reason given}); using the normal-day window ${WINDOW}" >&2
+            ;;
+        124|137)
+            # The read hung. The normal-day window needs no broker, so ask for that.
+            if WINDOW="$(session_calendar_cmd "$MODE" "$ET_DATE" --normal-day 2>/dev/null)"; then
+                WINDOW="$(printf '%s\n' "$WINDOW" | tail -n 1)"
+            else
+                session_calendar_failed "read timed out (status ${CAL_STATUS}) and the normal-day window could not be read"
+            fi
+            echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] ${MODE}: session calendar unavailable (read timed out after ${SESSION_CAL_TIMEOUT_SEC}s); using the normal-day window ${WINDOW}" >&2
+            ;;
+        *) session_calendar_failed "status ${CAL_STATUS}: ${CAL_REASON:-no message}" ;;
+    esac
+fi
+
+if [[ "$WINDOW" == "closed" ]]; then
+    exit 0  # the exchange is shut today: no phase runs
+fi
+if [[ "$WINDOW" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
+    LO="${BASH_REMATCH[1]}"
+    HI="${BASH_REMATCH[2]}"
+else
+    session_calendar_failed "unreadable answer '${WINDOW}'"
+fi
 
 if [[ "$ET_TOTAL_MIN" -lt "$LO" || "$ET_TOTAL_MIN" -gt "$HI" ]]; then
     exit 0
@@ -240,35 +328,8 @@ else
 fi
 cd "$PROJECT_ROOT"
 
-# Load API keys from .env — single source of truth for secrets.
-# Keeps the plist files free of keys (they're world-readable in
-# ~/Library/LaunchAgents; .env is chmod 600). Key rotation then means
-# editing one file, not five.
-if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    # shellcheck disable=SC1091
-    set -a
-    source "${PROJECT_ROOT}/.env"
-    set +a
-fi
-
-# systemd-delivered broker credentials WIN over .env, and must be applied AFTER
-# it — .env carries the placeholder the credential gateway substitutes on REST,
-# so sourcing it later would silently put the stand-in back. PR #458 shipped the
-# delivery half (SetCredential= stand-in, LoadCredential= real file) and nothing
-# read $CREDENTIALS_DIRECTORY, so a delivered key was ignored: the desk still
-# reported PLACEHOLDER CREDENTIAL with both files present and correct.
-# Absent directory or absent file is the normal, supported state — the gateway
-# keeps REST working and the placeholder alert says the socket cannot authenticate.
-if [[ -n "${CREDENTIALS_DIRECTORY:-}" ]]; then
-    if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_api_key" ]]; then
-        ALPACA_API_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_api_key")"
-        export ALPACA_API_KEY
-    fi
-    if [[ -r "${CREDENTIALS_DIRECTORY}/alpaca_secret_key" ]]; then
-        ALPACA_SECRET_KEY="$(<"${CREDENTIALS_DIRECTORY}/alpaca_secret_key")"
-        export ALPACA_SECRET_KEY
-    fi
-fi
+# API keys and broker credentials (see load_desk_environment above).
+load_desk_environment
 
 # Best-effort Telegram push from BASH. RC5 (2026-07-16): when `timeout`
 # SIGTERM/SIGKILLs python, the finally-block notifier never runs — 13

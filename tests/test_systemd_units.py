@@ -1115,16 +1115,12 @@ def test_intra_check_shares_no_tick_with_any_other_session_timer(mode: str):
 
 
 def _intra_check_et_window_minutes() -> tuple[int, int]:
-    """The intra_check ET window, re-read from the wrapper that enforces
-    it, so this test cannot drift from the gate."""
-    text = (SCRIPTS_DIR / "run_if_et_window.sh").read_text()
-    match = re.search(
-        r"^\s*intra_check\)\s*LO=(\d+);\s*HI=(\d+)",
-        text,
-        re.MULTILINE,
-    )
-    assert match, "intra_check's LO/HI window is no longer parseable"
-    return int(match.group(1)), int(match.group(2))
+    """The intra_check ET window the wrapper enforces on a normal day. The
+    wrapper holds no minutes of its own; it asks `src.session_calendar`, whose
+    normal-day table is derived from the one set of phase offsets."""
+    from src.trading_calendar import SESSION_WINDOWS
+
+    return SESSION_WINDOWS["intra_check"]
 
 
 def _cyclic_gaps(minutes: set[int]) -> set[int]:

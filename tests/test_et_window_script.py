@@ -1,8 +1,37 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from src.trading_calendar import SESSION_WINDOWS
+
+ROOT = Path(__file__).resolve().parents[1]
+WRAPPER_NAME = "run_if_et_window.sh"
+
+
+@pytest.fixture(autouse=True)
+def _normal_day_window_unless_the_test_sets_one(monkeypatch):
+    """Give every wrapper launch a normal-day window, without a broker.
+
+    The wrapper no longer holds a window table: it asks `python -m
+    src.session_calendar` for the day's window. These tests run a fake python
+    and have no broker, so each launch gets `SESSION_WINDOW_OVERRIDE` set to the
+    derived normal-day minutes for its mode (intra_safety shares intra_check's).
+    A test that sets the variable itself, even to an empty string, is left alone.
+    """
+    real_run = subprocess.run
+
+    def run(cmd, *args, env=None, **kwargs):
+        if env is not None and len(cmd) >= 3 and str(cmd[1]).endswith(WRAPPER_NAME):
+            mode = "intra_check" if cmd[2] == "intra_safety" else cmd[2]
+            if "SESSION_WINDOW_OVERRIDE" not in env and mode in SESSION_WINDOWS:
+                lo, hi = SESSION_WINDOWS[mode]
+                env = env | {"SESSION_WINDOW_OVERRIDE": f"{lo} {hi}"}
+        return real_run(cmd, *args, env=env, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -572,3 +601,132 @@ def test_wrapper_pings_healthchecks_on_success_and_fail(tmp_path):
     env2 |= {"HEALTHCHECKS_URL": "https://hc-ping.example/uuid-1"}
     _run(env2)
     assert "https://hc-ping.example/uuid-1/fail" in (second / "curl.log").read_text()
+
+
+# --- early closes and holidays: the window comes from the day's real session ---
+
+
+def _day_env(tmp_path, cli_body, *, hh, mm, date="2026-11-27", dow="5", override=""):
+    """A wrapper environment whose fake python answers the calendar command with
+    `cli_body` and appends a line to `runs.txt` for every OTHER launch (the phase)."""
+    project_root = tmp_path / "project"
+    project_root.mkdir(exist_ok=True)
+    (project_root / ".env").write_text("")
+    timeout_bin = tmp_path / "timeout"
+    python_bin = tmp_path / "fake-python"
+    _write_executable(timeout_bin, '#!/bin/bash\nshift 2\nexec "$@"\n')
+    _write_executable(
+        python_bin,
+        f'#!/bin/bash\nif [[ "$1" == "-m" && "$2" == "src.session_calendar" ]]; then\n{cli_body}\nfi\n'
+        f'echo ran >> "{tmp_path / "runs.txt"}"\nexit 0\n',
+    )
+    return os.environ | {
+        "PROJECT_ROOT_OVERRIDE": str(project_root),
+        "PYTHON_OVERRIDE": str(python_bin),
+        "TIMEOUT_OVERRIDE": str(timeout_bin),
+        "LAST_RUN_DIR_OVERRIDE": str(tmp_path / "cache"),
+        "ET_DOW_OVERRIDE": dow,
+        "ET_DATE_OVERRIDE": date,
+        "ET_HOUR_OVERRIDE": hh,
+        "ET_MIN_OVERRIDE": mm,
+        "NOW_UNIX_OVERRIDE": "1000",
+        "SESSION_WINDOW_OVERRIDE": override,
+    }
+
+
+def _launch(env, mode):
+    return subprocess.run(
+        ["bash", str(ROOT / "scripts" / WRAPPER_NAME), mode], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def _ran(tmp_path) -> bool:
+    return (tmp_path / "runs.txt").exists()
+
+
+def test_early_close_midday_fires_at_ten_and_not_at_one(tmp_path):
+    late = _launch(_day_env(tmp_path, "exit 9", hh="13", mm="00", override="600 690"), "midday")
+    assert late.returncode == 0 and not _ran(tmp_path), "13:00 is after the 13:00 close: must not fire"
+    early = _launch(_day_env(tmp_path, "exit 9", hh="10", mm="00", override="600 690"), "midday")
+    assert early.returncode == 0 and _ran(tmp_path), "10:00 is inside the early-close midday window"
+
+
+def test_early_close_close_review_fires_in_the_last_half_hour(tmp_path):
+    late = _launch(_day_env(tmp_path, "exit 9", hh="15", mm="30", override="750 780"), "close")
+    assert late.returncode == 0 and not _ran(tmp_path), "15:30 is long after the early close"
+    early = _launch(_day_env(tmp_path, "exit 9", hh="12", mm="30", override="750 780"), "close")
+    assert early.returncode == 0 and _ran(tmp_path)
+
+
+def test_holiday_exits_zero_without_running_the_phase(tmp_path):
+    result = _launch(
+        _day_env(tmp_path, "exit 9", hh="10", mm="00", date="2026-11-26", dow="4", override="closed"), "morning"
+    )
+    assert result.returncode == 0
+    assert not _ran(tmp_path)
+
+
+def test_holiday_answer_from_the_calendar_command_exits_zero(tmp_path):
+    env = _day_env(tmp_path, "echo closed; exit 0", hh="10", mm="00", date="2026-11-26", dow="4")
+    assert _launch(env, "intra_check").returncode == 0
+    assert not _ran(tmp_path)
+
+
+def test_weekend_never_asks_the_calendar(tmp_path):
+    asked = tmp_path / "asked.txt"
+    env = _day_env(
+        tmp_path, f'echo asked >> "{asked}"; echo "570 960"; exit 0', hh="10", mm="00", date="2026-11-28", dow="6"
+    )
+    assert _launch(env, "morning").returncode == 0
+    assert not asked.exists() and not _ran(tmp_path)
+
+
+def test_calendar_unavailable_uses_the_normal_day_window_and_says_so_once(tmp_path):
+    body = 'echo "exchange calendar unreadable" >&2; echo "780 870"; exit 3'
+    result = _launch(_day_env(tmp_path, body, hh="13", mm="00"), "midday")
+    assert result.returncode == 0 and _ran(tmp_path), "the normal-day midday window (13:00-14:30) applies"
+    said = [line for line in result.stderr.splitlines() if "calendar unavailable" in line]
+    assert len(said) == 1, result.stderr
+    assert "780-870" in said[0] or "780 870" in said[0]
+
+
+def test_calendar_unavailable_outside_the_normal_day_window_does_not_fire(tmp_path):
+    body = 'echo "exchange calendar unreadable" >&2; echo "780 870"; exit 3'
+    result = _launch(_day_env(tmp_path, body, hh="10", mm="00"), "midday")
+    assert result.returncode == 0 and not _ran(tmp_path)
+
+
+def test_calendar_command_timing_out_falls_back_to_the_normal_day_window(tmp_path):
+    body = 'if [[ " $* " == *" --normal-day "* ]]; then echo "780 870"; exit 0; fi; exit 124'
+    result = _launch(_day_env(tmp_path, body, hh="13", mm="00"), "midday")
+    assert result.returncode == 0 and _ran(tmp_path)
+    assert len([ln for ln in result.stderr.splitlines() if "calendar unavailable" in ln]) == 1, result.stderr
+
+
+@pytest.mark.parametrize("body", ["exit 1", "echo garbage; exit 0", "exit 0"])
+def test_calendar_command_with_no_usable_answer_fails_the_tick_loudly(tmp_path, body):
+    result = _launch(_day_env(tmp_path, body, hh="13", mm="00"), "midday")
+    assert result.returncode != 0
+    assert not _ran(tmp_path)
+    assert "session calendar" in result.stderr
+
+
+def test_wrapper_with_the_real_command_reads_the_early_close_from_the_day_cache(tmp_path):
+    """No fake answer here: the real `python -m src.session_calendar` reads a
+    seeded per-date file (a broker is impossible, so a miss would fail)."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "session-2026-11-27").write_text("570 780\n")
+    (cache / "session-2026-11-26").write_text("closed\n")
+    body = f'exec "{sys.executable}" "$@"'
+
+    def env_for(hh, mm, date="2026-11-27", dow="5"):
+        return _day_env(tmp_path, body, hh=hh, mm=mm, date=date, dow=dow) | {"PYTHONPATH": str(ROOT)}
+
+    assert _launch(env_for("13", "00"), "midday").returncode == 0
+    assert not _ran(tmp_path), "13:00 on the half day is after the close"
+    assert _launch(env_for("10", "00"), "midday").returncode == 0
+    assert _ran(tmp_path), "10:00 on the half day is inside midday"
+    (tmp_path / "runs.txt").unlink()
+    assert _launch(env_for("10", "00", date="2026-11-26", dow="4"), "morning").returncode == 0
+    assert not _ran(tmp_path), "the holiday runs nothing"

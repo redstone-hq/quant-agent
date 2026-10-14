@@ -3,7 +3,10 @@ session, say so on a holiday, and refuse loudly when it cannot read."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -56,13 +59,19 @@ def _normal_sessions(around: date, days: int = 40) -> dict[date, tuple[int, int]
     return out
 
 
-def test_offsets_reproduce_todays_exact_minutes():
-    """The whole re-expression is only safe if it is a no-op on a normal day."""
+def test_derived_normal_day_table_is_todays_exact_minutes():
+    """The offsets now DERIVE the fixed table, so the old equality check would
+    be a tautology. Pin the six literal pairs instead: this is the whole claim
+    that re-expressing the day is a no-op on a normal 09:30-16:00 session."""
+    assert dict(SESSION_WINDOWS) == {
+        "earnings_preprocess": (480, 555),
+        "morning": (570, 720),
+        "intra_check": (570, 960),
+        "midday": (780, 870),
+        "close": (930, 960),
+        "evening": (1200, 1320),
+    }
     assert covered_phases() == frozenset(SESSION_WINDOWS)
-    broker = FakeCalendarBroker(_normal_sessions(NORMAL_DAY))
-    for phase, (start_min, end_min) in SESSION_WINDOWS.items():
-        start, end = phase_window(broker, NORMAL_DAY, phase)
-        assert (start, end) == (et_datetime(NORMAL_DAY, start_min), et_datetime(NORMAL_DAY, end_min)), phase
 
 
 def test_normal_day_resolves_to_the_same_wall_clock():
@@ -178,3 +187,111 @@ def test_resolved_edges_are_eastern_aware():
     for moment in (opens, closes):
         assert isinstance(moment, datetime)
         assert moment.tzinfo is ET
+
+
+# --- the command the shell wrapper calls once per tick ----------------------
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _early_close_broker() -> FakeCalendarBroker:
+    sessions = _normal_sessions(EARLY_CLOSE_DAY)
+    sessions[EARLY_CLOSE_DAY] = (570, 780)
+    del sessions[HOLIDAY]
+    return FakeCalendarBroker(sessions)
+
+
+def _cli(capsys, argv, broker, cache_dir=None):
+    from src.session_calendar import main
+
+    args = list(argv) + (["--cache-dir", str(cache_dir)] if cache_dir is not None else [])
+    code = main(args, broker_factory=lambda: broker)
+    captured = capsys.readouterr()
+    return code, captured.out.strip(), captured.err.strip()
+
+
+def test_cli_prints_the_27_nov_windows_from_the_stubbed_calendar(capsys):
+    broker = _early_close_broker()
+    assert _cli(capsys, ["midday", "2026-11-27"], broker)[:2] == (0, "600 690")  # 10:00-11:30
+    assert _cli(capsys, ["close", "2026-11-27"], broker)[:2] == (0, "750 780")  # 12:30-13:00
+    assert _cli(capsys, ["intra_check", "2026-11-27"], broker)[:2] == (0, "570 780")
+    assert _cli(capsys, ["evening", "2026-11-27"], broker)[:2] == (0, "1020 1140")  # 17:00-19:00
+
+
+def test_cli_intra_safety_has_intra_checks_window(capsys):
+    broker = _early_close_broker()
+    assert _cli(capsys, ["intra_safety", "2026-11-27"], broker) == _cli(capsys, ["intra_check", "2026-11-27"], broker)
+
+
+def test_cli_prints_closed_on_a_holiday(capsys):
+    code, out, _ = _cli(capsys, ["midday", "2026-11-26"], _early_close_broker())
+    assert (code, out) == (0, "closed")
+
+
+def test_cli_cache_hit_does_not_call_the_broker(capsys, tmp_path):
+    (tmp_path / "session-2026-11-27").write_text("570 780\n")
+
+    def broker_must_not_be_built():
+        raise AssertionError("a cache hit must not build or ask the broker")
+
+    from src.session_calendar import main
+
+    assert main(["close", "2026-11-27", "--cache-dir", str(tmp_path)], broker_factory=broker_must_not_be_built) == 0
+    assert capsys.readouterr().out.strip() == "750 780"
+
+
+def test_cli_first_tick_asks_the_broker_once_and_later_ticks_use_the_file(capsys, tmp_path):
+    broker = _early_close_broker()
+    assert _cli(capsys, ["midday", "2026-11-27"], broker, tmp_path)[:2] == (0, "600 690")
+    assert (tmp_path / "session-2026-11-27").read_text().strip() == "570 780"
+    asked = len(broker.calls)
+    assert asked > 0
+    assert _cli(capsys, ["close", "2026-11-27"], broker, tmp_path)[:2] == (0, "750 780")
+    assert len(broker.calls) == asked
+
+
+def test_cli_caches_a_holiday_too(capsys, tmp_path):
+    assert _cli(capsys, ["morning", "2026-11-26"], _early_close_broker(), tmp_path)[:2] == (0, "closed")
+    assert (tmp_path / "session-2026-11-26").read_text().strip() == "closed"
+
+
+def test_cli_calendar_unavailable_gives_exit_3_and_the_normal_day_window(capsys, tmp_path):
+    code, out, err = _cli(capsys, ["midday", "2026-11-27"], FakeCalendarBroker({}), tmp_path)
+    assert code == 3
+    assert out == "780 870"  # the derived normal-day window, not a guess typed elsewhere
+    assert err, "the reason must be said, not swallowed"
+    assert not list(tmp_path.glob("session-*")), "an outage must never be cached as an answer"
+
+
+def test_cli_broker_that_cannot_be_built_is_also_unavailable(capsys):
+    from src.session_calendar import main
+
+    def broken():
+        raise RuntimeError("no credentials")
+
+    assert main(["close", "2026-11-27"], broker_factory=broken) == 3
+    assert capsys.readouterr().out.strip() == "930 960"
+
+
+def test_cli_normal_day_flag_prints_the_derived_window_without_a_broker(capsys):
+    from src.session_calendar import main
+
+    assert main(["evening", "2026-11-27", "--normal-day"], broker_factory=None) == 0
+    assert capsys.readouterr().out.strip() == "1200 1320"
+
+
+def test_cli_unknown_mode_is_a_usage_error(capsys):
+    code, _, err = _cli(capsys, ["brunch", "2026-11-27"], _early_close_broker())
+    assert code == 2 and "unknown mode" in err
+
+
+def test_module_runs_as_a_command_and_reads_the_day_cache(tmp_path):
+    (tmp_path / "session-2026-11-27").write_text("570 780\n")
+    proc = subprocess.run(
+        [sys.executable, "-m", "src.session_calendar", "midday", "2026-11-27", "--cache-dir", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (proc.returncode, proc.stdout.strip()) == (0, "600 690"), proc.stderr
