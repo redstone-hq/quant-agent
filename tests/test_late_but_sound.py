@@ -16,10 +16,6 @@ from src.execution.broker import (
     _ALPACA_STREAM_RECONNECT_MAX_S,
     TradeStreamWarmup,
 )
-from src.execution.cash_sweep import (
-    _FUND_CASH_SETTLE_TIMEOUT_S,
-    _FUND_TERMINAL_TIMEOUT_S,
-)
 from src.pipeline_context import RunContext
 from src.pipeline_stages import (
     ExecutionStage,
@@ -122,14 +118,11 @@ def test_known_budget_omits_auth_when_socket_already_started():
     pipeline = SimpleNamespace(
         broker=SimpleNamespace(trade_updates_started=lambda: True),
     )
-    assert _known_entry_submit_budget_s(pipeline, will_fund=False) == 0.0
+    assert _known_entry_submit_budget_s(pipeline) == 0.0
     pipeline.broker.trade_updates_started = lambda: False
     pipeline.broker.trade_updates_lease_contended = lambda: False
     assert (
-        _known_entry_submit_budget_s(
-            pipeline,
-            will_fund=False,
-        )
+        _known_entry_submit_budget_s(pipeline)
         == _ALPACA_STREAM_AUTH_DEADLINE_S
     )
 
@@ -141,19 +134,7 @@ def test_known_budget_omits_auth_when_another_process_owns_the_lease():
             trade_updates_lease_contended=lambda: True,
         ),
     )
-    assert _known_entry_submit_budget_s(pipeline, will_fund=False) == 0.0
-
-
-def test_known_budget_uses_ratified_fund_timeouts_not_a_new_clock():
-    """The funding step has its own already-coded ceiling. That ceiling is
-    not leftover slack on the submit path after funding has returned."""
-    pipeline = SimpleNamespace(
-        broker=SimpleNamespace(trade_updates_started=lambda: True),
-    )
-    assert _known_entry_submit_budget_s(pipeline, will_fund=False) == 0.0
-    assert _known_entry_submit_budget_s(pipeline, will_fund=True) == (
-        _FUND_TERMINAL_TIMEOUT_S + _FUND_CASH_SETTLE_TIMEOUT_S
-    )
+    assert _known_entry_submit_budget_s(pipeline) == 0.0
 
 
 def test_submit_window_overrun_is_deadline_not_price():
@@ -262,7 +243,7 @@ def test_overrun_refuses_inside_ceiling_as_latency_window(monkeypatch):
     pipeline = _buy_pipeline(ask=100.2, live=100.0, stall=False)
     ctx = _buy_ctx()
 
-    def _past_deadline(_pipeline, _ctx, *, will_fund):
+    def _past_deadline(_pipeline, _ctx):
         _ctx.entry_submit_budget_s = 0.1
         _ctx.entry_submit_started_mono = time.monotonic() - 10.0
         _ctx.entry_submit_deadline_mono = time.monotonic() - 5.0

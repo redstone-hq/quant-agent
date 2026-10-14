@@ -37,12 +37,12 @@ def _morning_pipeline(calls, *, repair_fails_on_kill=False):
             raise RuntimeError("broker 503")
         return []
 
-    def killed(run_id):
+    def killed():
         raise SessionTerminated("morning: SIGTERM from the run wrapper")
 
     p._reconcile_stop_coverage = reconcile
     p._add_missing_stops = add_missing
-    p._release_retired_cash_park = killed
+    p._drain_pending_protection_restores = killed
     p._discharge_deferred_gross_ceiling = lambda ctx: calls.append("discharge")
     p._reconcile_fills = lambda ctx: calls.append("settle")
     p._sync_positions_from_broker = lambda: calls.append("sync")

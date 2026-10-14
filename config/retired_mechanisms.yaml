@@ -264,8 +264,8 @@ retired:
       (`parked_value`), it is not part of the cash shown, and nothing sells
       it before a BUY. All three sheets now say the parked balance is not
       sold to fund a BUY and is not part of the cash figure.
-      `release_retired_vehicle` stays: it liquidates a vehicle that has been
-      retired, which is a different mechanism and still runs.
+      `release_retired_vehicle` (the one-way exit of a leftover vehicle) was
+      deleted later, 2026-10-14, once no code path could buy the vehicle.
     symbols:
       - fund_buys
       - park_excess

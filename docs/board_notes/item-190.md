@@ -46,3 +46,5 @@ text had already been wrong once on this item:
 
 Value unchanged throughout. What `min_order_usd` SHOULD be is not this item's
 question: it is carried by its own ledger settlement route, which stays open.
+
+- 2026-10-14 SUPERSEDES the KEPT ruling above: no code path buys the vehicle (the sweep buy was deleted and `enabled: true` adds none) and the desk held none (critic pass, live positions). `release_retired_vehicle`, its session wiring, `_SELL_LIMIT_PAD`, the three `_FUND_*` timeouts and the dead `will_fund` wait they fed are deleted. The stop-audit exemption for a held vehicle (`retired_cash_park_symbol`) stays.

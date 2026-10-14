@@ -43,7 +43,6 @@ class MorningSession:
         reconcile_stop_out_fills,
         repair_stops_on_kill,
         record_account_snapshot,
-        release_retired_cash_park,
         require_paid_analysis,
         restore_sigterm,
         risk_stage,
@@ -77,7 +76,6 @@ class MorningSession:
         self._reconcile_stop_out_fills = reconcile_stop_out_fills
         self._repair_stops_on_kill = repair_stops_on_kill
         self._record_account_snapshot = record_account_snapshot
-        self._release_retired_cash_park = release_retired_cash_park
         self._require_paid_analysis = require_paid_analysis
         self._restore_sigterm = restore_sigterm
         self._risk_stage = risk_stage
@@ -132,9 +130,6 @@ class MorningSession:
             # ahead of the drain changes nothing for them — the drain still
             # restores their coverage microseconds later, exactly as before.
             coverage_gaps = self._reconcile_stop_coverage()
-            # 0a'. Sweep retired (owner mandate 2026-09-17): sell any T-bill
-            # vehicle still held into cash before any seat reads the book.
-            self._release_retired_cash_park(run_id)
             # 0b. Drain orphaned protection-restore intents from prior
             # sessions where finalize had to bail (lingering SELL didn't
             # converge, or broker API hiccup). Each drained row brings a

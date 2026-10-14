@@ -150,7 +150,6 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 1 sizes positions or prices/places live orders.** Limit pads on exits, entries and stop-limits: should come from the live bid-ask spread, tick size and the name's own gap distribution.
 
-- `execution.cash_sweep._SELL_LIMIT_PAD` = 0.999
 - `execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT` = 0.03
 - `rotation_projection._projected_post_sale_book:factor[1]` = 0.995 (RESOLVED 2026-10-09 for the exits themselves: every ordinary SELL/COVER is now a plain DAY MARKET order, its live bid/ask recorded at submit; this pad survives only in the rotation gate's projection, which no longer matches the fill)
 

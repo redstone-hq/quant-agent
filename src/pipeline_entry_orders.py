@@ -61,14 +61,12 @@ def _entry_slippage_bps(pipeline) -> float:
     return MAX_ENTRY_SLIPPAGE_BPS
 
 
-def _known_entry_submit_budget_s(pipeline, *, will_fund: bool) -> float:
+def _known_entry_submit_budget_s(pipeline) -> float:
     """Programmed waits still ahead of submit. Not a fitted clock.
 
     Auth is omitted when the kept socket already started during Risk — that
-    budget began at hub open. Funding timeouts are the cash-sweep step's
-    own ceiling; they must not be added as leftover slack on the submit
-    path after the funding step has already returned. Call this AFTER funding
-    with will_fund=False.
+    budget began at hub open. The cash-sweep funding step and its
+    timeouts were deleted; auth is the only programmed wait left.
 
     Auth is also omitted when the socket is switched off entirely
     (`execution.fill_stream_enabled`; on since 2026-09-18, so this branch
@@ -98,19 +96,12 @@ def _known_entry_submit_budget_s(pipeline, *, will_fund: bool) -> float:
             from src.execution.broker import _ALPACA_STREAM_AUTH_DEADLINE_S
 
             budget += float(_ALPACA_STREAM_AUTH_DEADLINE_S)
-    if will_fund:
-        from src.execution.cash_sweep import (
-            _FUND_CASH_SETTLE_TIMEOUT_S,
-            _FUND_TERMINAL_TIMEOUT_S,
-        )
-
-        budget += float(_FUND_TERMINAL_TIMEOUT_S) + float(_FUND_CASH_SETTLE_TIMEOUT_S)
     return budget
 
 
-def _encode_entry_submit_window(pipeline, ctx, *, will_fund: bool) -> None:
+def _encode_entry_submit_window(pipeline, ctx) -> None:
     """Pin the submit deadline from known step durations, not an invented timer."""
-    budget = _known_entry_submit_budget_s(pipeline, will_fund=will_fund)
+    budget = _known_entry_submit_budget_s(pipeline)
     ctx.entry_submit_budget_s = budget
     started = time.monotonic()
     ctx.entry_submit_started_mono = started

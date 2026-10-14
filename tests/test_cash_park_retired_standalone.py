@@ -8,10 +8,9 @@ handed-in getter, never snapshotted.
 
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 
-from src.cash_park_retired import release_retired_cash_park, retired_cash_park_symbol
+from src.cash_park_retired import retired_cash_park_symbol
 
 
 def _disabled_sweeper(symbol="PARK"):
@@ -33,24 +32,6 @@ def test_symbol_swallows_a_broken_sweeper():
     assert retired_cash_park_symbol(lambda: SimpleNamespace(enabled=boom, symbol="PARK")) is None
 
 
-def test_release_calls_the_sweeper_with_the_run_id_and_skips_when_absent():
-    calls = []
-    sweeper = SimpleNamespace(release_retired_vehicle=lambda run_id=None: calls.append(run_id))
-    release_retired_cash_park(lambda: sweeper, "run-1")
-    assert calls == ["run-1"]
-    release_retired_cash_park(lambda: None, "run-2")  # no sweeper: no call, no raise
-    assert calls == ["run-1"]
-
-
-def test_release_failure_is_logged_not_raised(caplog):
-    def boom(run_id=None):
-        raise ConnectionError("down")
-
-    with caplog.at_level(logging.WARNING, logger="src.cash_park_retired"):
-        release_retired_cash_park(lambda: SimpleNamespace(release_retired_vehicle=boom), "r")
-    assert "cash sweep retired: release failed (non-fatal): down" in caplog.text
-
-
 def test_sweeper_is_read_live_through_the_getter_not_snapshotted():
     """The owner may swap or configure its sweeper after the piece is wired."""
     holder = {"sweeper": None}
@@ -58,7 +39,3 @@ def test_sweeper_is_read_live_through_the_getter_not_snapshotted():
     assert retired_cash_park_symbol(get) is None
     holder["sweeper"] = _disabled_sweeper("LATER")
     assert retired_cash_park_symbol(get) == "LATER"
-    calls = []
-    holder["sweeper"] = SimpleNamespace(release_retired_vehicle=lambda run_id=None: calls.append(run_id))
-    release_retired_cash_park(get, "r")
-    assert calls == ["r"]
