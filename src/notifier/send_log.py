@@ -90,3 +90,92 @@ def record_send(
             # `filtered_by_category` needs to know: an unrecordable drop is
             # unsent AND unrecorded, so it re-raises and delivers instead.
             raise
+
+
+#: The phrase a session message prints for an order at the broker that has
+#: not filled yet (`src/trader_feed/common.py` and `decision.py`). The one
+#: marker a delivered line is matched on; owner ruling 5b edits it to "filled".
+PLACED_PHRASE = "placed, waiting to fill"
+
+PLACED_ORDER_MESSAGES_DDL = """
+    CREATE TABLE IF NOT EXISTS placed_order_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trade_id INTEGER NOT NULL,
+        broker_order_id TEXT NOT NULL,
+        message_id INTEGER NOT NULL,
+        line_text TEXT NOT NULL,
+        message_text TEXT NOT NULL,
+        edited_at TEXT,
+        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (broker_order_id, message_id)
+    )
+"""
+
+
+def _plain(line: str) -> str:
+    """A delivered HTML line as the owner reads it: tags dropped, entities decoded."""
+    import html
+    import re
+
+    return html.unescape(re.sub(r"<[^>]+>", "", line))
+
+
+def record_placed_lines(*, message_id: int, text: str, run_id: str | None = None) -> int:
+    """Remember which delivered line lists which still-working order.
+
+    Called once a message has LANDED (so `message_id` is Telegram's own id).
+    Each line carrying `PLACED_PHRASE` is matched to the newest still-
+    'submitted' trade with the same action and symbol (scoped to `run_id`
+    when the sender gave one; the scheduled session send does not), at most
+    once per trade per message. Returns rows written. Never raises: a
+    recording fault costs the later "filled" edit, never the send.
+    """
+    if not message_id or PLACED_PHRASE not in (text or ""):
+        return 0
+    try:
+        import re
+
+        import src.notifier.base as base
+
+        conn = sqlite3.connect(str(base._DB_PATH), timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            where = "fill_status = 'submitted' AND broker_order_id IS NOT NULL"
+            params: tuple = ()
+            if run_id:
+                where += " AND run_id = ?"
+                params = (run_id,)
+            trades = conn.execute(
+                f"SELECT id, broker_order_id, symbol, action FROM trades WHERE {where} ORDER BY id DESC",
+                params,
+            ).fetchall()
+            conn.execute(PLACED_ORDER_MESSAGES_DDL)
+            claimed: set[int] = set()
+            written = 0
+            for line in text.splitlines():
+                plain = _plain(line)
+                if PLACED_PHRASE not in plain:
+                    continue
+                for trade in trades:
+                    if trade["id"] in claimed:
+                        continue
+                    action = re.escape(str(trade["action"] or "").upper())
+                    symbol = re.escape(str(trade["symbol"] or "").upper())
+                    if not re.search(rf"•\s*{action}\s+{symbol}\b", plain):
+                        continue
+                    claimed.add(trade["id"])
+                    conn.execute(
+                        "INSERT OR IGNORE INTO placed_order_messages "
+                        "(trade_id, broker_order_id, message_id, line_text, message_text, timestamp) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (trade["id"], trade["broker_order_id"], message_id, line, text, sql_utc_stamp()),
+                    )
+                    written += 1
+                    break
+            conn.commit()
+            return written
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notifier: could not record placed-order lines for message %s: %s", message_id, exc)
+        return 0

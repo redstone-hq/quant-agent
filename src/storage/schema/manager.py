@@ -244,6 +244,29 @@ class DatabaseSchema:
             CREATE INDEX IF NOT EXISTS idx_notifier_sends_kind_ts
                 ON notifier_sends(kind, timestamp);
 
+            -- One row per order a delivered message listed as "placed,
+            -- waiting to fill" (owner ruling 5b, 13 Oct): Telegram's
+            -- `message_id`, the exact delivered line, and the whole
+            -- delivered text, so the fill can EDIT that same message
+            -- instead of sending a new one. `message_text` is kept current
+            -- across edits so a second fill in the same message builds on
+            -- the first. `edited_at` NULL until the "filled" edit lands.
+            -- Like `notifier_sends`, `src/notifier/send_log.py` also
+            -- creates it (a send can precede any `Database`).
+            CREATE TABLE IF NOT EXISTS placed_order_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                broker_order_id TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                line_text TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                edited_at TEXT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (broker_order_id, message_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_placed_order_messages_order
+                ON placed_order_messages(broker_order_id);
+
             CREATE TABLE IF NOT EXISTS insights (
                 date TEXT PRIMARY KEY,
                 tomorrow_outlook TEXT,
