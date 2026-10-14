@@ -261,7 +261,7 @@ def test_restore_does_not_count_dead_readback_as_protection(_d, dead):
 def test_stop_leg_retry_does_not_return_dead_readback(_d, dead):
     stub = _stub_holding_dead_stop(dead)
     b = _broker_with(stub)
-    with patch("src.execution.broker_parts.stop_place.time.sleep"):
+    with patch("time.sleep"):
         res = b._submit_stop_leg_retrying(
             symbol="AAPL",
             qty=10,
@@ -354,7 +354,7 @@ def test_stop_leg_retry_does_not_retry_over_an_executing_stop(_d, status):
     )
     with patch("src.execution.broker.TradingClient", return_value=client):
         b = AlpacaBroker(api_key="test", secret_key="test", paper=True)
-    with patch("src.execution.broker_parts.stop_place.time.sleep"):
+    with patch("time.sleep"):
         res = b._submit_stop_leg_retrying(
             symbol="AAPL",
             qty=10,

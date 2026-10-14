@@ -74,16 +74,13 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 - `risk.constants.REWARD_RISK_FLOOR` = 1.5
 
-**Tier 2 gates entries/exits or shapes stops after entry.** Order-floor, target horizon, sector common drawdown, earnings stance age, event horizon, pre-filter spread, and stop-placement retry ceiling and backoff; each has a named recording or public-data measurement.
+**Tier 2 gates entries/exits or shapes stops after entry.** Order-floor, target horizon, sector common drawdown, earnings stance age, event horizon, and pre-filter spread; each has a named recording or public-data measurement.
 
 - `config.CashSweepConfig.min_order_usd` = 500
 - `config.EventRiskConfig.horizon_days` = 10
 - `config.RiskConfig.max_target_horizon_sessions` = 60
 - `portfolio_constructor.ConstructorConfig.max_sector_pct` = 75
 - `risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS` = 90
-- `execution.broker._STOP_PLACEMENT_MAX_ATTEMPTS` = 3
-- `execution.broker._STOP_PLACEMENT_BACKOFF_S[0]` = 0.5
-- `execution.broker._STOP_PLACEMENT_BACKOFF_S[1]` = 1.5
 - `pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]` = 0.5
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Cash reserve and deployment band; settled by recorded assumed-vs-debited cash and by the measured round-trip cost of trading the gap.

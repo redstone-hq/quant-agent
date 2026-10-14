@@ -30,24 +30,3 @@ def real_broker_order_id(value: object) -> str:
     if not text or text.lower() in {"none", "null", "nan"}:
         return ""
     return text
-
-
-def log_terminal_stop_rejection(log, leg, symbol, exc, attempt, attempts) -> None:
-    """Say why a protective-stop retry burst is cut short.
-
-    Board item 129: a 400/404/422 will fail identically on every retry -- it
-    is not a blip, it is the broker's answer. Burning the rest of the burst on
-    a doomed resubmit only delays the alert this ceiling exists to deliver
-    promptly. `log` is the caller's logger so the record keeps its name.
-    """
-    log.error(
-        "protective stop [%s] for %s got a terminal broker "
-        "rejection (status %s) on attempt %d/%d — this will "
-        "not change on retry, escalating now instead of "
-        "spending the rest of the budget.",
-        leg,
-        symbol,
-        getattr(exc, "status_code", None),
-        attempt,
-        attempts,
-    )
