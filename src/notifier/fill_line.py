@@ -19,6 +19,7 @@ broker actually holds, and no broker-held stop is known at this point.
 
 from __future__ import annotations
 
+import atexit
 import html
 import sqlite3
 import threading
@@ -35,7 +36,8 @@ from src.trading_calendar import sql_utc_stamp
 _OPENING_LONG = {"BUY", "SWEEP_BUY"}
 _OPENING = _OPENING_LONG | {"SHORT"}
 
-#: Edits started recently (tests join them). Bounded: never grows with uptime.
+#: Edits started recently. Bounded: never grows with uptime. Joined at exit so a
+#: session process that ends right after a fill does not kill its edit mid-send.
 _RECENT: deque[threading.Thread] = deque(maxlen=32)
 #: Two fills in one message must not both edit from the same stale text.
 _EDIT_LOCK = threading.Lock()
@@ -54,6 +56,20 @@ def _spawn(target) -> None:
     thread = threading.Thread(target=target, name="fill-line-edit", daemon=True)
     thread.start()
     _RECENT.append(thread)
+
+
+def _join_pending_edits() -> None:
+    """Let in-flight edits finish before the process exits.
+
+    Each edit is already bounded by its own database and Telegram timeouts,
+    so this adds no wait of its own; it only stops interpreter exit from
+    killing a daemon edit thread between the fill write and the edit.
+    """
+    for thread in list(_RECENT):
+        thread.join()
+
+
+atexit.register(_join_pending_edits)
 
 
 def _run(trades_path: str, broker_order_id: str) -> None:

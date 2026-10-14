@@ -204,3 +204,21 @@ def test_no_stored_message_means_no_edit(rig):
 
     assert rig["calls"] == []
     assert _sell_row(rig["db"])["fill_status"] == "filled"
+
+
+def test_exit_waits_for_an_edit_still_in_flight():
+    """A session process that exits right after a fill must not kill the edit."""
+    import threading
+    import time
+
+    from src.notifier import fill_line
+
+    done = threading.Event()
+
+    def slow_edit():
+        time.sleep(0.2)
+        done.set()
+
+    fill_line._spawn(slow_edit)
+    fill_line._join_pending_edits()
+    assert done.is_set()
