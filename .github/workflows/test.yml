@@ -42,8 +42,9 @@ jobs:
   # real, unmocked token-rate-governor sleep caused by a prior test's charge
   # leaking across the process -- fixed by resetting the governor between
   # tests in tests/conftest.py, not by giving it more room to hide in.
-  # With those gone, two shards keep the run near two minutes; fewer would
-  # put the whole flat tail in one job for no measured benefit.
+  # With those gone, two shards kept the run near two minutes (19 Sep). By
+  # 14 Oct the slower shard took 8m17s of its 10-minute limit on trunk and a
+  # PR shard was cut off at 93% (run 38603485151), so there are now three.
   #
   # To change the shard count, edit this list and nothing else: the script is
   # told how many shards there are via `strategy.job-total`, so the two cannot
@@ -57,7 +58,7 @@ jobs:
       # in one run.
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, 2]
 
     steps:
       # fetch-depth: 0 (full history) so scripts/definition_of_done.py can
