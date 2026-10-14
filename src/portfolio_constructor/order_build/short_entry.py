@@ -203,7 +203,7 @@ class ShortEntryBuilder:
             entry_price=entry_price,
             stop_loss=stop_loss,  # already rounded + validated above
             take_profit=take_profit,
-            reasoning=reasoning[:500]
+            reasoning=reasoning
             + cap_note
             + (f" {plan.note}" if plan is not None and plan.note else "")
             + self._target_note(derivation),
