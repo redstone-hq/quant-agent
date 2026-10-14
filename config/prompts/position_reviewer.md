@@ -149,7 +149,10 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
    refuses a buy — a supported non-technical thesis, the R2-R6 entry
    rules). A holding that still passes is kept, whatever the headline; a
    holding whose bar cannot be evaluated keeps its stop; a name bought
-   today is never sold by judgement. Say which part of the bar you
+   today is never sold by judgement. A holding whose structure has broken
+   (the level or invalidation it stood on gave way, or it is losing with no
+   chart level under it) is a protective sale and is never gated; a chart
+   that could not be read is not. Say which part of the bar you
    believe fails.
 
    Soft signals (`TARGET_BREACH`, slowing pace, geopolitical noise,

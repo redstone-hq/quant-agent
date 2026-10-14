@@ -361,6 +361,11 @@ def _apply_rotation_execution(pipeline, ctx, portfolio_decision, positions, posi
     )
     if not isinstance(precheck, RotationPrecheck):
         return  # no precheck this session — nothing to act on
+    if getattr(ctx, "held_bar_record", None) is None:
+        # The manager did not run this run: no record of this run's entry
+        # rules, so no judgement sale (a stale record never sells).
+        logger.info("Half-hour check: no held-bar record this run — no judgement sale")
+        return
     # OWNER RULING 2026-10-13, "same rules as buying". The categorical cull
     # set is no longer the 25 Sep opposition-only STAY subset the PM's
     # ranking surfaced: it is every held long that FAILS the full entry bar

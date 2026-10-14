@@ -888,7 +888,8 @@ class RiskStage:
         # REPLACES the "provably false claim" check and the "my numbers
         # improved" veto as deciders (ETN/FLNC/AMD 12-13 Oct were sold while
         # protected, on reasons nothing measured against the bar).
-        # Structural protection is still read and logged as evidence.
+        # An unprotected holding (`is_protective`) is a protective sale and
+        # passes ungated, as on trunk; a failed bar fetch is not protective.
         if portfolio_decision.decisions:
             from src.exits.same_rules_gate import is_judgement_sale, judge_holding, views_from_pipeline
 
@@ -905,6 +906,7 @@ class RiskStage:
                     None,
                 )
                 is_short = bool(pos and pos.qty < 0) or decision.action == "COVER"
+                protection = None
                 try:
                     protection = pipeline._structural_protection_for_holding(
                         symbol=symbol_u,
@@ -923,7 +925,17 @@ class RiskStage:
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Structural protection read failed for %s (evidence only): %s", symbol_u, e)
-                gate_verdict = judge_holding(views_from_pipeline(pipeline, ctx, symbol_u, is_short=is_short))
+                gate_verdict = judge_holding(
+                    views_from_pipeline(
+                        pipeline,
+                        ctx,
+                        symbol_u,
+                        is_short=is_short,
+                        protection_basis=(
+                            protection.basis if protection is not None and protection.protected is False else None
+                        ),
+                    )
+                )
                 _record_pipeline_event(
                     pipeline,
                     ctx,

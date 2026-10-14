@@ -155,8 +155,9 @@ def _pipeline(tmp_path, *, enabled=True, precheck=None, protected=False):
             last_rotation_precheck=precheck if precheck is not None else _precheck(_opportunity()),
             # Owner ruling 2026-10-13: the cull set is every held long that
             # FAILS the entry bar under the same-rules gate, which reads the
-            # PM's own R2-R6 record of this run (`last_blocked`).
-            last_blocked={"OLD": str(list(HELD_REASONS)), "WORST": str(list(WORST_REASONS)), "NEXT": str(list(NEXT_REASONS))},
+            # PM's own R2-R6 record of THIS run (`ctx.held_bar_record`, set in
+            # `_ctx`); a stale `last_blocked` is never read.
+            last_blocked={},
         ),
     )
     pipeline.config = SimpleNamespace(
@@ -171,7 +172,12 @@ def _ctx(run_id="run-1") -> RunContext:
     ctx = RunContext(run_id=run_id, session="morning")
     # A technical and a news read for every held name, both supportive, so
     # R7 passes and the gate's cull reasons are exactly the PM's R2-R6 record.
-    ctx.seat_verdicts = [_seat(seat, sym) for sym in ("OLD", "WORST", "NEXT") for seat in ("technical", "news")]
+    ctx.seat_verdicts = [
+        _seat(seat, sym)
+        for sym in ("OLD", "WORST", "NEXT")
+        for seat in ("technical", "news", "earnings", "smart_money", "macro")
+    ]
+    ctx.held_bar_record = {"OLD": tuple(HELD_REASONS), "WORST": tuple(WORST_REASONS), "NEXT": tuple(NEXT_REASONS)}
     return ctx
 
 
@@ -300,8 +306,8 @@ def test_nothing_surfaced_means_nothing_happens(tmp_path):
     # Since 2026-10-13 the cull set is the same-rules gate's, not what the
     # PM surfaced: "nothing happens" now means no holding FAILS the entry bar.
     pipeline, db, _ = _pipeline(tmp_path, precheck=_precheck(None))
-    pipeline.portfolio_manager.last_blocked = {}
     ctx = _ctx()
+    ctx.held_bar_record = {}  # the manager ran; no holding has a failing reason
     decision = _decision(_buy_new())
     _apply_rotation_execution(pipeline, ctx, decision, [_pos()], HISTORY)
     assert [t.symbol for t in decision.targets] == ["NEW"]

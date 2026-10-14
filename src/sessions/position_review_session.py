@@ -140,6 +140,33 @@ class PositionReviewSession:
         self._macro_store = macro_store
         self._position_reviewer = position_reviewer
 
+    def _todays_technical_reads(self, positions) -> list:
+        """Today's newest technical read per holding, from the evidence rows
+        the morning and half-hour scans file (every holding is re-read on each
+        scan). A read from another day, or one that does not parse, is not
+        used: unknown never sells."""
+        from src.models import TechAnalysisResult
+        from src.trading_calendar import et_today
+
+        symbols = [str(p.symbol or "").strip().upper() for p in positions or () if str(p.symbol or "").strip()]
+        if not symbols:
+            return []
+        try:
+            rows = self._db.get_latest_symbol_evidence("analysis", symbols) or {}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("same-rules gate: today's technical reads unreadable (%s) — none used", exc)
+            return []
+        today = str(et_today())
+        reads = []
+        for sym, row in dict(rows).items():
+            if not str((row or {}).get("timestamp") or "").startswith(today):
+                continue
+            try:
+                reads.append(TechAnalysisResult.model_validate_json(row["evidence_json"]))
+            except Exception:  # noqa: BLE001 — not a technical read: unknown, never sells
+                logger.info("same-rules gate: %s evidence row is not a technical read — not used", sym)
+        return reads
+
     def _gate_reviewer_sales(
         self,
         review,
@@ -155,21 +182,29 @@ class PositionReviewSession:
         record each verdict per symbol. Returns the gated review."""
         from src.exits.same_rules_gate import HoldingViews, bought_today_from_db, gate_review_actions
 
+        self._same_rules_allowed = set()
         if review is None:
             return review
+        stale: dict = {}
         try:
             from src.agents.portfolio_manager import PortfolioManagerAgent
 
+            # The ONE verdict builder, with positions (one macro sector view)
+            # and today's newest technical read per holding (adversary 14 Oct
+            # point 2: the buy side always has the technical read).
             verdicts = PortfolioManagerAgent._collect_seat_verdicts(
-                analyses=[],
+                analyses=self._todays_technical_reads(positions),
                 news_intel=news_intel,
                 macro_analysis=macro_analysis,
                 earnings_analyses=list(earnings_analyses or []),
                 smart_money_findings=None,
+                positions=list(positions or []),
             )
+            stale = dict(PortfolioManagerAgent.stale_evidence_sources(earnings_analyses=list(earnings_analyses or [])))
         except Exception as exc:  # noqa: BLE001
             logger.warning("same-rules gate: reviewer seat views unavailable (%s) — no judgement sale", exc)
             verdicts = []
+        stale_earnings = frozenset(str(s).upper() for s, seats in stale.items() if "earnings" in set(seats or ()))
         views = {}
         for p in positions or []:
             sym = (p.symbol or "").strip().upper()
@@ -182,8 +217,10 @@ class PositionReviewSession:
                 eligibility_reasons=None,
                 failed_seats=() if news_ok else ("news",),
                 bought_today=bought_today_from_db(self._db, sym),
+                stale_earnings=stale_earnings,
             )
         gated, outcomes = gate_review_actions(review, views)
+        self._same_rules_allowed = {v.symbol for v in outcomes if v.sell_allowed}
         for v in outcomes:
             logger.warning("Same-rules gate (reviewer): %s %s — %s", v.symbol, v.basis, v.detail)
             try:
@@ -800,13 +837,10 @@ class PositionReviewSession:
             # only PROPOSES a sale; `src/exits/same_rules_gate.py` decides
             # it. A proposed SELL/COVER (including a "stalled pace" one)
             # survives only when the holding FAILS the entry bar a buy would
-            # have to pass, judged on the views this session holds. This
-            # session carries no technical read, so only a failure no
-            # missing view could undo (a name-level seat actively opposed,
-            # e.g. a bearish news seat) can sell here; anything else waits
-            # for a run that can evaluate the full bar, and the stop stays.
-            # The AI Risk seat's exit role is DELETED (advisory since
-            # 2026-10-09: it could neither approve nor block a sale).
+            # have to pass, judged on today's newest technical read per
+            # holding plus this session's news, macro and earnings. With no
+            # manager record (R2-R6) here, only a failure no missing view
+            # could undo can sell; a protective sale is never gated.
             review = self._gate_reviewer_sales(
                 review,
                 review_positions,
@@ -818,6 +852,21 @@ class PositionReviewSession:
                 macro_analysis=macro_analysis_dict,
                 earnings_analyses=session_earnings,
             )
+            # The AI Risk seat keeps its exit role (adversary 14 Oct point 5):
+            # it records an objection per stock, as the buy side keeps it.
+            risk_vetoed, _exit_verdict = self._risk_review_exits(
+                review,
+                review_positions,
+                run_id=run_id,
+                total_value=total_value,
+                macro_summary=macro_summary,
+                position_facts=position_facts,
+                news_intel=session_news,
+                earnings_analyses=session_earnings,
+                cash=review_cash,
+                reserve_balance=reserve_balance,
+                recent_performance=recent_performance,
+            )
             orders.extend(
                 self._midday_execute_llm_actions(
                     review_positions,
@@ -825,7 +874,8 @@ class PositionReviewSession:
                     run_id,
                     already_trimmed_today=already_trimmed_today,
                     metric_deltas=metric_deltas,
-                    risk_vetoed_symbols=set(),
+                    risk_vetoed_symbols=risk_vetoed,
+                    same_rules_allowed=set(getattr(self, "_same_rules_allowed", None) or ()),
                     position_facts=position_facts,
                 )
             )

@@ -263,6 +263,12 @@ def own_bar_opposition_reason(
     the same `_is_broadcast_macro_verdict` carve-out entry uses — so a single
     macro flip cannot cull the whole non-price-protected long book.
 
+    SALES: the owner's 13 Oct 2026 ruling ("same rules should apply")
+    supersedes the 25 Sep STAY text for every judgement sale. One rule
+    decides buys and judgement sales: a held name is sold by judgement only
+    when it fails the FULL entry bar (`src/exits/same_rules_gate.py`, which
+    calls this subset and `own_bar_block_reason`).
+
     ENTRY still uses the full-strict `own_bar_block_reason`; this narrower test
     exists solely for the held side. It reuses the SAME aligned/opposed
     vocabulary and the SAME reason strings as the two opposition branches of

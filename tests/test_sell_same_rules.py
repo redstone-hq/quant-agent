@@ -66,6 +66,11 @@ def _pipeline_ctx(verdicts, *, last_blocked=None, rows=(), data_status=None):
         seat_verdicts=list(verdicts),
         data_status=data_status or {"tech": "ok", "news": "ok"},
         evidence_registry={},
+        # THIS run's record: the manager ran and evaluated every name here.
+        held_bar_record={
+            **{str(v.symbol).upper(): () for v in verdicts},
+            **{str(k).upper(): _g.parse_blocked_reasons(r) for k, r in (last_blocked or {}).items()},
+        },
     )
     return pipeline, ctx
 
@@ -132,7 +137,8 @@ def test_b_reviewer_session_routes_sales_through_the_gate(monkeypatch):
     assert db.evaluations and db.evaluations[0]["status"].startswith("same_rules_gate_")
     src = inspect.getsource(PositionReviewSession.run)
     assert "self._gate_reviewer_sales(" in src
-    assert "self._risk_review_exits(" not in src
+    # Adversary 14 Oct point 5: the AI Risk seat keeps its exit role.
+    assert "self._risk_review_exits(" in src
 
 
 # (c) A bearish news seat fails the bar (a buy would be refused), so it sells.
@@ -239,6 +245,7 @@ def _risk_stage_run(decisions, seat_verdicts, *, protected=True, trades_today=()
     pipeline.db.get_trades.return_value = [dict(r) for r in trades_today]
     ctx = _ctx(decisions)
     ctx.seat_verdicts = list(seat_verdicts)
+    ctx.held_bar_record = {str(v.symbol).upper(): () for v in seat_verdicts}
     with patch("src.notifier.send_owner_alert"):
         result = RiskStage(pipeline=pipeline).run(ctx)
     return result, ctx
@@ -276,7 +283,7 @@ def test_d_risk_stage_refuses_pm_sell_when_tech_view_missing():
     from tests.test_item96_morning_exit_contradiction import _sell
 
     decisions = [_sell("ETN", "No directional support — exit ETN.")]
-    result, ctx = _risk_stage_run(decisions, (_v("news", "ETN", "bullish"),), protected=False)
+    result, ctx = _risk_stage_run(decisions, (_v("news", "ETN", "bullish"),), protected=True)
     assert result is not None and result["status"] == "rejected"
     assert "no technical read" in result["reason"]
     assert _symbols(ctx) == []
@@ -289,7 +296,7 @@ def test_e_risk_stage_refuses_pm_sell_of_name_bought_today():
 
     fails = (_v("technical", "ETN", "bearish"), _v("news", "ETN", "bearish"))
     decisions = [_sell("ETN", "Bearish news.")]
-    result, ctx = _risk_stage_run(decisions, fails, protected=False, trades_today=[{"symbol": "ETN", "action": "BUY"}])
+    result, ctx = _risk_stage_run(decisions, fails, protected=True, trades_today=[{"symbol": "ETN", "action": "BUY"}])
     assert result is not None and result["status"] == "rejected"
     assert "bought today" in result["reason"]
     assert _symbols(ctx) == []
@@ -336,3 +343,189 @@ def test_half_hour_rotation_closes_holding_that_fails_full_bar(tmp_path):
     decision = _decision(_buy_new())
     _apply_rotation_execution(pipeline, ctx, decision, [_pos("OLD"), _pos("KEEP")], HISTORY)
     assert [t.symbol for t in decision.targets if t.is_close] == ["OLD"]
+
+
+# ---------------------------------------------------------------------------
+# v2 + adversary (14 Oct): this run's record, classified refusals, per-stock
+# known/unknown readings, protective class, held direction.
+# ---------------------------------------------------------------------------
+import re as _re
+
+import pytest as _pytest
+
+from src.exits import same_rules_gate as _g
+
+
+def _all_known(symbol, tech="bullish"):
+    return (
+        _v("technical", symbol, tech),
+        _v("news", symbol, "bullish"),
+        _v("earnings", symbol, "bullish"),
+        _v("smart_money", symbol, "bullish"),
+        _v("macro", symbol, "bullish"),
+    )
+
+
+def _held_views(symbol, verdicts, record, **kw):
+    pipeline, ctx = _pipeline_ctx(verdicts)
+    ctx.held_bar_record = record
+    for key, value in kw.items():
+        setattr(ctx, key, value)
+    return _g.views_from_pipeline(pipeline, ctx, symbol, is_short=False)
+
+
+def test_t1_skipped_manager_stale_last_blocked_never_sells():
+    pipeline, ctx = _pipeline_ctx(_passing("ACME"), last_blocked={"ACME": "['R2 neutral rating']"})
+    ctx.held_bar_record = None  # the manager was skipped this run
+    verdict = _g.judge_holding(_g.views_from_pipeline(pipeline, ctx, "ACME", is_short=False))
+    assert not verdict.sell_allowed
+    assert verdict.basis == _g.BASIS_EVIDENCE_MISSING
+
+
+def test_t2_record_is_built_from_the_main_decision_in_the_holding_direction():
+    positions = [SimpleNamespace(symbol="ACME", qty=10), SimpleNamespace(symbol="SHRT", qty=-5)]
+    analyses = [SimpleNamespace(symbol="ACME", rating="buy"), SimpleNamespace(symbol="SHRT", rating="buy")]
+    blocked = {"ACME": "['R5 net evidence -1 if long — no rung']", "SHRT": "[]"}
+    record = _g.build_held_bar_record(positions, analyses, blocked)
+    assert record["ACME"] == ("R5 net evidence -1 if long — no rung",)
+    assert record["SHRT"][0].startswith("R2 rating buy does not point the holding's way (short)")
+
+
+@_pytest.mark.parametrize(
+    "code",
+    [
+        "risk_budget_exhausted",
+        "gross_exposure_ceiling_refused",
+        "below_owner_min_risk",
+        "position_sized_to_zero",
+        "book_risk_unknown",
+        "target_not_above_entry",
+        "no_structural_target",
+        "dollar_target_no_stop",
+    ],
+)
+def test_t3_account_level_refusal_never_sells(code):
+    record = {"ACME": (f"R6 constructor refused [{code}] — detail",)}
+    verdict = _g.judge_holding(_held_views("ACME", _all_known("ACME"), record))
+    assert not verdict.sell_allowed, verdict.detail
+
+
+def test_t3_unclassified_refusal_is_unknown_and_never_sells():
+    record = {"ACME": ("R6 constructor refused [brand_new_code] — detail",)}
+    verdict = _g.judge_holding(_held_views("ACME", _all_known("ACME"), record))
+    assert not verdict.sell_allowed
+    assert verdict.basis == _g.BASIS_EVIDENCE_MISSING
+
+
+def _refusal_constants():
+    root = Path(__file__).resolve().parents[1]
+    pattern = _re.compile(
+        r"^(STOP_REFUSAL_\w+|TRIM_REFUSAL_\w+|CONSTRUCTOR_(?!REFUSED_EVENT_REASON)\w+|REFUSAL_\w+|FAULT_\w+)"
+        r"\s*(?::[^=]+)?=\s*\"([a-z_]+)\"",
+        _re.M,
+    )
+    files = (
+        "src/portfolio_constructor/config.py",
+        "src/data/levels.py",
+        "src/portfolio_constructor/entry_stop/resolver.py",
+    )
+    found = {}
+    for rel in files:
+        for name, value in pattern.findall((root / rel).read_text()):
+            found[f"{rel}:{name}"] = value
+    return found
+
+
+def test_t5_every_refusal_code_is_classified_exactly_once():
+    constants = _refusal_constants()
+    assert len(constants) >= 40, constants  # the enumeration itself works
+    sets = (_g.COUNTS_CODES, _g.NEVER_CODES, _g.UNKNOWN_CODES)
+    for where, code in constants.items():
+        hits = sum(code in s for s in sets)
+        assert hits == 1, f"{where}={code!r} is in {hits} classification sets"
+
+
+def test_t5_empty_stop_backstop_is_its_own_unknown_code():
+    from src.portfolio_constructor.entry_stop.resolver import STOP_REFUSAL_EMPTIED_UNRECORDED
+
+    assert _g.classify_refusal(STOP_REFUSAL_EMPTIED_UNRECORDED) == _g.CLASS_UNKNOWN
+    assert _g.classify_refusal("stop_on_wrong_side_of_entry") == _g.CLASS_UNKNOWN
+    assert _g.classify_refusal("no_valid_stop_against_entry") == _g.CLASS_COUNTS
+
+
+def test_t6_stale_earnings_stance_is_dropped_before_any_rule_reads_it():
+    verdicts = (*_all_known("ACME")[:2], _v("earnings", "ACME", "bearish"), *_all_known("ACME")[3:])
+    fresh = _g.judge_holding(_held_views("ACME", verdicts, {"ACME": ()}))
+    assert fresh.sell_allowed  # a fresh bearish earnings seat opposes
+    stale = _g.judge_holding(
+        _held_views("ACME", verdicts, {"ACME": ()}, evidence_stale_sources={"ACME": frozenset({"earnings"})})
+    )
+    assert not stale.sell_allowed
+
+
+def test_t8_ok_but_empty_feed_is_unknown_and_never_sells():
+    # News status "ok", but no seat other than technical said anything on ACME.
+    record = {"ACME": ()}
+    verdict = _g.judge_holding(_held_views("ACME", (_v("technical", "ACME", "bullish"),), record))
+    assert not verdict.sell_allowed
+    assert verdict.basis == _g.BASIS_EVIDENCE_MISSING
+
+
+def test_r5_counts_only_when_every_seat_is_known():
+    record = {"ACME": ("R5 net evidence +0 if long — no rung",)}
+    partial = (_v("technical", "ACME", "bullish"), _v("news", "ACME", "bullish"))
+    assert not _g.judge_holding(_held_views("ACME", partial, record)).sell_allowed
+    assert _g.judge_holding(_held_views("ACME", _all_known("ACME"), record)).sell_allowed
+
+
+def test_r3_not_on_the_buy_list_never_sells():
+    record = {"ACME": ("R3 not BUY-eligible",)}
+    assert not _g.judge_holding(_held_views("ACME", _all_known("ACME"), record)).sell_allowed
+
+
+def test_t11_short_with_buy_rating_fails_r2_in_the_holding_direction():
+    positions = [SimpleNamespace(symbol="SHRT", qty=-5)]
+    record = _g.build_held_bar_record(positions, [SimpleNamespace(symbol="SHRT", rating="buy")], {"SHRT": "[]"})
+    pipeline, ctx = _pipeline_ctx(_all_known("SHRT"))
+    ctx.held_bar_record = record
+    verdict = _g.judge_holding(_g.views_from_pipeline(pipeline, ctx, "SHRT", is_short=True))
+    assert verdict.sell_allowed
+    assert "(short)" in verdict.detail
+
+
+@_pytest.mark.parametrize("basis", ["structural_level_broken", "thesis_invalid_if_triggered", "no_chart_level"])
+def test_t13_protective_sale_is_never_gated(basis):
+    views = _g.HoldingViews(
+        symbol="ACME", is_short=False, seat_verdicts=_all_known("ACME"), eligibility_reasons=(), protection_basis=basis
+    )
+    verdict = _g.judge_holding(views)
+    assert verdict.sell_allowed and verdict.basis == _g.BASIS_PROTECTIVE
+
+
+def test_t14_failed_bar_fetch_is_not_protective():
+    views = _g.HoldingViews(
+        symbol="ACME",
+        is_short=False,
+        seat_verdicts=_all_known("ACME"),
+        eligibility_reasons=(),
+        protection_basis="chart_unreadable",
+    )
+    assert not _g.judge_holding(views).sell_allowed
+
+
+def test_t15_a_gate_decided_sale_is_not_dropped_by_a_second_hold_check():
+    from src.exits_parts.midday_state import MiddayLoop
+
+    loop = MiddayLoop(
+        owner=None,
+        positions=[],
+        run_id="r",
+        metric_deltas=None,
+        risk_vetoed_symbols=None,
+        already_trimmed=set(),
+        acted_today=[],
+        same_rules_allowed=frozenset({"ACME"}),
+    )
+    assert loop.gate_decided("acme", "SELL")
+    assert not loop.gate_decided("ACME", "TRAIL_STOP")
+    assert not loop.gate_decided("OTHER", "SELL")
