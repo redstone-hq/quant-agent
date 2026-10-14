@@ -13,6 +13,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from src.status_plain_extra import owner_words
 from src.storage.analytics.trade_review import close_review_summary
 from src.trader_feed.common import _DB_PATH
 
@@ -58,20 +59,36 @@ def _trade_r(entry) -> str:
     return f"{entry['symbol']} {_signed_r(entry['r'])}"
 
 
+def _words(key: str) -> str:
+    """The plain label for one `close_review_summary` key (the one table: `src/status_plain_extra.py`)."""
+    return owner_words("trade_review", key)
+
+
+def _profit_factor_text(value) -> str:
+    """Dollars won per dollar lost; the stored tokens ("no losses", "n/a") come out as words."""
+    if value is None:
+        return UNKNOWN
+    if isinstance(value, str):
+        return owner_words("profit_factor_value", value)
+    return f"${value:.2f}"
+
+
 def trade_block_lines(summary: dict | None) -> list[str]:
     """At most five lines. None (unreadable history) renders as one unknown line."""
     if summary is None:
         return [f"Trade review: {UNKNOWN} (trade history could not be read)."]
     if not summary["n"]:
         return [NO_TRADES_LINE]
-    pf = summary["profit_factor"]
+    p = summary["p_value"]
     return [
-        f"Closed today: {summary['n']} trades, {summary['wins']} wins, {summary['losses']} losses",
-        f"Win rate {_num(summary['win_rate_pct'], '{:.1f}%')} · total {_signed_r(summary['total_r'])}"
-        f" · average {_signed_r(summary['average_r'])}",
-        f"Best {_trade_r(summary['best'])} · worst {_trade_r(summary['worst'])}",
-        f"Profit factor {UNKNOWN if pf is None else pf}",
-        f"Luck check: {summary['quality_n']} trades with known R, p-value {_num(summary['p_value'], '{:.4f}')}",
+        f"{_words('n')}: {summary['n']} trades, {summary['wins']} {_words('wins')}, "
+        f"{summary['losses']} {_words('losses')}",
+        f"{_words('win_rate_pct')} {_num(summary['win_rate_pct'], '{:.1f}%')} · {_words('total_r')} "
+        f"{_signed_r(summary['total_r'])} · {_words('average_r')} {_signed_r(summary['average_r'])}",
+        f"{_words('best')} {_trade_r(summary['best'])} · {_words('worst')} {_trade_r(summary['worst'])}",
+        f"{_words('profit_factor')}: {_profit_factor_text(summary['profit_factor'])}",
+        f"Luck check: {summary['quality_n']} {_words('quality_n')} · {_words('p_value')}: "
+        f"{UNKNOWN if p is None else _num(p * 100, '{:.2f}%')}",
     ]
 
 

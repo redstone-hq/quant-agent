@@ -49,9 +49,9 @@ def test_winners_and_losers_day(tmp_path, monkeypatch):
     assert "Closed today: 2 trades, 1 wins, 1 losses" in msg
     assert "Win rate 50.0% · total +1.50R · average +0.75R" in msg
     assert "Best AAA +2.00R · worst BBB -0.50R" in msg
-    assert "Profit factor 4.0" in msg
-    assert "Luck check: 2 trades with known R, p-value" in msg
-    assert "unknown" not in msg.split("Closed today")[1].split("Profit factor")[0]
+    assert "Won per $1 lost: $4.00" in msg
+    assert "Luck check: 2 trades with known result · odds it was luck: " in msg
+    assert "unknown" not in msg.split("Closed today")[1].split("Won per $1 lost")[0]
 
 
 def test_no_trades_day(tmp_path, monkeypatch):
@@ -72,7 +72,7 @@ def test_unknown_r_trade_shows_unknown_not_zero(tmp_path, monkeypatch):
     assert "Closed today: 2 trades, 2 wins, 0 losses" in msg
     assert "total unknown · average unknown" in msg
     assert "Best AAA +2.00R" in msg
-    assert "p-value unknown" in msg
+    assert "odds it was luck: unknown" in msg
 
 
 def test_unreadable_history_is_unknown_not_missing(tmp_path, monkeypatch):
