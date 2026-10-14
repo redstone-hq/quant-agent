@@ -15,6 +15,28 @@ logger = logging.getLogger(__name__)
 _STRICT_SCHEMA_FALLBACK_LOGGED: set[str] = set()
 _RESPONSE_FORMAT_CACHE: dict[str, dict] = {}
 
+# The only providers `_openai_wire_call` (src/agents/base.py) sends a
+# `response_format` to. Anthropic, OpenAI and DeepSeek calls carry no schema.
+SCHEMA_PROVIDERS = frozenset({"openrouter", "google"})
+
+
+def route_takes_schema(provider: str, result_model: type | None, structured_output: bool, agent_name: str) -> bool:
+    """False when a seat with an answer schema would land on a route that
+    cannot be sent it. The ladder in `BaseAgent._execute` then skips that
+    backup rung as an ABSENCE of an attempt (no exception recorded, the same
+    as a demoted rung), so the seat fails over or refuses exactly as an
+    exhausted chain does — it is never answered by unschema'd free text.
+    """
+    if not structured_output or result_model is None or provider in SCHEMA_PROVIDERS:
+        return True
+    logger.error(
+        "Agent %s: skipping backup route %s — it cannot take the %s answer schema.",
+        agent_name,
+        provider,
+        result_model.__name__,
+    )
+    return False
+
 
 def _strictify_schema(node: object) -> None:
     """Recursively force every JSON-Schema object node to

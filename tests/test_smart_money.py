@@ -72,22 +72,6 @@ def _insider(
     )
 
 
-def test_fenced_findings_wrapper_is_not_replaced_by_its_inner_list():
-    """Production run-76bd4e83 returned this valid fenced response shape."""
-    result = AgentResult(
-        '```json\n{"findings":[{"symbol":"NVDA","stance":"bullish",'
-        '"economic_role":"confirmatory","summary":"owner cluster",'
-        '"why_now":"recent accepted filings"}]}\n```',
-        10,
-        "test",
-    )
-
-    parsed = result.parse_json()
-
-    assert isinstance(parsed, dict)
-    assert parsed["findings"][0]["symbol"] == "NVDA"
-
-
 def _submission(*, code="P", acquired="A", form="4", symbol="NVDA"):
     return f"""<SEC-DOCUMENT>0000000001-26-000001.txt
 <ACCEPTANCE-DATETIME>20260824173015

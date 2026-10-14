@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import math
 import os
@@ -21,7 +22,6 @@ from src.cost_circuit import (
     UnavailableLLMCostCircuit,
 )
 
-from src.agents.json_answer_parse import parse_json_text, repair_unquoted_keys, shape_score
 from src.agents.json_salvage import MalformedRow, RowSalvage, parse_json_rows_text  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ from src.agents.llm_schema import (  # noqa: F401
     _strictify_schema,
     _has_free_form_map,
     _response_format_for,
+    route_takes_schema,
 )
 from src.agents.llm_providers import (  # noqa: F401
     _OPENAI_PREFIXES,
@@ -179,9 +180,10 @@ class AgentResult:
     semantic_status: str | None = None
     semantic_error: str | None = None
 
-    # Top-level keys that identify a real agent answer. These weights remain
-    # here because their number-ledger identities describe agent policy; the
-    # standalone parser receives them by value and owns only parsing mechanics.
+    # No reader since answer text stopped being patched (2026-10-14): the
+    # provider's response schema makes a plain `json.loads` sufficient. Kept
+    # only because its number-ledger rows belong to another open change;
+    # delete this dict and those rows together.
     _EXPECTED_AGENT_KEY_WEIGHTS = {
         "decisions": 50,
         "targets": 50,
@@ -200,33 +202,22 @@ class AgentResult:
         "rating": 5,
     }
 
-    # Answer parsing lives in src/agents/json_answer_parse.py and
-    # src/agents/json_salvage.py, which take answer text and policy by value and
-    # import nothing from here (proved in
-    # tests/test_json_salvage_standalone.py). These compatibility members are the
-    # seats' existing entry points, kept because the file-size ratchet
-    # refuses the one import line every one of the twenty call sites would
-    # need — see the PR body.
     def parse_json(self) -> dict | list | None:
-        return parse_json_text(self.raw_text, self._EXPECTED_AGENT_KEY_WEIGHTS)
+        """The answer as JSON, or None when it is not JSON.
 
-    @staticmethod
-    def _shape_score(parsed) -> int:
-        return shape_score(parsed, AgentResult._EXPECTED_AGENT_KEY_WEIGHTS)
+        Never patched: a seat with an answer schema is served only by routes
+        that enforce it (`route_takes_schema` in src/agents/llm_schema.py), so
+        text that is not JSON is a failed answer, handled by the seat's own
+        None path (re-ask, refusal) — never repaired into a guess.
+        """
+        try:
+            return json.loads(self.raw_text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Agent answer is not JSON (%s): %s", exc, self.raw_text[:200])
+            return None
 
-    _repair_unquoted_keys = staticmethod(repair_unquoted_keys)
-
-    def parse_json_rows(
-        self,
-        key_field: str = "symbol",
-        list_field: str | None = None,
-    ) -> RowSalvage | None:
-        return parse_json_rows_text(
-            self.raw_text,
-            key_field,
-            list_field,
-            self._EXPECTED_AGENT_KEY_WEIGHTS,
-        )
+    def parse_json_rows(self, list_field: str | None = None, expected_keys=()) -> RowSalvage | None:
+        return parse_json_rows_text(self.raw_text, list_field, expected_keys)
 
 
 def usage_telemetry_word(input_tokens, output_tokens, cost_usd, provider_requests) -> str | None:
@@ -1131,6 +1122,7 @@ class BaseAgent(ABC):
                 and self._failover_reachable
                 and secondary_open
                 and self._fallback_provider not in refused_providers
+                and route_takes_schema(self._fallback_provider, self.result_model, self._structured_output, self.name)
             ):
                 try:
                     failover = self._try_failover(
@@ -1198,6 +1190,9 @@ class BaseAgent(ABC):
                     and self._tertiary_reachable
                     and seat_refusal is None
                     and self._tertiary_provider not in refused_providers
+                    and route_takes_schema(
+                        self._tertiary_provider, self.result_model, self._structured_output, self.name
+                    )
                 ):
                     try:
                         tertiary = self._try_tertiary(
@@ -1635,6 +1630,10 @@ class BaseAgent(ABC):
             extra_body["reasoning"] = {"effort": self._reasoning_effort}
             if self._structured_output and self.result_model is not None:
                 extra_body["response_format"] = _response_format_for(self.result_model)
+                # Only an endpoint that supports every sent parameter may serve
+                # the call, so the schema can never be silently dropped
+                # (https://openrouter.ai/docs/features/provider-routing).
+                extra_body.setdefault("provider", {})["require_parameters"] = True
         elif provider == "google":
             # Google AI Studio direct is served through Google's own
             # OpenAI-compatibility endpoint (_GOOGLE_BASE_URL, .../v1beta/

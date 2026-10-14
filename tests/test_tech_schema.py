@@ -220,25 +220,6 @@ def test_a_dict_answer_missing_the_list_field_falls_back_to_one_row():
     assert salvage.rows == [{"symbol": "A"}]
 
 
-def test_a_sibling_array_after_results_does_not_win_over_the_real_rows():
-    """Adversary review, item 157 (2026-09-20): before this test existed, a
-    broken answer with ANY array-of-objects appearing after `results` in the
-    raw text — here, a stray self-correction fragment — would win outright
-    under the old "last array-of-objects anywhere" rule, silently discarding
-    the real rows entirely. The scan must prefer the array that is actually
-    the VALUE of `results`."""
-    text = (
-        '{"results": [\n'
-        '  {"symbol": "AAA", "reasoning": "fine"},\n'
-        '  {"symbol": "BBB", "reasoning": "fine"}\n'
-        "],\n"
-        '"unrelated_note": "actually let me redo that as"}\n'
-        '[{"symbol": "ZZZ-not-a-real-row", "reasoning": "junk"}]'
-    )
-    salvage = _result(text).parse_json_rows(list_field="results")
-    assert [r["symbol"] for r in salvage.rows] == ["AAA", "BBB"]
-
-
 # --- a valid object under the WRONG key (adversary review, 2026-09-23) ------
 #
 # The old bare-array prompt made this impossible — all 292 production tech
@@ -250,32 +231,6 @@ def test_a_sibling_array_after_results_does_not_win_over_the_real_rows():
 # fix, `_rows_from` fell through to "treat the whole object as one row",
 # which is neither a real row nor a per-symbol MalformedRow — every name in
 # the chunk vanishes silently, with no reason logged against any symbol.
-
-
-def test_wrong_key_signals_is_recovered_as_the_row_list():
-    text = json.dumps({"signals": [{"symbol": "AAA"}, {"symbol": "BBB"}]})
-    salvage = _result(text).parse_json_rows(list_field="results")
-    assert [r["symbol"] for r in salvage.rows] == ["AAA", "BBB"]
-    assert salvage.malformed == []
-
-
-def test_wrong_key_analysis_is_recovered_as_the_row_list():
-    text = json.dumps({"analysis": [{"symbol": "AAA"}, {"symbol": "BBB"}]})
-    salvage = _result(text).parse_json_rows(list_field="results")
-    assert [r["symbol"] for r in salvage.rows] == ["AAA", "BBB"]
-    assert salvage.malformed == []
-
-
-def test_null_results_with_the_real_list_under_a_sibling_key_is_recovered():
-    text = json.dumps(
-        {
-            "results": None,
-            "data": [{"symbol": "AAA"}, {"symbol": "BBB"}],
-        }
-    )
-    salvage = _result(text).parse_json_rows(list_field="results")
-    assert [r["symbol"] for r in salvage.rows] == ["AAA", "BBB"]
-    assert salvage.malformed == []
 
 
 def test_two_candidate_lists_is_ambiguous_and_does_not_guess():
@@ -317,24 +272,6 @@ def test_a_single_row_that_happens_to_nest_a_list_is_not_mistaken_for_rows():
 
 
 # --- the old "malformed row needs salvaging" scenario, under the NEW wrapper -
-
-
-def test_one_broken_row_inside_the_wrapper_still_costs_only_itself():
-    """The #538 scenario (one garbled stock must not sink the whole answer)
-    replayed with the model actually answering in the new wrapper shape.
-    The malformed row is caught by the per-row salvage as before; the schema
-    change does not remove that safety net, it adds a stricter one in front
-    of it."""
-    text = (
-        '{"results": [\n'
-        '  {"symbol": "AAA", "reasoning": "fine"},\n'
-        '  {"symbol": "BBB", "reasoning": "unterminated,\n},\n'
-        '  {"symbol": "CCC", "reasoning": "fine"}\n'
-        "]}"
-    )
-    salvage = _result(text).parse_json_rows(list_field="results")
-    assert [r["symbol"] for r in salvage.rows] == ["AAA", "CCC"]
-    assert [m.key for m in salvage.malformed] == ["BBB"]
 
 
 def test_null_thesis_invalid_if_is_still_tallied_in_parse_telemetry():
@@ -440,25 +377,6 @@ def _reset_parse_telemetry():
 
 
 @patch("anthropic.Anthropic")
-def test_fenced_markdown_around_the_answer_is_recorded_not_rejected(mock_cls):
-    from src.models import parse_telemetry as pt
-
-    resp = MagicMock()
-    fenced = "```json\n" + _wrapped_response_for("SPY") + "\n```"
-    resp.content = [MagicMock(text=fenced)]
-    resp.usage.input_tokens = 1
-    resp.usage.output_tokens = 1
-    mock_cls.return_value.messages.create.return_value = resp
-
-    agent = TechAnalystAgent(api_key="test", model="claude-sonnet-4-6-20250514")
-    results, _ = agent.analyze_batch(_symbols_data(["SPY"]))
-
-    assert results["SPY"] is not None, "a hygiene violation must never cost the row — it is evidence, not a gate"
-    assert pt.total_hygiene_violations() == 1
-    assert "fenced_markdown" in pt.describe_hygiene_violations()
-
-
-@patch("anthropic.Anthropic")
 def test_an_undeclared_key_on_a_row_is_recorded_not_rejected(mock_cls):
     from src.models import parse_telemetry as pt
 
@@ -557,38 +475,6 @@ def test_the_schema_is_sent_on_both_wire_routes(route):
     assert sent["json_schema"]["strict"] is True
     # The root must be an object: a bare-array root cannot be sent strict.
     assert sent["json_schema"]["schema"]["type"] == "object"
-
-
-@pytest.mark.parametrize("route", ["openrouter", "google"])
-def test_a_malformed_row_over_each_route_is_refused_not_salvaged_into_a_verdict(route):
-    """A row that does not conform is REFUSED at the boundary: it yields no
-    verdict for its symbol. The neighbouring good row is unaffected, and the
-    refusal is recorded rather than silently dropped."""
-    from src.agents.base import AgentResult
-
-    good = dict(_VALID_ITEM, symbol="AAA")
-    bad = dict(_VALID_ITEM, symbol="BBB", rating="not-a-rating")
-    payload = json.dumps({"results": [good, bad]})
-
-    agent = TechAnalystAgent(api_key="test", model="test-model")
-    captured: dict = {}
-    client = _fake_wire_client(captured, payload)
-
-    content, _, _, _, _ = agent._openai_wire_call(client, "test-model", route, "hello")
-
-    result = AgentResult(raw_text=content, model="test-model", tokens_used=0)
-    salvage = result.parse_json_rows(key_field="symbol", list_field="results")
-    parsed_symbols = {row.get("symbol") for row in salvage.rows if isinstance(row, dict)}
-
-    assert "AAA" in parsed_symbols
-    # The bad row survives JSON parsing but must not become a usable verdict.
-    from src.models import TechAnalystAnswerItem
-    import pydantic
-
-    bad_rows = [r for r in salvage.rows if isinstance(r, dict) and r.get("symbol") == "BBB"]
-    for row in bad_rows:
-        with pytest.raises(pydantic.ValidationError):
-            TechAnalystAnswerItem(**row)
 
 
 @patch("anthropic.Anthropic")

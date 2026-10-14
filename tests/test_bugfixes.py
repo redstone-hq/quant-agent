@@ -177,23 +177,6 @@ def test_parse_json_direct():
     assert result.parse_json() == {"key": "value"}
 
 
-def test_parse_json_code_block():
-    result = AgentResult(raw_text='```json\n{"key": "value"}\n```', tokens_used=10, model="test")
-    assert result.parse_json() == {"key": "value"}
-
-
-def test_parse_json_with_preamble():
-    text = 'Here is my analysis:\n\n```json\n{"key": "value"}\n```\n\nLet me know if you need more.'
-    result = AgentResult(raw_text=text, tokens_used=10, model="test")
-    assert result.parse_json() == {"key": "value"}
-
-
-def test_parse_json_preamble_no_fence():
-    text = 'Here is the result:\n\n{"key": "value"}'
-    result = AgentResult(raw_text=text, tokens_used=10, model="test")
-    assert result.parse_json() == {"key": "value"}
-
-
 def test_parse_json_array():
     result = AgentResult(raw_text='[{"a": 1}, {"b": 2}]', tokens_used=10, model="test")
     parsed = result.parse_json()
@@ -204,23 +187,6 @@ def test_parse_json_array():
 def test_parse_json_garbage_returns_none():
     result = AgentResult(raw_text="This is not JSON at all.", tokens_used=10, model="test")
     assert result.parse_json() is None
-
-
-def test_parse_json_prefers_last_valid_json_block():
-    text = (
-        "Example only:\n"
-        '```json\n{"decision": "draft"}\n```\n'
-        "Correction, use this instead:\n"
-        '```json\n{"decision": "final"}\n```'
-    )
-    result = AgentResult(raw_text=text, tokens_used=10, model="test")
-    assert result.parse_json() == {"decision": "final"}
-
-
-def test_parse_json_prefers_later_raw_json_over_earlier_code_block():
-    text = 'Example only:\n```json\n{"decision": "draft"}\n```\nFinal answer:\n{"decision": "final"}'
-    result = AgentResult(raw_text=text, tokens_used=10, model="test")
-    assert result.parse_json() == {"decision": "final"}
 
 
 # === Fix 6: Division by zero safety ===
