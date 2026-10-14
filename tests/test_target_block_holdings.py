@@ -8,66 +8,63 @@ had not happened yet.
 
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from unittest.mock import MagicMock
 
 import pytest
 
-from src import notifier
+from src import notifier, trader_feed
+from src.exits.exit_records import ExitRecords
 from src.notifier.trade_body import _append_trade_session_body
 
-_ET = ZoneInfo("America/New_York")
+
+def _pending(symbol: str, code: str = "REFUSAL_WALL_PENDING_CONFIRMATION", bar_date: str | None = "2026-10-12") -> dict:
+    return {"symbol": symbol, "applied": False, "code": code, "prior_price": 368.74, "bar_date": bar_date}
 
 
-def _pending(symbol: str, code: str = "REFUSAL_WALL_PENDING_CONFIRMATION", prior: float = 368.74) -> dict:
-    return {"symbol": symbol, "applied": False, "code": code, "prior_price": prior}
-
-
-def _at(monkeypatch: pytest.MonkeyPatch, year: int, month: int, day: int, hour: int) -> None:
-    moment = datetime(year, month, day, hour, 0, tzinfo=_ET)
-    monkeypatch.setattr("src.trading_calendar.et_now", lambda: moment)
+def test_the_live_midday_message_drops_the_sold_stock():
+    """The path that reaches the owner: midday/close go through the trader
+    feed, which already reads the book. AAPL sold, MSFT held."""
+    result = {
+        "status": "reviewed",
+        "target_revisions": [_pending("AAPL"), _pending("MSFT")],
+        "_positions": [{"symbol": "MSFT", "qty": 5, "market_value": 2000.0}],
+    }
+    msg = trader_feed._format_position_review("midday", result, 10.0)
+    assert "MSFT (still quoted" in msg
+    assert "AAPL (still quoted" not in msg
 
 
 def test_a_sold_stock_has_no_target_line():
-    result = {
-        "target_revisions": [_pending("AAPL"), _pending("MSFT", prior=410.0)],
-        "_positions": [{"symbol": "MSFT"}],
-    }
-    body = "\n".join(notifier.describe_target_revisions(result))
+    result = {"target_revisions": [_pending("AAPL"), _pending("MSFT")]}
+    body = "\n".join(notifier.describe_target_revisions(result, held_symbols=["msft"]))
     assert "AAPL" not in body
     assert "MSFT" in body
     assert "1 position(s)" in body  # the count describes what is shown, not what was sold
 
 
-def test_a_caller_that_knows_the_book_can_pass_it_in():
-    result = {"target_revisions": [_pending("AAPL"), _pending("MSFT", prior=410.0)]}
-    body = "\n".join(notifier.describe_target_revisions(result, held_symbols=["msft"]))
-    assert "AAPL" not in body
-    assert "MSFT" in body
-
-
-def test_when_every_revised_stock_was_sold_the_block_is_empty():
-    result = {"target_revisions": [_pending("AAPL")]}
-    assert notifier.describe_target_revisions(result, held_symbols=[]) == []
-
-
 def test_an_applied_revision_on_a_sold_stock_is_dropped_too():
     applied = {"symbol": "AAPL", "applied": True, "prior_price": 380.0, "new_price": 370.0, "trigger": ""}
-    result = {"target_revisions": [applied], "_positions": [{"symbol": "MSFT"}]}
-    assert notifier.describe_target_revisions(result) == []
+    assert notifier.describe_target_revisions({"target_revisions": [applied]}, held_symbols=["MSFT"]) == []
 
 
-def test_without_any_book_nothing_is_dropped():
-    # No holdings known: say what the session measured rather than invent a book.
-    body = "\n".join(notifier.describe_target_revisions({"target_revisions": [_pending("AAPL")]}))
-    assert "AAPL" in body
+def test_without_a_book_no_stock_is_named():
+    """A caller that cannot say what is held gets one line saying so, never a
+    target quoted for a stock that may have been sold."""
+    body = "\n".join(notifier.describe_target_revisions({"target_revisions": [_pending("AAPL")]}, held_symbols=None))
+    assert "AAPL" not in body
+    assert "not shown" in body
 
 
-def test_the_trade_session_message_drops_the_sold_stock():
+def test_the_book_is_a_required_input():
+    with pytest.raises(TypeError):
+        notifier.describe_target_revisions({"target_revisions": [_pending("AAPL")]})  # type: ignore[call-arg]
+
+
+def test_the_plain_session_message_uses_the_book_it_carries():
     result = {
         "status": "reviewed",
         "orders": [],
-        "target_revisions": [_pending("AAPL"), _pending("MSFT", prior=410.0)],
+        "target_revisions": [_pending("AAPL"), _pending("MSFT")],
         "_positions": [{"symbol": "MSFT"}],
     }
     lines: list[str] = []
@@ -79,27 +76,37 @@ def test_the_trade_session_message_drops_the_sold_stock():
 
 @pytest.mark.parametrize(
     "code",
-    [
-        "REFUSAL_WALL_PENDING_CONFIRMATION",
-        "REFUSAL_REACH_PENDING_CONFIRMATION",
-        "REFUSAL_BREAK_PENDING_CONFIRMATION",
-    ],
+    ["REFUSAL_WALL_PENDING_CONFIRMATION", "REFUSAL_REACH_PENDING_CONFIRMATION", "REFUSAL_BREAK_PENDING_CONFIRMATION"],
 )
-def test_midday_never_says_todays_close(monkeypatch: pytest.MonkeyPatch, code: str):
-    _at(monkeypatch, 2026, 10, 13, 12)  # Tuesday midday: today's close has not happened
-    body = "\n".join(notifier.describe_target_revisions({"target_revisions": [_pending("MSFT", code)]}))
-    assert "today's close" not in body
-    assert "Mon 12 Oct" in body  # the close it actually refers to
+def test_the_close_is_named_by_the_date_the_read_came_from(code: str):
+    body = "\n".join(
+        notifier.describe_target_revisions({"target_revisions": [_pending("MSFT", code)]}, held_symbols=["MSFT"])
+    )
+    assert "today's" not in body
+    assert "Mon 12 Oct" in body
 
 
-def test_after_the_bell_the_close_is_named_by_its_date_too(monkeypatch: pytest.MonkeyPatch):
-    _at(monkeypatch, 2026, 10, 13, 17)
-    body = "\n".join(notifier.describe_target_revisions({"target_revisions": [_pending("MSFT")]}))
-    assert "today's close" not in body
-    assert "Tue 13 Oct" in body
+def test_a_row_without_its_date_says_latest_never_today():
+    body = "\n".join(
+        notifier.describe_target_revisions(
+            {"target_revisions": [_pending("MSFT", bar_date=None)]}, held_symbols=["MSFT"]
+        )
+    )
+    assert "today's" not in body
+    assert "latest close" in body
 
 
-def test_monday_midday_names_friday_not_a_weekend_day(monkeypatch: pytest.MonkeyPatch):
-    _at(monkeypatch, 2026, 10, 12, 12)
-    body = "\n".join(notifier.describe_target_revisions({"target_revisions": [_pending("MSFT")]}))
-    assert "Fri 9 Oct" in body
+def test_the_filed_revision_carries_its_close_date():
+    records = ExitRecords(
+        trade_executed_or_pending=MagicMock(), record_exit_refusal=MagicMock(), db=MagicMock(), market=MagicMock()
+    )
+    row = records._file_target_revision(
+        run_id="r1",
+        symbol="MSFT",
+        seat="risk",
+        evidence="e",
+        code="REFUSAL_WALL_PENDING_CONFIRMATION",
+        applied=False,
+        bar_date="2026-10-12",
+    )
+    assert row["bar_date"] == "2026-10-12"

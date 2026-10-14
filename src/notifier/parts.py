@@ -233,55 +233,34 @@ def _append_company_identities(lines: list[str], symbols: list) -> None:
         lines.extend(identities)
 
 
-def _held_symbol_set(result: dict | None, held_symbols: Iterable[str] | None) -> set[str] | None:
-    """The symbols the desk holds at the moment the message is built, or None
-    when the caller cannot say.
-
-    A caller that has read the book passes it in. Otherwise a result that
-    carries a book snapshot (`_positions`, the stored-report replay key) is
-    read. With neither, the book is unknown and None is returned: the block
-    then says what the session measured rather than inventing a book."""
-    if held_symbols is None:
-        positions = (result or {}).get("_positions")
-        if not isinstance(positions, list):
-            return None
-        held_symbols = [p.get("symbol") for p in positions if isinstance(p, dict)]
-    return {str(s).strip().upper() for s in held_symbols if s}
-
-
-def _held_revision_rows(result: dict | None, held_symbols: Iterable[str] | None) -> list[dict]:
-    """The session's revision rows, limited to positions the desk still holds."""
+def _held_revision_rows(result: dict | None, held_symbols: Iterable[str]) -> list[dict]:
+    """The session's revision rows for positions the desk holds as the message is built."""
+    held = {str(s).strip().upper() for s in held_symbols if s}
     rows = [r for r in ((result or {}).get("target_revisions") or []) if isinstance(r, dict)]
-    held = _held_symbol_set(result, held_symbols)
-    if held is None:
-        return rows
     return [r for r in rows if str(r.get("symbol") or "").strip().upper() in held]
 
 
-def _last_close_label() -> str:
-    """The last daily close that has actually happened, as 'Mon 13 Oct'.
+def _close_label(bar_date: str | None) -> str:
+    """The daily close a revision read came from, as 'Mon 13 Oct', taken from
+    the row's own `bar_date`. Without one the close is 'the latest' — never
+    'today's', which midday does not exist yet."""
+    from datetime import date
 
-    Midday, today's close does not exist yet, so a message must never call
-    any close 'today's'. The date is stepped back over weekend days; market
-    holidays are not known here, so after one the label can name the
-    holiday's preceding weekday rather than the true last session."""
-    from datetime import timedelta
-
-    from src.trading_calendar import is_weekday, last_completed_bar_date
-
-    day = last_completed_bar_date()
-    while not is_weekday(day):
-        day -= timedelta(days=1)
+    try:
+        day = date.fromisoformat(str(bar_date)[:10])
+    except (TypeError, ValueError):
+        return "latest"
     return f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
 
 
-def describe_target_revisions(result: dict | None, held_symbols: Iterable[str] | None = None) -> list[str]:
+def describe_target_revisions(result: dict | None, *, held_symbols: Iterable[str] | None) -> list[str]:
     """The session's take-profit revisions, in the owner's words.
 
-    Only positions the desk still holds are voiced (`held_symbols`, else the
-    result's own `_positions` snapshot). A position sold earlier in the
-    session no longer has a target the owner is being quoted, so a line for
-    it is a statement about something that is not his any more.
+    Only positions the desk holds as the message is built are voiced: every
+    caller passes the book it read (`held_symbols`). A position sold earlier
+    in the session no longer has a target the owner is being quoted. A
+    caller with no book passes None and gets one line saying the block is
+    not shown, never lines about stocks it cannot say are held.
 
     WHY THIS EXISTS (item 194). The desk's standing rule is that every buy,
     sell or hold states its real reason, and a bare number is a defect. A
@@ -305,6 +284,11 @@ def describe_target_revisions(result: dict | None, held_symbols: Iterable[str] |
     that no longer clears the desk's own entry bar. Neither is reachable
     from here.
     """
+    if held_symbols is None:
+        every = [r.get("symbol") for r in ((result or {}).get("target_revisions") or []) if isinstance(r, dict)]
+        if not describe_target_revisions(result, held_symbols=every):
+            return []
+        return ["🎯 Target changes: not shown — this message has no read of the book, so cannot say what is held"]
     rows = _held_revision_rows(result, held_symbols)
     if not rows:
         return []
@@ -360,7 +344,7 @@ def describe_target_revisions(result: dict | None, held_symbols: Iterable[str] |
                     quoted = f" (still quoted ${float(prior):,.2f})"
             except (TypeError, ValueError):
                 quoted = ""
-            why = _pending_confirmation_reason(str(row.get("code") or ""))
+            why = _pending_confirmation_reason(str(row.get("code") or ""), _close_label(row.get("bar_date")))
             lines.append(_clip_text(f"      • {symbol}{quoted} — {why}", 420))
     held = len(rows) - len(applied) - len(pending)
     if held:
@@ -371,7 +355,7 @@ def describe_target_revisions(result: dict | None, held_symbols: Iterable[str] |
     return lines
 
 
-def _pending_confirmation_reason(code: str, close: str | None = None) -> str:
+def _pending_confirmation_reason(code: str, close: str = "latest") -> str:
     """Plain words for why a revision the desk wanted to make is being held
     one more session. Unknown codes return the code rather than silence.
 
@@ -379,7 +363,6 @@ def _pending_confirmation_reason(code: str, close: str | None = None) -> str:
     Oct'), because at midday today's close has not happened yet and 'today's
     close' would describe something that does not exist."""
     c = (code or "").strip().upper()
-    close = close or _last_close_label()
     if c == "REFUSAL_WALL_PENDING_CONFIRMATION":
         return (
             f"a new ceiling appeared between the buy price and the target on "

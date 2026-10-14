@@ -108,6 +108,7 @@ class ExitRecords:
         level_used: float | None = None,
         detail: str = "",
         prior_code: str | None = None,
+        bar_date: str | None = None,
     ) -> dict:
         """Write one adjudicated flag and return its payload.
 
@@ -128,6 +129,9 @@ class ExitRecords:
             "new_price": new_price,
             "level_used": level_used,
             "applied": bool(applied),
+            # The daily close this read came from, so a message names that close
+            # by its date instead of calling it "today's" before today closes.
+            "bar_date": bar_date,
         }
         # FAULT 6 (item 194): an unapplied outcome identical to this
         # symbol's last one is recomputable state, and the sweep would

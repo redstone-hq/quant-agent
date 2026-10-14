@@ -1426,7 +1426,8 @@ def test_a_revision_is_voiced_with_its_reason_not_just_a_number():
                     "trigger": tr.TRIGGER_WALL_IN_FRONT_OF_TARGET,
                 }
             ]
-        }
+        },
+        held_symbols=["TEST"],
     )
     body = "\n".join(lines)
     assert "TEST" in body
@@ -1462,11 +1463,12 @@ def test_a_session_with_no_applied_revision_says_nothing():
                 "target_revisions": [
                     {"symbol": "TEST", "applied": False, "code": tr.REVISION_NO_TRIGGER},
                 ]
-            }
+            },
+            held_symbols=["TEST"],
         )
         == []
     )
-    assert notifier.describe_target_revisions({}) == []
+    assert notifier.describe_target_revisions({}, held_symbols=None) == []
 
 
 # ---------------------------------------------------------------------------
@@ -1644,7 +1646,8 @@ def test_a_session_that_applied_nothing_still_names_a_held_target():
                 },
                 {"symbol": "OTHR", "applied": False, "code": tr.REVISION_NO_TRIGGER},
             ]
-        }
+        },
+        held_symbols=["TEST", "OTHR"],
     )
     body = "\n".join(lines)
     assert "TEST" in body  # named, not counted
