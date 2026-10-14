@@ -319,10 +319,10 @@ DONE WHEN:
 - [ ] the put-back is seen working on a real refused sale in production
     live since 2026-10-14 17:05 UTC; no sale has happened since, so not yet seen working; before the fix 4 sales were refused in 2 sessions [measured, desk records]
 
-**235. Entries are market orders sized off the ask/bid — filed 2026-10-09. IN PROGRESS (build under way).** Entries go in as market orders, sized off the ask for a buy and the bid for a short.
+**235. Entries are market orders sized off the ask/bid — filed 2026-10-09. [1 of 1 ticked; merged 2026-10-09 in PR #1605 with tests/test_entry_market_orders.py. Awaiting the owner's closure.]** Entries go in as market orders, sized off the ask for a buy and the bid for a short.
 
 DONE WHEN:
-- [ ] entry orders are market orders sized off the ask (buy) or bid (short), proven by a test
+- [x] entry orders are market orders sized off the ask (buy) or bid (short), proven by a test (PR #1605, tests/test_entry_market_orders.py)
 
 **236. The test fake broker accepts some things the real broker refuses — filed 2026-10-09. OPEN (1 of 2 ticked).** The fake broker (`tests/fakes/holding_broker.py`, tests in `tests/test_fake_broker_refusals.py`) refuses these like the practice-account broker does: an order larger than the shares held and a wash trade (PR #1645, merged 2026-10-09), and, since PR #1776 (merged 2026-10-14), a sale held back by other open orders (403, code 40310000, with the real body), an amend of a fractional quantity, a cancel of an already-filled order, and any amend after hours. Still open: refusals nobody has yet logged from the real broker are not modelled, and only the cancel-of-filled refusal is driven through a desk call that must report it; the amend refusals are tested at the desk's client seam.
 
