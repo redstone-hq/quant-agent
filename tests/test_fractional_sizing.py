@@ -441,10 +441,10 @@ def _protection_broker(*, filled_qty: float, stop_results: list) -> AlpacaBroker
     return broker
 
 
-def test_stop_placement_retries_immediately_and_the_retry_protects_the_position():
-    """Guard 1. The first submit fails; the retry happens inside the SAME
-    call — not queued, not deferred to the next sweep — and the position ends
-    the call protected."""
+def test_stop_placement_is_not_retried_by_the_desk():
+    """2026-10-14: the desk's retry loop is gone. alpaca-py's client retries
+    429/504 itself; a failure reaching the desk returns None at once, which
+    is the caller's owner-alert signal, with no desk sleep."""
     broker = _protection_broker(
         filled_qty=10.0,
         stop_results=[RuntimeError("429 rate limited"), {"id": "stop-1"}],
@@ -453,11 +453,9 @@ def test_stop_placement_retries_immediately_and_the_retry_protects_the_position(
     with patch("src.execution.broker.time.sleep") as sleep:
         out = broker.place_entry_protection("NVDA", "e1", 95.0, requested_qty=10)
 
-    assert out is not None and out["id"] == "stop-1"
-    assert broker._submit_stop_limit_order.call_count == 2
-    assert out["_qty"] == 10.0, "the retry must cover the WHOLE fill"
-    # The retry is immediate: sub-second, not a sweep interval away.
-    assert sleep.call_args.args[0] <= 1.0
+    assert out is None
+    assert broker._submit_stop_limit_order.call_count == 1
+    assert not sleep.called
 
 
 def test_stop_placement_gives_up_after_a_bounded_number_of_attempts():
@@ -473,7 +471,7 @@ def test_stop_placement_gives_up_after_a_bounded_number_of_attempts():
         out = broker.place_entry_protection("NVDA", "e1", 95.0, requested_qty=10)
 
     assert out is None
-    assert broker._submit_stop_limit_order.call_count == 3
+    assert broker._submit_stop_limit_order.call_count == 1
 
 
 def test_a_terminal_broker_rejection_does_not_burn_the_retry_burst():
@@ -511,8 +509,9 @@ def test_a_transient_failure_with_no_status_code_still_retries_the_full_burst():
     with patch("src.execution.broker.time.sleep"):
         out = broker.place_entry_protection("NVDA", "e1", 95.0, requested_qty=10)
 
+    # 2026-10-14: no desk-level burst any more; one submit, then None.
     assert out is None
-    assert broker._submit_stop_limit_order.call_count == 3
+    assert broker._submit_stop_limit_order.call_count == 1
 
 
 def test_a_fractional_fill_is_protected_by_a_hybrid_gtc_plus_day_pair():
@@ -613,7 +612,7 @@ def test_a_failed_day_leg_still_leaves_the_whole_shares_durably_covered():
     sub-share remainder is REPORTED, never swallowed."""
     broker = _protection_broker(
         filled_qty=12.3456,
-        stop_results=[RuntimeError("day leg refused")] * 3 + [{"id": "stop-whole"}],
+        stop_results=[RuntimeError("day leg refused"), {"id": "stop-whole"}],
     )
 
     with patch("src.execution.broker.time.sleep"):

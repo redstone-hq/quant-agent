@@ -1,7 +1,7 @@
 """Protective-stop submission, restore and replacement, lifted verbatim from AlpacaBroker.
 
 Second broker instalment. A `StopPlacer` is built from its collaborators alone
-(keyword-only), so stop submission with retry, restore after a cancel, `shift_stops_down` and `replace_stop_loss` run without an
+(keyword-only), so stop submission, restore after a cancel, `shift_stops_down` and `replace_stop_loss` run without an
 `AlpacaBroker` or a TradingPipeline. `AlpacaBroker` keeps same-named thin
 shims that build one per call, so a test that swaps the client (or one of the
 cluster's own methods) after construction still hits the swap.
@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-import time
 
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import StopOrderRequest
@@ -25,7 +24,6 @@ from src.execution.broker_parts.stop_shift import shift_stops_down as _shift_sto
 from src.execution.broker_parts.stop_window import UnprotectedWindow, fallback_reason
 from src.execution.broker_parts.stop_amend import (
     _AMEND_NOT_ATTEMPTED,
-    _is_terminal_broker_rejection,
     _quantize_price,
 )
 from src.execution.broker_parts.stop_clock import defer_if_closed, reprotect_or_naked
@@ -62,16 +60,11 @@ from src.sentinel.guarded import record_guarded_pass
 # broker's logger name, and the move must not change what they see.
 logger = logging.getLogger("src.execution.broker")
 
-_STOP_PLACEMENT_MAX_ATTEMPTS = 3
-
-_STOP_PLACEMENT_BACKOFF_S = (0.5, 1.5)
-
 # Spec §11.1 hybrid fractional stops: the measured broker rule, `_FRACTIONAL_QTY_EPSILON`,
 # `_split_protective_qty` and `_derive_stop_tif` live in src/execution/order_gates.py (re-exported above).
 
 from src.execution.broker_parts.stop_rejections import (  # noqa: F401
     _is_held_for_orders_error,
-    log_terminal_stop_rejection,
     real_broker_order_id,
 )
 
@@ -204,133 +197,106 @@ class StopPlacer:
         side: str,
         leg: str,
     ) -> dict | None:
-        """One protective-stop LEG, with spec §11.1 guard 1's retry burst.
+        """One protective-stop LEG, submitted ONCE. The name is kept for its patch targets.
 
-        Extracted from `_submit_protective_stop_retrying` so the hybrid split
-        can run the identical retry discipline over each of its two legs
-        instead of a second, weaker copy of it. `leg` is log context only
-        ('GTC', 'GTC whole-share', 'DAY fractional') — the tif itself is
-        derived from `qty` inside `_submit_stop_limit_order` and is not a
-        decision made here.
+        `leg` is log context only ('GTC', 'GTC whole-share', 'DAY
+        fractional') — the tif is derived from `qty` inside
+        `_submit_stop_limit_order` and is not a decision made here.
 
-        Returns the broker's response dict, or None when every attempt
-        failed. Never raises.
+        NO DESK-LEVEL RETRY (2026-10-14). The desk's own three-attempt,
+        two-sleep loop is gone, with its two arbitrary constants:
+          * the only recorded placement failures (2026-09-16, BRK-B DAY
+            sliver) were 403 / 40310000 held_for_orders refusals because a
+            covering stop was ALREADY resting. A retry cannot clear that, so
+            a held_for_orders refusal goes straight to the covering-stop
+            lookup below and counts as placed when one is found;
+          * alpaca-py's REST client already retries 429 and 504 itself
+            (`RESTClient` defaults `DEFAULT_RETRY_ATTEMPTS` 3 / `DEFAULT_RETRY_WAIT_SECONDS` 3 / codes 429, 504), so a
+            desk loop around it was a second retry layer;
+          * any other failure returns None now, which every caller already
+            escalates on (owner alert, spec §11.1 guard 2) and the coverage
+            sweep's re-protect pass repairs — exactly what a final failure
+            did before, without the ~2 s of extra naked time.
 
-        A kill-switch refusal does NOT raise (`_submit_stop_limit_order`
-        returns a dict with `id=None`) — until this check existed that fell
-        straight through to the success branch below and was logged and
-        returned as a PLACED stop. The switch is a stable ops halt, not a
-        transient broker error, so this does not burn the retry burst on
-        it: one refusal is reported as blocked and the leg fails now,
-        exactly as if the broker itself had refused every attempt.
+        Returns the broker's response dict, the resting covering stop, or
+        None. Never raises. A kill-switch refusal (`id=None`) is reported as
+        blocked and returns None, never as a placed stop.
         """
-        attempts = max(1, int(_STOP_PLACEMENT_MAX_ATTEMPTS))
-        last_exc: BaseException | None = None
-        for attempt in range(1, attempts + 1):
-            try:
-                order = self._submit_stop_limit_order(
-                    symbol=symbol,
-                    qty=qty,
-                    stop_price=stop_price,
-                    side=side,
-                )
-            except Exception as exc:  # noqa: BLE001
-                last_exc = exc
-                record_guarded_pass(
-                    self,
-                    "stop_place.submit_stop_leg_retrying",
-                    exc,
-                    log=logger,
-                    context={"symbol": symbol, "leg": leg, "attempt": attempt},
-                )
-                logger.error(
-                    "protective stop [%s] attempt %d/%d FAILED for %s (qty=%.4f, stop $%.2f): %s",
-                    leg,
-                    attempt,
-                    attempts,
-                    symbol,
-                    qty,
-                    stop_price,
-                    exc,
-                )
-                if _is_terminal_broker_rejection(exc):
-                    # Board item 129: a terminal 400/404/422 fails identically on every retry.
-                    log_terminal_stop_rejection(logger, leg, symbol, exc, attempt, attempts)
-                    break
-                if attempt < attempts:
-                    delay = _STOP_PLACEMENT_BACKOFF_S[min(attempt - 1, len(_STOP_PLACEMENT_BACKOFF_S) - 1)]
-                    time.sleep(delay)
-                continue
-            if _is_dead_stop_result(order, PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES):
-                # Adversary 2026-10-01: a dead-status response holds no shares.
-                logger.error(
-                    "protective stop [%s] attempt %d/%d for %s came back with "
-                    "status %r — not a live stop; not reporting it as placed.",
-                    leg,
-                    attempt,
-                    attempts,
-                    symbol,
-                    order.get("status"),
-                )
-                last_exc = None
-                if attempt < attempts:
-                    delay = _STOP_PLACEMENT_BACKOFF_S[min(attempt - 1, len(_STOP_PLACEMENT_BACKOFF_S) - 1)]
-                    time.sleep(delay)
-                continue
-            from src.execution.exit_path_records import is_kill_switch_block
-
-            if is_kill_switch_block(order):
-                logger.critical(
-                    "protective stop [%s] for %s qty=%.4f BLOCKED by the "
-                    "desk's own kill switch — nothing was sent to the "
-                    "broker; NOT reporting this as placed.",
-                    leg,
-                    symbol,
-                    qty,
-                )
-                return None
-            if attempt > 1:
-                logger.warning(
-                    "protective stop [%s] placed for %s on attempt %d/%d — the "
-                    "position was briefly unprotected and is now covered",
-                    leg,
-                    symbol,
-                    attempt,
-                    attempts,
-                )
-            else:
-                logger.info(
-                    "entry protection: [%s] %s protective stop placed for %s qty=%.4f @ stop $%.2f",
-                    leg,
-                    side,
-                    symbol,
-                    qty,
-                    stop_price,
-                )
-            return order
-        # Concurrent morning + intra_check both repair the same DAY sliver:
-        # the second hits held_for_orders because the first already placed
-        # it. Treat an existing stop covering this qty as success — do not
-        # leave the remainder flagged uncovered when the broker already
-        # holds the order.
-        if last_exc is not None and _is_held_for_orders_error(last_exc):
-            existing = self._existing_stop_covering_qty(
-                symbol,
+        try:
+            order = self._submit_stop_limit_order(
+                symbol=symbol,
                 qty=qty,
-                side=side,
                 stop_price=stop_price,
+                side=side,
             )
-            if existing is not None:
-                logger.info(
-                    "protective stop [%s] for %s qty=%.4f already live at "
-                    "the broker (held_for_orders on submit) — treating as "
-                    "covered",
-                    leg,
+        except Exception as exc:  # noqa: BLE001
+            record_guarded_pass(
+                self,
+                "stop_place.submit_stop_leg_retrying",
+                exc,
+                log=logger,
+                context={"symbol": symbol, "leg": leg},
+            )
+            if _is_held_for_orders_error(exc):
+                # Concurrent morning + intra_check both repair the same DAY
+                # sliver: the second is refused because the first already
+                # placed it. An existing stop covering this qty is success.
+                existing = self._existing_stop_covering_qty(
                     symbol,
-                    qty,
+                    qty=qty,
+                    side=side,
+                    stop_price=stop_price,
                 )
-                return existing
-        return None
+                if existing is not None:
+                    logger.info(
+                        "protective stop [%s] for %s qty=%.4f already live at "
+                        "the broker (held_for_orders on submit) — treating as "
+                        "covered",
+                        leg,
+                        symbol,
+                        qty,
+                    )
+                    return existing
+            logger.error(
+                "protective stop [%s] FAILED for %s (qty=%.4f, stop $%.2f): %s "
+                "— not retried by the desk; the caller escalates.",
+                leg,
+                symbol,
+                qty,
+                stop_price,
+                exc,
+            )
+            return None
+        if _is_dead_stop_result(order, PROTECTIVE_ORDER_HOLDS_SHARES_STATUSES):
+            # Adversary 2026-10-01: a dead-status response holds no shares.
+            logger.error(
+                "protective stop [%s] for %s came back with status %r — not a live stop; not reporting it as placed.",
+                leg,
+                symbol,
+                order.get("status"),
+            )
+            return None
+        from src.execution.exit_path_records import is_kill_switch_block
+
+        if is_kill_switch_block(order):
+            logger.critical(
+                "protective stop [%s] for %s qty=%.4f BLOCKED by the "
+                "desk's own kill switch — nothing was sent to the "
+                "broker; NOT reporting this as placed.",
+                leg,
+                symbol,
+                qty,
+            )
+            return None
+        logger.info(
+            "entry protection: [%s] %s protective stop placed for %s qty=%.4f @ stop $%.2f",
+            leg,
+            side,
+            symbol,
+            qty,
+            stop_price,
+        )
+        return order
 
     def _submit_protective_stop_retrying(
         self,
@@ -341,15 +307,13 @@ class StopPlacer:
         side: str,
     ) -> dict | None:
         """Spec §11.1 guard 1 — submit protective stop coverage for `qty`,
-        retrying immediately and hard on failure. Returns a stop order dict,
-        or None when nothing at all could be placed.
+        submitted once per leg. Returns a stop order dict, or None when
+        nothing at all could be placed.
 
-        The retry happens HERE, in the same call, milliseconds after the
-        failure — not queued, not deferred to the next 30-minute sweep. The
-        position is already open; a deferred retry is an open position with
-        no stop for however long the defer lasts, which is the exact failure
-        mode §11.1 was required to bound. See `_STOP_PLACEMENT_MAX_ATTEMPTS`
-        for why the budget is three attempts over ~2 seconds and not more.
+        No desk-level retry: see `_submit_stop_leg_retrying` (2026-10-14).
+        A held_for_orders refusal goes straight to the covering-stop lookup;
+        alpaca-py's client retries 429/504 itself; anything else returns
+        None at once so the caller's owner alert fires without delay.
 
         Never raises. Returning None is the signal the CALLER must escalate
         on — a naked position that nobody is told about is strictly worse
@@ -384,10 +348,8 @@ class StopPlacer:
         success — so guard 2 stays silent on success and still fires on a
         genuine partial cover.
         """
-        # docs/WORK.md item 88. Refuse a garbage trigger BEFORE burning the
-        # retry burst on it: a zero/negative/NaN/Inf stop is not a transient
-        # broker failure, so three attempts and ~2 seconds of sleeps cannot
-        # turn it into a placed order. None is the caller's escalate signal
+        # docs/WORK.md item 88. Refuse a garbage trigger BEFORE sending it:
+        # a zero/negative/NaN/Inf stop cannot become a placed order. None is the caller's escalate signal
         # and every caller on this path already treats it as one, so the
         # gap stays flagged instead of being reported as covered.
         if classify_stop_price(stop_price)[0] != STOP_USABLE:
@@ -434,13 +396,12 @@ class StopPlacer:
         if day_order is None:
             logger.error(
                 "protective stop: the DAY fractional leg FAILED for %s (%s "
-                "share(s), stop $%.2f) after %d attempt(s) — the sub-share "
+                "share(s), stop $%.2f) — the sub-share "
                 "remainder is uncovered NOW, during the session, which is not "
                 "the expected overnight lapse.",
                 symbol,
                 frac,
                 stop_price,
-                _STOP_PLACEMENT_MAX_ATTEMPTS,
             )
         gtc_order = None
         if whole >= 1:
@@ -454,13 +415,12 @@ class StopPlacer:
             if gtc_order is None:
                 logger.critical(
                     "protective stop: the DURABLE whole-share GTC leg FAILED "
-                    "for %s (%.0f share(s), stop $%.2f) after %d attempt(s). "
+                    "for %s (%.0f share(s), stop $%.2f). "
                     "This is the leg that must never be missing; the caller "
                     "alerts the owner.",
                     symbol,
                     whole,
                     stop_price,
-                    _STOP_PLACEMENT_MAX_ATTEMPTS,
                 )
 
         gtc_qty = whole if gtc_order is not None else 0.0
@@ -508,8 +468,8 @@ class StopPlacer:
         NO FALLBACK. The stop-LIMIT fallback (and its 3% buffer) was deleted
         2026-10-13: it was taken 0 times in 60 recorded placements. A broker
         refusal of the stop-MARKET now RAISES like any other refusal, so
-        `_submit_protective_stop_retrying` retries it and, if every attempt
-        fails, logs CRITICAL "UNPROTECTED" and returns None — the caller's
+        `_submit_protective_stop_retrying` (no desk-level retry) logs the
+        failure and returns None — the caller's
         owner alert and the coverage repair then take over.
 
         TIME IN FORCE IS DERIVED FROM `qty`, NOT PASSED IN (spec §11.1
