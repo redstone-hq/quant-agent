@@ -41,6 +41,7 @@ import importlib
 
 import pytest
 
+from ops.model_policy.deterministic_selection import session_day
 from src.models import PortfolioDecision, ReasoningChain, TargetPosition
 
 
@@ -178,6 +179,7 @@ def test_production_gate_with_real_ratios_admits_exactly_the_graded_set():
         evidence_registry=registry,
         stale_sources=PortfolioManagerAgent.stale_evidence_sources(
             earnings_analyses=sel["earnings_analyses"],
+            asof=session_day(sel),
         ),
         allowed_buy_symbols=(set(sel["allowed_buy_symbols"]) | set(sel["transient_admitted_symbols"])),
         active_state_changes=sel["memory"]["active_state_changes"],
