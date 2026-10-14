@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 NO_TRADES_LINE = "No closed trades today."
 UNKNOWN = "unknown"
-MAX_NAMES_SHOWN = 4
 
 
 def _read_trade_rows() -> list[dict] | None:
@@ -90,9 +89,7 @@ def _not_counted_line(summary: dict, since: str) -> str | None:
     names = summary["not_counted"]
     if not names:
         return None
-    shown = ", ".join(names[:MAX_NAMES_SHOWN])
-    more = f" +{len(names) - MAX_NAMES_SHOWN} more" if len(names) > MAX_NAMES_SHOWN else ""
-    return f"{_words('not_counted').format(since=since)}: {shown}{more}"
+    return f"{_words('not_counted').format(since=since)}: {', '.join(names)}"
 
 
 def trade_block_lines(summary: dict | None) -> list[str]:
