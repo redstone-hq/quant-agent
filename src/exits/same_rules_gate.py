@@ -83,6 +83,7 @@ import ast
 import logging
 from dataclasses import dataclass
 
+from src.exits.evidence_seats import failed_evidence_seats
 from src.risk.conviction_bar import (
     OWN_BAR_REASON_PREFIX,
     own_bar_hold_reason,
@@ -497,8 +498,6 @@ def views_from_pipeline(
         for s, seats in (dict(stale) if isinstance(stale, dict) else {}).items()
         if "earnings" in set(seats or ())
     )
-    from src.pipeline_rotation_exec import failed_evidence_seats
-
     return HoldingViews(
         symbol=sym,
         is_short=is_short,
