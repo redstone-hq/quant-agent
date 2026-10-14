@@ -19,6 +19,11 @@ Doctrine asserted (never read back from the run):
     its entry, and none rests against the sold name;
   * no gap in broker-truth stop coverage, and no socket left the box.
 
+The held name's chart is AGAINST it (technical rating sell): owner Option A
+(14 Oct 2026) keeps a name that passes every buy rule but timing, so a
+neutral or unreadable holding is never sold by judgement. The same-rules gate
+lets this sale through because the holding fails a rule a buy would fail.
+
 NOT COVERED: the desk's AUTOMATIC below-bar rotation tier (the PM asks for
 this rotation; the desk's own culling is not driven); partial fills;
 shorts; a refused buy leg; anything a model seat says beyond this script.
@@ -73,15 +78,16 @@ def _answers(close_held: bool = True) -> dict:
     new_tech = base["tech"]["results"][0]
     old_tech = TechAnalysisResult(
         symbol=OLD,
-        rating="neutral" if close_held else "buy",
+        rating="sell" if close_held else "buy",
         entry_price=LAST_CLOSE,
-        reference_target=RANGE_HIGH,
-        stop_loss=round(RANGE_LOW - 1.0, 2),
+        # A sell read sits its target below the entry and its stop above it.
+        reference_target=RANGE_LOW if close_held else RANGE_HIGH,
+        stop_loss=round(RANGE_HIGH + 1.0, 2) if close_held else round(RANGE_LOW - 1.0, 2),
         support_levels=[RANGE_LOW],
         resistance_levels=[RANGE_HIGH],
         setup_type="range",
         expected_horizon_sessions=60,
-        reasoning="range exhausted",
+        reasoning="range exhausted, chart turned against the holding",
         thesis_invalid_if="closes below support",
         reasoning_chain=TechReasoningChain(
             trend="x",
@@ -130,9 +136,9 @@ def _answers(close_held: bool = True) -> dict:
                 provenance=[
                     AnalystProvenance(
                         source="technical",
-                        observed_stance="neutral",
-                        relationship="context",
-                        evidence="rating neutral",
+                        observed_stance="sell",
+                        relationship="supports",
+                        evidence="rating sell, chart against the holding",
                     )
                 ],
             ),
