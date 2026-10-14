@@ -46,7 +46,7 @@ def test_winners_and_losers_day(tmp_path, monkeypatch):
         ],
     )
     assert "CLOSE REVIEW" in msg
-    assert "Closed today (clean record, opened since 12 Oct): 2 trades, 1 wins, 1 losses" in msg
+    assert "Closed today (clean record, opened since 12 Oct): 2 trades, 1 win, 1 loss" in msg
     assert "Win rate 50.0% · total +$150.00 · average +$75.00" in msg
     assert "Best AAA +$200.00 · worst BBB -$50.00" in msg
     assert "Won per $1 lost: $4.00" in msg

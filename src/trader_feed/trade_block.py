@@ -78,10 +78,10 @@ def _profit_factor_text(value) -> str:
 
 
 def _count_line(summary: dict, since: str) -> str:
-    n = summary["n"]
+    n, wins, losses = summary["n"], summary["wins"], summary["losses"]
     return (
         f"{_words('n').format(since=since)}: {n} {'trade' if n == 1 else 'trades'}, "
-        f"{summary['wins']} {_words('wins')}, {summary['losses']} {_words('losses')}"
+        f"{wins} {'win' if wins == 1 else _words('wins')}, {losses} {'loss' if losses == 1 else _words('losses')}"
     )
 
 
