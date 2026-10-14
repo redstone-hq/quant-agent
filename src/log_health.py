@@ -100,9 +100,11 @@ from pathlib import Path
 
 from src.notifier import TelegramNotifier
 from src.time_format import fmt_time_12h
+from src.log_markers import SWEEP_LOG_NAME
 from src.health_words import (  # noqa: F401  re-exported names
     OWNER_TZ,
     _duration_words,
+    _last_at_words,
     _plural,
     _time_words,
 )
@@ -194,12 +196,21 @@ class FaultFamily:
     #: a fixed fault reported as current is a false alarm.
     resolved_by: tuple[re.Pattern[str], ...] = ()
     #: ISO date on which the owner explicitly accepted this standing exposure.
-    #: The family stays in its HURT ordering (acceptance is not a fix and must
-    #: not hide risk); only its disposition changes, from "new — not yet on the
-    #: list" to "owner-accepted <day month>".
+    #: It is still reported while it is true (acceptance is not a fix and must
+    #: not hide risk), but it reads "known, accepted <day month>", sorts after
+    #: every open fault and never sets the verdict to HURT. Owner, 2026-10-13:
+    #: a known, accepted exposure heading the report as HURT every morning is
+    #: not true.
     accepted_on: str | None = None
     #: Captures the dollars uncovered from the log line, when it carries them.
     dollars: re.Pattern[str] | None = None
+    #: The count is the number of holdings the coverage sweep's latest run
+    #: line says are still open, not the number of log lines. The overnight
+    #: exposure is logged ONCE an evening for the whole book, so counting lines
+    #: told the owner "1 holding" on a night the sweep found 6 of 6 every 30
+    #: minutes (2026-10-13). The sweep's count does not separate whole-share
+    #: gaps from sub-share ones, and the sentence says so.
+    count_from_sweep: bool = False
 
 
 def _p(*patterns: str) -> tuple[re.Pattern[str], ...]:
@@ -369,10 +380,12 @@ FAMILIES: tuple[FaultFamily, ...] = (
         key="overnight_fractional_exposure",
         short_name="sub-share remainders carrying no stop overnight",
         sentence=(
-            "{n} holding{plural} went through the night with a sub-share "
-            "remainder carrying no stop, because the broker will not hold "
-            "one overnight; the whole shares keep their stop"
+            "{n} holding{plural} went through the night with shares carrying "
+            "no stop, by the coverage sweep's last count, which does not "
+            "separate whole shares from the part-shares the broker will not "
+            "protect overnight"
         ),
+        count_from_sweep=True,
         reason=MONEY_UNPROTECTED,
         # Real, bounded (only the fraction; whole shares carry a GTC stop), and
         # NOT a bug: the broker refuses an overnight stop on a part-share, so
@@ -661,22 +674,28 @@ class Report:
     #: Keys reported in the previous report, so an unchanged issue can be
     #: compressed instead of restated in full.
     previous: dict[str, int] = field(default_factory=dict)
+    #: Time of the last log line read in the window. "none since" on a bullet
+    #: is measured against this, never against a deploy time.
+    log_read_to: datetime | None = None
 
     @property
     def reported(self) -> list[Finding]:
-        """Everything that meets the bar, worst condition first."""
+        """Everything that meets the bar, worst open condition first; owner-
+        accepted exposures after every open fault."""
         return sorted(
             (f for f in self.findings if f.reportable),
-            key=lambda f: (_REASON_ORDER.index(f.family.reason), -f.count),
+            key=lambda f: (bool(f.family.accepted_on), _REASON_ORDER.index(f.family.reason), -f.count),
         )
 
     @property
     def verdict(self) -> str:
-        reasons = {f.family.reason for f in self.reported}
+        reasons = {f.family.reason for f in self.reported if not f.family.accepted_on}
         if reasons & _HURT_REASONS:
             return "hurt"
         if reasons:
             return "degraded"
+        if self.reported:
+            return "accepted"
         return "healthy"
 
 
@@ -867,13 +886,45 @@ def analyse(
     for finding in findings.values():
         if finding.family.measure_duration and finding.count:
             finding.first_seen_ever = _first_occurrence(finding.family, log_dir)
+        if finding.family.count_from_sweep and finding.last_seen is not None:
+            run = _sweep_still_open(records, finding.last_seen)
+            if run is not None:
+                # The sweep's run line is the latest evidence the condition
+                # was true, so "last at" is that run, not the evening line.
+                finding.count, finding.last_seen = run
 
     return Report(
         window_start=window_start,
         window_end=window_end,
         findings=list(findings.values()),
         previous=dict(previous or {}),
+        log_read_to=max((r.timestamp for r in records), default=None),
     )
+
+
+#: The coverage sweep's own run line (`sweep_log_line`): "<name> <run> (<entry>):
+#: <outcome> — positions checked P, gaps F found / N still open, ...".
+_SWEEP_RUN_RE = re.compile(
+    re.escape(SWEEP_LOG_NAME) + r" \S+ \([^)]*\): (?P<outcome>\w+) — positions checked \d+, "
+    r"gaps \d+ found / (?P<open>\d+) still open"
+)
+
+
+def _sweep_still_open(records: list[LogRecord], since: datetime) -> tuple[int, datetime] | None:
+    """Holdings the latest sweep run at or after `since` found still open, and
+    when that run logged it.
+
+    A run that could not reach the broker read nothing, so its zero is not a
+    count. None when no sweep run speaks for the moment; the caller then keeps
+    the count it already has.
+    """
+    for record in reversed(records):
+        if record.timestamp < since:
+            return None
+        match = _SWEEP_RUN_RE.search(record.message)
+        if match and match.group("outcome") != "could_not_check":
+            return int(match.group("open")), record.timestamp
+    return None
 
 
 def _first_occurrence(family: FaultFamily, log_dir: Path | None) -> datetime | None:
@@ -975,7 +1026,7 @@ def disposition(finding: Finding, on_board: set[int], in_tiers: set[int], is_new
         return "watched and left alone"
     if finding.family.accepted_on:
         day = datetime.fromisoformat(finding.family.accepted_on)
-        text = f"owner-accepted {day.day} {day:%b}"
+        text = f"known, accepted {day.day} {day:%b}"
         if finding.dollars_uncovered is not None:
             text += f", ${finding.dollars_uncovered:,.2f} uncovered"
         return text
@@ -997,6 +1048,7 @@ _VERDICT_WORDS = {
     "healthy": "HEALTHY",
     "degraded": "DEGRADED",
     "hurt": "HURT",
+    "accepted": "KNOWN, ACCEPTED",
 }
 
 
@@ -1025,7 +1077,7 @@ def _bullet(finding: Finding, report: Report, on_board: set[int], in_tiers: set[
     # what told the owner his broker credentials were broken three minutes
     # after he had fixed them.
     if finding.last_seen:
-        sentence += f" (last at {_time_words(finding.last_seen)})"
+        sentence += f" ({_last_at_words(finding.last_seen, report.log_read_to)})"
     is_new = finding.family.key not in report.previous
     return f"• {sentence} — {disposition(finding, on_board, in_tiers, is_new)}."
 
@@ -1063,7 +1115,10 @@ def render(report: Report, work_md: Path | None = None) -> list[str]:
             # Unchanged since the last report: one short line, not the whole
             # bullet again. Restating an issue verbatim every twelve hours is
             # how a channel stops being read.
-            entries.append((finding, f"• Still true: {finding.family.short_name}."))
+            # The time goes on this line too: on 2026-10-13 "Still true" stood
+            # alone over 162 faults that had ended five hours earlier.
+            when = f" ({_last_at_words(finding.last_seen, report.log_read_to)})" if finding.last_seen else ""
+            entries.append((finding, f"• Still true: {finding.family.short_name}{when}."))
 
     # New issues first, then the "still true" ones — a line he has already read
     # should never sit above one he has not.
@@ -1078,9 +1133,13 @@ def render(report: Report, work_md: Path | None = None) -> list[str]:
     # opens carries the worst of it. Dropping a real fault to fit a length
     # would reproduce the exact "looks quiet but is not" failure this report
     # exists to prevent.
-    ordered = [line for f, line in entries if f.family.reason in _HURT_REASONS]
-    ordered += [line for f, line in entries if f.family.reason not in _HURT_REASONS]
+    ordered = [line for f, line in entries if _is_open_hurt(f)]
+    ordered += [line for f, line in entries if not _is_open_hurt(f)]
     return _pack(head, ordered, title)
+
+
+def _is_open_hurt(finding: Finding) -> bool:
+    return finding.family.reason in _HURT_REASONS and not finding.family.accepted_on
 
 
 def _pack(head: list[str], bullets: list[str], title: str) -> list[str]:

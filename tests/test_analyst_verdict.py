@@ -1341,6 +1341,7 @@ def test_production_eligibility_matches_the_item_18_audit_on_the_real_day():
     )
     stale = PortfolioManagerAgent.stale_evidence_sources(
         earnings_analyses=sel["earnings_analyses"],
+        asof=SESSION,
     )
     ranked, blocked = PortfolioManagerAgent.rank_candidates(
         analyses=_LEVEL_LESS.analyses,
