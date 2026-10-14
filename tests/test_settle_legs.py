@@ -9,6 +9,7 @@ sized down to whatever was held, and nothing was owed.
 from __future__ import annotations
 
 import inspect
+from datetime import UTC
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -230,3 +231,122 @@ def test_every_wait_site_uses_the_one_ceiling():
         assert "timeout_seconds=10.0" not in inspect.getsource(mod)
     default = inspect.signature(order_desk.OrderDesk.wait_for_order_terminal).parameters["timeout_seconds"].default
     assert default == order_desk.ORDER_TERMINAL_CEILING_S
+
+
+# --- put-back: up to held, never over a dying stop --------------------------
+
+
+def test_put_back_sizes_cover_up_to_held():
+    from src.execution.broker_parts.stop_invariant import cover_to_held
+
+    placer = SimpleNamespace(
+        get_positions=lambda: [SimpleNamespace(symbol="NVDA", qty=103.0)],
+        _restore_stop_orders=MagicMock(return_value=(1, [])),
+    )
+    assert cover_to_held(placer, "NVDA", [dict(STOP)])
+    (args, kw) = placer._restore_stop_orders.call_args
+    assert [s["qty"] for s in args[1]] == [103.0] and kw["check_idempotency"] is True
+
+
+def test_put_back_failure_line_is_read_by_the_health_report(caplog):
+    import re
+
+    import src.log_health as lh
+    from src.execution.broker_parts.stop_invariant import cover_to_held
+
+    placer = SimpleNamespace(
+        get_positions=lambda: [SimpleNamespace(symbol="NVDA", qty=100.0)],
+        _restore_stop_orders=MagicMock(return_value=(0, [dict(STOP)])),
+    )
+    assert not cover_to_held(placer, "NVDA", [dict(STOP)])
+    (line,) = [r.getMessage() for r in caplog.records if "cover_to_held" in r.getMessage()]
+    fams = [f for v in vars(lh).values() if isinstance(v, (list, tuple)) for f in v]
+    (fam,) = [f for f in fams if getattr(f, "key", None) == "stop_missing_or_failed"]
+    assert any(re.search(getattr(p, "pattern", p), line) for p in fam.patterns)
+    assert line.split("FAILED for ")[1].startswith("NVDA ")
+
+
+def test_a_dying_stop_is_never_counted_as_already_alive():
+    from src.execution.broker_parts.stop_place import StopPlacer
+
+    placer = SimpleNamespace(
+        _list_open_protective_stop_orders=lambda symbol, side="sell": [
+            SimpleNamespace(id="old-1", status="pending_cancel", qty=100.0, stop_price=90.0)
+        ],
+        _snapshot_stop_order=lambda o: {"id": o.id, "qty": o.qty, "stop_price": o.stop_price},
+        _submit_stop_limit_order=MagicMock(return_value={"id": "new-1", "status": "accepted"}),
+        wait_for_order_terminal=lambda oid, **_kw: "canceled",
+        client=SimpleNamespace(get_order_by_id=lambda oid: SimpleNamespace(filled_qty="0")),
+    )
+    spec = {"id": "old-1", "qty": 100.0, "stop_price": 90.0}
+    StopPlacer._restore_stop_orders(placer, "NVDA", [spec], check_idempotency=True)
+    placer._submit_stop_limit_order.assert_called_once()
+
+
+# --- entry / leftover orders are legs too ----------------------------------
+
+
+def test_an_entry_that_fills_during_its_cancel_is_sold_too():
+    from src.execution.broker_parts.cancel_confirm import CancelledEntries
+
+    pipe, calls = _pipe(held=103.0)
+    entry = CancelledEntries([{"id": "ent-1", "side": "buy", "kind": "order"}])
+    pipe.broker.cancel_open_entry_orders.return_value = entry
+    pipe.broker.client.get_order_by_id.side_effect = lambda oid: SimpleNamespace(
+        filled_qty="3" if oid == "ent-1" else "0"
+    )
+    assert _sell(pipe, 100.0) is not None
+    assert ("wait", "ent-1") in calls and ("submit", 103.0) in calls
+
+
+def test_each_leg_writes_its_broker_clock_cancel_latency():
+    from datetime import datetime, timedelta
+
+    from src.execution.broker_parts.cancel_confirm import settle_legs
+
+    sent = datetime(2026, 10, 14, 14, 0, 0, tzinfo=UTC)
+    db = MagicMock()
+    order = SimpleNamespace(filled_qty="0", canceled_at=sent + timedelta(seconds=2.5))
+    broker = SimpleNamespace(
+        _recon_db=db,
+        wait_for_order_terminal=lambda oid, **_kw: "canceled",
+        client=SimpleNamespace(get_order_by_id=lambda oid: order),
+    )
+    settle_legs(broker, [{"id": "s1", "cancel_sent_at": sent.isoformat()}])
+    (call,) = [c for c in db.insert_specialist_evidence.call_args_list if c.kwargs["kind"] == "cancel_latency"]
+    row = json.loads(call.kwargs["evidence_json"])
+    assert row["latency_ms"] == 2500 and row["within_bound"] is True
+
+
+# --- the drain re-prices, and an unknown free count keeps the sale owed ------
+
+
+def test_drain_reprices_the_owed_sale_at_drain_time():
+    from src.protection.protected_sell import drain_owed_sales
+
+    pipe, calls = _pipe(leg_status="canceled")
+    pipe.broker.snapshot_protective_stops.return_value = (True, [])
+    pipe.db.get_pending_protection_restores.return_value = [_owed_row()]
+    assert drain_owed_sales(pipe) == 1
+    assert pipe.broker.submit_order.call_args.kwargs["limit_price"] is None  # not the stale 99.0
+
+
+def test_drain_keeps_the_sale_owed_when_free_shares_are_unknown():
+    from src.protection.protected_sell import drain_owed_sales
+
+    pipe, calls = _pipe(leg_status="canceled")
+    pipe.broker.get_positions.return_value = [_pos(100.0).model_copy(update={"qty_available": None})]
+    pipe.db.get_pending_protection_restores.return_value = [_owed_row()]
+    assert drain_owed_sales(pipe) == 0
+    assert not [c for c in calls if c[0] == "submit"]
+    pipe.db.update_pending_protection_restore.assert_not_called()
+
+
+def test_a_broker_that_never_confirms_leaves_the_sale_owed():
+    from tests.fakes.confirmed_cancel import confirm_cancels
+
+    pipe, calls = _pipe()
+    pipe.broker.wait_for_order_terminal.side_effect = None
+    confirm_cancels(pipe.broker, confirms=False)
+    assert _sell(pipe, 100.0) is None
+    assert pipe._last_stop_clear_refusal == "cancel_unconfirmed" and _owed_writes(pipe)

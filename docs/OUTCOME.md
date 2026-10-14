@@ -42,7 +42,10 @@ desk!!"*
   with a per-symbol reason (`cancel_unconfirmed`, `cancel_read_failed`,
   `shares_reserved`, `position_disagrees`, `stop_filled_in_part`). A sale not
   sent because a cancel was unconfirmed is recorded as owed on its recovery
-  row, and the intra_safety drain sends it after re-checking the position.
+  row, and the intra_safety drain sends it after re-checking the position
+  (an unknown free-share count keeps it owed), priced at drain time as a
+  plain exit is. Stops put back after a sale that did not go are sized up to
+  what is held, never placed over or counted from a stop still dying.
 - **No risk-tolerance number is asked of the owner.** *"I don't want to make
   up numbers."* Every risk number is derived from the two goals above plus
   each name's own volatility, or adopted from published practice; a limit that

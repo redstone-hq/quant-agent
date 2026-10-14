@@ -6698,12 +6698,11 @@ numbers:
       unchanged, moved to a named constant 14 Oct so every cancel-then-act site waits on this one
       number instead of the 5 s and 10 s site literals it replaced). Same class as
       src.execution.broker._ENTRY_FILL_TIMEOUT_S: it decides how long the desk waits for the broker
-      to report. Since 14 Oct it also decides how long a protected sale waits for its stop cancels
-      to be confirmed (one deadline shared across all legs, cancel_confirm.settle_legs): reached,
-      the sale is not sent this pass and is recorded as OWED on its recovery row, and the
-      intra_safety drain sends the same sale once the legs are dead and the position re-checks. So
-      it decides WHEN a sale goes, never whether it goes or its size. Whether a ceiling that
-      defers a sale is still "not-trade-governing" is an open question for review.
+      to report. Since 14 Oct it also decides how long a pass waits for a protected sale's
+      cancelled legs (one deadline shared across all legs, cancel_confirm.settle_legs) before
+      handing the sale to the intra_safety drain as OWED on its recovery row. It never decides
+      whether the sale happens or its size: the drain decides that, after the legs are dead and
+      the position re-checks.
   - id: src.execution.broker_parts.trade_stream._TradeUpdatesHub.wait(poll_interval)
     value: 1
     status: not-trade-governing

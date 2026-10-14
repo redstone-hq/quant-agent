@@ -161,7 +161,9 @@ class OrderDesk:
             if symbol:
                 req_kwargs["symbols"] = [_alpaca_symbol(symbol)]
             orders = self.client.get_orders(filter=GetOrdersRequest(**req_kwargs))
-            count = 0
+            from src.execution.broker_parts.cancel_confirm import CancelledEntries, now_iso
+
+            legs: list[dict] = []
             for order in orders or []:
                 order_id = getattr(order, "id", None)
                 order_side = str(getattr(getattr(order, "side", None), "value", getattr(order, "side", ""))).lower()
@@ -172,12 +174,14 @@ class OrderDesk:
                     continue
                 if "stop" in order_type:
                     continue  # protective leg on either side — preserve it
+                sent_at = now_iso()
                 self.client.cancel_order_by_id(order_id)
-                count += 1
-            if count:
-                logger.info("Cancelled %d open entry order(s)", count)
+                legs.append({"id": str(order_id), "side": order_side, "kind": "order", "cancel_sent_at": sent_at})
+            if legs:
+                logger.info("Cancelled %d open entry order(s)", len(legs))
             ok(self, "cancel_open_entry_orders", symbol=symbol)
-            return count
+            # Still the count every caller reads; `.legs` lets a sale wait on them.
+            return CancelledEntries(legs)
         except Exception as exc:
             mark(self, "cancel_open_entry_orders", exc, symbol=symbol)
             return 0

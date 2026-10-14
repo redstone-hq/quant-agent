@@ -12,6 +12,7 @@ import json
 import logging
 
 from src.execution.broker_parts.cancel_confirm import settle_legs
+from src.execution.broker_parts.stop_invariant import cover_to_held
 from src.protection.trim_amend import refusal_reason, trim_book_call
 from src.quantities import ORDER_QTY_DECIMALS
 from src.sentinel.guarded import record_guarded_pass
@@ -121,7 +122,8 @@ class ProtectedSell:
         full_exit = self._begin_sale(label, position_qty_before_sell, qty)
         if label in ("SELL", "EMERGENCY_SELL", "EMERGENCY_COVER", "FORCE_DELEVER"):
             try:
-                self.broker.cancel_open_entry_orders(symbol=symbol)
+                # Kept as legs: the sale waits for these cancels too.
+                self._state.set("_entry_legs", _legs_of(self.broker.cancel_open_entry_orders(symbol=symbol)))
                 record_guarded_pass((self.broker, self.db), "protected_sell.entry_cancel", context={"symbol": symbol})
             except Exception as exc:  # noqa: BLE001
                 record_guarded_pass(
@@ -171,6 +173,7 @@ class ProtectedSell:
             wal_row_id,
             {"label": label, "qty": abs(float(qty)), "full_exit": full_exit, "limit_price": limit_price}
             | {"reference_price": reference_price},
+            stop_specs,
         ):
             return None
 
@@ -178,12 +181,7 @@ class ProtectedSell:
             # Cancelled legs are restored; a stop shrunk in place for a trim
             # is grown back by the quantity invariant (nothing was sold).
             if stop_specs:
-                self.broker._restore_stop_orders(
-                    symbol,
-                    stop_specs,
-                    check_idempotency=False,
-                    **stop_side_kwargs,
-                )
+                cover_to_held(self.broker, symbol, stop_specs, side=side)
             if kept_leg is not None:
                 trim_book_call(self, "settle_trim_book", symbol, side)
 
@@ -421,26 +419,40 @@ class ProtectedSell:
             return False, [], None
         self._last_stop_clear_refusal = ""
         # Wait for the broker to confirm every cancel before anything sells:
-        # one shared deadline, the existing order-terminal ceiling.
-        self._state.set("_leg_settlement", settle_legs(self.broker, specs))
+        # these stops and the entry / leftover orders, one shared deadline.
+        legs = [dict(x, side=side, kind="stop") for x in specs if x.get("id")]
+        legs += self._held_legs("_entry_legs") or []
+        self._state.set("_leg_settlement", settle_legs(self.broker, legs))
         return True, specs, wal_row_id
+
+    def _held_legs(self, name: str):
+        """This sale's per-call state (cancelled legs, their settlement); None before a sale set it."""
+        try:
+            return self._state.get(name)
+        except AttributeError:
+            return None
 
     def _begin_sale(self, label: str, position_qty_before_sell: float, qty: float) -> bool:  # noqa: ARG002
         """Reset this call's leg settlement; True when the sale is a full exit."""
         self._state.set("_leg_settlement", None)
+        self._state.set("_entry_legs", [])
         return _q(abs(float(qty))) >= _q(abs(float(position_qty_before_sell)))
 
-    def _owe_if_unconfirmed(self, symbol: str, side: str, wal_row_id, sale: dict) -> bool:
+    def _owe_if_unconfirmed(self, symbol: str, side: str, wal_row_id, sale: dict, stop_specs) -> bool:
         """True when a cancelled leg is not confirmed dead, so nothing may sell.
 
         The shares may still be held by a dying stop: a SELL now is refused
         (403 40310000, ETN and NET 13 Oct) and a new stop is refused too.
         Nothing is sent and nothing is put back; the sale is OWED on the
         recovery row and the intra_safety drain sends it."""
-        settlement = self._state.get("_leg_settlement")
+        settlement = self._held_legs("_leg_settlement")
+        if settlement is None and self._held_legs("_entry_legs"):
+            # No stop was cancelled: the entry / leftover order cancels alone.
+            settlement = settle_legs(self.broker, self._held_legs("_entry_legs"))
+            self._state.set("_leg_settlement", settlement)
         if settlement is None or settlement.settled:
             return False
-        record_owed_sale(self.db, wal_row_id, symbol, dict(sale, reason=settlement.reason))
+        record_owed_sale(self.db, wal_row_id, symbol, dict(sale, reason=settlement.reason), stop_specs)
         self._last_stop_clear_refusal = settlement.reason
         why = _OWN_REASONS[settlement.reason]
         logger.warning("%s: no order for %s this pass — %s", sale["label"], symbol, why)
@@ -475,10 +487,16 @@ class ProtectedSell:
             logger.warning("%s: no order for %s — %s", label, symbol, why)
             self._alert_owner_exit_declined(symbol, side=side, why=why)
             return None
-        settlement = self._state.get("_leg_settlement")
-        legs_filled = settlement.filled_qty if settlement is not None and settlement.legs else None
+        settlement = self._held_legs("_leg_settlement")
+        legs = settlement is not None and settlement.legs
         reason = sale_refusal(
-            qty, held, free, full_exit=full_exit, snapshot=position_qty_before_sell, legs_filled=legs_filled
+            qty,
+            held,
+            free,
+            full_exit=full_exit,
+            snapshot=position_qty_before_sell,
+            net_change=settlement.closable_change(side) if legs else None,
+            stops_filled=settlement.filled_qty if legs else 0.0,
         )
         if reason:
             put_back()
@@ -551,6 +569,10 @@ _OWN_REASONS = {
         "the protective stop filled in part while it was being cancelled, so this trim was decided on a "
         "position that no longer exists; no order was sent, the stops were put back, and the next pass decides again"
     ),
+    "shares_free_unknown": (
+        "the broker reported no free-share figure, so whether the sale would be refused is unknown; "
+        "no order was sent and the sale stays owed to the next safety tick"
+    ),
     "shares_reserved": (
         "fewer shares are free than the order needs (other open orders reserve the rest); a smaller sale "
         "is never sent in its place, so no order was sent and the stops were put back"
@@ -560,6 +582,11 @@ _OWN_REASONS = {
 #: A recovery row whose sale is OWED carries this prefix in its sell_order_id
 #: (the write-ahead sentinel's place) followed by the sale as JSON.
 OWED_SALE_PREFIX = "__OWED_SALE__"
+
+
+def _legs_of(cancelled) -> list[dict]:
+    """The cancelled orders `cancel_open_entry_orders` carries as legs."""
+    return list(getattr(cancelled, "legs", ()) or ())
 
 
 def _q(value) -> float:
@@ -582,17 +609,16 @@ def closable_and_free(broker, symbol: str, side: str) -> tuple[float, float | No
     return (_q(closable) if _q(closable) > 0 else 0.0), free
 
 
-def sale_refusal(intended, held, free, *, full_exit, snapshot=None, legs_filled=None) -> str:
+def sale_refusal(intended, held, free, *, full_exit, snapshot=None, net_change=None, stops_filled=0.0) -> str:
     """Why exactly-the-intended sale may not go now; empty when it may.
 
-    Checked after every cancelled leg is terminal. ``snapshot`` and
-    ``legs_filled`` (the stop fills during the cancel) give the cross-check:
-    what was held less what the stops sold must equal what is held now."""
-    if snapshot is not None and legs_filled is not None:
-        if _q(abs(float(snapshot)) - legs_filled) != _q(held):
-            return "position_disagrees"
-        if not full_exit and _q(legs_filled) > 0:
-            return "stop_filled_in_part"
+    Checked after every cancelled leg is terminal. ``snapshot`` plus
+    ``net_change`` (every leg's fill during the cancel, signed by its own
+    side) gives the cross-check: it must equal what is held now."""
+    if snapshot is not None and net_change is not None and _q(abs(float(snapshot)) + net_change) != _q(held):
+        return "position_disagrees"
+    if not full_exit and _q(stops_filled) > 0:
+        return "stop_filled_in_part"
     want = held if full_exit else abs(float(intended))
     if _q(want) > _q(held):
         return "position_disagrees"
@@ -601,13 +627,14 @@ def sale_refusal(intended, held, free, *, full_exit, snapshot=None, legs_filled=
     return ""
 
 
-def record_owed_sale(db, wal_row_id, symbol: str, sale: dict) -> bool:
+def record_owed_sale(db, wal_row_id, symbol: str, sale: dict, specs=None) -> bool:
     """Write the unsent sale onto its recovery row, so the drain sends it."""
     if wal_row_id is None:
         logger.error("owed sale for %s has no recovery row; the coverage audit is its only repair", symbol)
         return False
     try:
-        db.update_pending_protection_restore(wal_row_id, sell_order_id=OWED_SALE_PREFIX + json.dumps(sale))
+        extra = {"specs_json": json.dumps(specs)} if specs else {}
+        db.update_pending_protection_restore(wal_row_id, sell_order_id=OWED_SALE_PREFIX + json.dumps(sale), **extra)
         record_guarded_pass(db, "protected_sell.owe_sale", context={"symbol": symbol})
         return True
     except Exception as exc:  # noqa: BLE001
@@ -674,10 +701,11 @@ def _owed_sale_refusal(host, row: dict, sale: dict) -> str | None:
     sale["held"] = held
     if held <= 0:
         return "stop_fired"
+    if free is None:
+        logger.warning("owed %s for %s still not sent — %s", label, symbol, _OWN_REASONS["shares_free_unknown"])
+        return None
     full_exit = bool(sale.get("full_exit"))
-    reason = sale_refusal(sale.get("qty") or 0, held, free, full_exit=full_exit)
-    if not reason and not full_exit and _q(settlement.filled_qty) > 0:
-        reason = "stop_filled_in_part"
+    reason = sale_refusal(sale.get("qty") or 0, held, free, full_exit=full_exit, stops_filled=settlement.filled_qty)
     if reason:
         logger.warning(
             "owed %s for %s not sent — %s (held %s, free %s, owed %s)",
@@ -706,11 +734,18 @@ def _drain_one_owed_sale(host, row: dict, sale: dict, sentinel: str) -> bool:
         return False  # the restore drain puts the stops back at held this tick
     held = sale["held"]
     qty = held if sale.get("full_exit") else abs(float(sale["qty"]))
+    # Priced now, the way the plain exit path prices (src/exit_quote.py): a
+    # DAY MARKET order, the live quote read only as the reference. The limit
+    # recorded when the sale was owed is stale and is not reused.
+    from src.exit_quote import read_exit_quote
+
+    quote = read_exit_quote(host.broker, symbol) or {}
+    sale["reference_price"] = quote.get("bid" if side == "sell" else "ask") or sale.get("reference_price")
     result = host._submit_protected_sell(
         symbol=symbol,
         qty=qty,
-        limit_price=sale.get("limit_price"),
-        reference_price=sale.get("reference_price"),
+        limit_price=None,
+        reference_price=sale["reference_price"],
         position_qty_before_sell=held,
         label=label,
         side=side,

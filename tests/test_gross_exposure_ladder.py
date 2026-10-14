@@ -34,6 +34,7 @@ from src.risk.rules import (
 )
 from src.config import RiskConfig
 from tests.pipeline_factory import build_pipeline
+from tests.fakes.confirmed_cancel import confirm_cancels
 
 
 EQUITY = 10_000.0
@@ -1942,6 +1943,7 @@ def _stop_timeline_pipeline(*, allow_margin: bool):
     broker.cancel_snapshotted_stops.side_effect = _cancel
     broker.submit_order.side_effect = _submit
     broker.wait_for_order_terminal.return_value = "filled"
+    confirm_cancels(broker)  # the broker confirms each stop cancel before the sale
     broker.get_account.return_value = {
         "cash": 0.0,
         "portfolio_value": EQUITY,
@@ -2104,9 +2106,11 @@ def test_a_delever_that_cleared_the_ceiling_writes_no_shortfall_row(tmp_path):
     try:
         pipeline, _events = _stop_timeline_pipeline(allow_margin=True)
         pipeline.db.insert_specialist_evidence.side_effect = database.insert_specialist_evidence
-        pipeline.broker.get_positions.return_value = [
-            _position("NVDA", qty=100.0, current_price=100.0),
-        ]  # 1.0x after the fill: at the ceiling, not over it
+        # 200 held until the cut is sent (the pre-sale re-read agrees with the
+        # book); 1.0x after the fill: at the ceiling, not over it.
+        pipeline.broker.get_positions.side_effect = lambda: [
+            _position("NVDA", qty=100.0 if ("submit", "NVDA") in _events else 200.0, current_price=100.0),
+        ]
         ctx = RunContext(run_id="run-ok", session="morning")
         ctx.positions = [_position("NVDA", qty=200.0, current_price=100.0)]
         ctx.total_value = EQUITY
@@ -2213,7 +2217,7 @@ def _gap_fill_pipeline(
         }
         return {"id": oid, "symbol": symbol, "status": "accepted"}
 
-    def _terminal(order_id):
+    def _terminal(order_id, **_kw):
         return "filled" if submitted.get(order_id, {}).get("fillable") else "canceled"
 
     def _positions():
@@ -2230,6 +2234,7 @@ def _gap_fill_pipeline(
     pipeline.broker.submit_order.side_effect = _submit
     pipeline.broker.wait_for_order_terminal.side_effect = _terminal
     pipeline.broker.get_positions.side_effect = _positions
+    confirm_cancels(pipeline.broker)  # the broker confirms each stop cancel before the sale
     return pipeline, events, submitted
 
 

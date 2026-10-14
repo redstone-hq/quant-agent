@@ -106,7 +106,11 @@ class DeleverForced:
         # A resting entry BUY would deepen the very deficit this sweep exists
         # to clear the moment it fills — cancel entries before selling.
         try:
-            self.broker.cancel_open_entry_orders()
+            from src.execution.broker_parts.cancel_confirm import settle_legs
+
+            entries = self.broker.cancel_open_entry_orders()
+            # Wait for the broker to confirm them dead before anything sells.
+            settle_legs(self.broker, list(getattr(entries, "legs", ()) or ()))
         except Exception as exc:  # noqa: BLE001
             logger.warning("force de-lever: entry-order cancel failed: %s", exc)
 
