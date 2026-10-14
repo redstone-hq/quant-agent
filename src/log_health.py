@@ -100,7 +100,7 @@ from pathlib import Path
 
 from src.notifier import TelegramNotifier
 from src.time_format import fmt_time_12h
-from src.coverage_watchdog_text import SWEEP_LOG_NAME
+from src.log_markers import SWEEP_LOG_NAME
 from src.health_words import (  # noqa: F401  re-exported names
     OWNER_TZ,
     _duration_words,
