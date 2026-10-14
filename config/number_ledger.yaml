@@ -426,7 +426,7 @@ numbers:
       why send them at all?" -- one batch per check, the strongest-ranked.
       The SIZE 5 is still arbitrary: it is the batch size the desk has always
       sent (the deleted per-scan name cap), not a measured optimum. Its
-      neighbour `IntradayScanConfig.cooldown_hours` (3h, `arbitrary`) is
+      neighbour, the 3-hour intraday cooldown (`arbitrary`), is
       DELETED 2026-10-13 and its row is gone: a name the desk already looked
       at this session now ranks in this one batch by its move since that look,
       in its own ATR (`intraday_evaluations.ref_price`), so there is no lock
