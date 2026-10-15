@@ -129,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME=VALUE",
         help="vary a value this engine reads through "
         "src/backtest/swept_values.py (repeatable), e.g. "
-        "--sweep levels.pivot_window=7. Every run prints how "
+        "--sweep levels.min_touches=3. Every run prints how "
         "many times each such value was actually READ: a "
         "sweep reporting 0 reads reached nothing, whatever "
         "the numbers look like.",

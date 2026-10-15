@@ -71,17 +71,16 @@ def _resolve_structural_stop_and_target(
     ranges are absent; an engine that did not carry them would refuse every
     level-backed stop while live honoured it, which is the opposite of the
     parity this function exists to keep."""
-    # The three level tunables are passed EXPLICITLY, read late from the
+    # The level tunables are passed EXPLICITLY, read late from the
     # module that defines them, and counted. `find_structural_levels`
     # freezes them as default arguments at definition time, so a sweep
-    # that reassigns `src.data.levels.PIVOT_WINDOW` (or either of the
-    # others) was swept past in silence and returned byte-identical
+    # that reassigns `src.data.levels.CLUSTER_TOLERANCE_PCT` (or the
+    # other) was swept past in silence and returned byte-identical
     # results — the exact trap `swept_values` exists to make visible.
     # Same values, same behaviour: only the binding time changes.
     meter = meter if meter is not None else SweepMeter()
     supports, resistances = find_structural_levels(
         bars_through_signal,
-        pivot_window=meter.read("levels.pivot_window", levels_module.PIVOT_WINDOW),
         tolerance_pct=meter.read("levels.cluster_tolerance_pct", levels_module.CLUSTER_TOLERANCE_PCT),
         min_touches=meter.read("levels.min_touches", levels_module.MIN_TOUCHES),
     )

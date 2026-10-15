@@ -2238,65 +2238,10 @@ numbers:
       2026-10-14 (a 148-stock study found extra touches add nothing).
     note: >-
       Prior touches needed before a price level is registered at all.
-  - id: src.data.levels.PIVOT_WINDOW
-    value: 5
-    status: arbitrary
-    engine_ab_2026_10_05: >-
-      NOT ANSWERABLE BY THE BACKTEST ENGINE TODAY - measured 2026-10-05, and the
-      first attempt to answer it was WRONG. src/backtest/engine.py imports
-      find_structural_levels and structural_floor but has ZERO call sites for
-      either: the only occurrences in the file are its docstring and comments
-      [measured by grep for the call forms]. The engine substitutes its own
-      nearest-level rule in _resolve_structural_stop_and_target instead, so no
-      sweep of this constant can move its output. A sweep that monkeypatched this
-      module global and came back byte-identical across the full legal range was
-      therefore measuring nothing, twice over: find_structural_levels also binds
-      this constant as a DEFAULT ARGUMENT (pivot_window: int = PIVOT_WINDOW,
-      src/data/levels.py line 782), which is evaluated at import and cannot be
-      reached by reassigning the module global afterwards. NAMED ENGINE CHANGE
-      REQUIRED: route the engine's stop and target derivation through the real
-      find_structural_levels, and pass the tunables explicitly rather than relying
-      on their defaults.
-    site: src/data/levels.py
-    note: >-
-      Bars either side of a candidate swing point for the LEVEL scan. Levels
-      place stops, so this reaches a trade. src/risk/trailing.py::PIVOT_WINDOW records
-      that this is 5 while the trailing-stop pivot window is 3, that nothing
-      downstream compares a level from here against a pivot from there, and
-      that tests/test_pivot_window_independence.py pins both facts.
-      Ratified as owner-appetite 2026-09-25 (item 55): every candidate source
-      was ruled out on its own terms rather than converging on a number --
-      TA-Lib's FRACTAL defaults to 2 with no rationale, MetaTrader 5 defines
-      five with no reason, fxssi records five as an inherited MT4 default, and
-      LuxAlgo states outright there is no universally best setting
-      (docs/INCIDENT_HISTORY.md, 2026-09-13 -- do not re-search). No source
-      hands us a value, so this stays labelled `arbitrary` rather than being
-      dressed up as sourced.
-    open_question: >-
-      How many bars either side make a swing point a swing point, measured on
-      the bounce behaviour of the names this desk trades?
-    cost_while_unanswered: >-
-      Stops are placed on levels found by a window nothing measured, and the
-      desk carries two different answers to the same question.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/, item 90, the 2026-10-01 sixth routing tranche (execution plumbing and the level scan)
-      records: >-
-        over the universe the desk could trade, swing points identified on daily
-        bars at windows of 2 through 10 bars either side, and what price did
-        next at each one: whether it reversed, how far in ATR terms, and how
-        often, so a swing point is defined by subsequent behaviour on the
-        instrument rather than by a chosen bar count. The same pass covers the
-        trailing-stop scan's window of 3, which answers the same question
-        differently today.
-      closes_when: >-
-        a window exists whose swing points reverse measurably more often than
-        its neighbours, and both the level scan and the trailing-stop scan adopt
-        that single reading. DELETE outcome: if reversal frequency is flat
-        across every window tested, the window is not selecting anything and the
-        desk should keep one scan at whichever window is cheapest, with the
-        second constant deleted rather than re-picked.
+  # REMOVED 2026-10-15: src.data.levels.PIVOT_WINDOW — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
   - id: src.data.levels._CLEAN_FACTOR
     value: 5
     status: not-trade-governing
@@ -3955,78 +3900,26 @@ numbers:
     cost_while_unanswered: >-
       This band is roughly the width of a stop, which is why broker stops do
       almost all real exiting - see docs/WORK.md item 18.
-  - id: src.risk.trailing.PIVOT_WINDOW
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        over the tradable universe's daily bars, which lookback width reproduces the swing lows and
-        highs a chart reader would mark, evaluated against the same bars at several widths -- together
-        with the open discrepancy that the levels module uses 5 for the same named quantity while this
-        uses 3
-      closes_when: >-
-        one width is chosen from universe price data and the two definitions of the pivot window are
-        reconciled into one ledgered quantity. DELETE OUTCOME: if the structure-based trail never fires
-        at any width because an earlier refusal always precedes it, the window governs nothing and the
-        structure trail, not just its width, is what needs deciding
-    value: 3
-    status: arbitrary
-    engine_ab_2026_10_05: >-
-      NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
-      was WRONG. The engine does exercise the trailing path: a probe counted 504
-      compute_trailing_stop calls on the control run (committed recording
-      ops/rehearsal/recordings/market_bars.json.gz, 33 symbols, 9108 bars, window
-      2026-06-01 to 2026-09-30, 69 trades) [measured]. But sweeping this constant
-      by reassigning it on src/risk/trailing produced a BYTE-IDENTICAL trade list
-      every time, and the cause is the harness, not the number:
-      compute_trailing_stop is DEFINED IN src/risk/trail_evaluate.py and only
-      re-exported through src/risk/trailing, so the name the evaluator actually
-      reads is not the one that was reassigned. The probe confirms this directly -
-      it observed the patched value live on src.risk.trailing during the run while
-      the result did not move. DO NOT RECORD THIS CONSTANT AS INERT. NAMED
-      FOLLOW-UP: re-run the sweep against the binding site in
-      src/risk/trail_evaluate.py, and prove the wiring by counting how many of the
-      504 calls return a changed stop under each value before reading anything off
-      the P&L.
-    site: src/risk/trailing.py
-    note: >-
-      Bars either side that must be dominated for a swing pivot. Searched
-      extensively and every candidate source ruled out: TA-Lib FRACTAL
-      defaults to 2 with no rationale, MetaTrader 5 defines five bars and
-      gives no reason, fxssi records five became standard because it shipped
-      as an MT4 default, LuxAlgo states outright there is no universally best
-      setting (docs/INCIDENT_HISTORY.md -- do not re-search these).
-      Ratified as owner-appetite 2026-09-25 (item 55): no published source
-      converges on a bar count, so this is unidentifiable to a single value
-      by the same standard as the level-scan window above, and stays labelled
-      `arbitrary` rather than being dressed up as sourced.
-    open_question: >-
-      How many bars either side make a swing point a swing point?
-      src/risk/trailing.py::PIVOT_WINDOW records that the level scan uses 5 and this
-      uses 3 with no shared consumer.
-    cost_while_unanswered: >-
-      Trailing stops are placed on pivots found by a window nothing measured,
-      and the disagreement with the level scan is currently harmless only
-      because nothing compares them.
-  - id: src.risk.trailing.MIN_BARS_FOR_A_READING
-    value: 7
+  # REMOVED 2026-10-15: src.risk.trailing.PIVOT_WINDOW — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
+  - id: src.data.levels.MIN_SCAN_BARS
+    value: 15
     status: derived
-    derived_from: src.risk.trailing.PIVOT_WINDOW
-    base_value: 3
-    site: src/risk/trailing.py
+    derived_from: src.data.technical.ATR_PERIOD
+    base_value: 14
+    site: src/data/levels.py
     note: >-
-      Not a chosen bar count. It is `PIVOT_WINDOW * 2 + 1`, computed in code
-      from the row above, because that is exactly the span a confirmed swing
-      pivot needs: the pivot bar plus `PIVOT_WINDOW` bars either side. Below
-      it neither trail leg has enough bars to read anything, so both refuse
-      with `too_few_bars_since_entry` rather than reading an extreme off
-      today's price. Added with board item 212, which removed the
-      take-profit gate on a range position's structural trail: with the gate
-      gone a position entered today would otherwise have yielded a single
-      bar and a chandelier that merely follows price, which is a different
-      exit rule, not a trail. It inherits `PIVOT_WINDOW`'s own unresolved
-      question and adds none of its own.
+      Not a chosen bar count. It is `ATR_PERIOD + 1`, computed in code: swing
+      points are confirmed by src.data.levels.turning_points, a zigzag reversal
+      of at least the stock's own ATR(14) (owner ruling, Rex 2026-10-15). The
+      first reversal threshold exists on bar ATR_PERIOD, and a candidate there
+      is confirmed at the earliest by the next bar, so fewer bars cannot yield
+      one confirmed turning point. Read by the level scan, the coverage check
+      and, as `src.risk.trailing.MIN_BARS_FOR_A_READING` (an import alias, no
+      longer its own number), the trailing stop's structure leg. Replaces the
+      old `max(PIVOT_WINDOW * 2 + 1, ATR_PERIOD)` = 14 and `PIVOT_WINDOW * 2 + 1` = 7.
   - id: src.risk.trailing.RANGE_BREAKEVEN_R_MULTIPLE
     value: 1
     status: owner-ruled
@@ -6458,42 +6351,22 @@ numbers:
       `min_ratchet_ticks: int = MIN_RATCHET_TICKS`, the name imported from
       src/risk/trailing.py; repointed when the 2% floor was retired for the
       one-venue-tick floor on 2026-10-02.
-  - id: src.risk.trail_structure._swing_lows(window)
-    value: 3
-    status: derived
-    site: src/risk/trail_structure.py
-    derived_from: src.risk.trailing.PIVOT_WINDOW
-    base_value: 3
-    note: >-
-      `window: int = PIVOT_WINDOW`, the name imported from src/risk/trailing.py;
-      the body moved verbatim on 2026-10-04.
-  - id: src.risk.trail_structure._swing_highs(window)
-    value: 3
-    status: derived
-    site: src/risk/trail_structure.py
-    derived_from: src.risk.trailing.PIVOT_WINDOW
-    base_value: 3
-    note: >-
-      `window: int = PIVOT_WINDOW`, the name imported from src/risk/trailing.py;
-      the body moved verbatim on 2026-10-04.
-  - id: src.risk.trail_structure._swing_lows_dated(window)
-    value: 3
-    status: derived
-    site: src/risk/trail_structure.py
-    derived_from: src.risk.trailing.PIVOT_WINDOW
-    base_value: 3
-    note: >-
-      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_lows`, added
-      2026-10-13 so the trend exit can ignore swings before the position opened.
-  - id: src.risk.trail_structure._swing_highs_dated(window)
-    value: 3
-    status: derived
-    site: src/risk/trail_structure.py
-    derived_from: src.risk.trailing.PIVOT_WINDOW
-    base_value: 3
-    note: >-
-      `window: int = PIVOT_WINDOW`; the dated twin of `_swing_highs`, added
-      2026-10-13 so the trend exit can ignore swings before the position opened.
+  # REMOVED 2026-10-15: src.risk.trail_structure._swing_lows(window) — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
+  # REMOVED 2026-10-15: src.risk.trail_structure._swing_highs(window) — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
+  # REMOVED 2026-10-15: src.risk.trail_structure._swing_lows_dated(window) — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
+  # REMOVED 2026-10-15: src.risk.trail_structure._swing_highs_dated(window) — a bar-count swing window (or a number derived from one), deleted by
+  # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
+  # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
+  # least the stock's own ATR(14) (src.data.technical.ATR_PERIOD / atr_series, Wilder 1978).
   # --- 2026-09-19: universe expansion and pruning (src/universe_screen.py) --
   # The screen's price, size and borrow lines are published rules; its
   # spread and volatility lines are DERIVED at run time from existing
@@ -6621,7 +6494,7 @@ numbers:
       https://press.spglobal.com/2024-12-09-S-P-Dow-Jones-Indices-Float-Adjusted-Liquidity-Ratio-Clarification-for-Certain-U-S-Indices
       (fetched 2026-10-13).
   - id: src.data.levels.STOP_LEVEL_BASIS_VERSION
-    value: 1
+    value: 2
     status: not-trade-governing
     site: src/data/levels.py
     note: >

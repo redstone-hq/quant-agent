@@ -34,6 +34,19 @@ class _Bar:
     high: float
     low: float
     date: _date = _BAR_DAY
+    close: float | None = None
+
+    def __post_init__(self):
+        # The swing detector reads the stock's own ATR, whose true range needs
+        # a close; a fixture bar closes mid-range unless it says otherwise.
+        if self.close is None:
+            self.close = (self.high + self.low) / 2
+
+
+#: Swings are confirmed by a reversal of the stock's own ATR(14) since
+#: 2026-10-15, so a swing fixture opens with 14 flat bars for that ATR to
+#: warm up on. Flat bars make no turn of their own.
+_WARM = 14
 
 
 def _bars(pattern):
@@ -44,16 +57,14 @@ def _bars(pattern):
 def _rising_with_higher_lows():
     """A clean uptrend with two CONFIRMED swing lows, at 100 and 110.
 
-    Confirmed means three bars on each side are higher — `trailing.py`'s own
-    `PIVOT_WINDOW`, which is 3. NOT the same definition `src/data/levels.py`
-    uses: that module's window is 5 and the two are independent on purpose
-    (see `tests/test_pivot_window_independence.py`). This docstring claimed
-    they matched until 2026-09-13; they never did.
+    Confirmed means price has since moved back by at least the stock's own
+    ATR(14) — `src.data.levels.turning_points`, the one detector the level
+    scan reads too (owner ruling 2026-10-15; no bar-count window remains).
     The lows series is deliberately V-shaped around
     each pivot; a monotonic ramp contains no swing lows at all, which is
     exactly what the chandelier fallback is for.
     """
-    lows = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
+    lows = [110] * _WARM + [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
     return _bars([(lo + 2, lo) for lo in lows])
 
 
@@ -709,7 +720,7 @@ def _falling_with_lower_lows():
     "highest usable low" rule trailed to 110: a level price had since traded
     straight through, twice, and only climbed back above afterwards.
     """
-    lows = [
+    lows = [118] * _WARM + [
         118,
         116,
         114,
@@ -779,7 +790,7 @@ def test_the_trail_follows_the_most_recent_higher_low_not_the_highest():
 def test_a_single_confirmed_low_is_still_accepted():
     """No sequence to judge yet. This is what a freshly broken-out position
     looks like, and refusing it would remove protection, not add it."""
-    lows = [110, 108, 106, 100, 106, 108, 110, 112]
+    lows = [110] * _WARM + [110, 108, 106, 100, 106, 108, 110, 112]
     proposal = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",
@@ -798,7 +809,7 @@ def test_a_single_confirmed_low_is_still_accepted():
 def test_short_mirror_a_higher_high_sequence_gets_no_structural_trail():
     """The short's mirror: it trails above successive LOWER highs, so a
     sequence of HIGHER highs offers no structure to trail against."""
-    highs = [90, 92, 94, 98, 94, 92, 90, 96, 98, 100, 104, 100, 98, 96, 100, 102, 104, 107, 104, 102, 100, 90]
+    highs = [90] * _WARM + [90, 92, 94, 98, 94, 92, 90, 96, 98, 100, 104, 100, 98, 96, 100, 102, 104, 107, 104, 102, 100, 90]
     proposal = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",
