@@ -1039,7 +1039,7 @@ class DatabaseSchema:
         # The idempotency key an entry is submitted under, written on the
         # pending_submit row before the submit; the orphan sweep reads the
         # order back by it. NULL on rows written before it existed.
-        _ensure_column("trades", "client_order_id", "client_order_id TEXT")
+        _ensure_column("trades", "idempotency_key", "idempotency_key TEXT")
         # Defect (d) fix: evening's structured feedback-loop fields. The LLM
         # has produced these every night since the 2026-04 value-lens
         # upgrade, but `save_evening_snapshot` had no parameter for any of

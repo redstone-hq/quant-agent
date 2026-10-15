@@ -531,15 +531,15 @@ class TradeLedger:
             self.conn.commit()
             return cur.rowcount
 
-    def set_trade_client_order_id(self, row_id: int, client_order_id: str) -> int:
+    def set_trade_idempotency_key(self, row_id: int, key: str) -> int:
         """Record the idempotency key a pending_submit row's order is sent under.
 
         Written before the submit, so the orphan sweep can ask the broker for
         exactly this order when the submit's outcome is unknown."""
         with self._lock:
             cur = self.conn.execute(
-                "UPDATE trades SET client_order_id = ? WHERE id = ?",
-                (client_order_id, row_id),
+                "UPDATE trades SET idempotency_key = ? WHERE id = ?",
+                (key, row_id),
             )
             self.conn.commit()
             return cur.rowcount

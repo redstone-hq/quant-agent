@@ -9,7 +9,6 @@ and calls it, so every existing caller and patch target is unchanged.
 
 import logging
 from src.sentinel.reconciliation import record_reconciliation
-from src.execution.order_idempotency import _existing_order_for_client_id, _is_no_such_order
 from src.protection.fill_reconciler_records import record_fill_pass
 from src.storage.db import Database
 from src.trade_actions import broker_fill_time
@@ -313,23 +312,20 @@ class FillReconciler:
                 want_qty = float(row.get("qty") or 0)
             except (TypeError, ValueError):
                 want_qty = 0.0
-            # A row carrying its order's own key is read back by that key: one
-            # exact answer on either side (a SHORT entry is a sell order).
-            # Rows written before the key was stored keep the buy-side search.
-            client_order_id = row.get("client_order_id")
+            # A SHORT entry is a sell order. A row carrying its order's own
+            # idempotency key is read back by that key (one exact answer);
+            # rows written before the key was stored keep the side search.
+            side = "sell" if str(row.get("action") or "").upper() == "SHORT" else "buy"
+            key = row.get("idempotency_key")
             try:
-                if client_order_id:
-                    held = _existing_order_for_client_id(self.broker.client, client_order_id)
-                    candidates = [{"id": str(held.id), "qty": held.qty}]
+                if key:
+                    candidates = self.broker.list_recent_orders(symbol, side, after, key=key)
                 else:
-                    candidates = self.broker.list_recent_orders(symbol, "buy", after)
+                    candidates = self.broker.list_recent_orders(symbol, side, after)
                 record_fill_pass(self.db, "orphan.broker_query", context={"symbol": symbol, "row": row_id})
             except Exception as exc:
                 record_fill_pass(self.db, "orphan.broker_query", exc, context={"symbol": symbol, "row": row_id})
-                if not (client_order_id and _is_no_such_order(exc)):
-                    continue
-                # The broker's own answer: no order holds this key — it never landed.
-                candidates = []
+                continue
             if candidates is None:
                 # Query FAILED (not "no such order"). Marking
                 # submit_failed here would discard a possibly-real /

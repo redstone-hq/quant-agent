@@ -5,7 +5,8 @@
 (b) not found -> the submit's own failure propagates (UNKNOWN), never a
     "not placed" result; an exit puts back only what is held and alerts;
 (c) a timed-out SHORT entry (a sell order) is matched by the orphan sweep by
-    the key stored on its pending row, not missed by a buy-side search.
+    the key stored on its pending row, not missed by a buy-side search;
+(d) a reply the broker DID return (4xx/5xx) is never read back: it propagates.
 """
 
 from __future__ import annotations
@@ -127,31 +128,66 @@ def test_b_exit_with_unknown_submit_covers_what_is_held_and_alerts_the_owner():
     assert "unknown" in alert.call_args.kwargs["why"]
 
 
-def test_c_timed_out_short_entry_is_matched_by_its_stored_key():
-    key = entry_client_order_id("YYY", "sell_short", 5, 20.0)
+def _sweep(client, row):
     db = MagicMock(name="db")
-    db.get_orphaned_pending_submits.return_value = [
-        {"id": 7, "symbol": "YYY", "qty": 5, "action": "SHORT", "client_order_id": key}
-    ]
-    broker = MagicMock(name="broker")
-    broker.list_recent_orders.return_value = []  # a buy-side search never sees a short
-    broker.client.get_order_by_client_id.return_value = SimpleNamespace(id="ord-yyy-1", qty="5")
+    db.get_orphaned_pending_submits.return_value = [row]
     sweep = FillReconciler(
-        broker=broker,
+        broker=SimpleNamespace(list_recent_orders=_desk(client).list_recent_orders),
         db=db,
         config=MagicMock(),
         flag_stop_out_anomaly=MagicMock(),
         format_qty=str,
         parse_broker_fill_timestamp=MagicMock(),
     )
+    return sweep, db
+
+
+def test_c_timed_out_short_entry_is_matched_by_its_stored_key():
+    key = entry_client_order_id("YYY", "sell_short", 5, 20.0)
+    client = MagicMock(name="client")
+    client.get_orders.return_value = []  # a side listing finds nothing to match
+    client.get_order_by_client_id.return_value = SimpleNamespace(id="ord-yyy-1", qty="5", status="new")
+    sweep, db = _sweep(client, {"id": 7, "symbol": "YYY", "qty": 5, "action": "SHORT", "idempotency_key": key})
     assert sweep._reconcile_orphan_pending_submits() == 1
-    broker.client.get_order_by_client_id.assert_called_once_with(key)
+    client.get_order_by_client_id.assert_called_once_with(key)
     db.confirm_trade_submitted.assert_called_once_with(7, broker_order_id="ord-yyy-1")
     db.mark_trade_submit_failed.assert_not_called()
+
+
+def test_c_key_the_broker_does_not_hold_is_marked_never_landed():
+    client = MagicMock(name="client")
+    client.get_order_by_client_id.side_effect = _NotFound("order not found")
+    sweep, db = _sweep(client, {"id": 8, "symbol": "YYY", "qty": 5, "action": "SHORT", "idempotency_key": "k"})
+    assert sweep._reconcile_orphan_pending_submits() == 1
+    db.mark_trade_submit_failed.assert_called_once_with(8)
+    db.confirm_trade_submitted.assert_not_called()
+
+
+class _BrokerReply(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize("code", [400, 403, 404, 500])
+def test_d_a_reply_the_broker_returned_propagates_without_a_read_back(code):
+    client = MagicMock(name="client")
+    client.submit_order.side_effect = _BrokerReply(code)
+    with pytest.raises(_BrokerReply):
+        _desk(client).submit_order(symbol="ZZZ", qty=10, side="sell")
+    client.get_order_by_client_id.assert_not_called()
+
+
+def test_d_an_error_that_is_not_a_lost_reply_propagates_without_a_read_back():
+    client = MagicMock(name="client")
+    client.submit_order.side_effect = ValueError("bad request object")
+    with pytest.raises(ValueError):
+        _desk(client).submit_order(symbol="ZZZ", qty=10, side="sell")
+    client.get_order_by_client_id.assert_not_called()
 
 
 def test_c_pending_row_key_reaches_the_sweep_read(tmp_path):
     db = Database(str(tmp_path / "keys.db"))
     db.initialize()
     columns = {row[1] for row in db.conn.execute("PRAGMA table_info(current_account_trades)")}
-    assert "client_order_id" in columns
+    assert "idempotency_key" in columns
