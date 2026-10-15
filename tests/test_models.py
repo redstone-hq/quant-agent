@@ -463,10 +463,10 @@ def test_buy_grade_market_relative_move_pct_optional():
 # === MissedOpportunity ===
 
 
-def test_missed_opportunity_real_miss_requires_theme():
-    """trend_timing_miss / theme_blindspot / fundamentals_mispricing need a
-    theme label so the quarterly report can aggregate. noise_rally and
-    risk_disciplined are 'not really misses' and theme is optional."""
+def test_missed_opportunity_real_miss_theme_optional():
+    """A real miss may carry a theme label, and may also have none: a miss
+    with no clear theme is a valid finding and is kept (2026-10-15, CBRS/ONDS
+    rows were dropped after being paid for)."""
     from src.models import MissedOpportunity
 
     # Valid real miss with theme
@@ -479,14 +479,14 @@ def test_missed_opportunity_real_miss_requires_theme():
     )
     assert m.theme_if_any == "nuclear/power"
 
-    # Invalid: real miss category without theme
-    with pytest.raises(ValidationError, match="theme_if_any"):
-        MissedOpportunity(
-            symbol="VST",
-            move_pct=22.3,
-            miss_category="trend_timing_miss",
-            lesson="missed the run",
-        )
+    # Valid: real miss category without theme is kept
+    m_none = MissedOpportunity(
+        symbol="VST",
+        move_pct=22.3,
+        miss_category="trend_timing_miss",
+        lesson="missed the run",
+    )
+    assert m_none.theme_if_any is None
 
     # Valid: escape-hatch category without theme
     m_noise = MissedOpportunity(
@@ -688,19 +688,17 @@ def test_sell_grade_thesis_trajectory_optional():
     assert sg_v.thesis_trajectory_at_sell == "broken"
 
 
-def test_missed_opportunity_value_entry_missed_requires_theme():
-    """value_entry_missed shares the theme-required discipline with the
-    other real-miss categories."""
+def test_missed_opportunity_value_entry_missed_theme_optional():
+    """value_entry_missed with no theme is kept, like the other real misses."""
     from src.models import MissedOpportunity
 
-    with pytest.raises(ValidationError, match="theme_if_any"):
-        MissedOpportunity(
-            symbol="MU",
-            move_pct=-18.2,
-            miss_category="value_entry_missed",
-            lesson="memory cycle dip, fundamentals intact",
-            # theme_if_any omitted
-        )
+    m_none = MissedOpportunity(
+        symbol="MU",
+        move_pct=-18.2,
+        miss_category="value_entry_missed",
+        lesson="memory cycle dip, fundamentals intact",
+    )
+    assert m_none.theme_if_any is None
 
     m = MissedOpportunity(
         symbol="MU",
