@@ -718,22 +718,18 @@ def test_idx31_explicit_null_durability_is_now_unknown_not_a_dropped_entry():
     assert m.theme_if_any == "nuclear/power"
 
 
-def test_idx31_null_theme_on_a_real_miss_still_rejects():
-    """Null tolerance must not weaken the rule that a real miss needs a theme.
-
-    `theme_if_any` is `str | None`, so a null there was always legal at the
-    field level; the mode="after" validator is what enforces the discipline,
-    and it still runs.
-    """
-    with pytest.raises(ValidationError):
-        MissedOpportunity(
-            symbol="VST",
-            move_pct=12.0,
-            miss_category="theme_blindspot",
-            theme_if_any=None,
-            theme_durability=None,
-            lesson="power theme uncovered",
-        )
+def test_idx31_null_theme_on_a_real_miss_is_kept():
+    """A null theme on a real miss is a valid finding (2026-10-15): the row is
+    kept, not rejected; a null durability still coerces to "unknown"."""
+    m = MissedOpportunity(
+        symbol="VST",
+        move_pct=12.0,
+        miss_category="theme_blindspot",
+        theme_if_any=None,
+        theme_durability=None,
+        lesson="power theme uncovered",
+    )
+    assert m.theme_if_any is None
 
 
 def test_idx31_dead_validator_removed():
