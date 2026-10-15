@@ -3425,7 +3425,7 @@ numbers:
       the first version rendered that as the quotation "new_stop >= old_stop x
       1.02", which is a paraphrase presented as a quote. CAMPAIGN REVIEW
       2026-09-25: the adversary reviewed this and the ~2-4-session ratchet
-      cooldown (src/pipeline.py `_trail_tightened_recently`, deleted 2026-10-15) and RULED
+      cooldown (the 4-day re-tighten lock, deleted 2026-10-15) and RULED
       not-to-reform, staying `arbitrary` — status quo kept, no behavior
       change. It is ratified as owner CHURN-appetite: a chosen
       "is this move worth an order" threshold, not a derived or measured
@@ -3494,7 +3494,7 @@ numbers:
       refusal record, with no new number and no owner input, exactly as this
       question proposed. (1) The premise was wrong: there are TWO gates on
       the deterministic path, not three. The ~2-4-session ratchet cooldown
-      (`_trail_tightened_recently`, deleted 2026-10-15) was reached only from the discretionary
+      (the 4-day re-tighten lock, deleted 2026-10-15) was reached only from the discretionary
       midday `TRAIL_STOP` branch in `src/pipeline.py` and never from
       `_apply_deterministic_trails`, so it has never refused a deterministic
       trail. (2) The two that ARE stacked are not redundant: all seven
