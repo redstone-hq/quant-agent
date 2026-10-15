@@ -11,11 +11,8 @@ from pathlib import Path
 
 from src.models import AnalystVerdict, VerdictEvidence
 from src.rotation import evaluate_rotation
-from src.rotation_parts.score_noise import (
-    evidence_key,
-    measure_score_noise,
-    measure_score_noise_from_db,
-)
+from src.rotation_parts.score_noise import evidence_key, measure_score_noise
+from src.rotation_parts.score_noise_store import measure_score_noise_from_db
 from src.verdicts import rank_verdicts
 
 REPO = Path(__file__).resolve().parents[1]

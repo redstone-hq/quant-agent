@@ -30,9 +30,6 @@ import json
 from dataclasses import dataclass
 from typing import Iterable
 
-from src.storage.analytics.calibration import CLEAN_RECORD_START_UTC
-from src.storage.event_journal import PIPELINE_EVENT_KIND
-
 
 @dataclass(frozen=True)
 class ScoreNoiseBrake:
@@ -132,10 +129,3 @@ def observations_from_rows(rows) -> list[tuple[str, str, str, float, str]]:
                 (str(ts), str(run_id), str(symbol), float(score), str(payload.get(f"{side}_evidence_key") or ""))
             )
     return out
-
-
-def measure_score_noise_from_db(conn) -> ScoreNoiseBrake:
-    """Read-only measurement over the live `specialist_evidence` table."""
-    since = CLEAN_RECORD_START_UTC.replace("T", " ")
-    rows = conn.execute(_ROTATION_ROWS_SQL, (PIPELINE_EVENT_KIND, since)).fetchall()
-    return measure_score_noise(observations_from_rows(rows))

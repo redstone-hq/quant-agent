@@ -312,7 +312,7 @@ from src.rotation_unrecorded import empty_pass_lines
 from dataclasses import replace
 
 from src.risk.min_risk import MinRiskFloor
-from src.rotation_parts.score_noise import ScoreNoiseBrake, evidence_key, measure_score_noise_from_db
+from src.rotation_parts.score_noise import ScoreNoiseBrake, evidence_key
 from src.rotation_parts.constraints import (
     funding_view_measured,
     holdings_below_entry_bar,
@@ -357,7 +357,6 @@ from src.rotation_parts.reporting_lines import (
 __all__ = [
     "REQUIRED_BUY_LEG_GATES",
     "ScoreNoiseBrake",
-    "measure_score_noise_from_db",
     "ROTATION_REFUSAL_POINTS",
     "RotationClearance",
     "RotationOpportunity",

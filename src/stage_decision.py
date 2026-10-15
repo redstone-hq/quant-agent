@@ -1098,11 +1098,13 @@ def _score_noise_brake(pipeline) -> float | None:
     `None` (unmeasured) on any read failure: the swap then refuses, which is
     the safe side. Logged, never silent.
     """
-    from src.rotation_parts.score_noise import measure_score_noise_from_db
+    import sqlite3
+
+    from src.rotation_parts.score_noise_store import measure_score_noise_from_db
 
     try:
         brake = measure_score_noise_from_db(pipeline.db.conn)
-    except Exception as exc:  # noqa: BLE001
+    except sqlite3.Error as exc:
         logger.warning("Score-noise brake unmeasured (read failed): %s", exc)
         return None
     logger.info("Rotation %s", brake.describe())
