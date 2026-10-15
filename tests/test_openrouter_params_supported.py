@@ -13,13 +13,13 @@ MODEL = "qwen/qwen3-235b-a22b-2507"
 
 
 def _body(monkeypatch, payload):
-    base._openrouter_param_cache.clear()
+    base._openrouter_supported_parameters.cache_clear()
     monkeypatch.setattr("src.cost_table.http_get_json", lambda url, headers=None: payload())
     agent = TechAnalystAgent(api_key="test", model=MODEL)
     captured: dict = {}
     client = _fake_wire_client(captured, _wrapped_response_for("SPY"))
     agent._openai_wire_call(client, MODEL, "openrouter", "hello")
-    base._openrouter_param_cache.clear()
+    base._openrouter_supported_parameters.cache_clear()
     return captured["extra_body"]
 
 

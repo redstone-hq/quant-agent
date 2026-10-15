@@ -1,5 +1,6 @@
 import hashlib
 import json
+import functools
 import logging
 import math
 import os
@@ -27,15 +28,13 @@ from src.agents.json_salvage import MalformedRow, RowSalvage, parse_json_rows_te
 logger = logging.getLogger(__name__)
 
 _OPENROUTER_ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{model}/endpoints"
-_openrouter_param_cache: dict[str, frozenset[str] | None] = {}
 
 
+@functools.lru_cache(maxsize=None)
 def _openrouter_supported_parameters(model: str) -> frozenset[str] | None:
     """Union of supported_parameters over the model's OpenRouter endpoints
     (OpenRouter's published list is the authority), or None if unknown.
-    Cached per process; a failed lookup is logged once and not retried."""
-    if model in _openrouter_param_cache:
-        return _openrouter_param_cache[model]
+    Cached per process (functools.lru_cache); a failed lookup is logged once and not retried."""
     params: frozenset[str] | None = None
     try:
         from src.cost_table import http_get_json
@@ -51,13 +50,13 @@ def _openrouter_supported_parameters(model: str) -> frozenset[str] | None:
         logger.warning("OpenRouter supported_parameters lookup failed for %s: %s", model, exc)
     if params is None:
         logger.warning("OpenRouter support unknown for %s; omitting reasoning", model)
-    _openrouter_param_cache[model] = params
     return params
 
 
 def _openrouter_supports(model: str, param: str) -> bool:
     params = _openrouter_supported_parameters(model)
     return params is not None and param in params
+
 
 # The transport policy below base's imports moved VERBATIM into sibling
 # modules (src/agents/llm_*.py); every name is re-exported here so existing
