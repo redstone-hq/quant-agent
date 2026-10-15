@@ -317,9 +317,10 @@ numbers:
         the value stays `arbitrary` until those rows exist in number. Owner ruling 2026-10-09 (paper) -
         every BUY and SHORT entry is a plain DAY MARKET order and the ceiling no longer prices the
         order the desk sends; the marketable-limit path and this recorder are reachable only behind
-        `execution.entry_order_type` set to `limit` (src/stage_execution_parts/entry_order_type.py). The
-        value still governs a LIVE path every session, src/universe_screen.py reading it as the
-        max half-spread a name may quote to be admitted
+        `execution.entry_order_type` set to `limit` (src/stage_execution_parts/entry_order_type.py).
+        Since 2026-10-15 the nightly universe screen no longer reads it - a name now fails on spread
+        only when its own round-trip spread eats its expected move over the owner-ruled hold. The
+        value now governs only the dormant limit-mode entry pricing, kept reachable for go-live testing
       closes_when: the half-spread distribution is in hand and the ceiling is set at a stated percentile
         with the share of the universe it excludes named; it is DELETED, and the spread is charged
         to sizing instead of gating admission, if the measured distribution has no tail the ceiling

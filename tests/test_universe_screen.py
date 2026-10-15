@@ -46,7 +46,7 @@ def _bars(n=300, *, price=50.0, rng=0.01, end=TODAY, close_drift=0.0):
 TH = us.ScreenThresholds(
     min_price_usd=5.0,
     min_market_cap_usd=30_000_000,
-    max_half_spread_bps=40.0,
+    hold_sessions=10,
     max_atr_fraction=1.0 / 2.5,
     min_history_bars=210,
 )
@@ -224,14 +224,14 @@ def test_negative_estimates_are_floored_at_zero():
     assert us.corwin_schultz_spread(bars) >= 0.0
 
 
-def test_wide_spread_is_refused_and_the_line_is_the_slippage_belt():
-    # 1% quoted spread -> 50 bps half-spread > 40 bps belt.
+def test_spread_is_judged_against_the_names_own_expected_move():
+    # 1% quoted range -> ~50 bps half-spread: over the retired flat 40 bps
+    # line, but its round trip is below the move expected over the hold,
+    # so the break-even floor passes it.
     failures, measured = us.check_bars(_bars(300, rng=0.005), TH)
-    assert "spread_too_wide" in failures
-    assert measured["half_spread_bps"] > TH.max_half_spread_bps
-    # Same bars, a belt wider than the half-spread: passes.
-    wider = us.ScreenThresholds(**{**TH.__dict__, "max_half_spread_bps": 80.0})
-    assert "spread_too_wide" not in us.check_bars(_bars(300, rng=0.005), wider)[0]
+    assert measured["half_spread_bps"] > 40.0
+    assert "spread_exceeds_expected_move" not in failures
+    assert "spread_too_wide" not in failures
 
 
 # ----------------------------------------------------------- volatility ----
@@ -402,7 +402,7 @@ def test_thresholds_are_read_from_existing_desk_numbers():
     th = us.ScreenThresholds.from_config(config)
     assert th.min_price_usd == 5.0
     assert th.min_market_cap_usd == 30_000_000
-    assert th.max_half_spread_bps == 40.0
+    assert th.hold_sessions == 10
     assert th.max_atr_fraction == pytest.approx(1.0 / 2.5)
     assert th.min_history_bars == 210
 

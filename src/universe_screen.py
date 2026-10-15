@@ -327,11 +327,12 @@ PLAIN_REASON = {
     # No longer screen criteria (2026-10-09); kept so older recorded
     # events still read in plain words.
     "not_shortable": "cannot be sold short",
+    "spread_too_wide": "too costly to trade (spread over a flat 0.4% line; retired 2026-10-15)",
     "hard_to_borrow": "hard to borrow for a short",
     "no_price_history": "no price history",
     "insufficient_history": "less than a year of price history",
     "price_below_minimum": "a penny stock (under $5)",
-    "spread_too_wide": "too costly to trade (wide bid-ask spread)",
+    "spread_exceeds_expected_move": "too costly to trade (round-trip spread eats its expected move)",
     "not_traded_every_session": "did not trade on every session of the past year",
     "spread_unmeasurable": "its trading cost could not be measured",
     "volatility_above_ceiling": "so volatile the desk's widest stop would sit at or below zero",
@@ -358,7 +359,7 @@ PLAIN_REASON = {
 class ScreenThresholds:
     min_price_usd: float
     min_market_cap_usd: float
-    max_half_spread_bps: float
+    hold_sessions: int
     max_atr_fraction: float
     min_history_bars: int
 
@@ -386,12 +387,16 @@ class ScreenThresholds:
         # Imported here, not at module scope: `portfolio_constructor` is a
         # heavy module and the screen is otherwise independent of it.
         from src.portfolio_constructor import widest_reachable_stop_atr_multiple
+        from src.stage_decision import VELOCITY_HOLD_SESSIONS
 
         screen = config.universe_screen
         return cls(
             min_price_usd=float(screen.min_price_usd),
             min_market_cap_usd=float(screen.min_market_cap_usd),
-            max_half_spread_bps=float(config.execution.max_entry_slippage_bps),
+            # The spread gate's horizon W: the owner-ruled ~10-session hold
+            # (ruling 2026-10-13), the same W the morning score K reads. The
+            # screen no longer reads `execution.max_entry_slippage_bps`.
+            hold_sessions=int(VELOCITY_HOLD_SESSIONS),
             # NOT a chosen ceiling and no longer a borrowed one. Board
             # item 185: this used to read `0.5 / min_stop_atr_multiple`,
             # borrowing the midday typo guard's flat half-of-price floor
@@ -573,8 +578,6 @@ def check_bars(
     else:
         half_bps = spread / 2 * 10_000
         measured["half_spread_bps"] = round(half_bps, 1)
-        if half_bps > th.max_half_spread_bps:
-            failures.append("spread_too_wide")
     atr = atr_series(bars)
     if len(atr) and price > 0:
         atr_fraction = float(atr[-1]) / price
@@ -583,6 +586,18 @@ def check_bars(
         # sits at exactly zero, which is not a placeable stop either.
         if atr_fraction >= th.max_atr_fraction:
             failures.append("volatility_above_ceiling")
+        if spread is not None and atr_fraction > 0:
+            # Spread gate: a BREAK-EVEN FLOOR only, not a chosen line. The
+            # name fails when its own net edge -- the same bracket the
+            # morning score K multiplies by (`net_edge`) -- is at or below
+            # zero: the round-trip spread eats the move expected over the
+            # hold. Ranking already multiplies by this edge, so ranking does
+            # the real work; this floor assumes direction is called right,
+            # so it is loose by design. Same rounded inputs K reads.
+            measured["half_spread_atr_frac"] = round((half_bps / 10_000) / atr_fraction, 4)
+            edge = net_edge(measured["atr_pct"] / 100.0, measured["half_spread_bps"], th.hold_sessions)
+            if edge <= 0:
+                failures.append("spread_exceeds_expected_move")
     return failures, measured
 
 
@@ -603,6 +618,19 @@ class SecondFilterInputs:
     gross_ceiling_reason: str | None = None
 
 
+def net_edge(atr_fraction: float, half_spread_bps: float, hold_sessions: int) -> float:
+    """The bracket of K: ``sqrt(2/pi) * (a / ATR_PER_SIGMA) * sqrt(W) - rt``.
+
+    Expected absolute move over W sessions minus the round-trip spread
+    rt = 2 x half-spread. The desk's one definition; the nightly spread gate
+    and the morning score K both read it.
+    """
+    from src.data.levels import ATR_PER_SIGMA, travel_over
+
+    round_trip = 2 * float(half_spread_bps) / 10_000.0
+    return math.sqrt(2 / math.pi) * travel_over(float(atr_fraction), hold_sessions) / ATR_PER_SIGMA - round_trip
+
+
 def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
     """Record-only score K for one name that passed the nightly filter.
 
@@ -612,8 +640,6 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
     recorded when measurable; K is None with a reason when any input is missing
     -- never a guessed value. It orders, sizes and stops nothing.
     """
-    from src.data.levels import ATR_PER_SIGMA, travel_over
-
     atr_pct, half_bps = (measured or {}).get("atr_pct"), (measured or {}).get("half_spread_bps")
     out: dict[str, Any] = {"k": None, "reason": None, "gross_ceiling_x": inputs.gross_ceiling_x}
     if not isinstance(atr_pct, (int, float)) or not math.isfinite(atr_pct) or atr_pct <= 0:
@@ -623,9 +649,8 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
         out["reason"] = "spread_unmeasured"
         return out
     a = float(atr_pct) / 100.0
-    round_trip = 2 * float(half_bps) / 10_000.0
     out["risk_cap_x"] = (float(inputs.max_portfolio_risk_pct) / 100.0) / (float(inputs.stop_atr_multiple) * a)
-    out["net_edge"] = math.sqrt(2 / math.pi) * travel_over(a, inputs.hold_sessions) / ATR_PER_SIGMA - round_trip
+    out["net_edge"] = net_edge(a, float(half_bps), inputs.hold_sessions)
     if inputs.gross_ceiling_x is None:
         out["reason"] = inputs.gross_ceiling_reason or "gross_ceiling_unread"
         return out
