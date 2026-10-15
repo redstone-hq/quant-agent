@@ -33,7 +33,8 @@ def _fractional_sizing_allowed(pipeline, symbol: str, *, is_short: bool) -> bool
 
     Two independent gates, both of which must say yes:
 
-    1. `execution.fractional_enabled` (default True). The owner's switch, so
+    1. `execution.fractional_enabled` (default False since the owner's
+       2026-10-15 whole-shares ruling; a missing setting reads as off). The owner's switch, so
        the feature can be turned off without a code change.
     2. The BROKER confirms `fractionable` for the symbol. A config flag says
        what the desk wants; only the asset directory says what Alpaca will

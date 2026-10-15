@@ -123,6 +123,98 @@ def _market_is_open_now(broker) -> bool:
     return market_open_now(broker, et_now)
 
 
+FRACTIONAL_REMAINDER_CLEANUP = "fractional_remainder_cleanup"
+
+
+def _sell_fractional_remainder(host, p, symbol: str, held: float) -> bool:
+    """Owner ruling 2026-10-15, whole shares only: sell a long's sub-share remainder.
+
+    A remainder can only be stopped by a DAY order, so it has no stop
+    overnight. Runs from the coverage sweep, per position, and only when
+    fractional sizing is explicitly OFF, the session is POSITIVELY open (the
+    sweep's own verdict fails toward open, which is right for a stop and
+    wrong for a sale), and no non-stop order is working on the symbol — an
+    open exit or an earlier cleanup still in flight. Sold as a trim ("REDUCE")
+    through the protected sell, so only the DAY sliver stop is cancelled and
+    the whole-share GTC stop is kept and finalized to the whole-share qty.
+    Decided from the broker's held qty every pass, so it is idempotent.
+    Returns True when a sale was sent (the caller skips this pass's audit of
+    the symbol; the next pass audits the re-sized book).
+    """
+    from decimal import Decimal
+
+    from src.execution.freeze_cancel import _is_stop_type, _norm
+    from src.market_session import market_open_verdict
+    from src.trading_calendar import in_regular_session
+
+    execution_cfg = getattr(getattr(host, "config", None), "execution", None)
+    if getattr(execution_cfg, "fractional_enabled", None) is not False:
+        return False
+    try:
+        frac = float(Decimal(repr(float(held))) % 1)
+    except (ArithmeticError, TypeError, ValueError):
+        return False
+    if frac <= 1e-6:
+        return False
+    try:
+        now = et_now()
+        if not (in_regular_session(now) and market_open_verdict(host.broker, now)[0]):
+            return False
+        ok, orders = host.broker.list_open_orders_checked()
+    except Exception as exc:  # noqa: BLE001
+        record_protection_fault(host, "coverage.fraction_cleanup_read", exc, symbol=symbol)
+        return False
+    if ok is not True:
+        return False
+    working = [o for o in orders or [] if _norm(getattr(o, "symbol", "")) == _norm(symbol)]
+    if any(not _is_stop_type(o) for o in working):
+        logger.info("fractional remainder %s %s left: an order is already working on it", symbol, frac)
+        return False
+    if symbol in {v.get("symbol") for v in (getattr(host, "_unsettled_exit_orders", None) or {}).values()}:
+        return False
+    run_id = f"coverage-sweep-{et_today().isoformat()}"
+    price = _finite_float_or_none(getattr(p, "current_price", None)) or 0.0
+
+    def book(order, qty):
+        host.db.insert_trade(
+            symbol=symbol,
+            action="REDUCE",
+            qty=qty,
+            price=price,
+            reasoning=FRACTIONAL_REMAINDER_CLEANUP,
+            run_id=run_id,
+            broker_order_id=(order or {}).get("id"),
+            fill_status="submitted",
+        )
+
+    sale = host._submit_protected_sell(
+        symbol=symbol,
+        qty=frac,
+        limit_price=None,
+        reference_price=price,
+        position_qty_before_sell=held,
+        label="REDUCE",
+        side="sell",
+        book=book,
+    )
+    host._record_exit_refusal(
+        symbol=symbol,
+        run_id=run_id,
+        action="REDUCE",
+        code=FRACTIONAL_REMAINDER_CLEANUP,
+        dropped=sale is None,
+        detail=f"sell the {frac} sub-share remainder of {held}: whole shares only (owner ruling 2026-10-15)",
+        layer="coverage_sweep",
+    )
+    if sale is None:
+        return False
+    order, prot = sale
+    book(order, frac)
+    if prot is not None:
+        host._finalize_pending_protections([prot], context="Fractional remainder cleanup")
+    return True
+
+
 def _classify_coverage_gap(*, held: float, covered: float) -> tuple[str, float]:
     """Name the shortfall between held shares and stop-covered shares.
 
@@ -540,6 +632,10 @@ class ProtectionMixin:
                 )
                 if row is not None:
                     elected_unfilled.append(row)
+            # Owner ruling 2026-10-15, whole shares only: a long's sub-share
+            # remainder has no overnight stop, so it is sold, not re-covered.
+            if not is_short and market_open and _sell_fractional_remainder(self, p, symbol, held):
+                continue
             if covered + 1e-6 < held:
                 # Spec §11.1 guard 3. NO STOP AT ALL and STOP PRESENT BUT
                 # MIS-SIZED were previously one condition with one message.
