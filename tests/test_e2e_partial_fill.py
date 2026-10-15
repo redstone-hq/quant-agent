@@ -216,6 +216,21 @@ def test_sell_fills_partly_the_smaller_position_keeps_one_correctly_sized_stop(t
     # longer decides partial sells (owner ruling 2026-10-09), but a partial
     # FILL of a full sell still leaves shares held, and the stop must be
     # resized to exactly what is left.
+    # Owner 14 Oct 2026: a judgement sale of a holding read as "no chart level"
+    # now sells only when it fails a buy rule, and this fixture carries no
+    # technical read to judge that. This test is about the stop left after a partly filled sale, so the sale is
+    # the chart-CONFIRMED break, which still sells ungated.
+    from dataclasses import replace
+
+    from src.exits.structural_protection import StructuralProtection
+
+    _read = StructuralProtection._structural_protection_for_holding
+
+    def _confirmed_break(self, *args, **kwargs):
+        check = _read(self, *args, **kwargs)
+        return replace(check, basis="structural_level_broken") if check.basis == "no_chart_level" else check
+
+    monkeypatch.setattr(StructuralProtection, "_structural_protection_for_holding", _confirmed_break)
     result, _, trading = _session(tmp_path, monkeypatch, book_qty=60.0, target_pct=0.0)
     sells = [o for o in trading.submitted if o.side == "sell" and "stop" not in o.order_type]
     assert len(sells) == 1, [o.as_plain() for o in trading.submitted]

@@ -6447,7 +6447,7 @@ numbers:
     site: src/prompt_facts/review/blocked.py
     note: >-
       Window of the PM's 'names you keep proposing and never get' memory
-      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::DecisionStage.run) passes nothing, so this
+      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::build_pm_decide_inputs) passes nothing, so this
       default is live. Same class as the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
       seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
@@ -6477,7 +6477,7 @@ numbers:
     site: src/prompt_facts/review/blocked.py
     note: >-
       Proposal count before a blocked name is shown to the PM in that memory
-      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::DecisionStage.run) passes nothing, so this
+      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::build_pm_decide_inputs) passes nothing, so this
       default is live. Same class as the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
       seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
@@ -6508,7 +6508,7 @@ numbers:
     site: src/prompt_facts/review/calibration.py
     note: >-
       Window of the PM's own hit-rate/return calibration note
-      (src/stage_decision.py::DecisionStage.run and
+      (src/stage_decision.py::build_pm_decide_inputs and
       src/sessions/position_review_session.py::PositionReviewSession.run).
       Both production callers omit `lookback_days`, so this default is live.
       Same class as the smart-money prompt-truncation caps
@@ -6676,7 +6676,7 @@ numbers:
     site: src/prompt_facts/decisions.py
     note: >-
       How many of its own previous decision sets the PM is shown (anti-flip-
-      flop memory) (src/stage_decision.py::DecisionStage.run). Its only caller passes
+      flop memory) (src/stage_decision.py::build_pm_decide_inputs). Its only caller passes
       nothing, so this default is live. Same class as the smart-money prompt-
       truncation caps classified arbitrary on 2026-09-19: it decides what
       evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
@@ -6783,7 +6783,7 @@ numbers:
     status: arbitrary
     site: src/prompt_facts/review/exits.py
     note: >-
-      Window of the PM's repeat-loss-cause memory (src/stage_decision.py::DecisionStage.run).
+      Window of the PM's repeat-loss-cause memory (src/stage_decision.py::build_pm_decide_inputs).
       Its only caller passes nothing, so this default is live. Same class as
       the smart-money prompt-truncation caps classified arbitrary on
       2026-09-19: it decides what evidence a trading seat's verdict is built
@@ -6814,7 +6814,7 @@ numbers:
     site: src/prompt_facts/review/exits.py
     note: >-
       Window of the PM's recurring-missed-theme memory
-      (src/stage_decision.py::DecisionStage.run). Its only production caller
+      (src/stage_decision.py::build_pm_decide_inputs). Its only production caller
       omits `lookback_days`, so this default is live. Same class as the
       smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
@@ -6870,7 +6870,7 @@ numbers:
     site: src/prompt_facts/decisions.py
     note: >-
       How many recent risk-seat verdicts the PM is shown to self-calibrate
-      size (src/stage_decision.py::DecisionStage.run). Its only caller passes nothing, so
+      size (src/stage_decision.py::build_pm_decide_inputs). Its only caller passes nothing, so
       this default is live. Same class as the smart-money prompt-truncation
       caps classified arbitrary on 2026-09-19: it decides what evidence a
       trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
