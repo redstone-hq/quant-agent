@@ -826,19 +826,6 @@ class ConstructorConfig:
     # 0 disables the floor entirely. Kept in sync with
     # `risk.absolute_min_stop_atr_multiple`.
     absolute_min_stop_atr_multiple: float = 1.0
-    # How far BELOW a structural level (ABOVE it for a short) the
-    # protective stop sits when it must be READ from price structure
-    # because there is no ATR reading -- `_derive_structural_stop_no_atr`,
-    # owner ruling 2026-09-25 (board item 80). A fraction of the level
-    # price, so a wick that just tags the level does not trigger the stop.
-    # OWNER-APPETITE, not doctrine: the published methods (swing-low,
-    # prior-bar low, Donchian channel-low) agree a buffer is needed but
-    # none fixes its size. Ledgered with an OPEN QUESTION in
-    # config/number_ledger.yaml. Default 0.5% is a modest slack,
-    # deliberately smaller than the 1.0% level-cluster zone
-    # (`levels.CLUSTER_TOLERANCE_PCT`) so the stop sits just past the zone
-    # the level was matched within, never inside it.
-    structural_stop_buffer_pct: float = 0.005
     # --- Target derivation (2026-09-01) ---------------------------------
     # The stop has been computed from measured volatility since 2026-08-27;
     # the target was still the language model's `reference_target`, so the

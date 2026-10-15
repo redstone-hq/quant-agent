@@ -38,7 +38,7 @@ def test_zone_halfwidth_is_measured_or_honestly_absent():
 
 
 def test_tier_one_placement_is_unchanged_and_counted(caplog):
-    rules, cfg = _rules()
+    rules, _cfg = _rules()
     a = _Analysis(
         computed_levels=[90.0],
         computed_level_touches={90.0: 2},
@@ -49,8 +49,8 @@ def test_tier_one_placement_is_unchanged_and_counted(caplog):
     assert out is not None
     level, stop, _rule = out
     assert level == 90.0
-    # The shipping stop is exactly the buffer past the level: untouched.
-    assert stop == pytest.approx(90.0 * (1.0 - cfg.structural_stop_buffer_pct))
+    # The shipping stop is the level's own zone low: no chosen buffer.
+    assert stop == pytest.approx(89.5)
     rows = _rows(caplog)
     assert len(rows) == 1
     assert rows[0]["outcome"] == rec.OUTCOME_LEVEL
@@ -64,13 +64,14 @@ def test_tier_one_placement_is_unchanged_and_counted(caplog):
 
 
 def test_tier_two_placement_is_unchanged_and_counted(caplog):
-    rules, cfg = _rules()
+    rules, _cfg = _rules()
     a = _Analysis(signal_bar_low=95.0)
     with caplog.at_level(logging.INFO):
         out = rules._derive_structural_stop_no_atr(a, 100.0, False)
     assert out is not None
     assert out[0] == 95.0
-    assert out[1] == pytest.approx(95.0 * (1.0 - cfg.structural_stop_buffer_pct))
+    # A bar edge is already a bar extreme: the stop sits on it.
+    assert out[1] == pytest.approx(95.0)
     rows = _rows(caplog)
     assert [r["outcome"] for r in rows] == [rec.OUTCOME_PRIOR_BAR]
     # No measured span for a bar edge, and the row says so rather than guessing.
