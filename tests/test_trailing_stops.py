@@ -11,6 +11,7 @@ import pytest
 
 from src.risk.trailing import (
     CHANDELIER_ATR_MULTIPLE,
+    MIN_BARS_FOR_A_READING,
     MIN_RATCHET_TICKS,
     min_ratchet_floor,
     venue_tick,
@@ -1237,3 +1238,56 @@ def test_item82_mislabelled_range_breakout_now_gets_type_b():
     # And it matches the correctly-labelled breakout exactly.
     breakout = _regime_fixture("breakout", None)
     assert (proposal.source, proposal.new_stop) == (breakout.source, breakout.new_stop)
+
+
+def _dated_history(lows, first_day):
+    from datetime import timedelta as _td
+
+    return [_Bar(high=lo + 2, low=lo, date=first_day + _td(days=i)) for i, lo in enumerate(lows)]
+
+
+def test_a_swing_confirmed_after_entry_uses_history_from_before_entry():
+    """The structure leg reads the FULL history for its ATR(14) warm-up and
+    keeps only swings that printed on or after the entry day (2026-10-15).
+
+    Entry is on day 20; only eight bars follow it — far fewer than the 15 the
+    detector would need if it were handed the since-entry slice alone. The
+    pre-entry swing low at 95 is ignored; the post-entry low at 104 is used."""
+    from datetime import timedelta as _td
+
+    from src.risk.trailing import TRAIL_CODE_TRAILED, evaluate_trailing_stop
+
+    first = _date(2026, 1, 1)
+    pre = [110] * 14 + [105, 100, 95, 100, 105, 110]  # swing low 95, day 16
+    post = [112, 110, 106, 104, 106, 108, 110, 114]  # swing low 104, day 23
+    bars = _dated_history(pre + post, first)
+    entry_day = first + _td(days=len(pre))
+    assert len([b for b in bars if b.date >= entry_day]) < MIN_BARS_FOR_A_READING
+    ev = evaluate_trailing_stop(
+        symbol="AAA",
+        setup_type="breakout",
+        entry=110.0,
+        current_price=116.0,
+        current_stop=100.0,
+        reference_target=None,
+        bars=bars,
+        entry_date=entry_day,
+        atr=None,
+    )
+    assert ev.code == TRAIL_CODE_TRAILED, ev.code
+    assert ev.proposal.source == "structure"
+    assert ev.proposal.new_stop == 104.0
+    # The since-entry slice alone could not confirm it: the old wiring waited.
+    since = [b for b in bars if b.date >= entry_day]
+    stale = evaluate_trailing_stop(
+        symbol="AAA",
+        setup_type="breakout",
+        entry=110.0,
+        current_price=116.0,
+        current_stop=100.0,
+        reference_target=None,
+        bars=since,
+        entry_date=entry_day,
+        atr=None,
+    )
+    assert stale.proposal is None

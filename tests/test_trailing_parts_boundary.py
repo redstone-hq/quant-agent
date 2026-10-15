@@ -24,10 +24,12 @@ PARTS = ["src.risk.trail_structure", "src.risk.trail_range_ratchet", "src.risk.t
 class _Bar:
     high: float
     low: float
+    close: float = 0.0
 
 
 def _bars(pattern):
-    return [_Bar(high=h, low=lo) for h, lo in pattern]
+    # Closes mid-range: the swing detector's ATR(14) needs a close.
+    return [_Bar(high=h, low=lo, close=(h + lo) / 2) for h, lo in pattern]
 
 
 @pytest.mark.parametrize("module", PARTS)
@@ -37,26 +39,19 @@ def test_part_passes_boundary_check(module):
 
 
 def test_structure_leg_runs_from_a_stub_bar_alone():
+    # 14 flat bars first for the detector's ATR(14) to warm up on (2026-10-15);
+    # then a dip to 96, a rally, a pullback to 100 and a further rally. Each
+    # bar trades a 2.00 range, so one ATR is ~2.
     rising = _bars(
-        [
-            (101, 99),
-            (102, 98),
-            (103, 97),
-            (104, 96),
-            (105, 101),
-            (106, 102),
-            (107, 103),
-            (108, 100),
-            (109, 104),
-            (110, 105),
-            (111, 106),
-        ]
+        [(101, 99)] * 14 + [(lo + 2, lo) for lo in (99, 98, 97, 96, 101, 102, 103, 100, 104, 105, 106)]
     )
     lows = trail_structure._swing_lows(rising)
     assert lows == [96.0, 100.0]
     assert trail_structure._structural_pivot(lows, is_short=False) == 100.0
     assert trail_structure._structural_pivot([95.0, 92.0], is_short=False) is None
-    assert trail_structure._swing_highs(rising) == []
+    # The fall from 105 to 100 is more than one ATR, so under the reversal
+    # rule 105 is a confirmed swing high; the still-rising 108 is not.
+    assert trail_structure._swing_highs(rising) == [105.0]
 
 
 def test_range_ratchets_run_alone_and_never_loosen():

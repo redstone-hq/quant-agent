@@ -62,6 +62,12 @@ class _Bar:
     high: float
     low: float
     date: _date = _BAR_DAY
+    close: float | None = None
+
+    def __post_init__(self):
+        # The swing detector's ATR(14) needs a close; mid-range unless stated.
+        if self.close is None:
+            self.close = (self.high + self.low) / 2
 
 
 def _bars(pattern):
@@ -88,8 +94,9 @@ def _mirror(price: float, axis: float) -> float:
 
 def _rising_with_higher_lows():
     """Same fixture as tests/test_trailing_stops.py: a clean uptrend with two
-    CONFIRMED swing lows, at 100 and 110."""
-    lows = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
+    CONFIRMED swing lows, at 100 and 110, after 14 flat bars for the swing
+    detector's ATR(14) to warm up on."""
+    lows = [110] * 14 + [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
     return _bars([(lo + 2, lo) for lo in lows])
 
 

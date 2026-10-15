@@ -20,10 +20,10 @@ from src.portfolio_constructor import (
     STOP_RULE_LEVEL_HONOURED,
 )
 from src.data.levels import (
-    PIVOT_WINDOW,
     describe_stop_level_basis,
     level_zone_halfwidth,
 )
+from src.data.technical import ATR_PERIOD
 from src.storage.db import Database, _categorize_exit_reason
 
 
@@ -220,11 +220,14 @@ def test_stop_level_basis_records_the_level_identity_not_a_verdict():
     assert record["level_backed"] is True
     assert record["level_price"] == pytest.approx(95.0)
     assert record["level_kind"] == "support"
-    # How many turns made the level, and how many bars confirm a swing
-    # point — the two halves of the open question, recorded as they stood.
+    # How many turns made the level, and how a swing point was confirmed —
+    # the two halves of the open question, recorded as they stood. Since
+    # 2026-10-15 a swing is a reversal of the stock's own ATR(14), not a
+    # bar-count window (schema version 2).
     assert record["level_touches"] == 3
-    assert record["pivot_window_bars"] == PIVOT_WINDOW
-    assert record["pivot_confirm_bars"] == PIVOT_WINDOW * 2 + 1
+    assert record["pivot_rule"] == "zigzag_reversal_atr"
+    assert record["pivot_atr_period"] == ATR_PERIOD
+    assert "pivot_window_bars" not in record and "pivot_confirm_bars" not in record
     # The zone, read off the live definition rather than restated here.
     half = level_zone_halfwidth(95.0)
     assert record["zone_low"] == pytest.approx(95.0 - half)

@@ -953,7 +953,7 @@ numbers:
       --config-b against a copy differing only in max_target_horizon_sessions.
     site: src/config/__init__.py
     narrowed: >-
-      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this cap changed [measured]: 60 to 250 changed the output in 11 windows (0.9%), 60 to 20 in 150 (12.8%). The cap is consulted by the level finder, the target derivation, admission and the touch-probability log, so it is a live cap whose UPPER side barely binds on this data; the harness feeds the constant, not a per-analysis stated horizon. Pinned by tests/test_dead_branch_narrowing_levels.py.
+      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this cap changed [measured]: 60 to 250 changed the output in 11 windows (0.9%), 60 to 20 in 150 (12.8%). The cap is consulted by the level finder, the target derivation, admission and the touch-probability log, so it is a live cap whose UPPER side barely binds on this data; the harness feeds the constant, not a per-analysis stated horizon. Re-measured 2026-10-15 after swing points became an ATR(14) reversal instead of a 5-bar window [measured]: 60 to 250 changes 13 windows (1.1%), 60 to 20 changes 204 (17.3%). Pinned by tests/test_dead_branch_narrowing_levels.py.
     note: >-
       The longest horizon a target may claim before the desk stops believing
       it, owner-ratified appetite 2026-09-25 (delegated to the adversary).
@@ -985,7 +985,7 @@ numbers:
     ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
     site: src/config/__init__.py
     narrowed: >-
-      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this reach multiple changed [measured]: 1.5 to 5.0 changed the output in 11 windows (0.9%, the same 11 windows as the horizon cap above), 1.5 to 0.5 in 490 (41.7%). So the cap binds hard from below and almost never from above on this data; the engine-blind finding in this row is about the backtest, not the live finder, which does consult it. Pinned by tests/test_dead_branch_narrowing_levels.py.
+      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this reach multiple changed [measured]: 1.5 to 5.0 changed the output in 11 windows (0.9%, the same 11 windows as the horizon cap above), 1.5 to 0.5 in 490 (41.7%). So the cap binds hard from below and almost never from above on this data; the engine-blind finding in this row is about the backtest, not the live finder, which does consult it. Re-measured 2026-10-15 after swing points became an ATR(14) reversal [measured]: 1.5 to 5.0 changes 13 windows (1.1%), 1.5 to 0.5 changes 686 (58.3%). Pinned by tests/test_dead_branch_narrowing_levels.py.
     note: >-
       The reach caps, split out of one number -- board item 56 owns the
       question and records that the split made them CONSISTENT without making

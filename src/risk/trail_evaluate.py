@@ -13,7 +13,7 @@ from dataclasses import replace as _replace
 from datetime import date, datetime
 
 from src.risk.trail_range_ratchet import _range_breakeven_ratchet, _range_second_ratchet
-from src.risk.trail_structure import _structural_pivot, _swing_highs, _swing_lows
+from src.risk.trail_structure import _structural_pivot, _swing_highs_dated, _swing_lows_dated
 from src.risk.trail_tick import (
     MIN_RATCHET_TICKS,
     min_ratchet_floor,
@@ -325,25 +325,36 @@ def evaluate_trailing_stop(
     # price-follower, which is a different exit rule from the ratified one and
     # needs an argued decision, not a quiet patch here.
     # The bar-count minimum belongs to the STRUCTURE leg alone: it is the
-    # pivot span `_swing_lows` needs before it can confirm one pivot. The
-    # chandelier (LeBeau: highest high since entry - k x ATR) needs no span,
-    # so it is NOT gated by it — gating it meant the chandelier first read in
-    # session 8 and, on the recent book, no stop ever trailed.
+    # ATR warm-up `turning_points` needs before it can confirm one swing
+    # (`MIN_BARS_FOR_A_READING`). The chandelier (LeBeau: highest high since
+    # entry - k x ATR) needs no span, so it is NOT gated by it.
+    #
+    # Since 2026-10-15 swings are confirmed by a reversal of the stock's own
+    # ATR(14), so the detector reads the FULL bar history handed in (the ATR
+    # warms up on bars before entry) and only swings that PRINTED on or after
+    # the entry day are kept — the same date rule the trend exit applies.
+    # Handed the since-entry slice alone it would wait 15 sessions after entry
+    # for its own ATR. Unknown entry day: no swing.
     _since_entry = _structure_bars(bars, entry_date)
-    _usable_bars = [b for b in _since_entry if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
-    structure_readable = len(_usable_bars) >= MIN_BARS_FOR_A_READING
+    _entry = _entry_day(entry_date)
+    _history = list(bars or [])
+    _usable_bars = [b for b in _history if _finite(getattr(b, "low" if is_short else "high", None)) is not None]
+    structure_readable = bool(_since_entry) and len(_usable_bars) >= MIN_BARS_FOR_A_READING
+
+    def _since_open(dated):
+        return [price for d, price in dated if d is not None and str(d)[:10] >= _entry]
 
     candidates: list[tuple[float, str]] = []
     if structure_readable:
         if is_short:
-            pivot = _structural_pivot(_swing_highs(_since_entry), is_short=True)
+            pivot = _structural_pivot(_since_open(_swing_highs_dated(_history)), is_short=True)
             # The pivot is only usable if it is BELOW the current stop and ABOVE
             # current price: above the stop is not a ratchet, below the price is
             # not a stop.
             if pivot is not None and cur < pivot < stop:
                 candidates.append((pivot, "structure"))
         else:
-            pivot = _structural_pivot(_swing_lows(_since_entry), is_short=False)
+            pivot = _structural_pivot(_since_open(_swing_lows_dated(_history)), is_short=False)
             # Mirror: only a pivot ABOVE the current stop and BELOW current price
             # is usable — below the stop is not a ratchet, above the price is not
             # a stop.

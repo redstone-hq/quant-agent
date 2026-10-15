@@ -1,4 +1,4 @@
-"""The chandelier trail is not gated by the structure leg's 7-bar pivot span.
+"""The chandelier trail is not gated by the structure leg's ATR warm-up span.
 
 LeBeau's chandelier: highest high since entry - k x ATR (k = 3.0). Its high is
 read from COMPLETED daily bars dated strictly AFTER the entry day only — never
@@ -7,7 +7,8 @@ a forming bar — and it needs at least ONE such bar. ATR is the caller's curren
 14-day ATR. The entry day is passed explicitly (`entry_date`, the current
 holding's opening broker fill day); unknown means no chandelier reading. Every test
 states its entry day.
-The structure leg keeps its 7-bar gate. Shorts mirror.
+The structure leg keeps its gate: the ATR(14) warm-up its swing detector
+needs (15 bars of history, 2026-10-15). Shorts mirror.
 
 Numbers: entry 100, ATR 2, initial stop 2.5 ATR away (95 long / 105 short).
 """
@@ -16,10 +17,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from src.data.technical import ATR_PERIOD
 from src.models.analysis import OHLCV
 from src.risk.trailing import (
     CHANDELIER_ATR_MULTIPLE,
     MIN_BARS_FOR_A_READING,
+    TRAIL_CODE_NO_CANDIDATE,
     TRAIL_CODE_TOO_FEW_BARS,
     evaluate_trailing_stop,
 )
@@ -57,7 +60,7 @@ def _eval(*, cur, stop, bars, entry_date, qty=1.0, atr=ATR, as_of=None):
 
 def test_k_is_three():
     assert CHANDELIER_ATR_MULTIPLE == 3.0
-    assert MIN_BARS_FOR_A_READING == 7
+    assert MIN_BARS_FOR_A_READING == ATR_PERIOD + 1
 
 
 # --- 0 bars after the entry day: no reading at all, even under a wide stop
@@ -212,25 +215,38 @@ def test_after_close_todays_bar_is_completed_and_used():
 
 # --- The structure leg is still gated at 7 --------------------------------
 
-_DATES = [date(2026, 10, d) for d in (1, 2, 5, 6, 7, 8, 9)]
-_LONG_LOWS = [99.0, 98.0, 97.0, 96.5, 97.0, 98.0, 99.0]
-_SHORT_HIGHS = [101.0, 102.0, 103.0, 103.5, 103.0, 102.0, 101.0]
+# 14 flat September bars first: the swing detector's ATR(14) warms up on
+# history from before the entry (2026-10-15); the V itself is after entry.
+_WARM_DATES = [date(2026, 9, d) for d in range(10, 24)]
+_DATES = _WARM_DATES + [date(2026, 10, d) for d in (1, 2, 5, 6, 7, 8, 9)]
+_LONG_LOWS = [99.0] * 14 + [99.0, 98.0, 97.0, 96.5, 97.0, 98.0, 99.0]
+_SHORT_HIGHS = [101.0] * 14 + [101.0, 102.0, 103.0, 103.5, 103.0, 102.0, 101.0]
+_SHORT_OF_WARM_UP = MIN_BARS_FOR_A_READING - 1
 
 
-def test_long_structure_gated_below_seven():
+def test_long_structure_gated_below_the_atr_warm_up():
     bars = [_bar(d, lo, lo + 2.0) for d, lo in zip(_DATES, _LONG_LOWS)]
-    seven = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
-    assert seven.proposal is not None and seven.proposal.source == "structure"
-    six = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars[:6], atr=None)
-    assert six.proposal is None and six.code == TRAIL_CODE_TOO_FEW_BARS
+    full = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
+    assert full.proposal is not None and full.proposal.source == "structure"
+    short = _eval(
+        entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars[-_SHORT_OF_WARM_UP:], atr=None
+    )
+    assert short.proposal is None and short.code == TRAIL_CODE_TOO_FEW_BARS
 
 
-def test_short_structure_gated_below_seven():
+def test_short_structure_gated_below_the_atr_warm_up():
     bars = [_bar(d, hi - 2.0, hi) for d, hi in zip(_DATES, _SHORT_HIGHS)]
-    seven = _eval(entry_date=date(2026, 10, 1), cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, atr=None)
-    assert seven.proposal is not None and seven.proposal.source == "structure"
-    six = _eval(entry_date=date(2026, 10, 1), cur=92.0, stop=SHORT_STOP, bars=bars[:6], qty=-1.0, atr=None)
-    assert six.proposal is None and six.code == TRAIL_CODE_TOO_FEW_BARS
+    full = _eval(entry_date=date(2026, 10, 1), cur=92.0, stop=SHORT_STOP, bars=bars, qty=-1.0, atr=None)
+    assert full.proposal is not None and full.proposal.source == "structure"
+    short = _eval(
+        entry_date=date(2026, 10, 1),
+        cur=92.0,
+        stop=SHORT_STOP,
+        bars=bars[-_SHORT_OF_WARM_UP:],
+        qty=-1.0,
+        atr=None,
+    )
+    assert short.proposal is None and short.code == TRAIL_CODE_TOO_FEW_BARS
 
 
 # --- The entry day comes from the caller, never from the bars ---------------
@@ -306,12 +322,12 @@ def test_caller_entry_day_unknown_is_none_never_a_guess():
 
 def test_structure_leg_uses_the_same_entry_day():
     bars = [_bar(d, lo, lo + 2.0) for d, lo in zip(_DATES, _LONG_LOWS)]
-    # Entry 1 Oct: all seven bars are on/after it, the structure leg reads.
+    # Entry 1 Oct: the 6 Oct swing low printed after it, the structure leg reads.
     assert _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None).proposal is not None
-    # Entry 2 Oct: the 1 Oct bar predates the holding, six remain - gated,
-    # even though the caller handed all seven in.
-    ev = _eval(entry_date=date(2026, 10, 2), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
-    assert ev.proposal is None and ev.code == TRAIL_CODE_TOO_FEW_BARS
+    # Entry 7 Oct: the 6 Oct swing low predates the holding, so it is not
+    # used, even though the caller handed the whole history in.
+    ev = _eval(entry_date=date(2026, 10, 7), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
+    assert ev.proposal is None and ev.code == TRAIL_CODE_NO_CANDIDATE
     # Unknown entry day: neither leg reads a guessed window.
     for atr in (None, ATR):
         ev = _eval(entry_date=None, cur=108.0, stop=LONG_STOP, bars=bars, atr=atr)

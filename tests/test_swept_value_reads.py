@@ -5,7 +5,7 @@ inert" when the harness had never reached the parameter at all. These
 tests pin the three ways that happened and the counter that now makes it
 visible:
 
-* ``find_structural_levels`` freezes ``pivot_window`` / ``tolerance_pct``
+* ``find_structural_levels`` freezes ``tolerance_pct``
   / ``min_touches`` as DEFAULT ARGUMENTS, evaluated once at definition
   time — reassigning the module constant was swept past silently.
 * ``compute_trailing_stop`` lives in ``src/risk/trail_evaluate.py`` and
@@ -46,11 +46,13 @@ def _capture(monkeypatch):
 
 
 def test_a_run_reads_every_level_tunable_at_its_use_site():
-    """Before this wiring the engine passed none of the three, so a sweep
-    over them could only ever return byte-identical results."""
+    """Before this wiring the engine passed none of them, so a sweep over
+    them could only ever return byte-identical results. The swing-point bar
+    window is gone (2026-10-15: swings are an ATR(14) reversal), so it is
+    neither a tunable nor read."""
     _, params, _ = _run(_build_long_win_series())
     counts = params.meter.counts()
-    assert counts["levels.pivot_window"] >= 1
+    assert "levels.pivot_window" not in counts
     assert counts["levels.cluster_tolerance_pct"] >= 1
     assert counts["levels.min_touches"] >= 1
 
@@ -73,24 +75,25 @@ def test_reassigning_the_defining_module_constant_now_reaches_the_finder(monkeyp
     sweep that reassigned the module constant never arrived. The engine now
     reads it late and passes it explicitly — captured here as it arrives."""
     seen = _capture(monkeypatch)
-    monkeypatch.setattr(levels_module, "PIVOT_WINDOW", levels_module.PIVOT_WINDOW + 6)
+    monkeypatch.setattr(levels_module, "CLUSTER_TOLERANCE_PCT", levels_module.CLUSTER_TOLERANCE_PCT + 0.5)
     monkeypatch.setattr(levels_module, "MIN_TOUCHES", levels_module.MIN_TOUCHES + 1)
     meter = swept_values.SweepMeter()
     _resolve_structural_stop_and_target(_build_long_win_series(), "long", 105.0, meter=meter)
 
     assert len(seen) == 1
-    assert seen[0]["pivot_window"] == levels_module.PIVOT_WINDOW
+    assert "pivot_window" not in seen[0]
     assert seen[0]["min_touches"] == levels_module.MIN_TOUCHES
     assert seen[0]["tolerance_pct"] == levels_module.CLUSTER_TOLERANCE_PCT
-    assert meter.counts()["levels.pivot_window"] == 1
+    assert meter.counts()["levels.min_touches"] == 1
+    assert meter.counts()["levels.cluster_tolerance_pct"] == 1
 
 
 def test_a_meter_override_wins_over_the_module_constant(monkeypatch):
     seen = _capture(monkeypatch)
     meter = swept_values.SweepMeter()
-    meter.set_override("levels.pivot_window", 9)
+    meter.set_override("levels.min_touches", 9)
     _resolve_structural_stop_and_target(_build_long_win_series(), "long", 105.0, meter=meter)
-    assert seen[0]["pivot_window"] == 9
+    assert seen[0]["min_touches"] == 9
 
 
 def test_the_trailing_multiples_are_counted_while_a_run_is_in_progress():
@@ -118,7 +121,7 @@ def test_an_override_reaches_the_module_that_actually_reads_it():
 
 
 def test_a_counted_float_is_numerically_transparent():
-    counted = swept_values.CountedFloat(2.5, swept_values.SweepMeter(), "levels.pivot_window")
+    counted = swept_values.CountedFloat(2.5, swept_values.SweepMeter(), "levels.min_touches")
     assert counted == 2.5
     assert counted * 4 == 10.0
     assert 4 * counted == 10.0
@@ -141,11 +144,11 @@ def test_an_unread_swept_value_is_reported_as_a_non_result():
     """The whole point: a zero-read sweep must be loud, not silently
     identical to the baseline."""
     meter = swept_values.SweepMeter()
-    meter.set_override("levels.pivot_window", 9)
+    meter.set_override("levels.min_touches", 9)
     report = meter.format_read_counts("unit test")
     assert "NEVER READ" in report
     assert "non-result" in report
-    assert "levels.pivot_window" in report
+    assert "levels.min_touches" in report
 
 
 def test_a_value_with_no_reading_site_is_named_rather_than_ignored():
