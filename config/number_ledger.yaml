@@ -689,7 +689,7 @@ numbers:
       margin on a margin equity security, so the largest position a margin account may OPEN is twice
       its own equity; Alpaca restates the same limit as 2x overnight buying power against 4x intraday
       for a pattern-day-trade account, which is the `Alpaca''s own 4x` the sizing module''s comment
-      at src/pipeline_sizing.py@`# ladder-resolved gross headroom, so the de-leve` refers to and which applies only within a session. The desk is
+      at src/pipeline_sizing.py (the comment above its gross-headroom clamp) refers to and which applies only within a session. The desk is
       flat-to-long overnight by construction, so the binding external bound is the 2x initial one
       and the configured cap sits EXACTLY on it. WHAT THE OWNER SHOULD READ IN THIS: the standing
       gross ceiling is `as much as the law allows`. That is the ABSENCE of a leverage decision, not
@@ -2373,7 +2373,7 @@ numbers:
       required before a same-window set of purchases is called a cluster --
       at a second definition site in the same module family. The configured
       value is threaded to the clustering function as `min_cluster_owners`
-      (src/pipeline.py::TradingPipeline.__init__ (min_cluster_owners passed at lines 510 and 547) -> src/data/smart_money_cluster.py::cluster_survivors,121);
+      (src/pipeline.py::TradingPipeline.__init__ (min_cluster_owners passed at lines 510 and 547) -> cluster_survivors in src/data/smart_money_cluster.py);
       this module-level constant guards the purchase-cluster branch at
       src/data/smart_money_cluster.py::insider_purchase_clusters, which takes no parameter. Recorded
       as `derived` so the two cannot drift apart silently: raising the
@@ -2532,7 +2532,7 @@ numbers:
     site: src/pipeline_stages.py
     note: >-
       The partial-outage alarm: a feed serving short or stale history to MOST
-      but not literally ALL requests. src/pipeline_stages.py@`STARTER_POSITION_RISK_PCT,` states
+      but not literally ALL requests. src/pipeline_stages.py::LEVELS_DEGRADED_RUN_EMPTY_SHARE (the comment directly above it) states
       plainly that 0.5 is deliberately coarse and NOT a fitted percentile,
       because only one clean baseline run exists to derive it from
       (2026-09-02: 1 of 64 resolved symbols, 1.6%, with no computed level) and
@@ -2596,7 +2596,7 @@ numbers:
     base_value: 5
     note: >-
       The fallback used when the configured risk budget cannot be read.
-      src/pipeline_sizing.py@`# connected the two, so this independent recheck` records the incident it came out of -
+      src/pipeline_sizing.py::_DEFAULT_RISK_BUDGET_PCT (the comment directly above it) records the incident it came out of -
       real NVDA/ORCL/RSG rows risking ~$49 on a ~$9.85k book where ~$490 was
       ratified - and says the 5.0 here is the ratified default, not an
       invented one. Recorded as derived so it cannot drift from the
@@ -2608,7 +2608,7 @@ numbers:
     site: src/pipeline_earnings_quality.py
     note: >-
       Absolute floor stopping that same post-hoc percentage test from
-      exploding on a near-zero true value (src/pipeline_earnings_quality.py@`# Floors stop the percentage test from exploding`).
+      exploding on a near-zero true value (src/pipeline_earnings_quality.py::_EARNINGS_XBRL_DOLLAR_FLOOR (the comment directly above it)).
       Same boundary as the tolerance above: a data-quality record, not a trade
       decision.
   - id: src.pipeline_earnings_quality._EARNINGS_XBRL_EPS_FLOOR
@@ -2626,7 +2626,7 @@ numbers:
     note: >-
       Tolerance for a POST-HOC data-quality comparison between an earnings
       analysis's numeric fields and the filer's own XBRL figures
-      (src/pipeline_earnings_quality.py@`# 5% mirrors the traditional accounting-material`). It records whether the analyst's
+      (src/pipeline_earnings_quality.py::_EARNINGS_XBRL_TOLERANCE_PCT (the comment directly above it)). It records whether the analyst's
       number and the filing disagree; nothing in the entry, sizing, stop or
       exit path reads the result. The 5% itself mirrors the accounting
       materiality rule of thumb discussed in SEC Staff Accounting Bulletin No.
@@ -3075,7 +3075,7 @@ numbers:
       `RiskConfig.min_position_risk_pct`, the floor `allocate_risk_budget`
       already denies requests under. CORRECTION 2026-09-18: the first version
       of this entry called it "the size a range ticket is cut to" and cited
-      RSG. docs/INCIDENT_HISTORY.md@`He was right. The work to that point had been co` attributes that shrinking to the 1.5
+      RSG. docs/INCIDENT_HISTORY.md (the passage that begins He was right) attributes that shrinking to the 1.5
       reward:risk starter cap, not to this 0.5% floor - two different numbers
       in one sentence.
     open_question: >-
@@ -3403,7 +3403,7 @@ numbers:
     status: not-trade-governing
     site: src/risk/rules.py
     note: >-
-      The desk's capital-deployment target. src/risk/rules.py@`# sitting in T-bills or any other positions that` states
+      The desk's capital-deployment target. src/risk/rules.py::DESK_INVESTED_TARGET_PCT (the owner-mandate comment directly above it) states
       it as a MANDATE, not a tuned number - the whole of equity, because cash
       earning less than inflation is a loss and the desk can always go long or
       short. Compared against `BookExposure.deployed_pct` by the PM facts
@@ -3867,7 +3867,7 @@ numbers:
       measurement.
     cost_while_unanswered: >-
       None outstanding. The refusal codes written to `specialist_evidence`
-      (`kind='trail_state'`, `src/risk/trailing.py::TRAIL_CODE_TRAILED`) already
+      (`kind='trail_state'`, `TRAIL_CODE_TRAILED in src/risk/trailing.py`) already
       name which gate refused each trail, which is what this entry wanted.
     wrong_as_of_2026_10_02: >-
       THIS NUMBER IS NOW WRONG BY ITS OWN RECORDED TEST, AND THE TEST WAS
@@ -3879,13 +3879,13 @@ numbers:
       same comment named the exact condition that would end that defence --
       `_amend_resting_stop_price` reaching main -- and recorded "It is NOT on
       main (verified 2026-09-30)". IT IS ON MAIN. It is defined at
-      src/execution/broker.py::AlpacaBroker._amend_resting_stop_price, constructed into the stop placer at
-      src/execution/broker_parts/stop_place.py::StopPlacer.__init__ and :209, and
+      AlpacaBroker._amend_resting_stop_price in src/execution/broker.py, constructed into the stop placer at
+      StopPlacer.__init__ in src/execution/broker_parts/stop_place.py and :209, and
       `replace_stop_loss` now PREFERS it: src/execution/broker_parts/
       stop_place.py:1030-1062 amends the resting stop's price in place and
       falls back to cancel+resubmit only when the pre-amend position re-read
       fails or the order is not amendable, with the fallback's naked window
-      timed and recorded (src/execution/broker_parts/stop_window.py::UnprotectedWindow.close). So on
+      timed and recorded (UnprotectedWindow.close in src/execution/broker_parts/stop_window.py). So on
       the preferred path there is no unprotected instant, and the measured
       cost that defended 2.0 is gone. By the derivation this entry already
       committed to, the honest floor is now ONE VENUE TICK -- SEC Rule 612
@@ -4638,7 +4638,7 @@ numbers:
     site: src/coverage_watchdog.py
     note: >-
       Floating-point tolerance for "covered < held" comparisons
-      (src/coverage_watchdog.py::DB_PATH, same tolerance the coverage
+      (src/coverage_watchdog.py::_QTY_EPSILON, same tolerance the coverage
       reconciler uses). Guards against representation error rather than
       choosing a policy magnitude, same reasoning as
       src.execution.broker_parts.stop_place._FRACTIONAL_QTY_EPSILON.
@@ -4649,7 +4649,7 @@ numbers:
     note: >-
       Network deadline, timeout, poll interval or fetch batch cap. Ceiling
       on how many symbols get a company-profile network lookup for PM's
-      informational facts block (src/pipeline.py@`RiskVerdict,`); it decides how
+      informational facts block (src/prompt_facts/pm_facts.py::PromptPMFacts._build_pm_facts); it decides how
       much the desk fetches for that block, never whether or how much to
       trade.
   - id: src.agents.llm_providers._DEEPSEEK_MAX_OUTPUT['deepseek-v4-flash']
@@ -4917,7 +4917,7 @@ numbers:
     site: src/agents/smart_money_analyst.py
     note: >-
       Character cap applied to context text via `_bounded_context`
-      (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._transaction_rank). Same reasoning as
+      (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._bounded_context). Same reasoning as
       src.agents.smart_money_analyst._MAX_SYNTHESIS_SYMBOLS.
     open_question: >-
       Does truncating context text at 96 characters ever cut the part that
@@ -4952,7 +4952,7 @@ numbers:
     site: src/agents/smart_money_analyst.py
     note: >-
       Character cap for the discount-reason text via `_bounded_context`
-      (src/agents/smart_money_analyst.py@`# room than an actor name so the sentence surviv`, 322). Same reasoning as
+      (src/agents/smart_money_analyst.py::_MAX_REASON_TEXT_CHARS (the comment directly above it)). Same reasoning as
       src.agents.smart_money_analyst._MAX_SYNTHESIS_SYMBOLS; the comment
       there says only that this leaves "more room than an actor name", not
       why 220 rather than another figure.
@@ -5302,7 +5302,7 @@ numbers:
     site: src/agents/tech_analyst.py
     note: >-
       OHLCV bars attached per symbol in the technical seat's prompt
-      (src/agents/tech_analyst.py@`TechAnalystAnswer,`). The comment gives only qualitative
+      (src/agents/tech_analyst.py::_BARS_PER_SYMBOL). The comment gives only qualitative
       reasoning ("enough for swing pivots... not so many that context
       balloons"); structural levels are computed separately in
       src/data/levels.py, but the recent-bar window itself still shapes
@@ -5338,7 +5338,7 @@ numbers:
     site: src/agents/tech_analyst.py
     note: >-
       LLM plumbing: ceiling before the technical seat's symbol batch is
-      auto-chunked across more calls (src/agents/tech_analyst.py::_BARS_PLACEHOLDER_RE).
+      auto-chunked across more calls (src/agents/tech_analyst.py::TechAnalystAgent._split_to_budget).
       Every symbol is still analysed, only split across more requests, so
       this decides call shape, not whether or how much to trade.
   - id: src.agents.tech_analyst._CHUNK_SIZE
@@ -5347,7 +5347,7 @@ numbers:
     site: src/agents/tech_analyst.py
     note: >-
       LLM plumbing: chunk size once a batch is split
-      (src/agents/tech_analyst.py::render_bars_per_symbol). Same reasoning as
+      (src/agents/tech_analyst.py::TechAnalystAgent._split_to_budget). Same reasoning as
       src.agents.tech_analyst._MAX_SYMBOLS_PER_CALL -- every symbol is still
       analysed.
   - id: src.agents.tech_analyst._MAX_MISSING_RETRIES
@@ -5356,7 +5356,7 @@ numbers:
     site: src/agents/tech_analyst.py
     note: >-
       LLM plumbing: bounded re-ask count for a symbol a chunk's first
-      response dropped (src/agents/tech_analyst.py@`# cannot resolve, and on the only seat allowed t`). The comment
+      response dropped (src/agents/tech_analyst.py::_MAX_MISSING_RETRIES (the comment directly above it)). The comment
       records that a symbol still missing after this is given an explicit
       failed outcome rather than silently treated as analysed, which is
       what keeps this a plumbing retry rather than a silent evidence drop.
@@ -5414,9 +5414,9 @@ numbers:
     base_value: 25
     note: >-
       Default rotation-check risk ceiling for the PM
-      (src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.build_user_message). Same 25 as the deployed ceiling;
+      (src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.decide, the `max_portfolio_risk_pct: float = 25.0` signature default). Same 25 as the deployed ceiling;
       a second inline 25.0 fallback sits at
-      src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.decide, which no rule sees.
+      src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.build_user_message (`kwargs.get("max_portfolio_risk_pct", 25.0)`), which no rule sees.
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(rr_floor)
     value: 1.5
     status: derived
@@ -5615,10 +5615,10 @@ numbers:
     site: src/prompt_facts/review/blocked.py
     note: >-
       Window of the PM's 'names you keep proposing and never get' memory
-      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::build_pm_decide_inputs) passes nothing, so this
+      (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (build_pm_decide_inputs in src/stage_decision.py) passes nothing, so this
       default is live. Same class as the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5648,7 +5648,7 @@ numbers:
       (src/prompt_facts/review/blocked.py::ReviewBlocked._build_blocked_proposals). Its only caller (src/stage_decision.py::build_pm_decide_inputs) passes nothing, so this
       default is live. Same class as the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5676,12 +5676,12 @@ numbers:
     site: src/prompt_facts/review/calibration.py
     note: >-
       Window of the PM's own hit-rate/return calibration note
-      (src/stage_decision.py::build_pm_decide_inputs and
+      (build_pm_decide_inputs in src/stage_decision.py and
       src/sessions/position_review_session.py::PositionReviewSession.run).
       Both production callers omit `lookback_days`, so this default is live.
       Same class as the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5726,7 +5726,7 @@ numbers:
       `min_top_mover_dollar_volume_m`, so this default is live. Same class as
       the smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5773,7 +5773,7 @@ numbers:
       `top_movers_count`, so this default is live. Same class as the
       smart-money prompt-truncation caps classified arbitrary on 2026-09-19:
       it decides what evidence a
-      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5817,7 +5817,7 @@ numbers:
       Its only production caller omits `limit`, so this default is live. Same
       class as the smart-money
       prompt-truncation caps classified arbitrary on 2026-09-19: it decides
-      what evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      what evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5847,7 +5847,7 @@ numbers:
       flop memory) (src/stage_decision.py::build_pm_decide_inputs). Its only caller passes
       nothing, so this default is live. Same class as the smart-money prompt-
       truncation caps classified arbitrary on 2026-09-19: it decides what
-      evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5886,7 +5886,7 @@ numbers:
       `max_symbols`, so this default is live. Same class as the smart-money
       prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5918,7 +5918,7 @@ numbers:
       Its only production caller supplies `lookback_days` but omits
       `min_age_days`, so this default is live. Same class as the smart-money prompt-
       truncation caps classified arbitrary on 2026-09-19: it decides what
-      evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      evidence a trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5955,7 +5955,7 @@ numbers:
       Its only caller passes nothing, so this default is live. Same class as
       the smart-money prompt-truncation caps classified arbitrary on
       2026-09-19: it decides what evidence a trading seat's verdict is built
-      from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -5986,7 +5986,7 @@ numbers:
       omits `lookback_days`, so this default is live. Same class as the
       smart-money prompt-truncation caps
       classified arbitrary on 2026-09-19: it decides what evidence a trading
-      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -6038,10 +6038,10 @@ numbers:
     site: src/prompt_facts/decisions.py
     note: >-
       How many recent risk-seat verdicts the PM is shown to self-calibrate
-      size (src/stage_decision.py::build_pm_decide_inputs). Its only caller passes nothing, so
+      size (build_pm_decide_inputs in src/stage_decision.py). Its only caller passes nothing, so
       this default is live. Same class as the smart-money prompt-truncation
       caps classified arbitrary on 2026-09-19: it decides what evidence a
-      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -6072,7 +6072,7 @@ numbers:
       production caller supplies `positions` but omits `lookback_weeks`, so
       this default is live. Same class as the smart-money prompt-truncation
       caps classified arbitrary on 2026-09-19: it decides what evidence a
-      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
+      trading seat's verdict is built from. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED, and both failed derivation attempts are written down so nobody repeats them. (1) Derive the window from the desk's ratified SWING mandate (days to weeks, docs/OUTCOME.md, its Horizon line; the same cited authority says "**Holding period is an OUTPUT, not a setting.**"): FAILED -- the mandate deliberately names no number and holds hold-length to be an output, not a setting, so it cannot fix a lookback. (2) Derive it from another ledgered window row: FAILED -- every sibling evidence window in this ledger is itself `arbitrary`, so the arithmetic would only relabel one unsourced number as another's child. Two attempts is the limit, exactly as the smart-money truncation caps found on 2026-09-19, and the same reason applies: nothing records how much evidence existed BEFORE the cut, so the RECORDING is the route. The value is unchanged by this pass.
     open_question: >-
       How much history does this memory need before its signal is
       distinguishable from noise, and how much before older rows stop changing
@@ -6178,7 +6178,7 @@ numbers:
     note: >-
       Research pre-filter: a symbol whose MA20/MA50 spread is under 0.5 x
       ATR14 counts as having an actionable signal and is sent to the technical
-      seat (src/pipeline.py::TradingPipeline._collab). The same function has further inline
+      seat (src/pipeline_risk_gate.py::RiskGate._has_actionable_signal_fn, wired in by src/pipeline.py). The same function has further inline
       thresholds (50% volume change, 2% MA spread) that no rule sees because
       they are comparisons, not multipliers. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED. Derivation attempt (1): derive 0.5 from the ledgered noise-band multiple of 1.25 ATR as a half-band. FAILED -- the noise band bounds a STOP against daily range, this bounds a moving-average SPREAD; they share a unit and nothing else. Attempt (2): treat it as a sort-key position with no magnitude, the shape that explained eight rows in tranche 1. FAILED -- checked at the definition site and it is a genuine magnitude: it is compared against a computed spread and decides inclusion, it is not a position in any ordering. Value unchanged.
     open_question: >-
@@ -6229,8 +6229,8 @@ numbers:
     site: src/pipeline.py
     note: >-
       Window of the quarterly meta-reflection digest
-      (src/pipeline_intraday.py::IntradayMixin._intraday_open_overlap_skip). Its output reaches a prompt only as a
-      STAGED edit a human applies: config/settings.yaml@`dry_run: true # explicit (was relying on the schema default)` deploys
+      (src/pipeline.py::TradingPipeline.run_quarterly_meta_reflection; its one caller, src/pipeline_parts/evening.py, passes only force). Its output reaches a prompt only as a
+      STAGED edit a human applies: config/settings.yaml (evolution dry_run: true, commented as explicit rather than relying on the schema default) deploys
       evolution enabled with dry_run true (stage-only).
   - id: src.rotation_parts.types.ROTATION_REASON_MAX_CHARS
     value: 500
@@ -6272,9 +6272,9 @@ numbers:
     derived_from: src.config.RiskConfig.maintenance_margin_pct
     base_value: 25
     note: >-
-      Default maintenance margin (src/risk/rules.py::distance_to_forced_liquidation_pct); the one caller
-      passes risk.maintenance_margin_pct (src/pipeline_intraday.py::IntradayMixin.run_intra_safety,
-      11742-11744).
+      Default maintenance margin (src/risk/rules.py::distance_to_forced_liquidation_pct); both callers
+      pass risk.maintenance_margin_pct, falling back to 25.0 (src/delever/ladder.py::DeleverLadder._resolve_gross_ceiling
+      and src/delever/ladder.py::DeleverLadder._is_margin_floor_breach).
   - id: src.risk.target_revision.assess_target_revision(breakout_projection_atr_multiple)
     value: 1
     status: derived
