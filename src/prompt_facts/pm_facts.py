@@ -35,12 +35,14 @@ class PromptPMFacts:
         parse_logged_agent_response=None,
         build_portfolio_heat=None,
         build_position_history=None,
+        atr_for_symbol=None,
     ) -> None:
         self.db = db
         self.config = config
         self._parse_logged_agent_response = parse_logged_agent_response  # the host's parser, handed in
         self._build_portfolio_heat = build_portfolio_heat  # owned by PromptHeat; the host's shim is handed in
         self._build_position_history = build_position_history  # owned by PromptHistory; the host's shim is handed in
+        self._atr_for_symbol = atr_for_symbol  # the host's ATR(14) reader, handed in
 
     def _build_pm_facts(
         self,
@@ -183,8 +185,10 @@ class PromptPMFacts:
         # RC3: deployment gap vs the invested target as a hard fact in PM's
         # face. The target is the owner's fixed fully-invested mandate
         # (2026-09-17), not a macro output — macro no longer sets or lowers
-        # it. Only rendered when there is a book to measure.
-        from src.risk.rules import DESK_INVESTED_TARGET_PCT, deployment_gap_band_pct
+        # it. Only rendered when there is a book to measure. The warning
+        # threshold is the book's own one-session drift (ATR-weighted), not a
+        # typed band; None means "drift unmeasured" and the warning is withheld.
+        from src.risk.rules import DESK_INVESTED_TARGET_PCT, book_one_session_drift_pp
 
         if total_value > 0:
             f.invested_target_pct = DESK_INVESTED_TARGET_PCT
@@ -192,7 +196,9 @@ class PromptPMFacts:
                 f.invested_pct - DESK_INVESTED_TARGET_PCT,
                 1,
             )
-            f.deployment_gap_band_pct = deployment_gap_band_pct(getattr(self, "config", None))
+            f.deployment_drift_pp = book_one_session_drift_pp(
+                positions, total_value, getattr(self, "_atr_for_symbol", None)
+            )
 
         # Audit §1.3/§1.4 — the book's real risk, and each position's
         # R-multiple. None on failure; PMFacts.render() then says "unknown"

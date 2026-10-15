@@ -82,13 +82,11 @@ class PMFacts:
     # when there was no book to measure.
     invested_target_pct: float | None = None
     deployment_gap_pp: float | None = None  # invested - target (negative = under)
-    # Tolerance band for the ⚠️ section below: the owner-set advisory
-    # band (`deployment_gap.band_pct`), not an invented number — see
-    # `src.risk.rules.deployment_gap_band_pct`. None only when the pipeline
-    # never set it (e.g. a bare `PMFacts()` in a test); render() then falls
-    # back to `DeploymentGapConfig`'s own declared default rather than a number
-    # invented here.
-    deployment_gap_band_pct: float | None = None
+    # Threshold for the ⚠️ section below: today's book's own one-session
+    # drift in points (sum of position weight x ATR(14)/price), measured by
+    # `src.risk.rules.book_one_session_drift_pp`. None = drift unmeasured
+    # (no ATR for the book): the gap is still shown, the warning is not.
+    deployment_drift_pp: float | None = None
 
     # Phase 2 / audit §1.3-§1.4: the book's actual risk, computed in Python.
     # `heat` carries per-position at-risk dollars, open risk, the release flag
@@ -229,11 +227,7 @@ class PMFacts:
         # No OVER branch: there is no macro target left to be above, and a
         # book past 100% (margin) is governed by the enforced gross ceiling,
         # not by a prompt nudge to trim.
-        band = self.deployment_gap_band_pct
-        if band is None:
-            from src.config import DeploymentGapConfig
-
-            band = DeploymentGapConfig.model_fields["band_pct"].get_default()
+        drift = self.deployment_drift_pp
         # 2026-09-18 fix: the not-under branch used to read
         # "invested=109.4% vs mandate=100% (gap +9pp)". On 2026-09-17 the PM
         # cited that line, alongside the (separately fixed) "no margin" cash
@@ -257,19 +251,30 @@ class PMFacts:
                 f" de-levering ladder), and Python applies it after you submit."
                 f" Judge adds on their own evidence, not against this line."
             )
-        if self.deployment_gap_pp >= -band:
+        gap_line = (
+            f"\n- invested={self.invested_pct:.1f}% against a floor of "
+            f"{self.invested_target_pct:.0f}% (gap {self.deployment_gap_pp:+.1f}pp)."
+        )
+        if drift is None:
             return (
-                f"\n\n### Deployment vs Fully-Invested Mandate"
-                f"\n- invested={self.invested_pct:.1f}% against a floor of "
-                f"{self.invested_target_pct:.0f}% (gap {self.deployment_gap_pp:+.0f}pp)."
+                f"\n\n### Deployment vs Fully-Invested Mandate{gap_line}"
+                f"\n- Book one-session drift: unmeasured (ATR unavailable for the book),"
+                f" so no deployment-gap warning is raised this session."
+                f" Any cash left undeployed is a cost — name why in `cash_target`."
+            )
+        drift_line = f"\n- Book one-session drift (sum of position weight x ATR(14)/price): {drift:.1f}pp."
+        if -self.deployment_gap_pp <= drift:
+            return (
+                f"\n\n### Deployment vs Fully-Invested Mandate{gap_line}{drift_line}"
+                f" The gap is inside that drift."
                 f" Any cash left undeployed is a cost — name why in `cash_target`."
             )
         return (
             f"\n\n### ⚠️ DEPLOYMENT GAP (address in cash_target step)"
             f"\n- invested={self.invested_pct:.1f}% vs fully-invested mandate="
-            f"{self.invested_target_pct:.0f}% — you are {-self.deployment_gap_pp:.0f}pp UNDER the target"
-            f"\n- This gap has been the single largest P&L drag (idle cash in a"
-            f" rising market). In `cash_target`, either (a) close it with"
+            f"{self.invested_target_pct:.0f}% — you are {-self.deployment_gap_pp:.1f}pp UNDER the target,"
+            f" more than the book's one-session drift of {drift:.1f}pp"
+            f"\n- In `cash_target`, either (a) close it with"
             f" qualified candidates THIS session, or (b) name the concrete"
             f" blocker per unfilled slot (no-qualified-setups after filters /"
             f' regime gate / earnings-queue). "Staying cautious" without a'

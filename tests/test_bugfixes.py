@@ -1555,8 +1555,8 @@ def test_macro_position_guidance_no_longer_carries_an_invested_number():
 
 def test_deployment_gap_emits_advisory_violation():
     """When projected invested is UNDER the fully-invested mandate by more
-    than the advisory band (`deployment_gap.band_pct`), a non-blocking
-    violation is emitted."""
+    than the book's own one-session drift (an empty book drifts 0pp), a
+    non-blocking violation is emitted."""
     pipeline = build_pipeline(
         risk_engine=RiskRuleEngine(
             RiskConfig(
@@ -1594,8 +1594,8 @@ def test_deployment_gap_emits_advisory_violation():
 
 
 def test_deployment_gap_skipped_when_within_tolerance():
-    """`pipeline.config` is unset (bare `__new__`), so the band falls back
-    to `DeploymentGapConfig`'s own declared `band_pct` default (1.0)."""
+    """99.5% invested in SPY with ATR(14) $5 on a $500 price: the book's
+    one-session drift is 99.5 x 5/500 = 0.995pp, so a 0.5pp gap is inside it."""
     pipeline = build_pipeline(
         risk_engine=RiskRuleEngine(
             RiskConfig(
@@ -1605,6 +1605,7 @@ def test_deployment_gap_skipped_when_within_tolerance():
             )
         )
     )
+    pipeline._atr_for_symbol = lambda symbol: 5.0
     from src.models import Position
 
     held = [
@@ -1627,7 +1628,7 @@ def test_deployment_gap_skipped_when_within_tolerance():
             [],
             positions=held,
             total_value=100000,
-            invested_target_pct=100,  # 99.5% vs 100% = -0.5pp, under the reserve band
+            invested_target_pct=100,  # 99.5% vs 100% = -0.5pp, inside the 0.995pp drift
         )
     assert not any(v.rule == "deployment_gap" for v in violations)
 

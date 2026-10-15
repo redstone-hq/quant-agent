@@ -156,36 +156,6 @@ numbers:
       operator reads on the dashboard and no order, size or refusal. If a
       later change makes any engine path read it, this row must go back to
       `arbitrary` in the same change.
-  - id: src.config.DeploymentGapConfig.band_pct
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: the session-to-session drift of a FIXED share-count book's invested percentage caused
-        by price movement alone, measured across the universe the desk could trade, on public daily
-        bars for a book of the size the desk runs, so the tolerance band is compared against passive
-        drift the desk did not cause
-      closes_when: the measured passive drift distribution is in hand and the band is set at a stated
-        percentile of it; it is DELETED, and any gap is reported as-is, if passive drift turns out
-        to be smaller than the reporting resolution of the invested share
-    value: 1
-    status: arbitrary
-    site: src/config/operations.py
-    note: >-
-      Tolerance band, in percentage points under 100% invested, for the
-      `deployment_gap` advisory (PM facts block and pre-trade advisory).
-      Board item 190 step 1 (2026-09-30): carried over UNCHANGED at 1.0 from
-      `CashSweepConfig.reserve_pct` so the advisory no longer reads the
-      retiring cash-sweep feature. It is an owner-appetite number ("how far
-      under 100% still counts as fully invested"), not a measured one; the
-      move sources nothing new and changes no behaviour.
-    open_question: >-
-      How far under fully invested is the book allowed to sit before idle
-      cash is a drag worth flagging, read off this account's actual fee and
-      slippage drag on a full rebalance?
-    cost_while_unanswered: >-
-      Too narrow and the advisory nags on noise; too wide and real idle cash
-      goes unflagged.
   - id: src.alert_claims._SUPPRESSION_LOG_LIMIT
     value: 50
     status: not-trade-governing

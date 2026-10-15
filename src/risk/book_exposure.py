@@ -252,25 +252,42 @@ def gross_exposure(positions, *, cash_park_symbol: str | None = None) -> float:
 # `gross_exposure`, `_force_delever` and every LLM-facing position view.
 
 
-def deployment_gap_band_pct(config) -> float:
-    """The tolerance band for the `deployment_gap` advisory.
+def book_one_session_drift_pp(positions, equity: float, atr_for_symbol) -> float | None:
+    """How far today's book can move in one session, in points of equity.
 
-    Reads `deployment_gap.band_pct` (value 1.0, carried over
-    unchanged from the retiring `cash_sweep.reserve_pct`, board item 190
-    step 1). A book short of 100% by no more than the band is at the
-    fully-invested mandate; short by more has real idle cash and the
-    advisory says so.
+    The threshold for the `deployment_gap` advisory, measured from the book
+    itself rather than typed: the sum over held positions of (deployed weight
+    in % of equity) x (that stock's ATR(14) / price). `atr_for_symbol` is the
+    desk's existing ATR reader (`src.data.technical.atr_for_symbol` via the
+    pipeline), re-read every session. A gap smaller than this is inside the
+    book's own day-to-day noise; a gap bigger than it is real idle cash.
 
-    `config` is the pipeline's top-level config (or None — several ~58
-    tests build `TradingPipeline` via `__new__` without one); a missing
-    value falls back to the field's own declared default.
+    None ("drift unmeasured") when there is no ATR reader, no equity, or any
+    held position's ATR or price is unavailable — a partial sum would
+    understate the drift, and no fallback number is substituted. An empty
+    book measures exactly 0.
     """
-    from src.config import DeploymentGapConfig
-
-    pct = getattr(getattr(config, "deployment_gap", None), "band_pct", None)
-    if pct is None:
-        pct = DeploymentGapConfig.model_fields["band_pct"].get_default()
-    return float(pct)
+    try:
+        eq = float(equity or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if atr_for_symbol is None or not math.isfinite(eq) or eq <= 0:
+        return None
+    drift = 0.0
+    for p in positions or []:
+        symbol = str(getattr(p, "symbol", "") or "").strip().upper()
+        try:
+            market_value = float(getattr(p, "market_value", 0.0) or 0.0)
+            price = float(getattr(p, "current_price", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(market_value) or not math.isfinite(price) or price <= 0:
+            return None
+        atr = atr_for_symbol(symbol)
+        if atr is None or not math.isfinite(atr) or atr <= 0:
+            return None
+        drift += abs(market_value) / eq * 100 * (atr / price)
+    return drift
 
 
 @dataclass(frozen=True)

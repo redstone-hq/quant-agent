@@ -1037,7 +1037,7 @@ from src.risk.book_exposure import (  # noqa: E402,F401
     peak_to_trough_pct,
     unmeasurable_gross_symbols,
     gross_exposure,
-    deployment_gap_band_pct,
+    book_one_session_drift_pp,
     BookExposure,
     book_exposure,
     weight_pct_of,

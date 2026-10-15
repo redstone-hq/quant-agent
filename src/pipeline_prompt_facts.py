@@ -815,6 +815,7 @@ class PromptFactsMixin:
             parse_logged_agent_response=getattr(self, "_parse_logged_agent_response", None),
             build_portfolio_heat=getattr(self, "_build_portfolio_heat", None),
             build_position_history=getattr(self, "_build_position_history", None),
+            atr_for_symbol=getattr(self, "_atr_for_symbol", None),
         )
 
     def _prompt_position_facts(self) -> PromptPositionFacts:

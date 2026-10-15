@@ -36,13 +36,16 @@ logger = logging.getLogger("src.pipeline")
 class RiskGate:
     """Risk-verdict application, built alone from its three collaborators."""
 
-    def __init__(self, *, risk_engine, db, sweeper, config) -> None:
+    def __init__(self, *, risk_engine, db, sweeper, config, atr_for_symbol=None) -> None:
         # risk_engine.check refuses; db.insert_agent_log records a hard block (not
         # on the EventJournal port); sweeper() = `TradingPipeline._sweeper`; config.
         self.risk_engine = risk_engine
         self.db = db
         self._sweeper = sweeper
         self.config = config
+        # The host's ATR(14) reader; sizes the `deployment_gap` threshold
+        # (the book's own one-session drift). None = drift unmeasured.
+        self._atr_for_symbol = atr_for_symbol
 
     def _filter_hard_risk_decisions(
         self,
@@ -255,7 +258,7 @@ class RiskGate:
         if invested_target_pct is not None and total_value > 0:
             from src.risk.rules import (
                 book_exposure,
-                deployment_gap_band_pct,
+                book_one_session_drift_pp,
                 RiskViolation,
             )
 
@@ -276,24 +279,26 @@ class RiskGate:
             )
             projected_invested_pct = projected.deployed_pct
             deviation = projected_invested_pct - invested_target_pct
-            # The band is the owner-set advisory band
-            # (`deployment_gap.band_pct`), not an invented number — see
-            # `deployment_gap_band_pct`. An UNDER-deployed book beyond that
-            # reserve is the drag this advisory exists to surface. The OVER
-            # branch that told RM to "consider scale_all_buys" was deleted
-            # with the mandate — there is no macro target left to be above,
-            # and scaling entries down leaves exactly the idle cash the
-            # owner ruled out.
-            band = deployment_gap_band_pct(getattr(self, "config", None))
-            if deviation < -band:
+            # The threshold is today's book's own one-session drift (sum of
+            # position weight x ATR(14)/price) — see `book_one_session_drift_pp`
+            # — not a typed band. An UNDER-deployed book beyond that drift is
+            # the idle cash this advisory exists to surface; when the drift is
+            # unmeasured (no ATR for the book) the advisory is withheld rather
+            # than judged against a fallback number. The OVER branch that told
+            # RM to "consider scale_all_buys" was deleted with the mandate —
+            # there is no macro target left to be above, and scaling entries
+            # down leaves exactly the idle cash the owner ruled out.
+            drift = book_one_session_drift_pp(positions, total_value, getattr(self, "_atr_for_symbol", None))
+            if drift is not None and -deviation > drift:
                 remaining_violations.append(
                     RiskViolation(
                         rule="deployment_gap",
                         message=(
                             f"Projected invested {projected_invested_pct:.0f}% (capital at "
                             f"work; net direction {projected.net_pct:+.0f}%) is "
-                            f"{-deviation:.0f}pp UNDER the fully-invested mandate "
-                            f"({invested_target_pct:.0f}%) (advisory — do NOT scale "
+                            f"{-deviation:.1f}pp UNDER the fully-invested mandate "
+                            f"({invested_target_pct:.0f}%), more than the book's one-session "
+                            f"drift of {drift:.1f}pp (advisory — do NOT scale "
                             f"down BUYs or SHORTs for exposure reasons; idle cash is "
                             f"the cost here. If cutting anything, name a risk "
                             f"specific to the trade, not the gap.)"

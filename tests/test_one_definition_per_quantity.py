@@ -186,7 +186,12 @@ def _gate_projected_pct(positions, total_value, target):
     decision list, which is the shortest path that still executes the
     production `deployment_gap` code (formerly `macro_exposure_deviation`).
     """
-    pipeline = build_pipeline(_sweeper=lambda: None, risk_engine=MagicMock(check=MagicMock(return_value=[])))
+    pipeline = build_pipeline(
+        _sweeper=lambda: None,
+        risk_engine=MagicMock(check=MagicMock(return_value=[])),
+        # ATR(14) = 1% of price for every name: a measured, small book drift.
+        _atr_for_symbol=lambda symbol: {"AAPL": 1.0, "SQQQ": 0.2}.get(symbol),
+    )
     _allowed, violations, _blocked = pipeline.risk_gate._filter_hard_risk_decisions(
         decisions=[],
         positions=positions,
@@ -207,8 +212,8 @@ THE_MEASURED_BOOK = [
 def test_pm_and_risk_gate_report_the_same_invested_pct():
     """The exact book that produced +10pp OVER for PM and -50pp UNDER for RM.
 
-    The advisory only speaks when the book is more than the advisory
-    band (`deployment_gap.band_pct`) UNDER the target, so the comparison is
+    The advisory only speaks when the book is more than its own one-session
+    drift (here 0.7pp, from a stubbed ATR) UNDER the target, so the comparison is
     made at the 100% fully-invested mandate
     (2026-09-17), which this 70% book is 30pp under. `target=60` is covered by
     the test below, where the whole point is that the advisory now stays
