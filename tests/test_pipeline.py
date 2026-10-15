@@ -2993,7 +2993,22 @@ def test_pipeline_buys_use_refreshed_cash_after_sell_phase(
     mock_edp_cls.return_value = mock_edp
 
     pipeline = TradingPipeline(mock_config)
-    result = pipeline.run_morning()
+    # Owner 14 Oct 2026: a judgement sale of a holding read as "no chart level"
+    # now sells only when it fails a buy rule, and this fixture carries no
+    # technical read to judge that. This test is about buying with the cash a sale freed, so the sale is
+    # the chart-CONFIRMED break, which still sells ungated.
+    from dataclasses import replace
+
+    from src.exits.structural_protection import StructuralProtection
+
+    _read = StructuralProtection._structural_protection_for_holding
+
+    def _confirmed_break(self, *args, **kwargs):
+        check = _read(self, *args, **kwargs)
+        return replace(check, basis="structural_level_broken") if check.basis == "no_chart_level" else check
+
+    with patch.object(StructuralProtection, "_structural_protection_for_holding", _confirmed_break):
+        result = pipeline.run_morning()
 
     assert result["status"] == "executed"
     # Global stale-entry cancel in the preamble (no symbol) exactly once;

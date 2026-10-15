@@ -312,8 +312,16 @@ class FillReconciler:
                 want_qty = float(row.get("qty") or 0)
             except (TypeError, ValueError):
                 want_qty = 0.0
+            # A SHORT entry is a sell order. A row carrying its order's own
+            # idempotency key is read back by that key (one exact answer);
+            # rows written before the key was stored keep the side search.
+            side = "sell" if str(row.get("action") or "").upper() == "SHORT" else "buy"
+            key = row.get("idempotency_key")
             try:
-                candidates = self.broker.list_recent_orders(symbol, "buy", after)
+                if key:
+                    candidates = self.broker.list_recent_orders(symbol, side, after, key=key)
+                else:
+                    candidates = self.broker.list_recent_orders(symbol, side, after)
                 record_fill_pass(self.db, "orphan.broker_query", context={"symbol": symbol, "row": row_id})
             except Exception as exc:
                 record_fill_pass(self.db, "orphan.broker_query", exc, context={"symbol": symbol, "row": row_id})

@@ -183,15 +183,35 @@ class PositionReviewSession:
         news_ok: bool,
         macro_analysis,
         earnings_analyses,
+        ctx=None,
     ):
         """Route every proposed reviewer sale through the same-rules gate and
-        record each verdict per symbol. Returns the gated review."""
+        record each verdict per symbol. Returns the gated review. `ctx` is
+        this review's run context; without it R2-R6 are unread (held)."""
         from src.exits.same_rules_gate import HoldingViews, bought_today_from_db, gate_review_actions
 
         self._same_rules_allowed = set()
         if review is None:
             return review
         stale: dict = {}
+        reads = self._todays_technical_reads(positions)
+        # The morning path's buy-rule evidence: carried insider findings and
+        # R2-R6 from the SAME deterministic manager assembly (no model call).
+        # No record (no run context, or the assembly failed) = None per
+        # holding: the rules are unread and the sale is held.
+        smart_money, held_record = (
+            _reviewer_entry_evidence(
+                self,
+                ctx,
+                review,
+                reads,
+                news_intel=news_intel,
+                macro_analysis=macro_analysis,
+                earnings_analyses=earnings_analyses,
+            )
+            if ctx is not None
+            else (None, None)
+        )
         try:
             from src.agents.portfolio_manager import PortfolioManagerAgent
             from src.trading_calendar import et_today
@@ -200,11 +220,11 @@ class PositionReviewSession:
             # and today's newest technical read per holding (adversary 14 Oct
             # point 2: the buy side always has the technical read).
             verdicts = PortfolioManagerAgent._collect_seat_verdicts(
-                analyses=self._todays_technical_reads(positions),
+                analyses=reads,
                 news_intel=news_intel,
                 macro_analysis=macro_analysis,
                 earnings_analyses=list(earnings_analyses or []),
-                smart_money_findings=None,
+                smart_money_findings=smart_money,
                 positions=list(positions or []),
                 asof=et_today(),  # the day this review decides
             )
@@ -213,8 +233,8 @@ class PositionReviewSession:
             logger.warning("same-rules gate: reviewer seat views unavailable (%s) — no judgement sale", exc)
             verdicts = []
         stale_earnings = frozenset(str(s).upper() for s, seats in stale.items() if "earnings" in set(seats or ()))
-        # The same protection read the morning path makes (stage_risk): an
-        # UNPROTECTED holding's sale is protective and passes ungated here too.
+        # The same protection read the morning path makes (stage_risk): only
+        # a CONFIRMED chart break's sale is protective and passes ungated.
         protection_bases = _reviewer_protection_bases(self, review, positions, run_id=run_id)
         views = {}
         for p in positions or []:
@@ -225,7 +245,7 @@ class PositionReviewSession:
                 symbol=sym,
                 is_short=bool(p.qty < 0),
                 seat_verdicts=tuple(verdicts),
-                eligibility_reasons=None,
+                eligibility_reasons=held_record.get(sym) if held_record is not None else None,
                 unknown_seats=() if news_ok else ("news",),
                 bought_today=bought_today_from_db(self._db, sym),
                 stale_earnings=stale_earnings,
@@ -849,9 +869,10 @@ class PositionReviewSession:
             # survives only when the holding FAILS a buy rule other than
             # timing (Option A, 14 Oct: a neutral chart never sells it),
             # judged on today's newest technical read per
-            # holding plus this session's news, macro and earnings. With no
-            # manager record (R2-R6) here, only a failure no missing view
-            # could undo can sell; a protective sale is never gated.
+            # holding plus this session's news, macro, earnings and carried
+            # insider findings, and R2-R6 from the morning path's own manager
+            # assembly (no model call). Only a failure no missing view could
+            # undo can sell; a confirmed chart break is never gated.
             review = self._gate_reviewer_sales(
                 review,
                 review_positions,
@@ -862,6 +883,7 @@ class PositionReviewSession:
                 ),
                 macro_analysis=macro_analysis_dict,
                 earnings_analyses=session_earnings,
+                ctx=ctx,
             )
             # The AI Risk seat keeps its exit role (adversary 14 Oct point 5):
             # it records an objection per stock, as the buy side keeps it.
@@ -970,12 +992,85 @@ class PositionReviewSession:
         }
 
 
+def _reviewer_entry_evidence(session, ctx, review, reads, *, news_intel, macro_analysis, earnings_analyses):
+    """`(smart_money_findings, held_bar_record)` for THIS review — the morning
+    path's buy-rule evidence, built by the morning path's own code: insider
+    findings from the carried-forward loader the half-hour scan uses, then
+    `build_pm_decide_inputs` (the one manager-input builder), the manager's
+    deterministic prompt assembly (`build_user_message`; no model is called)
+    and `held_bar_record_from_assembly`. `(None, None)` when nothing is
+    proposed for sale. A failed assembly leaves the record None (R2-R6 unread,
+    the sale held) and is recorded with the symbols it leaves unread."""
+    import copy
+    from types import SimpleNamespace
+
+    from src.exits.same_rules_gate import (
+        held_bar_record_from_assembly,
+        is_judgement_sale,
+        restore_carried_refusals,
+        set_aside_carried_refusals,
+    )
+    from src.sentinel.guarded_site import record_site
+
+    selling = sorted(
+        {
+            str(getattr(a, "symbol", "") or "").strip().upper()
+            for a in (getattr(review, "actions", None) or [])
+            if is_judgement_sale(getattr(a, "action", None))
+        }
+    )
+    if not selling:
+        return None, None
+    fault_host = SimpleNamespace(db=getattr(session, "_db", None))
+    pipeline = getattr(session, "_pipeline", None)
+    smart_money = None
+    try:
+        smart_money = list(pipeline._carry_forward_insider(ctx).payload or [])
+    except Exception as exc:  # noqa: BLE001 — no findings = the seat is unknown, recorded durably
+        record_site(fault_host, "same_rules_gate.reviewer_insider", exc, context={"symbols": selling}, log=logger)
+    constructor = getattr(pipeline, "portfolio_constructor", None)
+    carried = set_aside_carried_refusals(constructor)
+    try:
+        from src.rotation_dispositions import _NONE_AS_EMPTY
+        from src.stage_decision import build_pm_decide_inputs
+
+        # A copy: the builder writes facts, history and sectors onto its run.
+        run = copy.copy(ctx)
+        run.analyses = list(reads)
+        run.news_intel = news_intel
+        run.macro_analysis = macro_analysis
+        run.earnings_results = list(earnings_analyses or [])
+        run.smart_money_findings = list(smart_money or [])
+        inputs = build_pm_decide_inputs(pipeline, run)
+        kwargs = dict(inputs.pm_decide_kwargs)
+        for key, empty in _NONE_AS_EMPTY.items():
+            if key in kwargs and not kwargs[key]:
+                kwargs[key] = empty()
+        pm = pipeline.portfolio_manager
+        pm.last_rotation_precheck = None
+        pm.last_blocked = None
+        pm.build_user_message(**kwargs)
+        if not isinstance(pm.last_blocked, dict):
+            # Never read ratings against an empty blocked set: that would
+            # invent a pass of R3-R6.
+            raise RuntimeError("the manager assembly recorded no entry-rule result")
+        return smart_money, held_bar_record_from_assembly(pm, inputs.positions, list(reads))
+    except Exception as exc:  # noqa: BLE001 — no record = R2-R6 unread = held, recorded durably
+        record_site(fault_host, "same_rules_gate.reviewer_entry_rules", exc, context={"symbols": selling}, log=logger)
+        return smart_money, None
+    finally:
+        # The preview's refusals are evidence for this review, not filings.
+        set_aside_carried_refusals(constructor)
+        restore_carried_refusals(constructor, carried)
+
+
 def _reviewer_protection_bases(session, review, positions, *, run_id: str) -> dict:
     """Per proposed judgement sale, the basis of an UNPROTECTED read — the
     same `_structural_protection_for_holding` read the morning path makes
-    (`src/stage_risk.py`) — so an unprotected holding's reviewer sale passes
-    the same-rules gate as protective. A failed or absent read leaves the
-    holding judged on the bar; a failed bar fetch is never protective."""
+    (`src/stage_risk.py`) — so a reviewer sale of a holding whose structure
+    broke on confirmed closes passes the same-rules gate as protective. Any
+    other basis (a loser with no chart level, a failed bar fetch), and a
+    failed or absent read, leaves the holding judged on the bar."""
     from src.exits.same_rules_gate import is_judgement_sale
 
     selling = {

@@ -290,8 +290,8 @@ def _stage_pipeline(*, decisions, protected=True, active_state_changes=""):
         _structural_protection_for_holding=MagicMock(
             return_value=StructuralProtectionCheck(
                 protected=protected,
-                basis="structural_level_intact",
-                detail="level intact on the close",
+                basis="structural_level_intact" if protected else "structural_level_broken",
+                detail="level intact on the close" if protected else "level broken on confirming closes",
             ),
         ),
         risk_manager=MagicMock(),

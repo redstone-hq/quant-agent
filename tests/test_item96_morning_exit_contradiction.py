@@ -162,8 +162,8 @@ def _stage_pipeline(*, decisions, metric_deltas):
         _structural_protection_for_holding=MagicMock(
             return_value=StructuralProtectionCheck(
                 protected=False,
-                basis="noise_band_fallback",
-                detail="no qualifying structural level",
+                basis="structural_level_broken",
+                detail="structural level closed beyond on confirming closes",
             ),
         ),
         _build_position_facts=MagicMock(return_value={}),
@@ -229,7 +229,7 @@ def _exit_refusals(pipeline) -> list[dict]:
 def test_false_stall_claim_no_longer_decides_an_unprotected_holdings_sale():
     """Owner 13 Oct 2026: the same-rules gate decides every judgement sale; a
     false claim is evidence, never the decider. This holding's structure read
-    is UNPROTECTED (no qualifying chart level), so the gate passes the SELL as
+    is a CONFIRMED structure break, so the gate passes the SELL as
     a protective sale — never gated — and the unrelated BUY stands too."""
     decisions = [_sell("ACME", "Cutting ACME — it is stalling, no progress."), _buy("CHPX")]
     pipeline = _stage_pipeline(

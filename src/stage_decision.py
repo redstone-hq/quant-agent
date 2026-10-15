@@ -9,7 +9,7 @@ still resolves to this same object.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from src.pipeline_risk_budget_recording import _record_realised_concentration
 from src.rotation_dispositions import apply_rotation_recording_dispositions, below_bar_sale_without_pm
@@ -100,6 +100,321 @@ def _record_held_bar(pipeline, ctx, positions, analyses) -> None:
         ctx.held_bar_record = None
 
 
+class PmDecideInputs(NamedTuple):
+    """What `build_pm_decide_inputs` hands back: the manager's inputs and the
+    per-run values DecisionStage reads again after the manager decides."""
+
+    pm_decide_kwargs: dict
+    positions: list
+    position_history: dict
+    existing_risk_pct: float
+    risk_clusters: object
+    velocity_by_symbol: dict
+
+
+def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
+    """The portfolio manager's inputs for THIS run, built from `ctx` — the
+    one builder DecisionStage and the midday/close position reviewer both
+    call, so a held stock is judged on the same buy-rule evidence on either
+    path (owner 14 Oct 2026). Lifted whole from `DecisionStage.run`; no model
+    is called. Sets `ctx.position_history`, `ctx.recent_performance`,
+    `ctx.facts` and (through the projected-portfolio preview) `ctx.symbol_sectors`."""
+    from src.trading_calendar import session_date_key
+
+    run_id = ctx.run_id
+    positions = ctx.positions
+    analyses = ctx.analyses
+    news_intel = ctx.news_intel
+    earnings_results = ctx.earnings_results
+    macro_analysis = ctx.macro_analysis
+    total_value = ctx.total_value
+    # PM sizes against `ctx.deployable_cash` = raw cash + convertible
+    # sweep value (see `_compute_deployable_cash` for the verified
+    # Alpaca field semantics: a filled SGOV sale credits `cash`
+    # immediately — T+1 gates only withdrawal/transfer). The sweep
+    # detail is rendered informationally via `reserve_balance`;
+    # execution's raw-cash recheck after the funding sale remains the
+    # final authority on what a BUY can actually spend.
+    cash = ctx.deployable_cash
+    last_equity = ctx.last_equity
+
+    # isinstance guard: stage tests stub `pipeline` with MagicMock, whose
+    # auto-attrs would otherwise duck-type as an enabled sweeper.
+    from src.execution.cash_sweep import CashSweeper
+
+    # Direct read: `_sweeper` is a TradingPipeline method, so a pipeline
+    # without it is a wiring fault and raises here.
+    sweeper = pipeline._sweeper()
+    reserve_balance = 0.0
+    if isinstance(sweeper, CashSweeper):
+        positions, parked = sweeper.split_positions(positions)
+        if parked is not None:
+            reserve_balance = sweeper.parked_value(ctx.positions)
+
+    yesterday_insights = pipeline.db.get_latest_insights(before_date=session_date_key())
+    recent_performance = pipeline._compute_recent_performance(last_equity)
+    if yesterday_insights:
+        logger.info(
+            "Loaded yesterday's insights (risk=%s): %s",
+            yesterday_insights.get("risk_rating", "?"),
+            yesterday_insights.get("tomorrow_outlook", "")[:100],
+        )
+
+    position_history = pipeline._build_position_history(positions)
+    # Publish both to ctx so RiskStage audits PM against the SAME holding
+    # ages and drawdown state PM sized from, instead of a second snapshot
+    # taken minutes later (2026-08-13 agent audit).
+    ctx.position_history = position_history
+    ctx.recent_performance = recent_performance
+    weekly_narrative = pipeline._build_weekly_narrative()
+    macro_trajectory = pipeline._build_macro_trajectory()
+    active_state_changes = pipeline._build_active_state_changes()
+    rm_recent_verdicts = pipeline._build_rm_recent_verdicts()
+    pm_recent_decisions = pipeline._build_pm_recent_decisions()
+    projected_portfolio = pipeline._build_projected_portfolio(
+        positions,
+        analyses,
+        total_value,
+        run=ctx,
+    )
+    calibration_note = pipeline._build_calibration_note()
+    macro_tech_alignment = pipeline._build_macro_tech_alignment(macro_analysis, analyses)
+    # Phase-1 evening-upgrade feedback: surface recurring missed themes
+    # (L3d) and repeat loss patterns (L3f) that evening classified over
+    # the last 14 days. Empty strings when no recurring pattern found.
+    recent_missed_lessons = pipeline._build_recent_missed_lessons()
+    recent_loss_pits = pipeline._build_recent_loss_pits()
+    # Names PM keeps proposing and never gets. Every other per-symbol
+    # memory above is keyed on a position, so none of them can see a
+    # symbol that never became one.
+    blocked_proposals = pipeline._build_blocked_proposals(run_id=run_id)
+    # Audit §1.2 — build the correlation matrix HERE, before PM decides,
+    # rather than in RiskStage after it already has. RiskStage reuses the
+    # memoized matrix, so the deterministic cluster check still judges PM
+    # against exactly the numbers PM was shown.
+    correlation_matrix = pipeline._ensure_correlation_matrix(ctx, positions)
+    pm_facts = pipeline._build_pm_facts(
+        positions=positions,
+        analyses=analyses,
+        total_value=total_value,
+        cash=cash,
+        recent_performance=recent_performance,
+        macro_analysis=macro_analysis,
+        correlation_matrix=correlation_matrix,
+    )
+    ctx.facts = pm_facts
+    trading_config = getattr(pipeline.config, "trading", None)
+    configured_universe = getattr(trading_config, "universe", []) or []
+
+    # Spec §2.2 — the book's EXISTING risk, before anything this session
+    # proposes. Computed here (moved up from just before the constructor
+    # call below, which still reuses this same pair) so the Phase 14
+    # opportunity-rotation pre-check can see the same numbers the
+    # constructor will later ration against, rather than a fabricated
+    # "book is empty" view. Pure function of `ctx.facts` — safe to
+    # compute this early since nothing between here and the constructor
+    # call mutates it.
+    existing_risk_pct, risk_clusters = _book_risk_inputs(ctx, total_value)
+
+    # 2026-09-04 fix (audit finding): the PM's own eligibility gate
+    # (`candidate_eligibility` / `_apply_subfloor_catalyst_rule`) used
+    # to read `TechAnalysisResult.risk_reward` — real arithmetic, but
+    # over the analyst's own GUESSED target, never checked against
+    # structure. `construct_orders` below has computed the REAL
+    # derived-target, noise-floor-widened reward:risk since 2026-09-01
+    # (§12.1); this gate never got it. Measured on a real day, the two
+    # gates passed DISJOINT eligible sets. Computed here, before the PM
+    # decides, using the same `PortfolioConstructor` instance
+    # `construct_orders` uses below — same config, same derivation, no
+    # second copy of the logic. Necessarily a PREVIEW, not the final
+    # number: entry is the analyst's snapshot, not the live price, and
+    # the stop is the analyst's own, not yet a PM-suggested one — both
+    # are only known at construction time. See
+    # `PortfolioConstructor.real_reward_risk_preview`.
+    _regime_for_preview = _macro_regime(macro_analysis)
+    real_reward_risk_by_symbol: dict[str, float | None] = {}
+    # Each candidate's entry and the stop the constructor would ship,
+    # for the rotation pre-check's minimum-risk funding test.
+    candidate_entry_stop: dict[str, tuple[float, float]] = {}
+    # Owner ruling 2026-10-13 (velocity), step A: RECORDED ONLY on each
+    # `candidate_ranked` event, beside the recorded-only reward:risk, off
+    # the same preview. Never shown to the PM, never ranks or sizes.
+    velocity_by_symbol: dict[str, dict] = {}
+    # Owner ruling 2026-10-13 (same rules): the refusal snapshot below
+    # holds only THIS run's refusals. A refusal carried from an earlier
+    # run (not yet drained by entry orders) is set aside before the
+    # preview and restored after it, so it is still filed exactly once.
+    from src.exits.same_rules_gate import restore_carried_refusals, set_aside_carried_refusals
+
+    _constructor = getattr(pipeline, "portfolio_constructor", None)
+    _carried_refusals = set_aside_carried_refusals(_constructor)
+    for _a in analyses:
+        _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
+        try:
+            _preview = pipeline.portfolio_constructor.entry_stop_preview(
+                _a,
+                _direction,
+                regime=_regime_for_preview,
+            )
+        except Exception as exc:  # noqa: BLE001 — unreadable stop = funding not measured
+            logger.warning("entry/stop preview failed for %s: %s", _a.symbol, exc)
+            _preview = None
+        if isinstance(_preview, tuple) and len(_preview) == 3:
+            candidate_entry_stop[_a.symbol.upper()] = (_preview[0], _preview[1])
+        velocity_by_symbol[_a.symbol.upper()] = candidate_velocity(
+            getattr(ctx, "symbols_bars", None),
+            _a,
+            _preview,
+            horizon_sessions=VELOCITY_HOLD_SESSIONS,
+        )
+        real_reward_risk_by_symbol[_a.symbol.upper()] = pipeline.portfolio_constructor.real_reward_risk_preview(
+            _a,
+            _direction,
+            regime=_regime_for_preview,
+        )
+    # Item 54 (2026-09-12): the preview above also RECORDS, by code, the
+    # names the one shared funnel refused (`last_refusals` — stop wider
+    # than the instrument's reach, or too young to measure). A
+    # snapshot, not a drain: DecisionStage drains once per session
+    # after construction, so the same refusal is filed exactly once.
+    constructor_refusals_by_symbol = {
+        str(sym).upper(): dict(refusal)
+        for sym, refusal in dict(
+            getattr(
+                getattr(pipeline, "portfolio_constructor", None),
+                "last_refusals",
+                {},
+            )
+            or {}
+        ).items()
+    }
+    restore_carried_refusals(_constructor, _carried_refusals)
+
+    # Margin capacity for the PM prompt — WORDING ONLY. Reuses the
+    # EXACT §11.2 computation the execution submit loop uses to size
+    # entries (`_entry_deployment_budget`, which itself resolves the
+    # ladder via `_session_gross_ceiling`), so the prompt cannot state a
+    # different number than execution sizes against. Book state here
+    # (positions/equity/held-gross) has not changed since ctx was built
+    # above, so this is the same headroom execution will see for this
+    # session's opening entries — never a new formula.
+    margin_headroom_usd, margin_ladder_backed, _margin_headroom_note = _entry_deployment_budget(
+        pipeline, ctx, positions, total_value, cash
+    )
+    _margin_ceiling = _session_gross_ceiling(pipeline, ctx)
+    margin_ladder_multiple = _margin_ceiling.ceiling_x if _margin_ceiling is not None else None
+    margin_ladder_rung = _margin_ceiling.rung if _margin_ceiling is not None else None
+
+    # Kept as a dict so the ONE accounting re-ask below (board item
+    # 110) can re-ask the identical question — same inputs, same
+    # prompt — with only the bookkeeping challenge added. A re-ask
+    # built from different inputs would be a second decision, not a
+    # re-ask.
+    pm_decide_kwargs = dict(
+        analyses=analyses,
+        positions=positions,
+        macro_analysis=_macro_analysis_as_dict(macro_analysis),
+        cash_balance=cash,
+        reserve_balance=reserve_balance,
+        total_value=total_value,
+        news_intel=news_intel,
+        earnings_analyses=earnings_results,
+        smart_money_findings=ctx.smart_money_findings,
+        yesterday_insights=yesterday_insights,
+        recent_performance=recent_performance,
+        position_history=position_history,
+        weekly_narrative=weekly_narrative,
+        macro_trajectory=macro_trajectory,
+        active_state_changes=active_state_changes,
+        rm_recent_verdicts=rm_recent_verdicts,
+        pm_recent_decisions=pm_recent_decisions,
+        projected_portfolio=projected_portfolio,
+        calibration_note=calibration_note,
+        macro_tech_alignment=macro_tech_alignment,
+        recent_missed_lessons=recent_missed_lessons,
+        recent_loss_pits=recent_loss_pits,
+        blocked_proposals=blocked_proposals,
+        facts=pm_facts,
+        allow_margin=bool(getattr(pipeline.config.risk, "allow_margin", False)),
+        margin_headroom_usd=margin_headroom_usd,
+        margin_ladder_backed=margin_ladder_backed,
+        # Board item 95: the PM is shown what the capacity above COSTS.
+        # Read off the same loaded config the rest of this call uses, so
+        # the prompt renderer never re-loads `AppConfig` (which validates
+        # API keys and would fail silently, dropping the price).
+        margin_interest_rate_pct=getattr(
+            pipeline.config.risk,
+            "margin_interest_rate_pct",
+            None,
+        ),
+        # The owner's minimum risk per position (owner rule 2026-08-27),
+        # read from the setting, with each candidate's own previewed
+        # entry and stop, so the rotation pre-check judges "short of
+        # cash" at the candidate's real stop through the one shared
+        # `src.risk.min_risk.min_risk_shortfall`. Replaced the deleted
+        # flat $500 `cash_sweep.min_order_usd` floor.
+        min_risk_floor=MinRiskFloor(
+            floor_pct=_min_position_risk_pct(pipeline),
+            equity_usd=(
+                float(ctx.total_value)
+                if isinstance(ctx.total_value, (int, float)) and not isinstance(ctx.total_value, bool)
+                else None
+            ),
+            entry_stop=candidate_entry_stop,
+        ),
+        margin_ladder_multiple=margin_ladder_multiple,
+        margin_ladder_rung=margin_ladder_rung,
+        symbol_sectors=dict(ctx.symbol_sectors or {}),
+        session_type=ctx.session,
+        allowed_buy_symbols={str(symbol).strip().upper() for symbol in configured_universe if str(symbol).strip()}
+        | set(ctx.admitted_symbols),
+        transient_admitted_symbols=set(ctx.admitted_symbols),
+        # The unmeasurable-payoff gate reads the SAME starter size the
+        # risk budget will actually grant. `rr_floor` is retired as a
+        # size/refuse threshold (owner 2026-09-17) and is still threaded
+        # so existing callers/tests do not silently re-default a number
+        # that must not decide size. No settings key backs it any more
+        # (board item 81) — it is always the historical constant.
+        rr_floor=float(REWARD_RISK_FLOOR),
+        starter_risk_pct=float(
+            getattr(
+                pipeline.config.risk,
+                "min_position_risk_pct",
+                STARTER_POSITION_RISK_PCT,
+            )
+        ),
+        # Phase 14 (opportunity-cost rotation) — same book-risk snapshot
+        # and ceiling the constructor rations against below, computed
+        # once above so both stages judge the identical numbers.
+        existing_risk_pct=existing_risk_pct,
+        max_portfolio_risk_pct=float(
+            getattr(
+                pipeline.config.risk,
+                "max_portfolio_risk_pct",
+                25.0,
+            )
+        ),
+        # Phase 14b: wording only — see `_apply_rotation_execution`.
+        rotation_execute_enabled=_rotation_execution_enabled(pipeline),
+        # Board item 39: the ranked-margin tier is executable behind its
+        # own second switch, and the PM's prompt has to say so or the
+        # model sizes its plan as though no room is being freed.
+        rotation_ranked_margin_enabled=_rotation_ranked_margin_enabled(
+            pipeline,
+        ),
+        real_reward_risk_by_symbol=real_reward_risk_by_symbol,
+        constructor_refusals_by_symbol=constructor_refusals_by_symbol,
+    )
+    return PmDecideInputs(
+        pm_decide_kwargs=pm_decide_kwargs,
+        positions=positions,
+        position_history=position_history,
+        existing_risk_pct=existing_risk_pct,
+        risk_clusters=risk_clusters,
+        velocity_by_symbol=velocity_by_symbol,
+    )
+
+
 class DecisionStage:
     """Build PM memory layers → call PM → run Constructor.
 
@@ -125,289 +440,20 @@ class DecisionStage:
 
         pipeline = self._pipeline
         run_id = ctx.run_id
-        positions = ctx.positions
         analyses = ctx.analyses
         news_intel = ctx.news_intel
         earnings_results = ctx.earnings_results
         macro_analysis = ctx.macro_analysis
         total_value = ctx.total_value
-        # PM sizes against `ctx.deployable_cash` = raw cash + convertible
-        # sweep value (see `_compute_deployable_cash` for the verified
-        # Alpaca field semantics: a filled SGOV sale credits `cash`
-        # immediately — T+1 gates only withdrawal/transfer). The sweep
-        # detail is rendered informationally via `reserve_balance`;
-        # execution's raw-cash recheck after the funding sale remains the
-        # final authority on what a BUY can actually spend.
-        cash = ctx.deployable_cash
-        last_equity = ctx.last_equity
-
-        # isinstance guard: stage tests stub `pipeline` with MagicMock, whose
-        # auto-attrs would otherwise duck-type as an enabled sweeper.
-        from src.execution.cash_sweep import CashSweeper
-
-        # Direct read: `_sweeper` is a TradingPipeline method, so a pipeline
-        # without it is a wiring fault and raises here.
-        sweeper = pipeline._sweeper()
-        reserve_balance = 0.0
-        if isinstance(sweeper, CashSweeper):
-            positions, parked = sweeper.split_positions(positions)
-            if parked is not None:
-                reserve_balance = sweeper.parked_value(ctx.positions)
-
-        yesterday_insights = pipeline.db.get_latest_insights(before_date=session_date_key())
-        recent_performance = pipeline._compute_recent_performance(last_equity)
-        if yesterday_insights:
-            logger.info(
-                "Loaded yesterday's insights (risk=%s): %s",
-                yesterday_insights.get("risk_rating", "?"),
-                yesterday_insights.get("tomorrow_outlook", "")[:100],
-            )
-
-        position_history = pipeline._build_position_history(positions)
-        # Publish both to ctx so RiskStage audits PM against the SAME holding
-        # ages and drawdown state PM sized from, instead of a second snapshot
-        # taken minutes later (2026-08-13 agent audit).
-        ctx.position_history = position_history
-        ctx.recent_performance = recent_performance
-        weekly_narrative = pipeline._build_weekly_narrative()
-        macro_trajectory = pipeline._build_macro_trajectory()
-        active_state_changes = pipeline._build_active_state_changes()
-        rm_recent_verdicts = pipeline._build_rm_recent_verdicts()
-        pm_recent_decisions = pipeline._build_pm_recent_decisions()
-        projected_portfolio = pipeline._build_projected_portfolio(
-            positions,
-            analyses,
-            total_value,
-            run=ctx,
-        )
-        calibration_note = pipeline._build_calibration_note()
-        macro_tech_alignment = pipeline._build_macro_tech_alignment(macro_analysis, analyses)
-        # Phase-1 evening-upgrade feedback: surface recurring missed themes
-        # (L3d) and repeat loss patterns (L3f) that evening classified over
-        # the last 14 days. Empty strings when no recurring pattern found.
-        recent_missed_lessons = pipeline._build_recent_missed_lessons()
-        recent_loss_pits = pipeline._build_recent_loss_pits()
-        # Names PM keeps proposing and never gets. Every other per-symbol
-        # memory above is keyed on a position, so none of them can see a
-        # symbol that never became one.
-        blocked_proposals = pipeline._build_blocked_proposals(run_id=run_id)
-        # Audit §1.2 — build the correlation matrix HERE, before PM decides,
-        # rather than in RiskStage after it already has. RiskStage reuses the
-        # memoized matrix, so the deterministic cluster check still judges PM
-        # against exactly the numbers PM was shown.
-        correlation_matrix = pipeline._ensure_correlation_matrix(ctx, positions)
-        pm_facts = pipeline._build_pm_facts(
-            positions=positions,
-            analyses=analyses,
-            total_value=total_value,
-            cash=cash,
-            recent_performance=recent_performance,
-            macro_analysis=macro_analysis,
-            correlation_matrix=correlation_matrix,
-        )
-        ctx.facts = pm_facts
-        trading_config = getattr(pipeline.config, "trading", None)
-        configured_universe = getattr(trading_config, "universe", []) or []
-
-        # Spec §2.2 — the book's EXISTING risk, before anything this session
-        # proposes. Computed here (moved up from just before the constructor
-        # call below, which still reuses this same pair) so the Phase 14
-        # opportunity-rotation pre-check can see the same numbers the
-        # constructor will later ration against, rather than a fabricated
-        # "book is empty" view. Pure function of `ctx.facts` — safe to
-        # compute this early since nothing between here and the constructor
-        # call mutates it.
-        existing_risk_pct, risk_clusters = _book_risk_inputs(ctx, total_value)
-
-        # 2026-09-04 fix (audit finding): the PM's own eligibility gate
-        # (`candidate_eligibility` / `_apply_subfloor_catalyst_rule`) used
-        # to read `TechAnalysisResult.risk_reward` — real arithmetic, but
-        # over the analyst's own GUESSED target, never checked against
-        # structure. `construct_orders` below has computed the REAL
-        # derived-target, noise-floor-widened reward:risk since 2026-09-01
-        # (§12.1); this gate never got it. Measured on a real day, the two
-        # gates passed DISJOINT eligible sets. Computed here, before the PM
-        # decides, using the same `PortfolioConstructor` instance
-        # `construct_orders` uses below — same config, same derivation, no
-        # second copy of the logic. Necessarily a PREVIEW, not the final
-        # number: entry is the analyst's snapshot, not the live price, and
-        # the stop is the analyst's own, not yet a PM-suggested one — both
-        # are only known at construction time. See
-        # `PortfolioConstructor.real_reward_risk_preview`.
-        _regime_for_preview = _macro_regime(macro_analysis)
-        real_reward_risk_by_symbol: dict[str, float | None] = {}
-        # Each candidate's entry and the stop the constructor would ship,
-        # for the rotation pre-check's minimum-risk funding test.
-        candidate_entry_stop: dict[str, tuple[float, float]] = {}
-        # Owner ruling 2026-10-13 (velocity), step A: RECORDED ONLY on each
-        # `candidate_ranked` event, beside the recorded-only reward:risk, off
-        # the same preview. Never shown to the PM, never ranks or sizes.
-        velocity_by_symbol: dict[str, dict] = {}
-        # Owner ruling 2026-10-13 (same rules): the refusal snapshot below
-        # holds only THIS run's refusals. A refusal carried from an earlier
-        # run (not yet drained by entry orders) is set aside before the
-        # preview and restored after it, so it is still filed exactly once.
-        from src.exits.same_rules_gate import restore_carried_refusals, set_aside_carried_refusals
-
-        _constructor = getattr(pipeline, "portfolio_constructor", None)
-        _carried_refusals = set_aside_carried_refusals(_constructor)
-        for _a in analyses:
-            _direction = "short" if _a.rating in ("sell", "strong_sell") else "long"
-            try:
-                _preview = pipeline.portfolio_constructor.entry_stop_preview(
-                    _a,
-                    _direction,
-                    regime=_regime_for_preview,
-                )
-            except Exception as exc:  # noqa: BLE001 — unreadable stop = funding not measured
-                logger.warning("entry/stop preview failed for %s: %s", _a.symbol, exc)
-                _preview = None
-            if isinstance(_preview, tuple) and len(_preview) == 3:
-                candidate_entry_stop[_a.symbol.upper()] = (_preview[0], _preview[1])
-            velocity_by_symbol[_a.symbol.upper()] = candidate_velocity(
-                getattr(ctx, "symbols_bars", None),
-                _a,
-                _preview,
-                horizon_sessions=VELOCITY_HOLD_SESSIONS,
-            )
-            real_reward_risk_by_symbol[_a.symbol.upper()] = pipeline.portfolio_constructor.real_reward_risk_preview(
-                _a,
-                _direction,
-                regime=_regime_for_preview,
-            )
-        # Item 54 (2026-09-12): the preview above also RECORDS, by code, the
-        # names the one shared funnel refused (`last_refusals` — stop wider
-        # than the instrument's reach, or too young to measure). A
-        # snapshot, not a drain: DecisionStage drains once per session
-        # after construction, so the same refusal is filed exactly once.
-        constructor_refusals_by_symbol = {
-            str(sym).upper(): dict(refusal)
-            for sym, refusal in dict(
-                getattr(
-                    getattr(pipeline, "portfolio_constructor", None),
-                    "last_refusals",
-                    {},
-                )
-                or {}
-            ).items()
-        }
-        restore_carried_refusals(_constructor, _carried_refusals)
-
-        # Margin capacity for the PM prompt — WORDING ONLY. Reuses the
-        # EXACT §11.2 computation the execution submit loop uses to size
-        # entries (`_entry_deployment_budget`, which itself resolves the
-        # ladder via `_session_gross_ceiling`), so the prompt cannot state a
-        # different number than execution sizes against. Book state here
-        # (positions/equity/held-gross) has not changed since ctx was built
-        # above, so this is the same headroom execution will see for this
-        # session's opening entries — never a new formula.
-        margin_headroom_usd, margin_ladder_backed, _margin_headroom_note = _entry_deployment_budget(
-            pipeline, ctx, positions, total_value, cash
-        )
-        _margin_ceiling = _session_gross_ceiling(pipeline, ctx)
-        margin_ladder_multiple = _margin_ceiling.ceiling_x if _margin_ceiling is not None else None
-        margin_ladder_rung = _margin_ceiling.rung if _margin_ceiling is not None else None
-
-        # Kept as a dict so the ONE accounting re-ask below (board item
-        # 110) can re-ask the identical question — same inputs, same
-        # prompt — with only the bookkeeping challenge added. A re-ask
-        # built from different inputs would be a second decision, not a
-        # re-ask.
-        pm_decide_kwargs = dict(
-            analyses=analyses,
-            positions=positions,
-            macro_analysis=_macro_analysis_as_dict(macro_analysis),
-            cash_balance=cash,
-            reserve_balance=reserve_balance,
-            total_value=total_value,
-            news_intel=news_intel,
-            earnings_analyses=earnings_results,
-            smart_money_findings=ctx.smart_money_findings,
-            yesterday_insights=yesterday_insights,
-            recent_performance=recent_performance,
-            position_history=position_history,
-            weekly_narrative=weekly_narrative,
-            macro_trajectory=macro_trajectory,
-            active_state_changes=active_state_changes,
-            rm_recent_verdicts=rm_recent_verdicts,
-            pm_recent_decisions=pm_recent_decisions,
-            projected_portfolio=projected_portfolio,
-            calibration_note=calibration_note,
-            macro_tech_alignment=macro_tech_alignment,
-            recent_missed_lessons=recent_missed_lessons,
-            recent_loss_pits=recent_loss_pits,
-            blocked_proposals=blocked_proposals,
-            facts=pm_facts,
-            allow_margin=bool(getattr(pipeline.config.risk, "allow_margin", False)),
-            margin_headroom_usd=margin_headroom_usd,
-            margin_ladder_backed=margin_ladder_backed,
-            # Board item 95: the PM is shown what the capacity above COSTS.
-            # Read off the same loaded config the rest of this call uses, so
-            # the prompt renderer never re-loads `AppConfig` (which validates
-            # API keys and would fail silently, dropping the price).
-            margin_interest_rate_pct=getattr(
-                pipeline.config.risk,
-                "margin_interest_rate_pct",
-                None,
-            ),
-            # The owner's minimum risk per position (owner rule 2026-08-27),
-            # read from the setting, with each candidate's own previewed
-            # entry and stop, so the rotation pre-check judges "short of
-            # cash" at the candidate's real stop through the one shared
-            # `src.risk.min_risk.min_risk_shortfall`. Replaced the deleted
-            # flat $500 `cash_sweep.min_order_usd` floor.
-            min_risk_floor=MinRiskFloor(
-                floor_pct=_min_position_risk_pct(pipeline),
-                equity_usd=(
-                    float(ctx.total_value)
-                    if isinstance(ctx.total_value, (int, float)) and not isinstance(ctx.total_value, bool)
-                    else None
-                ),
-                entry_stop=candidate_entry_stop,
-            ),
-            margin_ladder_multiple=margin_ladder_multiple,
-            margin_ladder_rung=margin_ladder_rung,
-            symbol_sectors=dict(ctx.symbol_sectors or {}),
-            session_type=ctx.session,
-            allowed_buy_symbols={str(symbol).strip().upper() for symbol in configured_universe if str(symbol).strip()}
-            | set(ctx.admitted_symbols),
-            transient_admitted_symbols=set(ctx.admitted_symbols),
-            # The unmeasurable-payoff gate reads the SAME starter size the
-            # risk budget will actually grant. `rr_floor` is retired as a
-            # size/refuse threshold (owner 2026-09-17) and is still threaded
-            # so existing callers/tests do not silently re-default a number
-            # that must not decide size. No settings key backs it any more
-            # (board item 81) — it is always the historical constant.
-            rr_floor=float(REWARD_RISK_FLOOR),
-            starter_risk_pct=float(
-                getattr(
-                    pipeline.config.risk,
-                    "min_position_risk_pct",
-                    STARTER_POSITION_RISK_PCT,
-                )
-            ),
-            # Phase 14 (opportunity-cost rotation) — same book-risk snapshot
-            # and ceiling the constructor rations against below, computed
-            # once above so both stages judge the identical numbers.
-            existing_risk_pct=existing_risk_pct,
-            max_portfolio_risk_pct=float(
-                getattr(
-                    pipeline.config.risk,
-                    "max_portfolio_risk_pct",
-                    25.0,
-                )
-            ),
-            # Phase 14b: wording only — see `_apply_rotation_execution`.
-            rotation_execute_enabled=_rotation_execution_enabled(pipeline),
-            # Board item 39: the ranked-margin tier is executable behind its
-            # own second switch, and the PM's prompt has to say so or the
-            # model sizes its plan as though no room is being freed.
-            rotation_ranked_margin_enabled=_rotation_ranked_margin_enabled(
-                pipeline,
-            ),
-            real_reward_risk_by_symbol=real_reward_risk_by_symbol,
-            constructor_refusals_by_symbol=constructor_refusals_by_symbol,
-        )
+        # The manager's inputs, through the one builder the position reviewer
+        # also calls (`build_pm_decide_inputs`).
+        inputs = build_pm_decide_inputs(pipeline, ctx)
+        positions = inputs.positions
+        position_history = inputs.position_history
+        existing_risk_pct = inputs.existing_risk_pct
+        risk_clusters = inputs.risk_clusters
+        velocity_by_symbol = inputs.velocity_by_symbol
+        pm_decide_kwargs = inputs.pm_decide_kwargs
         # A caller that deliberately runs WITHOUT the PM (an intraday check
         # with no movers: only the below-entry-bar sale is due) names why on
         # the context. The PM is then not called at all, and the run is
