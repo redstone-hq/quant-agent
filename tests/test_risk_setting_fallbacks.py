@@ -83,7 +83,6 @@ EXPECTED_FIELDS = {
     "max_position_risk_pct",
     "min_position_risk_pct",
     "max_portfolio_risk_pct",
-    "max_cluster_risk_share_pct",
     "max_position_pct",
     "max_gross_exposure_x",
     "min_stop_atr_multiple",

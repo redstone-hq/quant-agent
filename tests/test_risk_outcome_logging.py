@@ -667,7 +667,6 @@ def test_build_buy_allocated_risk_diverges_from_requested_under_budget_cut():
         total_value=100_000.0,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"OTHER": 24.5},  # ceiling defaults to 25.0
-        clusters=[],
     )
     buy = next((d for d in decisions if d.action == "BUY"), None)
     assert buy is not None

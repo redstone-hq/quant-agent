@@ -108,7 +108,6 @@ class PmDecideInputs(NamedTuple):
     positions: list
     position_history: dict
     existing_risk_pct: float
-    risk_clusters: object
     velocity_by_symbol: dict
 
 
@@ -190,9 +189,8 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     blocked_proposals = pipeline._build_blocked_proposals(run_id=run_id)
     # Audit §1.2 — build the correlation matrix HERE, before PM decides,
     # rather than in RiskStage after it already has. RiskStage reuses the
-    # memoized matrix, so the deterministic cluster check still judges PM
-    # against exactly the numbers PM was shown.
-    correlation_matrix = pipeline._ensure_correlation_matrix(ctx, positions)
+    # memoized matrix.
+    pipeline._ensure_correlation_matrix(ctx, positions)
     pm_facts = pipeline._build_pm_facts(
         positions=positions,
         analyses=analyses,
@@ -200,7 +198,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         cash=cash,
         recent_performance=recent_performance,
         macro_analysis=macro_analysis,
-        correlation_matrix=correlation_matrix,
     )
     ctx.facts = pm_facts
     trading_config = getattr(pipeline.config, "trading", None)
@@ -214,7 +211,7 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     # "book is empty" view. Pure function of `ctx.facts` — safe to
     # compute this early since nothing between here and the constructor
     # call mutates it.
-    existing_risk_pct, risk_clusters = _book_risk_inputs(ctx, total_value)
+    existing_risk_pct = _book_risk_inputs(ctx, total_value)
 
     # 2026-09-04 fix (audit finding): the PM's own eligibility gate
     # (`candidate_eligibility` / `_apply_subfloor_catalyst_rule`) used
@@ -410,7 +407,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         positions=positions,
         position_history=position_history,
         existing_risk_pct=existing_risk_pct,
-        risk_clusters=risk_clusters,
         velocity_by_symbol=velocity_by_symbol,
     )
 
@@ -451,7 +447,6 @@ class DecisionStage:
         positions = inputs.positions
         position_history = inputs.position_history
         existing_risk_pct = inputs.existing_risk_pct
-        risk_clusters = inputs.risk_clusters
         velocity_by_symbol = inputs.velocity_by_symbol
         pm_decide_kwargs = inputs.pm_decide_kwargs
         # A caller that deliberately runs WITHOUT the PM (an intraday check
@@ -959,7 +954,6 @@ class DecisionStage:
             # sizing it off a stale/mid price or the TA entry fallback.
             unpriceable_symbols=unpriceable_new_syms,
             existing_risk_pct=existing_risk_pct,
-            clusters=risk_clusters,
             # Live broker stops from the same heat roll-up as
             # `existing_risk_pct`: sizes a trim of a held, unanalysed name.
             live_stops=_live_stops_from_heat(ctx),

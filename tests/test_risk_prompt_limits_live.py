@@ -57,8 +57,8 @@ WHAT NEITHER CHECK CATCHES, stated plainly rather than papered over:
     placeholder-coverage check (c) constrains this, and only by ensuring the
     correct rendered statement still exists somewhere.
   * a number that is a limit elsewhere in the codebase but is not a
-    `RiskConfig` field. The 50% correlation-cluster advisory is a function
-    default in `src/risk/rules.py`, not a setting, and is invisible here.
+    `RiskConfig` field. A function default in `src/risk/rules.py` is not a
+    setting and is invisible here.
   * a placeholder rendering the WRONG setting for the sentence it sits in.
     Nothing mechanical can know that a sentence about shorts should cite the
     short cap.
@@ -111,13 +111,12 @@ WIRED_SETTINGS = (
 
 #: Settings the Portfolio Manager's sheet states. PM SIZES under these where
 #: the reviewer AUDITS against them, so the two lists differ: PM needs the
-#: cluster share and the gross-exposure multiple it sizes into, RM does not.
+#: gross-exposure multiple it sizes into, RM does not.
 PM_WIRED_SETTINGS = (
     "max_position_pct",
     "max_position_risk_pct",
     "min_position_risk_pct",
     "max_portfolio_risk_pct",
-    "max_cluster_risk_share_pct",
     "max_gross_exposure_x",
 )
 
@@ -798,8 +797,7 @@ def test_every_setting_pm_renders_reaches_the_object_that_enforces_it():
 
     The sizing seat's limits are NOT all enforced by the risk engine. Grep
     `src/risk/rules.py`: it contains no reference at all to
-    `max_cluster_risk_share_pct`,
-    `min_position_risk_pct` or `max_portfolio_risk_pct`. Those four are
+    `min_position_risk_pct` or `max_portfolio_risk_pct`. Those are
     enforced by `PortfolioConstructor`, from a separately built
     `ConstructorConfig` with its own fallbacks — so checking PM's sheet only
     against `RiskConfig` would declare parity for four settings whose

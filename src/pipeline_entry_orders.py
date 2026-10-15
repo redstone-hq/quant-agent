@@ -707,7 +707,7 @@ def _record_constructor_drops(pipeline, ctx, portfolio_decision) -> dict[str, di
         # fault is checked FIRST: it is not a judgement at all.
         drain_refusals = getattr(constructor, "drain_refusals", None)
         refusals = dict(drain_refusals() if callable(drain_refusals) else {})
-        existing_risk_pct, _ = _book_risk_inputs(
+        existing_risk_pct = _book_risk_inputs(
             ctx,
             getattr(ctx, "total_value", 0.0) or 0.0,
         )

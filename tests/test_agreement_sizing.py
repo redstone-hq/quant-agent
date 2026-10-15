@@ -381,8 +381,8 @@ def test_no_op_wall_any_positive_net_is_byte_identical_to_no_registry():
 
 
 def test_missing_evidence_registry_leaves_the_refusal_unenforced():
-    """Same "no view, don't invent one" posture as `existing_risk_pct`/
-    `clusters`: omitting the registry must NOT be silently treated as zero
+    """Same "no view, don't invent one" posture as `existing_risk_pct`:
+    omitting the registry must NOT be silently treated as zero
     agreement — a missing registry is not evidence of disagreement."""
     constructor = PortfolioConstructor()
     target = TargetPosition(
@@ -412,24 +412,23 @@ def test_missing_evidence_registry_leaves_the_refusal_unenforced():
 def test_composition_agreement_refusal_then_budget_allocator_then_single_name():
     """The deterministic layers must still hold together and in order: the
     agreement gate admits or refuses each target first, `allocate_risk_budget`
-    rations what is left across a correlated cluster second, and the
+    rations what is left under the total risk ceiling second, and the
     single-name notional clamp applies to the resulting size third. What is
     NO LONGER in the chain is any agreement-driven narrowing of the request.
 
-    Cluster share tightened to 16% of the 25% portfolio ceiling (= 4.0%) so
-    the allocator actually has to ration between the two requests.
+    Held risk of 21% leaves 4.0% of the 25% portfolio ceiling so the
+    allocator actually has to ration between the two requests.
     `max_position_pct` pinned back to its pre-2026-09-04 value of 20 (the
     real deployed value is 100 since that date, see settings.yaml) so this
     fixture's notional still exercises the single-name clamp.
     """
     constructor = PortfolioConstructor(
         ConstructorConfig(
-            max_cluster_risk_share_pct=16.0,
             max_position_pct=20.0,
         )
     )
-    # Two single-seat targets in the same correlation cluster, each asking
-    # for 3.0% risk — 6.0% combined against a 4.0% cluster cap.
+    # Two single-seat targets, each asking for 3.0% risk — 6.0% combined
+    # against 4.0% of ceiling headroom.
     targets = [
         TargetPosition(symbol="OKLO", risk_allocation_pct=3.0, conviction="high", thesis="Nuclear theme A."),
         TargetPosition(symbol="CEG", risk_allocation_pct=3.0, conviction="high", thesis="Nuclear theme B."),
@@ -449,8 +448,7 @@ def test_composition_agreement_refusal_then_budget_allocator_then_single_name():
         analyses=analyses,
         total_value=100_000.0,
         price_map={"OKLO": 100.0, "CEG": 100.0},
-        existing_risk_pct={},
-        clusters=[["OKLO", "CEG"]],
+        existing_risk_pct={"HELD": 21.0},
         evidence_registry=registry,
     )
     buys = {d.symbol: d for d in decisions if d.action == "BUY"}
@@ -459,13 +457,13 @@ def test_composition_agreement_refusal_then_budget_allocator_then_single_name():
         assert "agreement ceiling" not in d.reasoning
 
     # Equal requests, alphabetical tie-break: CEG is processed first and
-    # fits the 4.0% cluster cap in full (3.0% risk / $10 risk-per-share *
+    # fits the 4.0% headroom in full (3.0% risk / $10 risk-per-share *
     # $100 entry = 30% notional, clamped to 20% by the single-name ceiling).
-    # OKLO is processed second with 1.0% of cluster headroom left, rationed
+    # OKLO is processed second with 1.0% of headroom left, rationed
     # to 1.0% risk = 10% notional, which never reaches the single-name cap.
     assert "single-name ceiling" in buys["CEG"].reasoning
     assert buys["CEG"].allocation_pct == pytest.approx(20.0, abs=0.05)
-    assert "cluster" in buys["OKLO"].reasoning
+    assert "total at-risk ceiling" in buys["OKLO"].reasoning
     assert "single-name ceiling" not in buys["OKLO"].reasoning
     assert buys["OKLO"].allocation_pct == pytest.approx(10.0, abs=0.05)
 

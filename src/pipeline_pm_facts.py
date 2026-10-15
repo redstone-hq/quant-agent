@@ -97,21 +97,6 @@ class PMFacts:
     # — the prompt then says so rather than rendering a confident zero.
     heat: "PortfolioHeat | None" = None
     risk_ceiling_pct: float = 25.0
-    #: Spec §2.2 — the most of that ceiling any ONE correlated cluster may
-    #: take. Rendered with the clusters below so the cap the constructor
-    #: enforces is a number the PM can size against, rather than a rule it is
-    #: told about and then surprised by.
-    cluster_risk_share_pct: float = 40.0
-
-    # Audit §1.2: the correlation matrix has been computed every run and shown
-    # only to the deterministic cluster check, which fires AFTER PM has already
-    # chosen. PM's prompt told it to "avoid stacking highly correlated
-    # positions" while `grep -i correlation src/agents/portfolio_manager.py`
-    # returned zero hits. These are the clusters PM is now actually given.
-    # Each entry is a list of mutually correlated symbols (|corr| >= 0.7),
-    # sorted, largest cluster first. Empty when coverage is missing.
-    correlation_clusters: list[list[str]] = field(default_factory=list)
-    correlation_coverage: bool = True
 
     # Who the tickers actually are. Every layer above this one reasons about
     # a symbol as a price series with a sector tag, and "Utilities" covers
@@ -188,7 +173,7 @@ class PMFacts:
 - rolling 5d={_pct(self.rolling_5d_pct)} · 20d={_pct(self.rolling_20d_pct)}
 
 {self._render_risk()}
-{self._render_correlation()}{self._render_deployment_gap()}{self._render_companies()}"""
+{self._render_deployment_gap()}{self._render_companies()}"""
 
     def _render_risk(self) -> str:
         from src.risk.metrics import format_heat_block
@@ -201,34 +186,6 @@ class PMFacts:
                 "not assume headroom exists."
             )
         return format_heat_block(self.heat, self.risk_ceiling_pct).rstrip("\n")
-
-    def _render_correlation(self) -> str:
-        if not self.correlation_coverage:
-            return (
-                "\n### Correlation Clusters\n"
-                "- coverage MISSING this run (insufficient bar history). The "
-                "deterministic cluster check is disabled, so concentration you "
-                "stack today will not be caught downstream. Diversify by theme "
-                "manually and say so in `portfolio_balance`."
-            )
-        if not self.correlation_clusters:
-            return "\n### Correlation Clusters\n- none: no held or candidate pair correlates at |r| >= 0.7."
-        lines = "\n".join(f"  - {' / '.join(cluster)}" for cluster in self.correlation_clusters)
-        cluster_cap = self.risk_ceiling_pct * self.cluster_risk_share_pct / 100.0
-        return (
-            "\n### Correlation Clusters (|r| >= 0.7 over the trailing window)\n"
-            "- These names move together. Each cluster is ONE bet, however "
-            "many tickers it holds; sizing two members full-size is one "
-            "double-sized bet wearing a diversification costume.\n"
-            f"- ENFORCED: the members of any one cluster may hold at most "
-            f"{cluster_cap:.1f}% of equity at risk between them "
-            f"({self.cluster_risk_share_pct:.0f}% of the "
-            f"{self.risk_ceiling_pct:.1f}% total). Ask for more and the "
-            f"constructor rations it deterministically, largest request "
-            f"first — so size the theme yourself rather than discovering the "
-            f"cap after the fact.\n"
-            f"{lines}"
-        )
 
     def _render_companies(self) -> str:
         """Business identities for the symbols in scope, or nothing at all.

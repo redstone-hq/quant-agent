@@ -34,14 +34,8 @@ src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)	
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(min_age_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
 src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)	docs/OUTCOME.md@`**Horizon:** swing — days to weeks.`	no_mention
-src.risk.budget.allocate_risk_budget(cluster_share_pct)	src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.build_user_message	no_mention
 src.risk.constants.STARTER_POSITION_RISK_PCT	docs/INCIDENT_HISTORY.md@`He was right. The work to that point had been co`	no_mention
 src.risk.rules.DESK_INVESTED_TARGET_PCT	src/risk/rules.py@`# sitting in T-bills or any other positions that`	dead
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)	src/pipeline.py::TradingPipeline._run_morning_body	no_mention
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)	src/pipeline_config_build.py::_threaded_risk_settings	no_mention
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)	src/pipeline_risk_gate.py::RiskGate._filter_hard_risk_decisions	no_mention
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)	src/portfolio_constructor/__init__.py::PortfolioConstructor._plan_risk_targets	no_mention
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)	src/risk/rules.py@`cluster_pct = (peer_value + gross_new) / total_value * 100`	no_mention
 src.risk.rules.distance_to_forced_liquidation_pct(maintenance_margin_pct)	src/pipeline_intraday.py::IntradayMixin.run_intra_safety	no_mention
 src.risk.trail_tick.MIN_RATCHET_TICKS	src/execution/broker.py::AlpacaBroker._amend_resting_stop_price	no_mention
 src.risk.trail_tick.MIN_RATCHET_TICKS	src/execution/broker_parts/stop_place.py::StopPlacer.__init__	no_mention

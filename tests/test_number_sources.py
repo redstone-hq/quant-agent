@@ -546,7 +546,7 @@ def test_the_named_hidden_trade_numbers_are_now_sites() -> None:
     # is pinned on the other parameter default it found, so the shape stays
     # covered and a new one still cannot arrive unseen.
     assert not any(i.startswith("src.pipeline_risk_gate.RiskGate._refuse_queued_earnings_buys") for i in ids)
-    assert "src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)" in ids
+    assert "src.agents.portfolio_manager.PortfolioManagerAgent.decide(rr_floor)" in ids
     # (d) class attributes.
     assert "src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS" in ids
     # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09 and
@@ -725,9 +725,8 @@ def test_a_settlement_route_that_cannot_be_acted_on_is_refused() -> None:
 def test_the_book_wide_ceilings_route_to_a_recording_not_to_the_owner() -> None:
     """Item 186's aggregate ceilings, guarded against their own failure mode.
 
-    These four rows are the ceilings that ration the whole book: total
-    at-risk, the terminal sector bound and its constructor mirror, and the
-    share one correlation cluster may hold. Twice now the item has tried to
+    These rows are the ceilings that ration the whole book: total
+    at-risk, the terminal sector bound and its constructor mirror. Twice now the item has tried to
     close them by asking the owner what concentration he accepts, and the
     owner ruled on 2026-09-30 that risk is read per name and never set as a
     global dial, so that question may not come back. What each row owes
@@ -737,10 +736,7 @@ def test_the_book_wide_ceilings_route_to_a_recording_not_to_the_owner() -> None:
     from src.number_sources import load_ledger, settlement_route_problem
 
     ledger = load_ledger()
-    ceilings = (
-        "src.config.RiskConfig.max_portfolio_risk_pct",
-        "src.config.RiskConfig.max_cluster_risk_share_pct",
-    )
+    ceilings = ("src.config.RiskConfig.max_portfolio_risk_pct",)
     for site_id in ceilings:
         if (entry := ledger[site_id])["status"] == "owner-ruled":
             continue  # a dated owner decision owes no settlement route

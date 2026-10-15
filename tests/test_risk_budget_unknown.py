@@ -85,7 +85,6 @@ def test_one_unreadable_holding_is_charged_at_full_value_and_the_budget_still_bi
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct=book,
-        clusters=[],
     )
     assert decisions == []
     assert constructor.drain_refusals()["NVDA"]["refusal"] == "risk_budget_exhausted"
@@ -95,10 +94,10 @@ def test_a_book_that_cannot_be_rolled_up_is_charged_at_full_value_not_skipped():
     from src.pipeline_stages import _book_risk_inputs
 
     ctx = SimpleNamespace(
-        facts=SimpleNamespace(heat=None, correlation_clusters=None),
+        facts=SimpleNamespace(heat=None),
         positions=[_pos("BAD", 250, 100.0, 100.0)],
     )
-    existing, _ = _book_risk_inputs(ctx, EQUITY)
+    existing = _book_risk_inputs(ctx, EQUITY)
     assert existing is not None  # None used to skip the 25% ceiling outright
     assert existing["BAD"] == 25.0
     assert not existing.unknown
@@ -121,7 +120,6 @@ def test_a_buy_is_refused_while_risk_is_unknown_and_an_exit_is_not():
         total_value=EQUITY,
         price_map={"NVDA": 100.0, "AAPL": 100.0},
         existing_risk_pct=metrics.BookRiskPct({"X": 1.0, "AAPL": 1.0}, unknown={"X"}),
-        clusters=[],
     )
     assert [d.symbol for d in decisions] == ["AAPL"]
     refusal = constructor.drain_refusals()["NVDA"]
@@ -138,7 +136,6 @@ def test_a_dollar_only_target_is_converted_to_risk_and_rationed():
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct=metrics.BookRiskPct({"HELD": 25.0}),
-        clusters=[],
     )
     assert decisions == []  # used to be sized the old way, past a full budget
     assert constructor.drain_refusals()["NVDA"]["refusal"] == "risk_budget_exhausted"
@@ -154,7 +151,6 @@ def test_a_dollar_only_target_with_no_stop_is_refused_by_name(caplog):
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct=metrics.BookRiskPct({}),
-        clusters=[],
     )
     assert decisions == []
     # The data fault upstream is already on record for NVDA, so the named
@@ -167,9 +163,9 @@ def test_missing_facts_or_account_value_is_an_unknown_book_never_a_skipped_ceili
 
     for ctx, value in (
         (SimpleNamespace(facts=None), EQUITY),
-        (SimpleNamespace(facts=SimpleNamespace(heat=None, correlation_clusters=None)), 0.0),
+        (SimpleNamespace(facts=SimpleNamespace(heat=None)), 0.0),
     ):
-        existing, _ = _book_risk_inputs(ctx, value)
+        existing = _book_risk_inputs(ctx, value)
         assert existing is not None  # None used to skip the 25% ceiling outright
         assert existing.unknown
 
@@ -183,7 +179,6 @@ def test_a_partial_trim_of_a_held_name_is_not_refused_while_the_book_is_unknown(
         total_value=EQUITY,
         price_map={"AAPL": 100.0, "NVDA": 100.0},
         existing_risk_pct=metrics.BookRiskPct({"X": 1.0, "AAPL": 2.0}, unknown={"X"}),
-        clusters=[],
     )
     refusals = constructor.drain_refusals()
     assert refusals.get("AAPL", {}).get("refusal") != "book_risk_unknown"  # reduces risk: passes

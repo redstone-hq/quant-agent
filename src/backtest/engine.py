@@ -19,7 +19,7 @@ touched, is the DETERMINISTIC layer underneath them:
                             `._widen_stop_past_noise` (src/portfolio_constructor.py)
   * position sizing       — the §2.1 risk formula
                             (shares = equity x risk_pct/100 / |entry - stop|)
-  * the portfolio risk budget and cluster caps
+  * the portfolio risk budget (total ceiling only)
                           — `src/risk/budget.py::allocate_risk_budget`
                             (the function runs; on a binding day this
                             engine's equal-size unranked asks are served
@@ -81,10 +81,6 @@ widening rule yet to reuse, and this tool does not invent one.
 OTHER DECLARED SIMPLIFICATIONS
 -------------------------------
 * One open position per symbol at a time (no pyramiding).
-* Correlation clusters are recomputed once per simulated day, from bars
-  through that day only (no look-ahead), using the same
-  `build_correlation_matrix` / `correlation_clusters` the live risk budget
-  uses.
 * Equity used for sizing and for the risk budget compounds with REALIZED
   trade P&L only; unrealized marks on open positions are not folded in
   (matches the trade-level max-drawdown methodology in `metrics.py`).
@@ -146,7 +142,6 @@ from src.backtest.exit_rules import (  # noqa: F401
     _size_position,
 )
 from src.config import AppConfig
-from src.data.correlation import build_correlation_matrix, correlation_clusters
 from src.data.technical import compute_indicators
 from src.backtest.structural_stops import (  # noqa: F401
     _resolve_structural_stop_and_target,
@@ -332,7 +327,6 @@ def run_backtest(
             risk_budget_pct=config.risk.max_position_risk_pct,
             min_risk_pct=config.risk.min_position_risk_pct,
             max_portfolio_risk_pct=config.risk.max_portfolio_risk_pct,
-            max_cluster_risk_share_pct=config.risk.max_cluster_risk_share_pct,
             max_position_pct=config.risk.max_position_pct,
             min_stop_atr_multiple=config.risk.min_stop_atr_multiple,
             # Spec §12.1 — a stop at a COMPUTED level is honoured whatever the
@@ -515,23 +509,12 @@ def run_backtest(
         if not candidates:
             continue
 
-        hist_for_matrix = {
-            sym: bars_sorted[sym][: index_of_date[sym][day] + 1]
-            for sym in symbols_with_data
-            if day in index_of_date[sym]
-        }
-        matrix = build_correlation_matrix(hist_for_matrix)
-        cluster_universe = list(open_positions) + [c["symbol"] for c in candidates]
-        clusters = correlation_clusters(cluster_universe, matrix)
-
         existing_pct = {sym: _existing_risk_pct(pos, equity) for sym, pos in open_positions.items()}
         requests = [RiskRequest(c["symbol"], config.risk.max_position_risk_pct) for c in candidates]
         allocation = allocate_risk_budget(
             requests,
             existing_pct=existing_pct,
-            clusters=clusters,
             ceiling_pct=config.risk.max_portfolio_risk_pct,
-            cluster_share_pct=config.risk.max_cluster_risk_share_pct,
             floor_pct=config.risk.min_position_risk_pct,
         )
         entry_days += 1

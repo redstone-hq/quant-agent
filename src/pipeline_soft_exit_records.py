@@ -263,7 +263,7 @@ def _isolate_empty_soft_exit_entries(pipeline, ctx, portfolio_decision) -> list[
     """
     if portfolio_decision is None:
         return []
-    existing_risk_pct, _ = _book_risk_inputs(
+    existing_risk_pct = _book_risk_inputs(
         ctx,
         getattr(ctx, "total_value", 0.0) or 0.0,
     )

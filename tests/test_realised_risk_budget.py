@@ -1,8 +1,7 @@
-"""Board item 186 — the realised total at-risk and the per-cluster shares of
-it, one durable row per run.
+"""Board item 186 — the realised total at-risk, one durable row per run.
 
-WHY. `max_portfolio_risk_pct` (25) and `max_cluster_risk_share_pct` (40) are
-owner-ratified appetite with no measurement behind either, and the owner's
+WHY. `max_portfolio_risk_pct` (25) is owner-ratified appetite with no
+measurement behind it, and the owner's
 2026-09-30 ruling ("risk is never a global dial") bars picking a replacement
 value. What is buildable without inventing a number is the OBSERVATION: write
 down what the book's realised concentration actually was, session by session.
@@ -43,21 +42,18 @@ def _allocation():
     object that actually rations orders in production."""
     return allocate_risk_budget(
         [RiskRequest("AAA", 5.0), RiskRequest("BBB", 5.0), RiskRequest("CCC", 5.0)],
-        clusters=[["AAA", "BBB"]],
         ceiling_pct=25.0,
-        cluster_share_pct=40.0,
         floor_pct=0.5,
     )
 
 
-def test_a_real_allocator_run_is_recorded_with_its_cluster_shares(db):
+def test_a_real_allocator_run_is_recorded(db):
     alloc = _allocation()
     assert (
         record_realised_risk_budget(
             db,
             allocation=alloc,
             equity=100_000.0,
-            cluster_share_pct=40.0,
             run_id="run-1",
         )
         is True
@@ -68,28 +64,14 @@ def test_a_real_allocator_run_is_recorded_with_its_cluster_shares(db):
     assert row["allocator_ran"] == 1
     assert row["equity"] == 100_000.0
     assert row["ceiling_pct"] == 25.0
-    assert row["cluster_share_pct"] == 40.0
     # At-risk carried by held names no request touched, read off the
     # allocator's own "held + granted" arithmetic — not a second estimate.
     granted = sum(g.granted_pct for g in alloc.grants.values())
     assert row["held_only_pct"] == pytest.approx(alloc.committed_pct - granted)
     assert row["committed_pct"] == pytest.approx(alloc.committed_pct)
-    clusters = json.loads(row["cluster_shares_json"])
-    assert clusters, "a run with a cluster must record that cluster"
-    # The 40% ceiling is written as a share OF THE COMMITTED TOTAL, so the
-    # row has to carry that quantity and not only the raw at-risk percent.
-    for entry in clusters:
-        assert set(entry) == {
-            "members",
-            "at_risk_pct",
-            "share_of_committed_pct",
-        }
-        assert entry["members"] == sorted(entry["members"])
-    aaa_bbb = [c for c in clusters if c["members"] == ["AAA", "BBB"]]
-    assert aaa_bbb, "the cluster the allocator rationed must be named"
-    assert aaa_bbb[0]["share_of_committed_pct"] == pytest.approx(
-        aaa_bbb[0]["at_risk_pct"] / alloc.committed_pct * 100.0
-    )
+    # The cluster columns stay in the live table but are no longer written.
+    assert row["cluster_share_pct"] is None
+    assert row["cluster_shares_json"] is None
     grants = json.loads(row["grants_json"])
     assert {g["symbol"] for g in grants} == {"AAA", "BBB", "CCC"}
     assert row["rationed_names"] == sum(1 for g in grants if g["limited_by"])
@@ -106,7 +88,6 @@ def test_an_unknown_book_records_unknown_and_not_zero(db):
             db,
             allocation=None,
             equity=100_000.0,
-            cluster_share_pct=40.0,
             run_id="run-2",
         )
         is True
@@ -114,7 +95,6 @@ def test_an_unknown_book_records_unknown_and_not_zero(db):
     row = _rows(db)[0]
     assert row["allocator_ran"] == 0
     assert row["committed_pct"] is None
-    assert row["cluster_shares_json"] is None
     assert row["held_only_pct"] is None
     assert row["rationed_names"] is None
     assert row["equity"] == 100_000.0
@@ -126,7 +106,6 @@ def test_the_recording_is_idempotent_per_run(db):
             db,
             allocation=_allocation(),
             equity=1.0,
-            cluster_share_pct=40.0,
             run_id="run-3",
         )
     assert len(_rows(db)) == 1
@@ -139,7 +118,6 @@ def test_a_fully_granted_book_carries_no_untouched_held_risk(db):
         db,
         allocation=_allocation(),
         equity=1.0,
-        cluster_share_pct=40.0,
         run_id="run-4",
     )
     assert _rows(db)[0]["held_only_pct"] == pytest.approx(0.0)

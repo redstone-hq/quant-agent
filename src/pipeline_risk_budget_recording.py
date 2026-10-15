@@ -22,8 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _record_realised_risk_budget(pipeline, ctx, total_value) -> None:
-    """One durable row per run: the realised total at-risk and the share of
-    it each correlation cluster held. Reads the allocator's own stashed
+    """One durable row per run: the realised total at-risk. Reads the allocator's own stashed
     output rather than recomputing — a second computation could disagree
     with the one that rationed the orders. Never raises.
     """
@@ -32,12 +31,10 @@ def _record_realised_risk_budget(pipeline, ctx, total_value) -> None:
         if db is None or getattr(db, "conn", None) is None:
             return
         constructor = getattr(pipeline, "portfolio_constructor", None)
-        cfg = getattr(constructor, "cfg", None)
         record_realised_risk_budget(
             db,
             allocation=getattr(constructor, "last_risk_allocation", None),
             equity=total_value,
-            cluster_share_pct=getattr(cfg, "max_cluster_risk_share_pct", None),
             run_id=pinned_evidence(ctx, "run_id"),
         )
     except Exception as exc:  # noqa: BLE001

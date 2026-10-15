@@ -219,12 +219,11 @@ LEVELS_COVERAGE_MIN_SAMPLE = 10
 
 
 def _book_risk_inputs(ctx, total_value: float):
-    """Per-symbol budget risk (% of equity) and correlation clusters.
+    """Per-symbol budget risk (% of equity).
 
-    Spec §2.2. Both are already computed for the PM's own facts block — the
-    heat roll-up in `src/risk/metrics.py` and the clusters in
-    `src/data/correlation.py` — so the constructor rations the plan against
-    precisely the numbers the plan was made against, rather than a second
+    Spec §2.2. Already computed for the PM's own facts block — the heat
+    roll-up in `src/risk/metrics.py` — so the constructor rations the plan
+    against precisely the numbers the plan was made against, rather than a second
     view assembled a moment later.
 
     Never returns `None` for the book (defect 2026-10-09: `None` made the
@@ -233,7 +232,6 @@ def _book_risk_inputs(ctx, total_value: float):
     holding at full market value, or returned as an UNKNOWN book
     (`BookRiskPct.unknown` non-empty), on which the constructor refuses every
     risk-adding order by name while closes, trims, exits and stops pass.
-    `clusters` is `None` whenever correlation clusters are unavailable.
     """
     from src.risk.metrics import BookRiskPct, full_value_charge
 
@@ -243,10 +241,8 @@ def _book_risk_inputs(ctx, total_value: float):
             "risk budget: the book cannot be read (%s) — its risk is UNKNOWN; every new buy is refused this run",
             "no PM facts" if facts is None else f"account value {total_value!r}",
         )
-        clusters = getattr(facts, "correlation_clusters", None) if facts is not None else None
-        return (BookRiskPct({}, unknown={"*BOOK*"}), list(clusters) if clusters else None)
+        return BookRiskPct({}, unknown={"*BOOK*"})
     heat = getattr(facts, "heat", None)
-    clusters = getattr(facts, "correlation_clusters", None)
     existing: dict[str, float]
     try:
         if heat is None:
@@ -264,7 +260,7 @@ def _book_risk_inputs(ctx, total_value: float):
         existing = _full_value_book(getattr(ctx, "positions", None), total_value, BookRiskPct, full_value_charge)
     else:
         record_stage(ctx, "book_risk_map")
-    return (existing, list(clusters) if clusters else None)
+    return existing
 
 
 def _full_value_book(positions, total_value: float, book_cls, charge_fn):

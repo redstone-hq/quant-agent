@@ -51,7 +51,6 @@ class PromptPMFacts:
         cash: float,
         recent_performance: dict,
         macro_analysis=None,
-        correlation_matrix: dict[str, dict[str, float]] | None = None,
     ) -> PMFacts:
         """Quantitative snapshot surfaced to PM as structured fields.
 
@@ -206,30 +205,6 @@ class PromptPMFacts:
         ceiling = getattr(risk_cfg, "max_portfolio_risk_pct", None)
         if isinstance(ceiling, (int, float)) and ceiling > 0:
             f.risk_ceiling_pct = float(ceiling)
-        # Spec §2.2 — render the per-cluster cap the constructor enforces, so
-        # the PM sizes a theme against it instead of meeting it as a surprise.
-        cluster_share = getattr(risk_cfg, "max_cluster_risk_share_pct", None)
-        if isinstance(cluster_share, (int, float)) and 0 < cluster_share <= 100:
-            f.cluster_risk_share_pct = float(cluster_share)
-
-        # Audit §1.2 — PM has been told to avoid stacking correlated names
-        # while being shown no correlation data at all. Give it the clusters
-        # the deterministic check already builds, BEFORE it chooses.
-        try:
-            from src.data.correlation import correlation_clusters
-
-            universe = {p.symbol for p in positions if p.qty > 0}
-            universe |= {a.symbol for a in analyses}
-            f.correlation_coverage = bool(correlation_matrix)
-            f.correlation_clusters = correlation_clusters(
-                universe,
-                correlation_matrix or {},
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("pm_facts: correlation clusters failed: %s", e)
-            f.correlation_coverage = False
-            f.correlation_clusters = []
-
         # Who these tickers actually are. PM has been reasoning about `CCJ`
         # and `PATH` as price series with a sector tag; "Energy" covers both
         # an integrated major and a pre-revenue nuclear startup, and a sector

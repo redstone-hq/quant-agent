@@ -682,12 +682,10 @@ class ConstructorConfig:
     # commission floor). A request rationed under the floor is denied
     # outright rather than shrunk.
     min_risk_pct: float = 0.5
-    # Spec §2.2. Total at-risk ceiling across the book, and the share of it any
-    # one correlated cluster may take. Enforced only when the caller supplies
-    # `existing_risk_pct` / `clusters` — without those the constructor has no
+    # Spec §2.2. Total at-risk ceiling across the book. Enforced only when the
+    # caller supplies `existing_risk_pct` — without it the constructor has no
     # view of the book's risk and must not invent one.
     max_portfolio_risk_pct: float = 25.0
-    max_cluster_risk_share_pct: float = 40.0
     # The risk engine's single-name GROSS notional ceiling, mirrored here so
     # the constructor sizes UNDER it instead of proposing an order the engine
     # will hard-block. `max_position_pct` is in HARD_BLOCK_RULES, so without

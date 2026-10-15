@@ -916,7 +916,6 @@ def test_same_session_close_now_reaches_the_allocator_as_a_zero_request():
         price_map={"NEW": 100.0},
         current_weights={"OLD": 10.0},
         existing_risk_pct={"OLD": 24.8},
-        clusters=None,
     )
     assert plans["OLD"].risk_pct == 0.0
     assert "NEW" in plans, "the BUY must not be denied for room the close frees"

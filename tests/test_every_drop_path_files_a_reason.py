@@ -65,7 +65,6 @@ def _replay(decision, positions):
         decision["equity"],
         price_map=price_map,
         existing_risk_pct={},
-        clusters=None,
         regime=None,
         evidence_registry=decision["evidence_registry"] or None,
     )
