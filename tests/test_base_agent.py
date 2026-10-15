@@ -1785,7 +1785,8 @@ class ConcreteAgentWithSchema(ConcreteAgent):
     result_model = _FakeResult
 
 
-def test_openrouter_sends_default_medium_reasoning_effort():
+def test_openrouter_sends_default_medium_reasoning_effort(monkeypatch):
+    monkeypatch.setattr("src.agents.base._openrouter_supported_parameters", lambda m: frozenset({"reasoning"}))
     with patch("openai.OpenAI") as oai_cls:
         oai_cls.return_value = _openai_stream_mock()
         ConcreteAgent(api_key="ork", model="anthropic/claude-3.5-sonnet", max_tokens=64, provider="openrouter").run(
@@ -1795,7 +1796,8 @@ def test_openrouter_sends_default_medium_reasoning_effort():
     assert kwargs["extra_body"]["reasoning"] == {"effort": "medium"}
 
 
-def test_openrouter_sends_configured_reasoning_effort():
+def test_openrouter_sends_configured_reasoning_effort(monkeypatch):
+    monkeypatch.setattr("src.agents.base._openrouter_supported_parameters", lambda m: frozenset({"reasoning"}))
     with patch("openai.OpenAI") as oai_cls:
         oai_cls.return_value = _openai_stream_mock()
         ConcreteAgent(
