@@ -294,10 +294,10 @@ class TechAnalystAgent(BaseAgent):
     # cross-field rule.
     #
     # `_analyze_chunk` unwraps the `results` key via
-    # `AgentResult.parse_json_rows(list_field="results")` before the
-    # existing per-row salvage runs (#538) — a provider that ignores or
-    # only partially honours the schema still gets salvaged exactly as
-    # before; a bare list (any legacy stored answer) is still accepted too.
+    # `AgentResult.parse_json_rows(list_field="results")` before per-row
+    # validation runs; a bare list (any legacy stored answer) is still
+    # accepted. The text is never patched: an answer that is not JSON is a
+    # per-symbol refusal after the one re-ask (2026-10-14).
     result_model = TechAnalystAnswer
 
     @property
@@ -936,18 +936,18 @@ Last completed close: {_px(last_close)}{_intraday_block(symbol, last_close)}""")
             optional_retry=_is_logical_retry,
             single_provider_attempt=_is_logical_retry,
         )
-        # Row-by-row, not `parse_json`: one garbled row must cost that row
-        # only, never every well-formed row beside it (2026-09-17 14:31
-        # `intra_check-26f52bf2` lost ORCL and ETN although both attempts
-        # returned them well-formed). See AgentResult.parse_json_rows.
-        salvage = result.parse_json_rows(key_field="symbol", list_field="results")
+        # Plain JSON, never patched (the provider enforces the schema). An
+        # answer that is not JSON comes back as one MalformedRow per submitted
+        # symbol, so each is recorded below as a per-symbol refusal and gets
+        # the one existing re-ask; nothing is guessed out of the text.
+        submitted = {s.get("symbol") for s in symbols_data if isinstance(s, dict)}
+        salvage = result.parse_json_rows(list_field="results", expected_keys=sorted(s for s in submitted if s))
         parsed = None if salvage is None else salvage.rows
         malformed_rows = [] if salvage is None else salvage.malformed
         if _malformed_sink is None:
             _malformed_sink = {}
         _record_answer_hygiene(result.raw_text, parsed or [], result.actual_provider)
 
-        submitted = {s.get("symbol") for s in symbols_data if isinstance(s, dict)}
         # Index input by symbol so we can attach atr_14 back to each
         # TechAnalysisResult (the LLM doesn't echo ATR; we preserve it from
         # the indicators that fed the prompt so PortfolioConstructor's

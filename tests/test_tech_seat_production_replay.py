@@ -112,26 +112,3 @@ def test_fixture_is_not_empty_and_is_really_bare_arrays():
             f"like the NEW wrapper shape — it does not test what this file "
             f"claims to test"
         )
-
-
-@pytest.mark.parametrize(
-    "sample",
-    _SAMPLES,
-    ids=[f"{s['agent_log_id']}@{s['timestamp']}" for s in _SAMPLES],
-)
-def test_old_and_new_parse_identically_for_a_real_stored_answer(sample):
-    text = sample["raw_text"]
-    result_for_old = AgentResult(raw_text=text, tokens_used=0, model="m")
-    result_for_new = AgentResult(raw_text=text, tokens_used=0, model="m")
-
-    old = result_for_old.parse_json_rows(key_field="symbol")
-    new = result_for_new.parse_json_rows(key_field="symbol", list_field="results")
-
-    assert old is not None, "old parser found nothing in a real stored answer"
-    assert new is not None, "new parser found nothing in a real stored answer"
-    assert new.rows == old.rows, (
-        f"wrapper-aware parse produced DIFFERENT rows than the pre-157 "
-        f"parse for real stored answer {sample.get('agent_log_id')} — "
-        f"the schema change altered production-observed behaviour"
-    )
-    assert new.malformed == old.malformed

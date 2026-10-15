@@ -29,12 +29,11 @@ def _record_answer_hygiene(raw_text: str, rows: list, provider: str) -> None:
 
     `provider` is `AgentResult.actual_provider` for the call this answer
     came from. Only "openrouter" and "google" are ever given a
-    response_format at all (see `_call_openai_wire` in src/agents/base.py);
-    a bare Anthropic call, or any other fallback, was never asked to
-    conform to a schema, so a fenced/extra-key hit against a call routed
-    there is not evidence the schema failed — it is tagged with the
-    provider precisely so nobody downstream conflates the two (adversary
-    review, 2026-09-23).
+    response_format (see `_openai_wire_call` in src/agents/base.py), and
+    since 2026-10-14 a backup rung on any other provider is skipped for this
+    seat (`route_takes_schema`). Only a primary configured on another
+    provider could still answer unschema'd; the tag keeps that case from
+    being read as a schema failure (adversary review, 2026-09-23).
     """
     model_name = f"TechAnalystAnswer[{provider or 'unknown'}]"
     parse_telemetry.record_hygiene_observation(model_name)
