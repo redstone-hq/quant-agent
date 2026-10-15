@@ -30,6 +30,7 @@ def build_risk_gate(
     risk_engine=None,
     db=None,
     sweeper: Callable[[], object | None] | None = None,
+    atr_for_symbol: Callable[[str], float | None] | None = None,
 ) -> RiskGate:
     """The risk-verdict gate, from plain collaborators."""
     return RiskGate(
@@ -37,6 +38,7 @@ def build_risk_gate(
         db=db,
         sweeper=sweeper if sweeper is not None else _no_sweeper,
         config=config,
+        atr_for_symbol=atr_for_symbol,
     )
 
 
@@ -61,6 +63,7 @@ class RiskGateSlot:
         db = getattr(obj, "db", None)
         config = getattr(obj, "config", None)
         sweeper = obj._sweeper
+        atr_for_symbol = getattr(obj, "_atr_for_symbol", None)
         gate = obj.__dict__.get(self._key)
         if (
             isinstance(gate, RiskGate)
@@ -68,9 +71,12 @@ class RiskGateSlot:
             and gate.db is db
             and gate.config is config
             and gate._sweeper == sweeper
+            and gate._atr_for_symbol == atr_for_symbol
         ):
             return gate
-        gate = build_risk_gate(config=config, risk_engine=risk_engine, db=db, sweeper=sweeper)
+        gate = build_risk_gate(
+            config=config, risk_engine=risk_engine, db=db, sweeper=sweeper, atr_for_symbol=atr_for_symbol
+        )
         obj.__dict__[self._key] = gate
         return gate
 

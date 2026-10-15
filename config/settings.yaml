@@ -934,11 +934,6 @@ cash_sweep:
   enabled: false
   symbol: "SGOV"        # iShares 0-3mo T-bills; BIL is the fallback choice
 
-# Board item 190 step 1: tolerance band (pp under 100% invested) for the
-# `deployment_gap` advisory. Was read from cash_sweep.reserve_pct; same value.
-deployment_gap:
-  band_pct: 1.0
-
 # Board item 190: the raw-cash reserve band the /account liquidity view
 # reports as reserve_usd / cash_above_reserve. RELOCATED here 2026-10-01 out
 # of `cash_sweep` — same value — because its reader is the account view, not

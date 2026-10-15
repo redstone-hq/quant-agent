@@ -144,13 +144,3 @@ class ReconciliationConfig(BaseModel):
     itself (weekends + a stuck timer) without being so wide it makes the
     per-session broker query expensive. Alpaca's own order-history
     retention is the real outer bound this can't exceed."""
-
-
-class DeploymentGapConfig(BaseModel):
-    """Settings for the `deployment_gap` advisory (PM facts + pre-trade)."""
-
-    band_pct: float = Field(default=1.0, ge=0, le=20)
-    """Tolerance band, percentage points under 100% invested. Moved here
-    from `cash_sweep.reserve_pct` (board item 190 step 1) so the advisory no
-    longer depends on the retiring sweep feature. VALUE UNCHANGED (1.0).
-    Owner-appetite, not measured: see the ledger row."""

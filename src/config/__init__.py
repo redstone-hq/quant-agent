@@ -566,7 +566,6 @@ from src.config.smart_money import (  # noqa: E402,F401
     SmartMoneyConfig,
 )
 from src.config.operations import (  # noqa: E402,F401
-    DeploymentGapConfig,
     EvolutionConfig,
     ReconciliationConfig,
     ScheduleConfig,
@@ -594,7 +593,6 @@ class AppConfig(BaseModel):
     # Optional section — a settings.yaml without it gets a disabled sweeper
     # (enabled=False default), so older configs keep working unchanged.
     cash_sweep: CashSweepConfig = Field(default_factory=CashSweepConfig)
-    deployment_gap: DeploymentGapConfig = Field(default_factory=DeploymentGapConfig)
     cash_reserve: CashReserveConfig = Field(default_factory=CashReserveConfig)
     # Optional section — a settings.yaml without it gets the scan disabled
     # (enabled=False default), so intra_check's existing behavior is

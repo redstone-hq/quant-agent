@@ -6,8 +6,8 @@ averaged 39% and declined monotonically while every layer shaved sizes
 independently. Nothing reconciled the compound. Two fixes, still in force:
 
   1. PMFacts carries invested_target_pct + deployment_gap_pp and renders a
-     ⚠️ DEPLOYMENT GAP section (more than the cash-reserve band under —
-     `deployment_gap.band_pct`, see `src.risk.rules.deployment_gap_band_pct`)
+     ⚠️ DEPLOYMENT GAP section (when the gap exceeds the book's own
+     one-session drift, see `src.risk.rules.book_one_session_drift_pp`)
      that the PM prompt requires be answered in the cash_target step.
   2. The `deployment_gap` advisory must NOT tell RM to scale_all_buys down.
 
@@ -35,20 +35,21 @@ def test_pm_facts_render_deployment_gap_when_under():
     f.invested_pct = 39.0
     f.invested_target_pct = 100.0
     f.deployment_gap_pp = -61.0
+    f.deployment_drift_pp = 1.5
     out = f.render()
     assert "DEPLOYMENT GAP" in out
-    assert "61pp UNDER" in out
+    assert "61.0pp UNDER" in out
     assert "cash_target" in out
     assert "shorts" in out
 
 
 def test_pm_facts_render_near_mandate_still_asks_for_residual_cash_reason():
-    """-0.5pp is inside the default cash-reserve band (`deployment_gap.band_pct`=1.0,
-    unset here so PMFacts falls back to CashSweepConfig's own default)."""
+    """-0.5pp is inside a book whose measured one-session drift is 1.5pp."""
     f = PMFacts()
     f.invested_pct = 99.5
     f.invested_target_pct = 100.0
     f.deployment_gap_pp = -0.5
+    f.deployment_drift_pp = 1.5
     out = f.render()
     assert "Deployment vs Fully-Invested Mandate" in out
     assert "cash_target" in out
@@ -96,8 +97,9 @@ def test_pm_facts_render_under_branch_still_names_the_floor():
     f.invested_pct = 60.0
     f.invested_target_pct = DESK_INVESTED_TARGET_PCT
     f.deployment_gap_pp = -40.0
+    f.deployment_drift_pp = 1.5
     out = f.render()
-    assert "40pp UNDER" in out
+    assert "40.0pp UNDER" in out
     assert "NOT a breach" not in out
 
 
@@ -228,11 +230,10 @@ def test_advisory_never_scales_down_for_being_above_target():
 
 
 def test_within_band_below_mandate_is_quiet():
-    """`pipeline` (built via `_engine_pipeline()`) carries no `.config`, so
-    the band falls back to `DeploymentGapConfig`'s own declared `band_pct`
-    default (1.0), not an invented
-    number. 99.3% invested is within that band of the 100% mandate."""
+    """99.3% invested with NVDA's ATR(14) at $20 on a $993 price: the book's
+    one-session drift is 99.3 x 20/993 = 2.0pp, so a 0.7pp gap is inside it."""
     pipeline = _engine_pipeline()
+    pipeline._atr_for_symbol = lambda symbol: 20.0
     positions = [
         Position(
             symbol="NVDA",
