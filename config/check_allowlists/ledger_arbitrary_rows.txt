@@ -20,7 +20,6 @@ src.config.DeploymentGapConfig.band_pct
 src.config.EventRiskConfig.horizon_days
 src.config.ExecutionConfig.max_entry_slippage_bps
 src.config.NominationConfig.max_per_seat_per_run
-src.config.NominationConfig.max_total_per_run
 src.config.RiskConfig.max_target_horizon_sessions
 src.config.SmartMoneyConfig.cluster_window_days
 src.config.SmartMoneyConfig.congress_lookback_days

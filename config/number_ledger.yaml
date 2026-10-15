@@ -498,53 +498,6 @@ numbers:
     cost_while_unanswered: >-
       A seat's best idea can be crowded out by its own earlier ones, ranked
       only by arrival.
-  - id: src.config.NominationConfig.max_total_per_run
-    settles_by:
-      kind: recording
-      state: built
-      where: >-
-        src/nominations.py `measure_cap_demand`, emitted by
-        src/nomination_evidence.py `persist_nomination_summary` into the
-        `nomination_summary` evidence row under the key `cap_demand`
-      writes:
-        - specialist_evidence.kind
-        - specialist_evidence.evidence_json
-      built_2026_10_05: >-
-        BUILT, not yet collected. The recording that already existed carried
-        `raw_by_seat` offered counts and the surviving symbol list, but the
-        surviving list is taken AFTER the external-admission gate, so a missing
-        name could not be attributed to this cap rather than to that gate.
-        `cap_demand` now records, per seat, offered versus kept with the symbol
-        and conviction of every name the per-seat cap dropped, then the distinct
-        count after the cross-seat merge and the names the run-level cap dropped,
-        with a `bound` flag for each cap. Zero sessions of it exist yet: the desk
-        is off, so this row stays arbitrary until real runs accumulate. Nothing
-        the desk selects changed.
-      records: at every run, how many nominations each seat OFFERED before the cap across all seats
-        was applied, how many were admitted, and which were dropped, so the demand behind the cap
-        becomes a series instead of a boolean that it bound
-      closes_when: a run of sessions shows the offered-versus-admitted distribution, and the cap is
-        set above observed demand or removed; it is DELETED if offered nominations never reach it,
-        and it is restated as a named affordability limit, with the research cost per nomination beside
-        it, if it binds
-    value: 6
-    status: arbitrary
-    site: src/config/research.py
-    measured_2026_10_13: >-
-      Measured 2026-10-13, nomination_summary cap_demand rows from 2026-10-12 [measured, live
-      DB read-only]: 2 runs; run-level cap of 6 bound 0 times (distinct after merge 3 and 0).
-      n=2 runs is too thin: stays arbitrary; value not shown wrong.
-    note: >-
-      Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
-      2026-09-14 verification as affordability caps, not measurements. They
-      bound what the desk can ever consider, so a name outside them is never
-      looked at.
-    open_question: >-
-      Same question at the run level: how many nominations can one session
-      resolve end to end?
-    cost_while_unanswered: >-
-      As above, plus the cap interacts with the per-seat cap in a way nothing
-      measures.
   - id: src.config.RiskConfig.absolute_min_stop_atr_multiple
     value: 1
     status: owner-ruled

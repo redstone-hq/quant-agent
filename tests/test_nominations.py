@@ -211,13 +211,12 @@ def _build_stage(
     )
 
 
-def _simple_config(universe, max_per_seat=3, max_total=6):
+def _simple_config(universe, max_per_seat=3):
     return SimpleNamespace(
         trading=SimpleNamespace(universe=universe, lookback_days=30),
         smart_money=SimpleNamespace(enabled=False),
         nominations=SimpleNamespace(
             max_per_seat_per_run=max_per_seat,
-            max_total_per_run=max_total,
         ),
     )
 
@@ -285,7 +284,6 @@ def test_per_seat_cap_keeps_highest_conviction_then_alphabetical():
     candidates = select_nominations(
         {"news_analyst": noms},
         max_per_seat=3,
-        max_total=10,
     )
     # cap=3 keeps: AAA(high), BBB(high), then highest of the mediums (CCC
     # alphabetically before DDD) — EEE(low) and DDD(medium) are dropped.
@@ -297,7 +295,7 @@ def test_cross_seat_dedupe_records_both_nominators_as_one_candidate():
         "news_analyst": [_n("VST", "medium", observation="earnings beat")],
         "macro_analyst": [_n("VST", "high", observation="sector leader")],
     }
-    candidates = select_nominations(by_seat, max_per_seat=3, max_total=6)
+    candidates = select_nominations(by_seat, max_per_seat=3)
     assert len(candidates) == 1
     c = candidates[0]
     assert c.symbol == "VST"
@@ -308,7 +306,7 @@ def test_cross_seat_dedupe_records_both_nominators_as_one_candidate():
     assert c.observations["macro_analyst"] == "sector leader"
 
 
-def test_global_cap_ranks_by_conviction_then_seat_count_then_symbol():
+def test_ranking_orders_by_conviction_then_seat_count_then_symbol():
     by_seat = {
         "news_analyst": [
             _n("AAA", "high"),
@@ -319,12 +317,12 @@ def test_global_cap_ranks_by_conviction_then_seat_count_then_symbol():
         "macro_analyst": [_n("BBB", "high"), _n("CCC", "medium")],
         "earnings_analyst": [_n("EEE", "low")],
     }
-    candidates = select_nominations(by_seat, max_per_seat=4, max_total=3)
-    assert len(candidates) == 3
+    candidates = select_nominations(by_seat, max_per_seat=4)
+    assert len(candidates) == 5
     # BBB: high conviction + 2 seats -> ranked first.
     # AAA: high conviction + 1 seat -> second.
     # CCC: medium conviction + 2 seats -> third (beats DDD: medium/1 seat).
-    assert [c.symbol for c in candidates] == ["BBB", "AAA", "CCC"]
+    assert [c.symbol for c in candidates] == ["BBB", "AAA", "CCC", "DDD", "EEE"]
 
 
 def test_ranking_is_deterministic_regardless_of_input_order():
@@ -336,8 +334,8 @@ def test_ranking_is_deterministic_regardless_of_input_order():
         "macro_analyst": [_n("CCC", "low"), _n("BBB", "medium")],
         "news_analyst": [_n("BBB", "medium"), _n("AAA", "high")],
     }
-    result_a = select_nominations(by_seat_a, max_per_seat=3, max_total=6)
-    result_b = select_nominations(by_seat_b, max_per_seat=3, max_total=6)
+    result_a = select_nominations(by_seat_a, max_per_seat=3)
+    result_b = select_nominations(by_seat_b, max_per_seat=3)
     assert [(c.symbol, c.conviction, sorted(c.seats)) for c in result_a] == [
         (c.symbol, c.conviction, sorted(c.seats)) for c in result_b
     ]
@@ -348,7 +346,6 @@ def test_empty_seats_produce_no_candidates():
         select_nominations(
             {"news_analyst": [], "macro_analyst": [], "earnings_analyst": []},
             max_per_seat=3,
-            max_total=6,
         )
         == []
     )

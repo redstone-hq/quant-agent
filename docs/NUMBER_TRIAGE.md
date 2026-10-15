@@ -116,7 +116,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 - ~~`config.IntradayScanConfig.cooldown_hours` = 3~~ -- DELETED 2026-10-13: the 3-hour lock between two looks at the same name is gone. A name the desk already looked at this session now ranks by its move since that look (the price recorded with the look), in its own ATR, in the same single ranking as every fresh mover.
 - `config.NominationConfig.max_per_seat_per_run` = 3
-- `config.NominationConfig.max_total_per_run` = 6
+- ~~NominationConfig run-level cap of 6~~ -- DELETED 2026-10-15: it bound 0 times in 5 recorded runs; the daily AI spend cap, checked before every AI call, is the real limit on research cost.
 - `config.SmartMoneyConfig.cluster_window_days` = 2
 - `config.SmartMoneyConfig.congress_lookback_days` = 180
 - `config.SmartMoneyConfig.insider_cadence_max_gap_dispersion` = 0.25

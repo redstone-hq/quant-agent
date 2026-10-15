@@ -96,9 +96,8 @@ def select_nominations(
     nominations_by_seat: dict[str, list[Nomination]],
     *,
     max_per_seat: int,
-    max_total: int,
 ) -> list[NominationCandidate]:
-    """Apply the per-seat cap, dedupe across seats, then the global cap.
+    """Apply the per-seat cap, dedupe across seats, then rank (no global cap).
 
     Deterministic: the same nominations in a different input order — either
     the seat-dict's own order or the order within one seat's list — always
@@ -107,7 +106,7 @@ def select_nominations(
     symbol) rather than list position, and seats are iterated in a fixed
     (sorted) order during the merge.
 
-    Ranking for the global cap: highest conviction first, then the number
+    Ranking: highest conviction first, then the number
     of independent nominating seats (more agreement outranks one seat's
     say-so), then alphabetically by symbol. No randomness anywhere.
     """
@@ -116,20 +115,18 @@ def select_nominations(
         merged.values(),
         key=lambda c: (-_conviction_rank(c.conviction), -len(c.seats), c.symbol),
     )
-    return ranked[:max_total]
+    return ranked
 
 
 def measure_cap_demand(
     nominations_by_seat: dict[str, list[Nomination]],
     *,
     max_per_seat: int,
-    max_total: int,
 ) -> dict:
-    """What the two nomination caps actually cost on this run.
+    """What the per-seat nomination cap actually costs on this run.
 
-    The ledger rows for `nominations.max_per_seat_per_run` (3) and
-    `nominations.max_total_per_run` (6) are both unsourced round numbers,
-    and neither can be settled by argument: the open question is whether
+    The ledger row for `nominations.max_per_seat_per_run` (3) is an
+    unsourced round number that cannot be settled by argument: the open question is whether
     offered demand ever REACHES the cap, and what gets discarded when it
     does. The evidence already persisted (`raw_by_seat`, plus the symbols
     that survived) cannot answer that, because the surviving set is taken
@@ -139,11 +136,9 @@ def measure_cap_demand(
     So this records the cut itself, at the only place it happens: per
     seat, how many were offered, how many the per-seat cap kept and which
     symbols it dropped with the conviction each carried; then, after the
-    cross-seat merge, how many distinct names stood and which the global
-    cap dropped. Pure measurement — nothing here changes what is selected.
-    A run of sessions where neither `per_seat_bound` nor `total_bound` is
-    ever true retires both caps; a run where they bind constantly makes
-    them named affordability limits with an observed demand beside them.
+    cross-seat merge, how many distinct names stood. Pure measurement — nothing here changes what is selected.
+    A run of sessions where `per_seat_bound` is ever true is evidence for
+    the cap. The daily AI spend cap, checked before every call, bounds total spend.
     """
     per_seat: dict[str, dict] = {}
     for seat in sorted(nominations_by_seat):
@@ -166,12 +161,9 @@ def measure_cap_demand(
         merged.values(),
         key=lambda c: (-_conviction_rank(c.conviction), -len(c.seats), c.symbol),
     )
-    cut = ranked[max_total:]
     return {
-        "caps": {"max_per_seat": max_per_seat, "max_total": max_total},
+        "caps": {"max_per_seat": max_per_seat},
         "per_seat": per_seat,
         "per_seat_bound": sorted(s for s, d in per_seat.items() if d["bound"]),
         "distinct_after_merge": len(ranked),
-        "total_bound": len(ranked) > max_total,
-        "total_dropped": [{"symbol": c.symbol, "conviction": c.conviction, "seats": sorted(c.seats)} for c in cut],
     }

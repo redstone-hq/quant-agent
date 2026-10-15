@@ -738,10 +738,6 @@ phases:
         path: "config/settings.yaml"
         key: "nominations.max_per_seat_per_run"
         note: "§9.1: 'Cap nominations per seat per run' — the bound that keeps this affordable."
-      - kind: setting_present
-        path: "config/settings.yaml"
-        key: "nominations.max_total_per_run"
-        note: "§9.1: the hard ceiling on distinct symbols reaching the on-demand Technical responder in one run."
       - kind: test_exists
         path: "tests/test_nominations.py"
         test: "test_per_seat_cap_keeps_highest_conviction_then_alphabetical"

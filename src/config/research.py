@@ -57,11 +57,6 @@ class NominationConfig(BaseModel):
     # nomination budget should look like the existing external-admission
     # budget an operator already understands.
     max_per_seat_per_run: int = Field(default=3, ge=1, le=10)
-    # Applied AFTER cross-seat dedupe: the hard ceiling on how many
-    # DISTINCT symbols may reach the on-demand Technical responder call in
-    # one run, regardless of how many seats nominated or how many raw
-    # nominations survived the per-seat cap.
-    max_total_per_run: int = Field(default=6, ge=1, le=20)
 
 
 class UniverseScreenConfig(BaseModel):
@@ -188,8 +183,8 @@ class NewsConfig(BaseModel):
     a future caller bug that passes the whole ~101-symbol universe still
     cannot regress to anywhere near 101 requests. Default 15: the live book
     measured 2026-08-30 held 6 positions, and the run's candidate budgets
-    (smart_money.max_external_candidates=3,
-    nominations.max_total_per_run=6) bound how many more can be admitted in
+    (smart_money.max_external_candidates=3 and the nomination
+    responder, bounded by the daily AI spend cap) bound how many more can be admitted in
     one run — 15 covers that combined worst case with headroom for the book
     to grow, at one request per symbol per run. The ge=0/le=30 bounds keep an
     operator typo from silently reopening the 101-request risk (le=30 is

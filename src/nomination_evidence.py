@@ -21,7 +21,6 @@ def persist_nomination_summary(
     nominations_by_seat: dict,
     total_raw: int,
     max_per_seat: int,
-    max_total: int,
     **particular,
 ) -> None:
     """Write one `nomination_summary` row for this run.
@@ -40,7 +39,6 @@ def persist_nomination_summary(
     cap_demand = measure_cap_demand(
         nominations_by_seat,
         max_per_seat=max_per_seat,
-        max_total=max_total,
     )
     payload = {
         "raw_nominations": total_raw,

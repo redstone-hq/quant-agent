@@ -1570,11 +1570,9 @@ class MorningResearchStage:
 
         nom_cfg = getattr(self.config, "nominations", None)
         max_per_seat = int(getattr(nom_cfg, "max_per_seat_per_run", 3)) if nom_cfg else 3
-        max_total = int(getattr(nom_cfg, "max_total_per_run", 6)) if nom_cfg else 6
         candidates = select_nominations(
             nominations_by_seat,
             max_per_seat=max_per_seat,
-            max_total=max_total,
         )
 
         if not candidates:
@@ -1588,7 +1586,6 @@ class MorningResearchStage:
                 total_raw=total_raw,
                 nominations_by_seat=nominations_by_seat,
                 max_per_seat=max_per_seat,
-                max_total=max_total,
                 candidates_selected=0,
                 responder_call_made=False,
             )
@@ -1685,7 +1682,6 @@ class MorningResearchStage:
                 total_raw=total_raw,
                 nominations_by_seat=nominations_by_seat,
                 max_per_seat=max_per_seat,
-                max_total=max_total,
                 candidates_selected=sorted(c.symbol for c in eligible_candidates),
                 responder_call_made=False,
             )
@@ -1814,7 +1810,6 @@ class MorningResearchStage:
             total_raw=total_raw,
             nominations_by_seat=nominations_by_seat,
             max_per_seat=max_per_seat,
-            max_total=max_total,
             candidates_selected=sorted(c.symbol for c in eligible_candidates),
             responder_symbols=sorted(s["symbol"] for s in symbols_data),
             responder_call_made=True,
