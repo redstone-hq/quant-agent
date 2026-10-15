@@ -1523,3 +1523,56 @@ def test_held_for_orders_on_day_sliver_is_covered_when_broker_already_holds_it()
     assert out is not None
     assert out["id"] == "day-live"
     assert out["already_live"] is True
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling 2026-10-15: whole shares only.
+# ---------------------------------------------------------------------------
+
+
+def test_whole_shares_only_is_the_code_default():
+    from src.config.execution import ExecutionConfig
+
+    assert ExecutionConfig().fractional_enabled is False
+
+
+def test_whole_shares_only_is_the_shipped_setting():
+    from pathlib import Path
+
+    import yaml
+
+    settings = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "settings.yaml").read_text())
+    assert settings["execution"]["fractional_enabled"] is False
+
+
+def test_an_entry_under_the_default_floors_to_whole_shares():
+    from src.config.execution import ExecutionConfig
+
+    pipeline = _pipeline(
+        live_price=_PRICE,
+        fractional_enabled=ExecutionConfig().fractional_enabled,
+        fractionable={"fractionable": True, "reason": "fractionable", "symbol": "V"},
+    )
+
+    orders = ExecutionStage(pipeline=pipeline).run(_ctx([_buy()]))
+
+    assert len(orders) == 1
+    assert _submitted_qty(pipeline) == 1.0
+    pipeline.broker.get_fractionability.assert_not_called()
+
+
+def test_an_entry_that_floors_to_zero_under_the_default_is_skipped_with_a_reason():
+    from src.config.execution import ExecutionConfig
+
+    pipeline = _pipeline(
+        live_price=2_000.0,
+        fractional_enabled=ExecutionConfig().fractional_enabled,
+        fractionable={"fractionable": True, "reason": "fractionable"},
+    )
+    ctx = _ctx([_buy(symbol="BRK-B", price=2_000.0, alloc=5.0, stop=1_900.0)])
+
+    orders = ExecutionStage(pipeline=pipeline).run(ctx)
+
+    assert orders == []
+    pipeline.broker.submit_order.assert_not_called()
+    assert [s["reason"] for s in ctx.execution_skips if s["symbol"] == "BRK-B"] == ["qty_zero"]

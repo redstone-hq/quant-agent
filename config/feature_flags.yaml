@@ -139,15 +139,15 @@ flags:
     source: "board item 39; config/settings.yaml (execution section)"
 
   - id: src.config.ExecutionConfig.fractional_enabled
-    effective_value: true
-    code_default: true
+    effective_value: false
+    code_default: false
     intentional: true
     reason: >-
-      Fractional order sizing was owner-ratified and shipped; the fractional
-      broker-limits matrix (DAY tif required, no trailing stops) was measured
-      and documented around this same switch.
-    decided: "2026-09-02"
-    source: "commit b799ec8cd; config/settings.yaml:356"
+      Owner ruling 2026-10-15: whole shares only. Alpaca carries a fractional
+      order only as DAY, so a sub-share remainder had no stop overnight; this
+      supersedes the 2026-09-02 acceptance of that exposure.
+    decided: "2026-10-15"
+    source: "owner ruling 2026-10-15; config/settings.yaml (execution section)"
 
   - id: src.config.ExecutionConfig.fill_stream_enabled
     effective_value: true
