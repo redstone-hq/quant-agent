@@ -15,7 +15,7 @@ Sorts every ledger row the guard marks `arbitrary` into one of four piles. It ad
 |---|---|---|
 | SETTLEABLE | 64 | A mechanical measurement (stop-touch frequency, gap distribution, recorded refusals, public-bar statistics) answers it. |
 | READ LIVE | 12 | Should be the instrument's own spread, tick, ATR or gap at decision time, not a stored number. |
-| OWNER APPETITE | 12 | A loss-tolerance choice no measurement makes. The only rows that should reach the owner. |
+| OWNER APPETITE | 10 | A loss-tolerance choice no measurement makes. The only rows that should reach the owner. |
 | HARMLESS | 45 | Does not size, price or place an order. |
 
 Rule for every pile: a number is settled by a mechanical measurement of how the market or the broker behaved, never by what would have made money on the desk's own record.
@@ -164,12 +164,11 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `config.SmartMoneyConfig.min_external_avg_dollar_volume_usd` = 10000000
 - `config.SmartMoneyConfig.min_external_price_usd` = 5
 
-## OWNER APPETITE (12)
+## OWNER APPETITE (10)
 
 Portfolio loss tolerance, concentration ceilings, per-trade risk budget and the drawdown ladder: how much loss the owner will bear is a preference. A measurement can bound the maximum survivable value, not choose it.
 
 - `config.RiskConfig.SECTOR_HARD_CEILING_MAX` = 90
-- `config.RiskConfig.max_cluster_risk_share_pct` = 40
 - `config.RiskConfig.max_portfolio_risk_pct` = 25
 - `portfolio_constructor.ConstructorConfig.max_sector_hard_pct` = 90
 - `portfolio_constructor.ConstructorConfig.risk_budget_pct` = 5
@@ -179,7 +178,6 @@ Portfolio loss tolerance, concentration ceilings, per-trade risk budget and the 
 - `risk.rules.GROSS_LADDER[1][1]` = 1
 - `risk.rules.GROSS_LADDER[2][0]` = -20
 - `risk.rules.GROSS_LADDER[2][1]` = 0.5
-- `risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)` = 50
 
 ## HARMLESS (45)
 

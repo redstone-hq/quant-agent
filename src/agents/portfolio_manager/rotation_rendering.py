@@ -99,7 +99,6 @@ class RotationSection:
         headroom_pct = allocate_risk_budget(
             [],
             existing_pct=existing_risk_pct,
-            clusters=None,
             ceiling_pct=ceiling_pct,
             floor_pct=STARTER_POSITION_RISK_PCT,
         ).headroom_pct

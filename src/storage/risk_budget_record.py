@@ -1,4 +1,4 @@
-"""Board item 186 — the realised portfolio and cluster concentration recording.
+"""Board item 186 — the realised portfolio at-risk recording.
 
 Table, writer and payload shaping all live here, together, so a new recording
 adds no mass to `src/storage/db.py` or to the schema manager (both are under
@@ -6,11 +6,10 @@ the rebuild's shrink-only size ratchet). `src.number_sources._DB_SOURCE_PATHS`
 names this file, the same way the trades write path was named when it was
 lifted out, so the settlement-route guard still sees the fields it writes.
 
-WHY IT EXISTS. `max_portfolio_risk_pct` (25) and `max_cluster_risk_share_pct`
-(40) are owner-ratified appetite with no measurement behind either, and the
-owner's 2026-09-30 ruling ("risk is per-name, never a global dial") bars both
-re-deriving them and deleting them while no per-name read exists. What is
-left is to stop asserting the concentration they govern and observe it.
+WHY IT EXISTS. `max_portfolio_risk_pct` (25) is owner-ratified appetite with
+no measurement behind it. The owner removed the correlated-cluster limits on
+15 Oct 2026; the `cluster_share_pct` and `cluster_shares_json` columns stay in
+the live table for old rows but are no longer written.
 
 RECORDING ONLY. Nothing may read these rows back into a sizing, ordering or
 refusal decision, and they may NEVER be swept for the ceiling that would have
@@ -18,11 +17,10 @@ performed best — that is fitting a number to this desk's own record, which
 `docs/OUTCOME.md` bars.
 
 UNIT: percent of equity AT RISK (per-name loss-if-stopped / equity), not
-notional weight. `share_of_committed_pct` is the share of the committed
-total, which is the quantity the 40% ceiling is actually written in.
+notional weight.
 
 UNKNOWN STAYS NULL: `allocation is None` means the held book's risk could not
-be read and the allocator never ran — the state in which the ceilings go
+be read and the allocator never ran — the state in which the ceiling goes
 UNENFORCED — which is not the same fact as a book carrying no risk. Every
 measurement is then None and `allocator_ran` is 0.
 """
@@ -82,17 +80,15 @@ def _held_only_pct(committed, granted_total):
     return round(committed - granted_total, 6)
 
 
-def shape_risk_budget_row(*, allocation, equity, cluster_share_pct=None) -> dict:
+def shape_risk_budget_row(*, allocation, equity) -> dict:
     """Pure. Turn the allocator's output into the values the row stores."""
     ran = allocation is not None
     row = {
         "allocator_ran": 1 if ran else 0,
         "equity": _num(equity),
-        "cluster_share_pct": _num(cluster_share_pct),
         "held_only_pct": None,
         "committed_pct": None,
         "ceiling_pct": None,
-        "cluster_shares_json": None,
         "grants_json": None,
         "rationed_names": None,
     }
@@ -101,21 +97,6 @@ def shape_risk_budget_row(*, allocation, equity, cluster_share_pct=None) -> dict
     committed = _num(getattr(allocation, "committed_pct", None))
     row["committed_pct"] = committed
     row["ceiling_pct"] = _num(getattr(allocation, "ceiling_pct", None))
-    clusters = []
-    for members, pct in (getattr(allocation, "cluster_pct", None) or {}).items():
-        at_risk = _num(pct)
-        share = None
-        if at_risk is not None and committed:
-            share = round(at_risk / committed * 100.0, 6)
-        clusters.append(
-            {
-                "members": sorted(str(m) for m in (members or ())),
-                "at_risk_pct": None if at_risk is None else round(at_risk, 6),
-                "share_of_committed_pct": share,
-            }
-        )
-    clusters.sort(key=lambda r: r["members"])
-    row["cluster_shares_json"] = json.dumps(clusters)
     grants = []
     rationed = 0
     for sym, g in sorted((getattr(allocation, "grants", None) or {}).items()):
@@ -150,7 +131,6 @@ def record_realised_risk_budget(
     *,
     allocation,
     equity,
-    cluster_share_pct=None,
     run_id: str | None = None,
     session_date: str | None = None,
 ) -> bool:
@@ -163,7 +143,6 @@ def record_realised_risk_budget(
     row = shape_risk_budget_row(
         allocation=allocation,
         equity=equity,
-        cluster_share_pct=cluster_share_pct,
     )
     try:
         lock = getattr(db, "_lock", None) or contextlib.nullcontext()
@@ -172,10 +151,10 @@ def record_realised_risk_budget(
             db.conn.execute(
                 "INSERT OR REPLACE INTO realised_risk_budget ("
                 "  timestamp, run_id, session_date, allocator_ran,"
-                "  equity, committed_pct, ceiling_pct, cluster_share_pct,"
-                "  held_only_pct, cluster_shares_json, grants_json,"
+                "  equity, committed_pct, ceiling_pct,"
+                "  held_only_pct, grants_json,"
                 "  rationed_names"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                ") VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     utc_now().isoformat(sep=" ", timespec="seconds"),
                     run_id or None,
@@ -184,9 +163,7 @@ def record_realised_risk_budget(
                     row["equity"],
                     row["committed_pct"],
                     row["ceiling_pct"],
-                    row["cluster_share_pct"],
                     row["held_only_pct"],
-                    row["cluster_shares_json"],
                     row["grants_json"],
                     row["rationed_names"],
                 ),

@@ -5,30 +5,13 @@ open risk, headroom under `risk.max_portfolio_risk_pct`. Every one of those was
 a reported figure — the Portfolio Manager could read the ceiling and ignore it,
 because nothing consumed the number. This module is what consumes it.
 
-Two ceilings, and the second is the one that does the real work:
-
-**Total.** The sum of every position's loss-if-stopped may not exceed
+One ceiling. The sum of every position's loss-if-stopped may not exceed
 `ceiling_pct` of equity (owner-ratified at 25%). Note what this rations: RISK,
 not notional. Capital is meant to be fully deployed.
 
-**Per cluster.** Correlated names consume ONE bet's budget, not several. A book
-holding OKLO, CEG, VST and CCJ at 5% risk each is not carrying four 5% bets; it
-is carrying one 20% bet on the nuclear theme with extra commission. Without a
-cluster cap the total ceiling is trivially satisfiable by a book that is
-concentrated in exactly the way the ceiling exists to prevent, which is why
-"total risk is under 25%" was never on its own a meaningful statement about
-diversification. A single cluster may take at most `cluster_share_pct` of the
-total ceiling (40%, i.e. 10% of equity at a 25% ceiling -- which is
-exactly two full-size positions at the ratified 5% per-trade envelope,
-so the share is a name count written as a percent and is not derivable
-independently of the two ceilings it sits between; item 186).
-
-Clusters arrive from `src/data/correlation.py::correlation_clusters` — measured
-return correlation over five years, transitive, and cut from the
-correlation-distance tree at its own widest gap -- there is no correlation
-threshold any more (removed 2026-09-30, item 186). They are not a
-hand-maintained sector table, so a theme that trades together is caught whether
-or not anyone thought to name it.
+The owner removed the correlated-group (cluster) limits on 15 Oct 2026 and
+nothing replaced them; only this total, the single-name cap, the gross ladder
+and stops remain.
 
 **Rationing rule — best-ranked first (owner decision, 2026-09-12, item 49).**
 When a ceiling binds, the budget is spent on the BEST-RANKED candidate first
@@ -143,12 +126,10 @@ class RiskGrant:
     symbol: str
     requested_pct: float
     granted_pct: float
-    #: Set when granted < requested. One of "total_ceiling", "cluster_cap",
+    #: Set when granted < requested. One of "total_ceiling",
     #: "below_floor", "partial_fit_skipped". None when the request was served
     #: in full.
     limited_by: str | None = None
-    #: Cluster the symbol was rationed within, when a cluster cap applied.
-    cluster: tuple[str, ...] | None = None
     #: Operator-readable note. Carried into the order's reasoning so the AI
     #: Risk Manager reads a deterministic cut as arithmetic rather than as the
     #: PM contradicting itself — the failure mode of 2026-08-20, where a
@@ -168,8 +149,6 @@ class BudgetAllocation:
     #: Total risk % of equity committed after allocation, held + granted.
     committed_pct: float
     ceiling_pct: float
-    #: Risk % per cluster after allocation, keyed by the cluster tuple.
-    cluster_pct: dict[tuple[str, ...], float]
 
     @property
     def headroom_pct(self) -> float:
@@ -195,23 +174,17 @@ def allocate_risk_budget(
     requests: list[RiskRequest],
     *,
     existing_pct: dict[str, float] | None = None,
-    clusters: list[list[str]] | None = None,
     ceiling_pct: float = 25.0,
-    cluster_share_pct: float = 40.0,
     floor_pct: float = 0.5,
     priority: Sequence[str] | None = None,
     partial_fit: str = PARTIAL_FIT_POLICY,
 ) -> BudgetAllocation:
-    """Ration `requests` under the total and per-cluster risk ceilings.
+    """Ration `requests` under the total risk ceiling.
 
     `existing_pct` maps symbol → risk % of equity the book already carries
     there. A symbol that also appears in `requests` is being RE-sized, so its
     existing risk is replaced by the grant rather than added to it — otherwise
     holding a name would make adding to it cost double.
-
-    `clusters` is `correlation_clusters()` output: groups of correlated
-    symbols, singletons omitted. A symbol in no cluster is rationed only by
-    the total ceiling.
 
     `priority` is the desk's own candidate ranking, BEST FIRST — pass
     `[c.symbol for c in rank_verdicts(...)]`, the identical order the PM was
@@ -231,18 +204,6 @@ def allocate_risk_budget(
     }
     ceiling = max(0.0, _clean_pct(ceiling_pct))
     floor = max(0.0, _clean_pct(floor_pct))
-    # A cluster may take at most this share of the TOTAL ceiling, expressed as
-    # a percentage of equity so it is comparable with everything else here.
-    share = min(100.0, max(0.0, _clean_pct(cluster_share_pct)))
-    cluster_ceiling = ceiling * share / 100.0
-
-    cluster_of: dict[str, tuple[str, ...]] = {}
-    for members in clusters or []:
-        key = tuple(sorted({str(m).strip().upper() for m in members if str(m).strip()}))
-        if len(key) < 2:
-            continue  # a symbol correlated with nothing is not a cluster
-        for member in key:
-            cluster_of[member] = key
 
     # Normalise requests. A later duplicate of the same symbol replaces the
     # earlier one — PM emitting a symbol twice is a malformed decision, and
@@ -255,13 +216,6 @@ def allocate_risk_budget(
 
     # Held positions this session did not name keep consuming their risk.
     committed = sum(pct for sym, pct in existing.items() if sym not in by_symbol)
-    cluster_committed: dict[tuple[str, ...], float] = {}
-    for sym, pct in existing.items():
-        if sym in by_symbol:
-            continue
-        key = cluster_of.get(sym)
-        if key is not None:
-            cluster_committed[key] = cluster_committed.get(key, 0.0) + pct
 
     # Item 49, owner decision 2026-09-12: BEST-RANKED FIRST. The budget goes
     # to the strongest idea and continues down the caller's ranking until it
@@ -284,7 +238,6 @@ def allocate_risk_budget(
 
     grants: dict[str, RiskGrant] = {}
     for symbol, requested in ordered:
-        key = cluster_of.get(symbol)
         if requested <= 0.0:
             # A zero request is PM closing the name. It consumes no budget and
             # is never "denied" — there is nothing to deny.
@@ -292,18 +245,11 @@ def allocate_risk_budget(
             continue
 
         total_headroom = max(0.0, ceiling - committed)
-        limits: list[tuple[float, str]] = [(total_headroom, "total_ceiling")]
-        if key is not None:
-            limits.append(
-                (max(0.0, cluster_ceiling - cluster_committed.get(key, 0.0)), "cluster_cap"),
-            )
-        allowed, binding = min(limits, key=lambda item: item[0])
+        allowed, binding = total_headroom, "total_ceiling"
 
         if requested <= allowed:
             grants[symbol] = RiskGrant(symbol, requested, round(requested, 4))
             committed += requested
-            if key is not None:
-                cluster_committed[key] = cluster_committed.get(key, 0.0) + requested
             continue
 
         granted = round(allowed, 4)
@@ -320,7 +266,6 @@ def allocate_risk_budget(
                 requested,
                 0.0,
                 limited_by="partial_fit_skipped",
-                cluster=key,
                 note=(
                     f"[risk budget: {symbol} skipped — "
                     f"{binding.replace('_', ' ')} leaves {granted:.2f}% risk "
@@ -338,7 +283,6 @@ def allocate_risk_budget(
                 requested,
                 0.0,
                 limited_by="below_floor",
-                cluster=key,
                 note=(
                     f"[risk budget: {symbol} denied — {binding.replace('_', ' ')} "
                     f"leaves {granted:.2f}% risk available, under the "
@@ -347,20 +291,12 @@ def allocate_risk_budget(
             )
             continue
 
-        if binding == "cluster_cap" and key is not None:
-            detail = (
-                f"cluster {'/'.join(key)} capped at {cluster_ceiling:.2f}% of "
-                f"equity ({share:.0f}% of the {ceiling:.2f}% total) — correlated "
-                f"names consume one bet's budget"
-            )
-        else:
-            detail = f"total at-risk ceiling {ceiling:.2f}% of equity leaves {granted:.2f}%"
+        detail = f"total at-risk ceiling {ceiling:.2f}% of equity leaves {granted:.2f}%"
         grants[symbol] = RiskGrant(
             symbol,
             requested,
             granted,
             limited_by=binding,
-            cluster=key,
             note=(
                 f"[risk budget: {symbol} cut from {requested:.2f}% to "
                 f"{granted:.2f}% risk — {detail}. Deterministic, not PM "
@@ -368,12 +304,9 @@ def allocate_risk_budget(
             ),
         )
         committed += granted
-        if key is not None:
-            cluster_committed[key] = cluster_committed.get(key, 0.0) + granted
 
     return BudgetAllocation(
         grants=grants,
         committed_pct=round(committed, 4),
         ceiling_pct=round(ceiling, 4),
-        cluster_pct={k: round(v, 4) for k, v in cluster_committed.items()},
     )

@@ -103,8 +103,7 @@ def build_risk_config(config) -> RiskConfig:
             "min_position_risk_pct",
             "max_portfolio_risk_pct",
             # Rendered into the Portfolio Manager's sheet by the same
-            # mechanism, so they carry the same parity requirement.
-            "max_cluster_risk_share_pct",
+            # mechanism, so it carries the same parity requirement.
             "max_gross_exposure_x",
         ),
     )
@@ -117,9 +116,9 @@ def build_constructor_config(config, risk_engine_config):
     from settings, so the ceilings the sizer shrinks against are provably the
     identical objects the engine enforces.
 
-    This is the enforcement home for four settings the Portfolio Manager's
-    standing sheet renders — `min_position_risk_pct`, `max_portfolio_risk_pct`,
-    `max_cluster_risk_share_pct` and `max_gross_exposure_x` — none of which
+    This is the enforcement home for three settings the Portfolio Manager's
+    standing sheet renders — `min_position_risk_pct`, `max_portfolio_risk_pct`
+    and `max_gross_exposure_x` — none of which
     `src/risk/rules.py` reads at all. The sizing seat's parity is against THIS
     object, not only against `RiskConfig`.
     """
@@ -175,7 +174,6 @@ def build_constructor_config(config, risk_engine_config):
         risk_budget_pct=_risk_setting("max_position_risk_pct", 5.0),
         min_risk_pct=_risk_setting("min_position_risk_pct", 0.5, allow_zero=True),
         max_portfolio_risk_pct=_risk_setting("max_portfolio_risk_pct", 25.0),
-        max_cluster_risk_share_pct=_risk_setting("max_cluster_risk_share_pct", 40.0),
         # Same setting the risk engine enforces (line ~326), so the
         # constructor sizes under the ceiling rather than proposing orders
         # `max_position_pct` — a HARD_BLOCK rule — will drop outright.

@@ -637,7 +637,6 @@ class RiskRuleEngine:
         pending_sector_investment: dict[tuple[str, str], float] | None = None,
         pending_symbol_investment: dict[str, float] | None = None,
         correlation_matrix: dict[str, dict[str, float]] | None = None,
-        max_correlated_cluster_pct: float = 50.0,
         cash: float | None = None,
         pending_cash_outflow: float = 0.0,
         # --- Spec §11.2 ---------------------------------------------
@@ -891,52 +890,6 @@ class RiskRuleEngine:
                 )
             )
 
-        # 4b. Correlation cluster (advisory) — catches the "all-AI" concentration problem
-        # that sector caps miss. If the proposed BUY plus the held positions that sit in
-        # the SAME correlation cluster as it together exceed max_correlated_cluster_pct,
-        # flag. Cluster membership is read from the book's own correlation geometry
-        # (Mantegna distance MST cut at its own largest gap) — there is no correlation
-        # cutoff any more; the old 0.7 was unsourceable and is removed, not ratified.
-        if correlation_matrix:
-            from src.data.correlation import cluster_peers
-
-            held_symbols = [p.symbol for p in positions]
-            peers = cluster_peers(decision.symbol, held_symbols, correlation_matrix)
-            if peers:
-                # Apply gross multiplier consistently with sector / position
-                # caps below — a 3x inverse ETF (SQQQ) in a cluster consumes
-                # 3x notional, even though its directional sign cancels for
-                # NET exposure (#2). Pre-fix this rule treated SQQQ as 1x
-                # which silently under-counted cluster concentration.
-                # The cluster must include the BUY symbol's OWN existing
-                # position, not just its peers: `highly_correlated_peers`
-                # (correctly) excludes the symbol itself, so an ADD to the
-                # largest member of a cluster counted only the ADD's notional
-                # and none of the stack already held — the concentration this
-                # rule exists to catch was invisible exactly when it was worst
-                # (2026-07-16 audit). A symbol is trivially correlated 1.0
-                # with itself, so it belongs in its own cluster total.
-                cluster_symbols = set(peers) | {decision.symbol}
-                peer_value = sum(
-                    p.market_value * _gross_multiplier(p.symbol) for p in positions if p.symbol in cluster_symbols
-                )
-                cluster_pct = (peer_value + gross_new) / total_value * 100
-                if cluster_pct > max_correlated_cluster_pct:
-                    violations.append(
-                        RiskViolation(
-                            rule="correlation_cluster",
-                            message=(
-                                f"{decision.symbol} + correlated holdings [{', '.join(peers)}] "
-                                f"would total {cluster_pct:.0f}% of book, exceeding "
-                                f"{max_correlated_cluster_pct:.0f}% cluster cap (advisory). "
-                                f"One correlation cluster by the book's own structure "
-                                f"(correlation-distance tree, cut at its widest gap)."
-                            ),
-                            value=cluster_pct,
-                            limit=max_correlated_cluster_pct,
-                        )
-                    )
-
         # 4c. Cash-only policy — when allow_margin is False, no BUY may spend more
         # than the cash remaining after prior BUYs in this session. `cash` is the
         # session-start broker cash; `pending_cash_outflow` is the dollar total of
@@ -969,9 +922,8 @@ class RiskRuleEngine:
         #
         # The 75% sector target / 90% sector ceiling that lived here was
         # deleted 2026-10-09: it counted sector LABELS on notional, a number
-        # nothing measured. Related-stock concentration is bounded by the
-        # correlation cluster cap (`src/risk/budget.py`, 40% of the total
-        # risk ceiling), and every order — sector resolved or not — is still
+        # nothing measured. The owner removed the correlated-group
+        # limits on 15 Oct 2026 and nothing replaced them; every order — sector resolved or not — is still
         # bounded by `max_position_pct`, `max_gross_exposure`,
         # `max_total_position_pct` and the total risk budget, none of which
         # reads the sector. What stays is the loud-failure alert below: a

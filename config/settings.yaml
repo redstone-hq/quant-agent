@@ -644,13 +644,6 @@ risk:
   # about 50 names. Alpaca charges no commission, so cost is NOT the reason.
   # A request rationed below the floor is denied outright rather than shrunk.
   min_position_risk_pct: 0.5
-  # Spec §2.2 — the most of the total ceiling any ONE correlated cluster may
-  # take. Without it, "total risk is under 25%" says nothing about
-  # diversification: a book holding OKLO/CEG/VST/CCJ at 5% risk each sits at
-  # 20% total while carrying one 20% bet on the nuclear theme. Correlated
-  # names consume one bet's budget. Clusters are measured return correlation
-  # (src/data/correlation.py), not a hand-maintained sector table.
-  max_cluster_risk_share_pct: 40
   # Minimum stop distance in ATRs. Structure still places the stop; this only
   # pushes it out when structure put it inside ordinary volatility.
   #

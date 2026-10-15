@@ -12,7 +12,6 @@ def test_contested_day_needs_two_competing_candidates():
         [RiskRequest("ZZZZ", 5.0)],
         existing_pct={"HELD": 24.0},
         ceiling_pct=25.0,
-        cluster_share_pct=100.0,
         floor_pct=0.5,
     )
     assert _tie_break_arbitrated(lone, 1) is False
@@ -21,7 +20,6 @@ def test_contested_day_needs_two_competing_candidates():
         [RiskRequest("AAAA", 5.0), RiskRequest("ZZZZ", 5.0)],
         existing_pct={"HELD": 22.0},
         ceiling_pct=25.0,
-        cluster_share_pct=100.0,
         floor_pct=0.5,
     )
     assert _tie_break_arbitrated(pair, 2) is True

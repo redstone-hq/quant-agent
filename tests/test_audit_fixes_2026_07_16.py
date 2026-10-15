@@ -96,46 +96,6 @@ def test_clean_snapshot_still_evaluates_normally():
     assert violations == []
 
 
-# ---------- correlation cluster must include the BUY's own position ----------
-
-
-def test_cluster_includes_the_buy_symbols_own_existing_position():
-    """An ADD to the biggest name in a cluster counted only the ADD's notional
-    and none of the stack already held."""
-    eng = RiskRuleEngine(_cfg())
-    positions = [
-        Position(
-            symbol="NVDA",
-            qty=40,
-            avg_entry=1000,
-            current_price=1000,
-            market_value=40_000,
-            unrealized_pnl=0.0,
-            sector="Technology",
-        ),
-        Position(
-            symbol="AVGO",
-            qty=10,
-            avg_entry=1000,
-            current_price=1000,
-            market_value=10_000,
-            unrealized_pnl=0.0,
-            sector="Technology",
-        ),
-    ]
-    matrix = {"NVDA": {"AVGO": 0.9}, "AVGO": {"NVDA": 0.9}}
-    violations = eng.check(
-        decision=_buy("NVDA", alloc=5.0),
-        positions=positions,
-        total_value=100_000.0,
-        cash=100_000.0,
-        correlation_matrix=matrix,
-        max_correlated_cluster_pct=50.0,
-    )
-    # 40k NVDA + 10k AVGO + 5k add = 55% > 50% cap. Pre-fix: 10k + 5k = 15% → silent.
-    assert any(v.rule == "correlation_cluster" for v in violations)
-
-
 # ---------- constructor: gross weight delta must convert to raw notional ----------
 
 

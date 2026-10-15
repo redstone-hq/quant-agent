@@ -13,7 +13,7 @@ from src.risk.budget import BudgetAllocation
 def _budget_binds(allocation: BudgetAllocation) -> bool:
     """True when at least one new request was not granted in full.
 
-    That is a day the total ceiling or a cluster cap bound. A bind can
+    That is a day the total ceiling bound. A bind can
     be two equal asks competing (alphabetical among them) or a lone
     candidate cut by held risk — the count is the bind, not a claim
     that ticker spelling decided every one. The report labels the
@@ -29,7 +29,7 @@ def _tie_break_arbitrated(allocation: BudgetAllocation, new_request_count: int) 
     That needs two conditions together: at least two new candidates
     competed on the day, and at least one of them was not granted in
     full. With a single candidate there is nobody to order it against —
-    a cut there is the ceiling or a cluster cap biting, exactly as it
+    a cut there is the ceiling biting, exactly as it
     would in production. `_budget_binds` counts both cases; this counts
     only the ones where ticker spelling chose between names.
     """

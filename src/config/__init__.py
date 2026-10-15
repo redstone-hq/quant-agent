@@ -157,12 +157,6 @@ class RiskConfig(BaseModel):
         ge=0,
         le=100,
     )
-    # Spec §2.2. The most of the total at-risk ceiling any ONE correlated
-    # cluster may take. Without it "total risk is under 25%" says nothing
-    # about diversification — a book holding one theme four times over
-    # satisfies it while carrying exactly the concentration the ceiling
-    # exists to prevent. Correlated names consume one bet's budget.
-    max_cluster_risk_share_pct: float = Field(default=40.0, gt=0, le=100)
     # Minimum stop distance in ATRs. Structure places the stop; this only
     # pushes it out when structure put it inside ordinary volatility. Measured
     # 2026-08-27: stops sat a median 4.3% below entry against a median ATR of

@@ -98,8 +98,9 @@ problem with that... This is a trading desk, not a long-term retirement desk."*
   risk-adjusted return is.
 
 **None of this loosens a risk limit.** Stops, per-trade risk, total risk
-budget, drawdown de-levering and correlated-cluster limits all exist to stop
-the account being destroyed, and they stay. What changes is that rules
+budget and drawdown de-levering all exist to stop the account being
+destroyed, and they stay. The owner removed the correlated-group (cluster)
+limits on 15 Oct 2026 and nothing replaced them. What changes is that rules
 justified by *diversification* rather than by *survival* must re-earn their
 place on trading-desk grounds.
 
@@ -136,12 +137,12 @@ This is a hypothesis until the measured win rate, average win/loss ratio and exp
 |---|---|
 | Max risk per trade | 5% of equity — a ceiling, not a target |
 | Min risk per trade | 0.5% — below this, do not trade. Judged on the whole holding (held plus new); an order is refused, never sized up to reach it (owner ruling 2026-10-12: "we also must filter out small trade churn") |
-| Max total at risk | 25% of equity, correlation-adjusted |
+| Max total at risk | 25% of equity, plain stop-distance risk |
 | Position count | Not fixed. Determined dynamically by the risk budget. |
 
 **Correction, 2026-09-18:** the 0.5% minimum was reported internally as unsourced — existing only as a dataclass default, absent from config and from any ratification record. That report was wrong. Verify directly: `config/settings.yaml` (`risk.min_position_risk_pct: 0.5`), the row above (this file, owner-ratified 2026-08-27), and `src/risk/constants.py` (`STARTER_POSITION_RISK_PCT`, whose own docstring names it the same field). Check a documented claim against the file before repeating it.
 
-Correlated names consume a single bet's budget rather than several, so genuine diversification is rewarded and fake diversification is refused. Risk is released as trades prove themselves: once a position's trailing stop sits at or above entry it stops consuming budget, so the book expands when the desk is right and contracts when it is not.
+Correlated-group limits were removed by the owner on 15 Oct 2026 and nothing replaced them. Risk is released as trades prove themselves: once a position's trailing stop sits at or above entry it stops consuming budget, so the book expands when the desk is right and contracts when it is not.
 
 **Conviction is expressed as risk allocation, not as percent-of-portfolio notional.** The specialist team decides how much conviction an idea carries; deterministic code converts that into a share count using the analyst's stop. A wider stop yields a smaller position, never a tighter stop.
 

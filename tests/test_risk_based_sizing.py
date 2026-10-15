@@ -256,27 +256,8 @@ def _nuclear_setup(*symbols):
     return targets, analyses, prices
 
 
-def test_a_single_theme_cannot_take_the_whole_risk_budget():
-    """Four nuclear names at 5% risk each is 20% total — under the 25%
-    ceiling, and one 20% bet. The cluster cap must cut it to 10%."""
-    constructor = PortfolioConstructor()
-    targets, analyses, prices = _nuclear_setup(*NUCLEAR)
-    decisions = constructor.construct_orders(
-        targets=targets,
-        positions=[],
-        analyses=analyses,
-        total_value=EQUITY,
-        price_map=prices,
-        existing_risk_pct={},
-        clusters=[NUCLEAR],
-    )
-    # Each granted 5% risk becomes a 50% notional weight at a 10% stop gap, so
-    # count orders rather than weights: only two names survive the 10% cap.
-    assert {d.symbol for d in decisions} == {"CCJ", "CEG"}
-
-
 def test_the_budget_gate_is_inert_when_the_caller_supplies_no_book_risk():
-    """Without `existing_risk_pct`/`clusters` the constructor has no view of
+    """Without `existing_risk_pct` the constructor has no view of
     the book's risk and must not invent one. Per-position sizing still
     applies; the portfolio ceilings do not.
 
@@ -299,7 +280,7 @@ def test_the_budget_gate_is_inert_when_the_caller_supplies_no_book_risk():
     assert len(decisions) == 4
 
 
-def test_held_risk_crowds_out_a_new_name_in_the_same_theme():
+def test_held_risk_crowds_out_a_new_name():
     constructor = PortfolioConstructor()
     decisions = constructor.construct_orders(
         targets=[_risk_target("OKLO", 5.0)],
@@ -307,10 +288,9 @@ def test_held_risk_crowds_out_a_new_name_in_the_same_theme():
         analyses=[_analysis("OKLO", entry=100, stop=90, target=140)],
         total_value=EQUITY,
         price_map={"OKLO": 100.0},
-        existing_risk_pct={"CEG": 8.0},
-        clusters=[NUCLEAR],
+        existing_risk_pct={"CEG": 23.0},
     )
-    # 10% cluster cap less CEG's 8% = 2% risk → 2000/10 = 200 sh → $20k → 20%.
+    # 25% total ceiling less CEG's 23% = 2% risk → 2000/10 = 200 sh → $20k → 20%.
     assert abs(decisions[0].allocation_pct - 20.0) < 0.05
 
 
@@ -325,8 +305,7 @@ def test_a_budget_cut_is_explained_in_the_order_reasoning():
         analyses=[_analysis("OKLO", entry=100, stop=90, target=140)],
         total_value=EQUITY,
         price_map={"OKLO": 100.0},
-        existing_risk_pct={"CEG": 8.0},
-        clusters=[NUCLEAR],
+        existing_risk_pct={"CEG": 23.0},
     )
     reasoning = decisions[0].reasoning
     assert "risk budget" in reasoning
@@ -343,7 +322,6 @@ def test_a_full_budget_denies_a_new_name_outright():
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"HELD": 25.0},
-        clusters=[],
     )
     assert decisions == []
 
@@ -378,7 +356,6 @@ def test_raising_the_single_name_notional_cap_does_not_raise_the_total_risk_ceil
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"HELD": 24.0},
-        clusters=[],
     )
     assert len(decisions) == 1
     # 1% of the risk budget left, at a 5% stop: $1,000 risk / $5 per share
@@ -400,7 +377,6 @@ def test_raising_the_single_name_notional_cap_does_not_raise_the_total_risk_ceil
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"HELD": 25.0},
-        clusters=[],
     )
     assert denied == []
 
@@ -421,7 +397,6 @@ def test_released_risk_frees_budget_for_a_new_position():
         analyses=[_analysis("NVDA", entry=100, stop=70, target=160)],
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
-        clusters=[],
     )
     blocked = constructor.construct_orders(existing_risk_pct={"WINNER": 25.0}, **common)
     freed = constructor.construct_orders(existing_risk_pct={"WINNER": 0.0}, **common)
@@ -451,12 +426,10 @@ def test_book_risk_inputs_convert_heat_into_percent_of_equity():
                     SimpleNamespace(symbol="CEG", budget_risk_dollars=500.0),
                 ]
             ),
-            correlation_clusters=[["OKLO", "CEG"]],
         )
     )
-    existing, clusters = _book_risk_inputs(ctx, total_value=100_000.0)
+    existing = _book_risk_inputs(ctx, total_value=100_000.0)
     assert existing == {"OKLO": 2.0, "CEG": 0.5}
-    assert clusters == [["OKLO", "CEG"]]
 
 
 def test_book_risk_inputs_mark_the_book_unknown_when_heat_cannot_be_seen():
@@ -469,78 +442,11 @@ def test_book_risk_inputs_mark_the_book_unknown_when_heat_cannot_be_seen():
     from src.pipeline_stages import _book_risk_inputs
 
     for ctx in (SimpleNamespace(facts=None), SimpleNamespace()):
-        existing, clusters = _book_risk_inputs(ctx, 100_000.0)
-        assert existing == {} and existing.unknown and clusters is None
-    ctx = SimpleNamespace(facts=SimpleNamespace(heat=None, correlation_clusters=[]))
-    existing, clusters = _book_risk_inputs(ctx, 100_000.0)
-    assert existing == {} and existing.unknown and clusters is None
-
-
-def test_book_risk_inputs_return_clusters_alone_when_only_heat_fails():
-    """Heat and clusters are built independently in `_book_risk_inputs`; a
-    heat failure (or a book with no facts.heat at all) must not silently
-    swallow clusters that DID build. This is the partial-failure input the
-    2026-09-03 incident is about — the caller, not this function, is what
-    has to treat a lone `existing=None` as unenforceable."""
-    from types import SimpleNamespace
-
-    from src.pipeline_stages import _book_risk_inputs
-
-    ctx = SimpleNamespace(
-        facts=SimpleNamespace(
-            heat=None,
-            correlation_clusters=[["OKLO", "CEG"]],
-        )
-    )
-    existing, clusters = _book_risk_inputs(ctx, total_value=100_000.0)
-    assert existing is not None and existing.unknown  # unknown, never skipped
-    assert clusters == [["OKLO", "CEG"]]
-
-
-def test_a_heat_failure_leaves_the_budget_unenforced_even_with_clusters():
-    """2026-09-03 incident: `allocate_risk_budget` treats a missing
-    `existing_pct` as an empty dict — a book with ZERO risk — not as
-    "unknown". Before the fix, `clusters` being present was enough on its
-    own to run the allocator, so a heat failure made the cluster cap bind
-    against a held book the constructor could not actually see. The fix
-    requires `existing_risk_pct` before the allocator runs at all; clusters
-    alone must leave the ceilings unenforced, exactly like the both-missing
-    case in `test_the_budget_gate_is_inert_when_the_caller_supplies_no_book_risk`.
-
-    Sector dial loosened here for the same reason as that sibling test —
-    it is a separate, unrelated ceiling this test is not about."""
-    constructor = PortfolioConstructor(ConstructorConfig())
-    targets, analyses, prices = _nuclear_setup(*NUCLEAR)
-    decisions = constructor.construct_orders(
-        targets=targets,
-        positions=[],
-        analyses=analyses,
-        total_value=EQUITY,
-        price_map=prices,
-        existing_risk_pct=None,
-        clusters=[NUCLEAR],
-    )
-    # All four survive: the cluster cap must NOT bind when the book's
-    # existing risk is unknown. (Compare test_a_single_theme_cannot_take_
-    # the_whole_risk_budget, where existing_risk_pct={} — a KNOWN empty book
-    # — correctly lets the cap cut this down to two.)
-    assert {d.symbol for d in decisions} == set(NUCLEAR)
-
-
-def test_the_cluster_cap_is_rendered_to_the_portfolio_manager():
-    """The PM is told a per-cluster cap exists; it must also be shown the
-    number, or it sizes a theme blind and meets the cap as a surprise."""
-    from src.pipeline_context import PMFacts
-
-    facts = PMFacts()
-    facts.correlation_coverage = True
-    facts.correlation_clusters = [["CCJ", "CEG", "OKLO", "VST"]]
-    facts.risk_ceiling_pct = 25.0
-    facts.cluster_risk_share_pct = 40.0
-    block = facts._render_correlation()
-    assert "at most 10.0% of equity at risk" in block
-    assert "40% of the 25.0% total" in block
-    assert "CCJ / CEG / OKLO / VST" in block
+        existing = _book_risk_inputs(ctx, 100_000.0)
+        assert existing == {} and existing.unknown
+    ctx = SimpleNamespace(facts=SimpleNamespace(heat=None))
+    existing = _book_risk_inputs(ctx, 100_000.0)
+    assert existing == {} and existing.unknown
 
 
 def test_risk_envelope_reaches_the_constructor_from_config():
@@ -564,7 +470,7 @@ def test_risk_envelope_reaches_the_constructor_from_config():
     assert raw["max_position_risk_pct"] == 5
     assert raw["min_position_risk_pct"] == 0.5
     assert raw["max_portfolio_risk_pct"] == 25
-    assert raw["max_cluster_risk_share_pct"] == 40
+    assert "max_cluster_risk_share_pct" not in raw
 
     # And the defaults agree, so a config that omits them lands in the same
     # place rather than silently reverting to a looser envelope.
@@ -576,7 +482,7 @@ def test_risk_envelope_reaches_the_constructor_from_config():
     assert defaults.max_position_risk_pct == 5.0
     assert defaults.min_position_risk_pct == 0.5
     assert defaults.max_portfolio_risk_pct == 25.0
-    assert defaults.max_cluster_risk_share_pct == 40.0
+    assert not hasattr(defaults, "max_cluster_risk_share_pct")
 
 
 def test_the_api_reports_risk_sized_targets_rather_than_dropping_them():
@@ -2024,7 +1930,6 @@ def test_constructor_spends_the_budget_in_the_ranked_order_it_is_given():
             price_map={"NVDA": 100.0, "AMD": 100.0},
             # 20 of the 25% ceiling already spent: room for one 5% idea.
             existing_risk_pct={"HELD": 20.0},
-            clusters=[],
             ranking=ranking,
         )
 
@@ -2053,7 +1958,6 @@ def test_a_budget_rationed_name_leaves_a_durable_machine_readable_reason():
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"HELD": 25.0},
-        clusters=[],
     )
     assert decisions == []
     refusals = constructor.drain_refusals()
@@ -2076,7 +1980,6 @@ def test_a_budget_refusal_drops_the_target_and_never_zeroes_it():
         total_value=EQUITY,
         price_map={"NVDA": 100.0},
         existing_risk_pct={"HELD": 25.0},
-        clusters=[],
     )
     assert [d for d in decisions if d.symbol == "NVDA"] == []
 
@@ -2301,7 +2204,6 @@ def _real_plan(live_stops):
         total_value=_REAL_EQUITY,
         price_map={"AAPL": _AAPL_PX, "NET": 100.0},
         existing_risk_pct={"AAPL": 1.91},
-        clusters=[],
         live_stops=live_stops,
     )
     return constructor, decisions
@@ -2343,7 +2245,6 @@ def test_trim_sized_from_live_stop_never_grows_the_position():
         total_value=_REAL_EQUITY,
         price_map={"AAPL": _AAPL_PX},
         existing_risk_pct={"AAPL": 1.91},
-        clusters=[],
         live_stops={"AAPL": _AAPL_STOP},
     )
     assert [d.action for d in decisions if d.symbol == "AAPL"] == ["HOLD"]

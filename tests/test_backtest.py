@@ -70,7 +70,6 @@ def _risk_config(**overrides) -> SimpleNamespace:
         max_portfolio_risk_pct=25.0,
         max_position_risk_pct=5.0,
         min_position_risk_pct=0.5,
-        max_cluster_risk_share_pct=40.0,
         # Tracks the production default (2.5 since 2026-09-10, 1.5 before
         # that from 2026-09-04); a backtest fixture pinned to a stale floor
         # would silently backtest a rule the desk no longer runs.
@@ -560,14 +559,12 @@ def test_budget_binds_when_any_positive_request_is_limited():
         grants={"AAA": full, "ZZZ": cut},
         committed_pct=5.0,
         ceiling_pct=5.0,
-        cluster_pct={},
     )
     assert _budget_binds(bound)
     free = BudgetAllocation(
         grants={"AAA": full},
         committed_pct=5.0,
         ceiling_pct=25.0,
-        cluster_pct={},
     )
     assert not _budget_binds(free)
 
@@ -590,7 +587,6 @@ def test_binding_day_is_counted_and_served_alphabetically():
     config = _risk_config(
         max_portfolio_risk_pct=5.0,
         max_position_risk_pct=5.0,
-        max_cluster_risk_share_pct=100.0,
     )
     result = run_backtest(
         config=config,

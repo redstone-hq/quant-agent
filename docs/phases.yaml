@@ -202,9 +202,6 @@ phases:
         path: "src/risk/metrics.py"
         symbol: "def portfolio_heat"
         note: "Was `def apply_drawdown_scale` until 2026-09-20, when the drawdown-halve was retired in full on the owner's instruction (docs/INCIDENT_HISTORY.md, board item 32). Phase 2a's OTHER three findings — portfolio heat, the correlation matrix and R-multiple — are what still stand, so the evidence points at one of those instead of at a deleted symbol."
-      - kind: symbol_in_file
-        path: "src/data/correlation.py"
-        symbol: "def correlation_clusters"
       - kind: pr_merged
         number: 113
         note: "Phase 2b — risk-based sizing (§2.1), correlation-aware budget (§2.2), plus the two same-day follow-on fixes (single-name clamp, stop-width floor). Merge commit 46b2029 IS an ancestor of the current production HEAD (224722e0) — this is fully deployed, not merely merged, contradicting the spec's own text which still says 'Neither fix is deployed.'"
@@ -225,10 +222,6 @@ phases:
         path: "src/risk/budget.py"
         symbol: "def allocate_risk_budget"
         note: "§2.2: correlation-aware budget gate"
-      - kind: setting_equals
-        path: "config/settings.yaml"
-        key: "risk.max_cluster_risk_share_pct"
-        value: 40
       - kind: setting_equals
         path: "config/settings.yaml"
         key: "risk.max_position_pct"

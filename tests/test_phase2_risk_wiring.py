@@ -57,75 +57,6 @@ def _risk_config(**overrides) -> RiskConfig:
     return RiskConfig(**fields)
 
 
-def test_correlation_clusters_group_transitively():
-    """A theme is one bet even when its outer pair falls under the threshold."""
-    from src.data.correlation import correlation_clusters
-
-    matrix = {
-        "OKLO": {"CEG": 0.82, "VST": 0.60},
-        "CEG": {"OKLO": 0.82, "VST": 0.79},
-        "VST": {"CEG": 0.79, "OKLO": 0.60},
-        "KO": {},
-    }
-    assert correlation_clusters(["OKLO", "CEG", "VST", "KO"], matrix) == [
-        ["CEG", "OKLO", "VST"],
-    ]
-
-
-def test_correlation_clusters_omit_singletons():
-    """A name with no measured correlation is never dragged into a cluster."""
-    from src.data.correlation import correlation_clusters
-
-    matrix = {"A": {"B": 0.9}, "B": {"A": 0.9}}
-    assert correlation_clusters(["A", "B", "LONE"], matrix) == [["A", "B"]]
-
-
-def test_two_name_book_rations_as_one_cluster():
-    """CHANGED 2026-09-30 (item 186), and deliberately.
-
-    This used to assert that KO/PEP at 0.2 were NOT a cluster, because 0.2
-    sat under a 0.7 cutoff. There is no cutoff any more: a two-name tree has
-    exactly one edge and therefore no jump of its own to read, so the
-    structural method falls back to its conservative answer and treats them
-    as one bet. That over-rations rather than under-rations — the pair share
-    a budget they may not need to share, instead of a real single bet being
-    counted as two.
-    """
-    from src.data.correlation import correlation_clusters
-
-    assert correlation_clusters(["KO", "PEP"], {"KO": {"PEP": 0.2}}) == [["KO", "PEP"]]
-
-
-def test_correlation_clusters_are_stable_and_largest_first():
-    from src.data.correlation import correlation_clusters
-
-    matrix = {
-        "A": {"B": 0.9},
-        "B": {"A": 0.9},
-        "C": {"D": 0.8, "E": 0.8},
-        "D": {"C": 0.8},
-        "E": {"C": 0.8},
-    }
-    assert correlation_clusters(["E", "A", "D", "C", "B"], matrix) == [
-        ["C", "D", "E"],
-        ["A", "B"],
-    ]
-
-
-def test_correlation_clusters_use_absolute_correlation():
-    """An inverse ETF moving −0.9 against the book is the same single bet."""
-    from src.data.correlation import correlation_clusters
-
-    matrix = {"SPY": {"SH": -0.95}, "SH": {"SPY": -0.95}}
-    assert correlation_clusters(["SPY", "SH"], matrix) == [["SH", "SPY"]]
-
-
-def test_correlation_clusters_empty_without_a_matrix():
-    from src.data.correlation import correlation_clusters
-
-    assert correlation_clusters(["A", "B"], {}) == []
-
-
 def test_ensure_correlation_matrix_is_memoized_on_the_context():
     """RiskStage must score PM against the numbers PM was actually shown, and
     must not pay to rebuild them."""
@@ -185,21 +116,9 @@ def test_pm_facts_say_unknown_when_heat_could_not_be_computed():
     assert "UNSOURCED:no_risk_data" in rendered
 
 
-def test_pm_facts_render_correlation_clusters():
-    facts = PMFacts()
-    facts.correlation_clusters = [["AMD", "NVDA", "SMH"]]
-    rendered = facts.render()
-    assert "Correlation Clusters" in rendered
-    assert "AMD / NVDA / SMH" in rendered
-    assert "ONE bet" in rendered
-
-
-def test_pm_facts_flag_missing_correlation_coverage_as_a_disabled_gate():
-    facts = PMFacts()
-    facts.correlation_coverage = False
-    rendered = facts.render()
-    assert "coverage MISSING" in rendered
-    assert "disabled" in rendered
+def test_pm_facts_show_no_correlation_cluster_text():
+    """Owner removed the correlated-group limits on 15 Oct 2026."""
+    assert "cluster" not in PMFacts().render().lower()
 
 
 def test_pm_prompt_no_longer_carries_a_drawdown_multiplier():

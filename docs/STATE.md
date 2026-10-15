@@ -143,7 +143,7 @@ This file records what is accepted and true **now**. Git history preserves imple
   2026-09-20 at the owner's instruction, with the rest of the account-level
   loss alarms — docs/INCIDENT_HISTORY.md, board item 32), the
   correlation matrix is built before the Portfolio Manager decides and shown to
-  it as measured clusters (`src/data/correlation.py::correlation_clusters`),
+  it as measured clusters (removed 15 Oct 2026, see OUTCOME.md),
   portfolio heat / budget risk / open risk exist (`src/risk/metrics.py`) and
   render to PM and RM, and R-multiple reaches the Position Reviewer. A new
   `risk.max_portfolio_risk_pct` config field (25%) was reporting-only at this
@@ -282,9 +282,8 @@ This file records what is accepted and true **now**. Git history preserves imple
   `risk:`:** 5% of equity per trade ceiling (`max_position_risk_pct`), 0.5%
   floor below which a request is denied rather than shrunk
   (`min_position_risk_pct`), 25% of equity total at-risk ceiling across the
-  book (`max_portfolio_risk_pct`, previously reporting-only), and no single
-  correlated cluster (measured return correlation, `src/data/correlation.py`)
-  may consume more than 40% of that total (`max_cluster_risk_share_pct`) —
+  book (`max_portfolio_risk_pct`, previously reporting-only), (the per-cluster
+  share of it was removed by the owner on 15 Oct 2026) —
   `src/risk/budget.py::allocate_risk_budget`, best-ranked candidate first
   (owner decision 2026-09-12, item 49; largest-request-first was the rule
   before that) with an alphabetical tie-break for unranked names. The gate

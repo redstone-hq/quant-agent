@@ -80,7 +80,6 @@ src.risk.gross_ladder.GROSS_LADDER[1][1]
 src.risk.gross_ladder.GROSS_LADDER[2][0]
 src.risk.gross_ladder.GROSS_LADDER[2][1]
 src.risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS
-src.risk.rules.RiskRuleEngine.check(max_correlated_cluster_pct)
 src.risk.trailing.PIVOT_WINDOW
 src.rotation.evaluate_rotation(margin_pct)
 src.rotation.evaluate_rotation_opportunity(margin_pct)

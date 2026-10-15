@@ -284,7 +284,6 @@ class PortfolioConstructor:
         total_value: float,
         price_map: dict[str, float] | None = None,
         existing_risk_pct: dict[str, float] | None = None,
-        clusters: list[list[str]] | None = None,
         regime: str | None = None,
         evidence_registry: dict[str, dict[str, str]] | None = None,
         stale_sources: dict[str, frozenset[str]] | None = None,
@@ -319,11 +318,9 @@ class PortfolioConstructor:
         session bar and never a quote mid, so an absent value here means no
         usable today price of any kind — not merely "no last trade".
 
-        `existing_risk_pct` / `clusters`: spec §2.2. The book's current
-        per-symbol budget risk (`src/risk/metrics.py`) and its measured
-        correlation clusters (`src/data/correlation.py`). Supplied together
-        they turn the 25% at-risk ceiling from a figure the PM was shown into
-        a gate it cannot exceed. Omitted, the portfolio-level ceilings are not
+        `existing_risk_pct`: spec §2.2. The book's current
+        per-symbol budget risk (`src/risk/metrics.py`). Supplied, it turns the 25% at-risk ceiling from a figure
+        the PM was shown into a gate it cannot exceed. Omitted, the portfolio-level ceilings are not
         enforced — the constructor has no view of the book's risk and must not
         invent one — though per-position sizing and the 5% single-name ceiling
         still apply.
@@ -410,7 +407,6 @@ class PortfolioConstructor:
             price_map=price_map,
             current_weights=current_weights,
             existing_risk_pct=existing_risk_pct,
-            clusters=clusters,
             regime=regime,
             evidence_registry=evidence_registry,
             stale_sources=stale_sources,
@@ -833,7 +829,6 @@ class PortfolioConstructor:
         price_map: dict[str, float],
         current_weights: dict[str, float],
         existing_risk_pct: dict[str, float] | None,
-        clusters: list[list[str]] | None,
         regime: str | None = None,
         evidence_registry: dict[str, dict[str, str]] | None = None,
         stale_sources: dict[str, frozenset[str]] | None = None,
@@ -850,8 +845,8 @@ class PortfolioConstructor:
         what eliminates the "stops too tight" failure class: risk is never
         controlled by squeezing the stop.
 
-        Spec §2.2: the requested risks are rationed against the total and
-        per-cluster ceilings before any of them is converted to a size, so the
+        Spec §2.2: the requested risks are rationed against the total
+        ceiling before any of them is converted to a size, so the
         book is bounded by construction rather than by a later veto.
 
         Spec §9.4, as of 2026-09-14: the SIGNED source score — aligned seats
@@ -1027,7 +1022,7 @@ class PortfolioConstructor:
             # canonical registry (not from target.provenance — see
             # `count_aligned_sources`), before the request ever reaches the
             # portfolio-level budget allocator. Same "no view, don't invent
-            # one" posture as `existing_risk_pct`/`clusters` above: when the
+            # one" posture as `existing_risk_pct` above: when the
             # caller has no registry to offer, the ceiling is UNENFORCED
             # (infinite), never silently treated as zero agreement — a
             # missing registry is not evidence of disagreement.
@@ -1224,9 +1219,7 @@ class PortfolioConstructor:
             allocate_risk_budget(
                 requests,
                 existing_pct=existing_risk_pct,
-                clusters=clusters,
                 ceiling_pct=self.cfg.max_portfolio_risk_pct,
-                cluster_share_pct=self.cfg.max_cluster_risk_share_pct,
                 floor_pct=self.cfg.min_risk_pct,
                 # retired board item 49 — best-ranked first. `ranking` is the PM's
                 # own `rank_verdicts` order, threaded through unchanged; the
