@@ -135,8 +135,6 @@ def _projected_post_sale_book(positions, total_value: float, sell_decisions: lis
     Cover decisions are applied the same way: a COVER closes a short, which
     also removes that name from the held book.
     """
-    from src.rotation import ROTATION_MARGIN_PCT  # noqa: F401  (module sanity)
-
     by_symbol = {}
     for decision in list(sell_decisions or []) + list(cover_decisions or []):
         symbol = str(getattr(decision, "symbol", "") or "").strip().upper()

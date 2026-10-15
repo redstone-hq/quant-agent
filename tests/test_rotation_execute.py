@@ -1141,7 +1141,7 @@ def test_the_near_miss_row_carries_every_named_field(tmp_path):
     assert event["held_shared_score"] == 0.9
     assert event["new_shared_score"] == 1.8
     assert event["ratio"] == 2.0
-    assert event["margin_pct"] == 0.25
+    assert "margin_pct" not in event and "noise_brake" in event
     assert event["binding"] == "funding"
     assert event["entry_budget_usd"] == 92.20
     assert event["min_entry_usd"] == 500.0

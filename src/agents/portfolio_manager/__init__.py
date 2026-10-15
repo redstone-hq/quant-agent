@@ -453,6 +453,11 @@ class PortfolioManagerAgent(
         _min_risk_floor = kwargs.get("min_risk_floor")
         if not isinstance(_min_risk_floor, MinRiskFloor):
             _min_risk_floor = None
+        # Owner decision 2026-10-15 (q07): the swap brake is the desk's own
+        # measured score noise; anything not a real number is unmeasured.
+        _score_noise_brake = kwargs.get("score_noise_brake")
+        if isinstance(_score_noise_brake, bool) or not isinstance(_score_noise_brake, (int, float)):
+            _score_noise_brake = None
         rotation_precheck = self.rotation_precheck(
             ranked=ranked,
             blocked=blocked,
@@ -461,6 +466,7 @@ class PortfolioManagerAgent(
             ceiling_pct=max_portfolio_risk_pct,
             entry_budget_usd=(None if _entry_budget_usd is None else float(_entry_budget_usd)),
             min_risk_floor=_min_risk_floor,
+            score_noise_brake=_score_noise_brake,
         )
         self.last_rotation_precheck = rotation_precheck
         rotation_section = self._render_rotation_section(
@@ -1313,6 +1319,9 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         # deleted $500 `cash_sweep.min_order_usd` floor. `None` switches
         # the funding half of the rotation precondition off.
         min_risk_floor=None,
+        # Owner decision 2026-10-15 (q07): the measured score-noise brake
+        # for the ranked-margin swap; `None` = unmeasured, no swap.
+        score_noise_brake: float | None = None,
         symbol_sectors: dict[str, str] | None = None,
         session_type: str = "morning",
         allowed_buy_symbols: set[str] | None = None,
@@ -1405,6 +1414,7 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             margin_ladder_rung=margin_ladder_rung,
             margin_interest_rate_pct=margin_interest_rate_pct,
             min_risk_floor=min_risk_floor,
+            score_noise_brake=score_noise_brake,
             symbol_sectors=symbol_sectors or {},
             session_type=session_type,
             allowed_buy_symbols=allowed_buy_symbols or set(),

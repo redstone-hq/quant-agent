@@ -898,6 +898,10 @@ An overnight gap is not a risk appetite question and must never be put to the
 owner as one. The market is closed, nothing can be done, and everyone
 understands that.
 
+## The stock swap must beat the score's own noise
+
+Owner decision 2026-10-15: every holding must keep earning its place, so the stock-swap rule stays (switched off); its made-up 25% brake is replaced by the desk's own measured score noise on unchanged names, no swap while that is unmeasured, and a trading-cost brake comes after the paper reset.
+
 ## Design freedom
 
 Everything else is challengeable during discovery and post-validation iteration.

@@ -129,10 +129,10 @@ flags:
       bought - is closed by a projected post-sale gate plus a clearance
       object the sale cannot be built without. The tier is still OFF, and
       NOT because the switch is being left untouched out of caution: item
-      39(a) is unresolved. The margin that decides when this tier fires,
-      ROTATION_MARGIN_PCT, is recorded in config/number_ledger.yaml as
-      `arbitrary`, and turning this on would make an unmeasured number the
-      sole reason for selling a position whose thesis is intact. The
+      39(a) is unresolved. The brake that decides when this tier fires is,
+      since the owner decision of 2026-10-15, the desk's own measured score
+      noise (no swap while unmeasured); the owner keeps it off until a
+      trading-cost brake is added after the paper reset. The
       sequencing work is a prerequisite for that decision, not a substitute
       for it. This flag turns on when 39(a) is answered, and not before.
     decided: "2026-09-20"

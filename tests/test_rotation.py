@@ -12,11 +12,10 @@ for every path that never reaches the Tier 2 like-for-like check), and
 score cannot silently disagree.
 """
 
+from functools import partial
+
 from src.models import AnalystVerdict, VerdictEvidence
-from src.rotation import (
-    ROTATION_MARGIN_PCT,
-    evaluate_rotation_opportunity,
-)
+from src.rotation import evaluate_rotation_opportunity as _evaluate_rotation_opportunity
 from src.verdicts import RankedCandidate, score_verdict, seat_weight
 
 # The desk's own ratified floor (`STARTER_POSITION_RISK_PCT` /
@@ -25,6 +24,12 @@ from src.verdicts import RankedCandidate, score_verdict, seat_weight
 # so a future change to that constant fails this test loudly instead of the
 # scenarios below silently testing a different threshold than production.
 FLOOR_PCT = 0.5
+
+# Owner decision 2026-10-15 (q07): the ranked-margin tier is judged against a
+# MEASURED score-noise brake (absolute score units), threaded in by the caller.
+# These scenarios supply one as a test input; it is not a desk number.
+TEST_NOISE_BRAKE = 0.25
+evaluate_rotation_opportunity = partial(_evaluate_rotation_opportunity, noise_brake=TEST_NOISE_BRAKE)
 
 
 def _rc(symbol: str, score: float, direction: str = "bullish") -> RankedCandidate:
@@ -122,7 +127,7 @@ def test_stronger_new_candidate_rotates_out_a_weak_but_still_eligible_holding():
     assert opp.new_score == 1.8
     assert opp.held_symbol == "OLD"
     assert opp.held_score == 0.9
-    assert opp.margin_pct == ROTATION_MARGIN_PCT
+    assert opp.noise_brake == TEST_NOISE_BRAKE
     # Item 66: the comparison that was actually cleared is recorded.
     assert opp.shared_seats == ("technical",)
     assert opp.held_shared_score == 0.9
@@ -149,22 +154,22 @@ def test_marginal_edge_does_not_trigger_rotation():
     assert opp is None
 
 
-def test_exactly_at_the_margin_does_trigger():
-    """The margin is a floor (>=), not a strict inequality: exactly 25%
-    higher clears it. 0.9 * 1.25 = 1.125 exactly."""
+def test_a_gap_exactly_at_the_measured_noise_does_not_trigger():
+    """Owner decision 2026-10-15 (q07): the gap must EXCEED the measured
+    score noise. A gap equal to it is indistinguishable from jitter."""
     ranked = [
         _rcv("NEW", {"technical": (0.9375, "low")}),  # 1.2 * 0.9375 = 1.125
         _rcv("OLD", {"technical": (0.75, "low")}),  # 1.2 * 0.75   = 0.9
     ]
-    opp = evaluate_rotation_opportunity(
+    opp = _evaluate_rotation_opportunity(
         ranked=ranked,
         blocked={},
         held_symbols={"OLD"},
         headroom_pct=0.1,
         floor_pct=FLOOR_PCT,
+        noise_brake=ranked[0].score - ranked[1].score,
     )
-    assert opp is not None
-    assert opp.tier == "ranked_margin"
+    assert opp is None
 
 
 # --- (c) capital NOT constrained -> no comparison runs at all --------------
@@ -319,7 +324,7 @@ def test_coverage_decay_alone_does_not_rotate_a_held_name_out():
     assert new.score == 4.0
     # The pre-fix comparison, spelled out so this test fails loudly if the
     # full-score margin ever stops being cleared by these inputs.
-    assert new.score >= held.score * (1.0 + ROTATION_MARGIN_PCT)
+    assert new.score - held.score > TEST_NOISE_BRAKE
 
     opp = evaluate_rotation_opportunity(
         ranked=[new, held],
@@ -338,7 +343,7 @@ def test_no_shared_scoring_seat_declines_rather_than_comparing():
     like-for-like to compare and Tier 2 declines."""
     held = _rcv("HELD", {"earnings": (None, "high")})  # 1.2
     new = _rcv("NEW", {"technical": (1.0, "high")})  # 2.4
-    assert new.score >= held.score * (1.0 + ROTATION_MARGIN_PCT)
+    assert new.score - held.score > TEST_NOISE_BRAKE
 
     opp = evaluate_rotation_opportunity(
         ranked=[new, held],
@@ -424,9 +429,9 @@ def test_the_like_for_like_check_can_only_remove_rotations_never_add_one():
                     surfaced += 1
                     assert opp.tier == "ranked_margin"
                     # (1) the original full-composite margin still holds
-                    assert new.score >= held.score * (1.0 + ROTATION_MARGIN_PCT)
+                    assert new.score - held.score > TEST_NOISE_BRAKE
                     # (2) and so does the like-for-like one
-                    assert opp.new_shared_score >= opp.held_shared_score * (1.0 + ROTATION_MARGIN_PCT)
+                    assert opp.new_shared_score - opp.held_shared_score > TEST_NOISE_BRAKE
                     # (3) which was computed over a genuinely shared set
                     assert set(opp.shared_seats) == (set(held_seats) & set(new_seats))
     assert surfaced > 0, "grid surfaced nothing — it is not testing anything"
@@ -552,6 +557,17 @@ def test_render_states_the_like_for_like_comparison_for_the_ranked_tier():
         held_symbols={"HELD"},
         existing_risk_pct={"HELD": 24.9},
         ceiling_pct=25.0,
+        precheck=PortfolioManagerAgent.rotation_precheck(
+            ranked=[
+                _rcv("NEW", {"technical": (1.0, "high"), "earnings": (None, "high")}),
+                _rcv("HELD", {"technical": (0.75, "low")}),
+            ],
+            blocked={},
+            held_symbols={"HELD"},
+            existing_risk_pct={"HELD": 24.9},
+            ceiling_pct=25.0,
+            score_noise_brake=TEST_NOISE_BRAKE,
+        ),
     )
     assert "Like-for-like check" in result
     assert "technical" in result
@@ -771,7 +787,7 @@ def test_exactly_the_minimum_order_is_not_constrained():
 def _refusal(**over):
     from src.rotation import evaluate_rotation
 
-    outcome = evaluate_rotation(**_today_ladder_full_kwargs(**over))
+    outcome = evaluate_rotation(**{"noise_brake": TEST_NOISE_BRAKE, **_today_ladder_full_kwargs(**over)})
     assert outcome.opportunity is None
     assert outcome.refusal is not None, "a refusal must never be silent"
     return outcome.refusal
@@ -845,6 +861,13 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
             blocked={},
             held_symbols={"OLD"},
         ).point,
+        # (i) owner decision 2026-10-15: no measured score noise, no swap
+        _refusal(
+            ranked=[strong, weak],
+            blocked={},
+            held_symbols={"OLD"},
+            noise_brake=None,
+        ).point,
     }
     assert seen == set(ROTATION_REFUSAL_POINTS), (
         f"unreached: {set(ROTATION_REFUSAL_POINTS) - seen}; unlisted: {seen - set(ROTATION_REFUSAL_POINTS)}"
@@ -872,7 +895,7 @@ def test_the_refusal_row_carries_the_named_fields():
     # comparison the margin is actually judged on, not on the
     # coverage-sensitive totals.
     assert refusal.ratio == round(0.96 / 0.9, 4)
-    assert refusal.margin_pct == ROTATION_MARGIN_PCT
+    assert refusal.noise_brake == TEST_NOISE_BRAKE
     assert refusal.binding == ("funding",)
     assert refusal.detail
 
@@ -1026,6 +1049,8 @@ def test_the_natural_selection_telemetry_introduces_no_margin_change():
     the two switches it gates are untouched — the categorical tier is what
     delivers the mandate, and the ranked-margin number stays blocked by
     39(a)."""
-    from src.rotation import ROTATION_MARGIN_PCT as MARGIN
+    import src.rotation as rotation
 
-    assert MARGIN == 0.25  # unchanged; still `arbitrary` in the number ledger
+    # Owner decision 2026-10-15 (q07): the 25% constant is gone; the brake
+    # is the measured score noise, passed in by the caller.
+    assert not hasattr(rotation, "ROTATION_MARGIN_PCT")

@@ -360,6 +360,9 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         ),
         margin_ladder_multiple=margin_ladder_multiple,
         margin_ladder_rung=margin_ladder_rung,
+        # Owner decision 2026-10-15 (q07): the swap brake, measured now
+        # from the desk's own recorded scores; `None` = unmeasured.
+        score_noise_brake=_score_noise_brake(pipeline),
         symbol_sectors=dict(ctx.symbol_sectors or {}),
         session_type=ctx.session,
         allowed_buy_symbols={str(symbol).strip().upper() for symbol in configured_universe if str(symbol).strip()}
@@ -1087,3 +1090,20 @@ def _journal_ranked_candidates(pipeline, ctx, ranked: list, velocity_by_symbol: 
             seats=seats,
             velocity=velocity_by_symbol.get(str(cand.symbol).upper()),
         )
+
+
+def _score_noise_brake(pipeline) -> float | None:
+    """The ranked-margin swap's measured score-noise brake, or `None`.
+
+    `None` (unmeasured) on any read failure: the swap then refuses, which is
+    the safe side. Logged, never silent.
+    """
+    from src.rotation_parts.score_noise import measure_score_noise_from_db
+
+    try:
+        brake = measure_score_noise_from_db(pipeline.db.conn)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Score-noise brake unmeasured (read failed): %s", exc)
+        return None
+    logger.info("Rotation %s", brake.describe())
+    return brake.value

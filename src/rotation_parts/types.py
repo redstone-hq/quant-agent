@@ -55,13 +55,6 @@ REQUIRED_BUY_LEG_GATES = (
     "below_owner_min_risk",
 )
 
-#: Relative margin the best-ranked new candidate must clear over the
-#: weakest still-eligible held position's score before a rotation is
-#: surfaced. PROVISIONAL — see module docstring for the citations and why
-#: this is the conservative end of a real but unpinned range, not a
-#: measured fact.
-ROTATION_MARGIN_PCT = 0.25
-
 #: Prefix that tags a `candidate_eligibility` blocking reason as the 2026-09-25
 #: conviction bar (R7). The STAY cull (rotation's `ineligible_hold` tier)
 #: recognises ONLY these reasons; a held name failing an OLDER gate
@@ -99,7 +92,11 @@ class RotationOpportunity:
     tier: str
     #: The held symbol's own blocking reasons, "ineligible_hold" tier only.
     reasons: tuple[str, ...] = field(default_factory=tuple)
-    margin_pct: float = ROTATION_MARGIN_PCT
+    #: Owner decision 2026-10-15 (q07): the score gap a ranked-margin swap
+    #: cleared, the desk's own measured score noise
+    #: (`src.rotation_parts.score_noise`). `None` on the categorical tier,
+    #: which makes no ranking comparison.
+    noise_brake: float | None = None
     #: Board item 39, "ineligible_hold" tier only. The WHOLE below-bar cull
     #: set this session, ordered worst-first (most blocking reasons first,
     #: then alphabetical) as `(symbol, reasons)` pairs — every held name that
@@ -144,6 +141,7 @@ ROTATION_REFUSAL_POINTS: tuple[str, ...] = (
     "no_new_candidates",
     "no_ranked_holdings",
     "held_score_non_positive",
+    "score_noise_unmeasured",
     "full_composite_margin_not_cleared",
     "no_shared_scoring_seat",
     "shared_held_score_non_positive",
@@ -190,10 +188,15 @@ class RotationRefusal:
     #: from: the distribution of ratios the desk actually sees. `None` when
     #: no comparable pair existed or the denominator was non-positive.
     ratio: float | None = None
-    #: The margin the ratio was (or would have been) judged against, so a
-    #: row read months later is not silently re-interpreted under a
-    #: different one.
-    margin_pct: float = ROTATION_MARGIN_PCT
+    #: The measured score-noise brake the gap was (or would have been)
+    #: judged against, so a row read months later is not silently
+    #: re-interpreted under a different one. `None` = unmeasured.
+    noise_brake: float | None = None
+    #: Each side's evidence key (`score_noise.evidence_key`): seat coverage
+    #: plus dated facts. Two consecutive equal keys for one name are the
+    #: no-news pairs the brake is measured from.
+    held_evidence_key: str = ""
+    new_evidence_key: str = ""
     #: Which limits were binding when this refusal was taken, in
     #: `rotation_binding_constraints` order. Empty means none were, which
     #: is the `book_not_constrained` case.
@@ -219,7 +222,9 @@ class RotationRefusal:
             "held_shared_score": self.held_shared_score,
             "new_shared_score": self.new_shared_score,
             "ratio": self.ratio,
-            "margin_pct": self.margin_pct,
+            "noise_brake": self.noise_brake,
+            "held_evidence_key": self.held_evidence_key,
+            "new_evidence_key": self.new_evidence_key,
             "binding": ",".join(self.binding),
         }
 
