@@ -889,8 +889,9 @@ class RiskStage:
         # REPLACES the "provably false claim" check and the "my numbers
         # improved" veto as deciders (ETN/FLNC/AMD 12-13 Oct were sold while
         # protected, on reasons nothing measured against the bar).
-        # An unprotected holding (`is_protective`) is a protective sale and
-        # passes ungated, as on trunk; a failed bar fetch is not protective.
+        # Only a CONFIRMED chart break (`is_protective`) is a protective sale
+        # and passes ungated; a loser with no chart level under its stop, or a
+        # failed bar fetch, is judged on the buy rules (owner 14 Oct 2026).
         if portfolio_decision.decisions:
             from src.exits.same_rules_gate import is_judgement_sale, judge_holding, views_from_pipeline
 

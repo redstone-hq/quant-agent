@@ -147,6 +147,21 @@ def _closing(trading, side):
 
 
 def test_a_reviewer_cover_buys_back_the_whole_short_after_clearing_its_buy_stop(tmp_path, monkeypatch):
+    # Owner 14 Oct 2026: a judgement sale of a holding read as "no chart level"
+    # now sells only when it fails a buy rule, and this fixture carries no
+    # technical read to judge that. This test is about how a cover is placed against a standing buy stop, so the sale is
+    # the chart-CONFIRMED break, which still sells ungated.
+    from dataclasses import replace
+
+    from src.exits.structural_protection import StructuralProtection
+
+    _read = StructuralProtection._structural_protection_for_holding
+
+    def _confirmed_break(self, *args, **kwargs):
+        check = _read(self, *args, **kwargs)
+        return replace(check, basis="structural_level_broken") if check.basis == "no_chart_level" else check
+
+    monkeypatch.setattr(StructuralProtection, "_structural_protection_for_holding", _confirmed_break)
     bars = _bars(end=ONE_R_PRICE + 1.0)  # 99.00; the short entered at 105
     short_qty = -QTY
     result, trace, trading, attempts = _run(
