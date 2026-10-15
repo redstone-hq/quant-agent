@@ -46,3 +46,13 @@ source_modules =
 forbidden_modules =
     src.storage.analytics.trade_review
 allow_indirect_imports = true
+
+[importlinter:contract:no-http-retry-on-broker-writes]
+name = Broker write paths may not import urllib3 (no automatic HTTP retry on an order submission)
+type = forbidden
+source_modules =
+    src.execution
+    src.api.broker_reads
+forbidden_modules =
+    urllib3
+allow_indirect_imports = true
