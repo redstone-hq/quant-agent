@@ -1,8 +1,8 @@
 """Item 90 / number ledger — the recording behind the two nomination caps.
 
-`nominations.max_per_seat_per_run` (3) and `nominations.max_total_per_run`
-(6) are unsourced round numbers. Neither can be settled by argument: the
-open question is whether offered demand ever reaches either cap, and what
+`nominations.max_per_seat_per_run` (3) is an unsourced round number. It
+cannot be settled by argument: the
+open question is whether offered demand ever reaches the cap, and what
 is discarded when it does. These cover `src/nominations.py`'s
 `measure_cap_demand`, the recording that makes a run of real sessions
 answer that, and pin that it changes nothing the desk selects.
@@ -12,8 +12,8 @@ from src.models import Nomination
 
 # --- Item 90 / number ledger: what the two nomination caps actually cut ----
 #
-# `nominations.max_per_seat_per_run` (3) and `max_total_per_run` (6) are both
-# unsourced round numbers whose ledger rows can only be settled by a run of
+# `nominations.max_per_seat_per_run` (3) is an
+# unsourced round number whose ledger row can only be settled by a run of
 # real sessions. `measure_cap_demand` is the recording that makes those
 # sessions readable: it must report offered-versus-kept per seat, name what
 # each cap dropped, and never change what `select_nominations` returns.
@@ -27,25 +27,22 @@ def _nom(symbol: str, conviction: str = "medium") -> Nomination:
     )
 
 
-def test_cap_demand_reports_no_binding_when_demand_is_under_both_caps():
+def test_cap_demand_reports_no_binding_when_demand_is_under_the_seat_cap():
     from src.nominations import measure_cap_demand
 
     out = measure_cap_demand(
         {"news_analyst": [_nom("AAA"), _nom("BBB")]},
         max_per_seat=3,
-        max_total=6,
     )
     assert out["per_seat_bound"] == []
-    assert out["total_bound"] is False
-    assert out["total_dropped"] == []
     assert out["distinct_after_merge"] == 2
     assert out["per_seat"]["news_analyst"]["offered"] == 2
     assert out["per_seat"]["news_analyst"]["kept"] == 2
     assert out["per_seat"]["news_analyst"]["dropped"] == []
-    assert out["caps"] == {"max_per_seat": 3, "max_total": 6}
+    assert out["caps"] == {"max_per_seat": 3}
 
 
-def test_cap_demand_names_every_symbol_each_cap_dropped():
+def test_cap_demand_names_every_symbol_the_seat_cap_dropped():
     from src.nominations import measure_cap_demand, select_nominations
 
     by_seat = {
@@ -58,7 +55,7 @@ def test_cap_demand_names_every_symbol_each_cap_dropped():
         "macro_analyst": [_nom("EEE", "high"), _nom("FFF", "high")],
         "earnings_analyst": [_nom("GGG", "high")],
     }
-    out = measure_cap_demand(by_seat, max_per_seat=3, max_total=4)
+    out = measure_cap_demand(by_seat, max_per_seat=3)
 
     # The per-seat cap bound on exactly the seat that offered four.
     assert out["per_seat_bound"] == ["news_analyst"]
@@ -69,21 +66,10 @@ def test_cap_demand_names_every_symbol_each_cap_dropped():
     ]
     assert out["per_seat"]["macro_analyst"]["dropped"] == []
 
-    # Six distinct names survive the per-seat cap; the run cap keeps four.
+    # Six distinct names survive the per-seat cap; no run-wide cap cuts them.
     assert out["distinct_after_merge"] == 6
-    assert out["total_bound"] is True
-    dropped = sorted(d["symbol"] for d in out["total_dropped"])
-    kept = sorted(
-        c.symbol
-        for c in select_nominations(
-            by_seat,
-            max_per_seat=3,
-            max_total=4,
-        )
-    )
-    assert len(kept) == 4
-    assert set(dropped).isdisjoint(kept)
-    assert sorted(dropped + kept) == ["AAA", "BBB", "CCC", "EEE", "FFF", "GGG"]
+    kept = sorted(c.symbol for c in select_nominations(by_seat, max_per_seat=3))
+    assert kept == ["AAA", "BBB", "CCC", "EEE", "FFF", "GGG"]
 
 
 def test_cap_demand_does_not_change_what_select_nominations_returns():
@@ -98,16 +84,14 @@ def test_cap_demand_does_not_change_what_select_nominations_returns():
         for c in select_nominations(
             by_seat,
             max_per_seat=2,
-            max_total=3,
         )
     ]
-    measure_cap_demand(by_seat, max_per_seat=2, max_total=3)
+    measure_cap_demand(by_seat, max_per_seat=2)
     after = [
         c.symbol
         for c in select_nominations(
             by_seat,
             max_per_seat=2,
-            max_total=3,
         )
     ]
     assert before == after

@@ -1023,7 +1023,6 @@ nominations:
   # front of the Technical responder pass each run. See
   # src/config/__init__.py::NominationConfig and docs/QAMC_REMEDIATION_SPEC.md §9.1.
   max_per_seat_per_run: 3
-  max_total_per_run: 6
 
 universe_screen:
   # Universe expansion and pruning (src/universe_screen.py; design agreed
