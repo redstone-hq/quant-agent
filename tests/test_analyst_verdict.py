@@ -44,7 +44,6 @@ from src.models import (
     TechReasoningChain,
     VerdictEvidence,
 )
-from src.risk.constants import REWARD_RISK_FLOOR
 from src.verdicts import (
     CONVICTION_SCORE,
     RANKING_SIGNALS,
@@ -1307,13 +1306,12 @@ def test_the_rr_floor_no_longer_decides_eligibility_at_any_value():
         active_state_changes="",
         asof=SESSION,
     )
-    for floor in (REWARD_RISK_FLOOR, 2.0, 99.0):
-        ranked, blocked = PortfolioManagerAgent.rank_candidates(
-            rr_floor=floor,
-            **kwargs,
-        )
-        assert [c.symbol for c in ranked] == ["AAA"], floor
-        assert blocked == {}, floor
+    ranked, blocked = PortfolioManagerAgent.rank_candidates(**kwargs)
+    assert [c.symbol for c in ranked] == ["AAA"]
+    assert blocked == {}
+    # The threaded floor is gone: passing one is now an error, not a no-op.
+    with pytest.raises(TypeError):
+        PortfolioManagerAgent.rank_candidates(rr_floor=99.0, **kwargs)
 
 
 def test_shorts_are_not_subject_to_the_buy_eligibility_gate():
@@ -1440,7 +1438,6 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
         smart_money_findings=[],
         allowed_buy_symbols={"AAA", "CCC"},
         active_state_changes="",
-        rr_floor=REWARD_RISK_FLOOR,
     )
     section = msg.split("## Candidate Ranking")[1].split("\n## ")[0]
     lines = [ln for ln in section.splitlines() if ln[:2] in ("1.", "2.", "3.")]

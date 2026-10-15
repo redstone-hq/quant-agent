@@ -2893,42 +2893,6 @@ numbers:
       (src/risk/constants.py::MARGIN_DEFICIT_FLOOR_USD). It decides whether a cash-only-policy
       ACTION fires on what is arithmetically dust; it does not size, price,
       gate or exit a trade.
-  - cost_while_unanswered: Inert in the live entry path but still exported as a name tests, docs and
-      prompts import.
-    id: src.risk.constants.REWARD_RISK_FLOOR
-    note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). This number cannot be derived
-      and the `measurement` route previously attached to it could not have closed it, because the
-      quantity it would measure -- this desk''s hit rate -- is measured off this desk''s own fills,
-      which the owner has ruled measures its bugs rather than its edge, and because a reward-to-risk
-      floor is a statement about payoffs the desk is WILLING to take, not about payoffs the market
-      offers. The only non-arbitrary content in the number is the algebra: a floor of R means the
-      desk is declining anything that needs better than 1/(1+R) of its attempts to work out merely
-      to break even, so 1.5 is the statement `fewer than two in five of these need to work`. THE QUESTION
-      THE OWNER WOULD BE ANSWERING, in plain words: when a buy would risk a dollar to make less than
-      a dollar fifty, should the desk rank it below every buy that would not, or treat payoff as none
-      of its business and rank purely on conviction? NO VALUE IS PROPOSED HERE and the live 1.5 is
-      unchanged; a number invented to answer an appetite question is the exact failure this ledger
-      exists to stop. PRIOR NOTE, kept verbatim: Not a gate and not a size cap anywhere (owner ruling
-      2026-09-17); what survives is an ordering signal into rank_verdicts. Ordering still changes
-      which names get taken when the book is full, and the reference point itself has no source. See
-      board item 110 for the document that still describes it as a size cap.'
-    open_question: Should the floor exist, and at what measured hit rate? The inert `RiskConfig.min_reward_risk_after_widening`
-      / `ConstructorConfig.min_reward_risk_after_widening` keys that shared this open question were
-      removed as dead code, board item 81 (2026-09-24) — this constant is the only survivor, kept
-      as an exported name tests/docs still import.
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-    site: src/risk/constants.py
-    status: arbitrary
-    value: 1.5
   - id: src.risk.constants.STARTER_POSITION_RISK_PCT
     value: 0.5
     status: arbitrary
@@ -5219,18 +5183,6 @@ numbers:
       production passes event_risk.horizon_days (src/stage_risk.py::RiskStage._build_event_risk_block).
       A further inline `or 10` fallback sits at
       src/agents/macro_analyst.py::MacroAnalystAgent.build_user_message, which no rule sees.
-  - id: src.agents.portfolio_manager.candidate_ranking.CandidateRanking.candidate_eligibility(rr_floor)
-    value: 1.5
-    status: derived
-    site: src/agents/portfolio_manager/candidate_ranking.py
-    derived_from: src.risk.constants.REWARD_RISK_FLOOR
-    base_value: 1.5
-    note: >-
-      Parameter default bound to the imported REWARD_RISK_FLOOR
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.candidate_eligibility says the defaults are 'the
-      shared constants RiskConfig itself defaults to'). candidate_eligibility
-      accepts and ignores it since 2026-09-17
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.rank_candidates).
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(max_portfolio_risk_pct)
     value: 25
     status: derived
@@ -5242,18 +5194,6 @@ numbers:
       (src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.decide, the `max_portfolio_risk_pct: float = 25.0` signature default). Same 25 as the deployed ceiling;
       a second inline 25.0 fallback sits at
       src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.build_user_message (`kwargs.get("max_portfolio_risk_pct", 25.0)`), which no rule sees.
-  - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(rr_floor)
-    value: 1.5
-    status: derived
-    site: src/agents/portfolio_manager/__init__.py
-    derived_from: src.risk.constants.REWARD_RISK_FLOOR
-    base_value: 1.5
-    note: >-
-      Parameter default bound to the imported REWARD_RISK_FLOOR
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.candidate_eligibility says the defaults are 'the
-      shared constants RiskConfig itself defaults to'). candidate_eligibility
-      accepts and ignores it since 2026-09-17
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.rank_candidates).
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(starter_risk_pct)
     value: 0.5
     status: derived
@@ -5263,18 +5203,6 @@ numbers:
     note: >-
       Parameter default bound to the imported STARTER_POSITION_RISK_PCT
       (src/agents/portfolio_manager/__init__.py::PortfolioManagerAgent.decide).
-  - id: src.agents.portfolio_manager.candidate_ranking.CandidateRanking.rank_candidates(rr_floor)
-    value: 1.5
-    status: derived
-    site: src/agents/portfolio_manager/candidate_ranking.py
-    derived_from: src.risk.constants.REWARD_RISK_FLOOR
-    base_value: 1.5
-    note: >-
-      Parameter default bound to the imported REWARD_RISK_FLOOR
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.candidate_eligibility says the defaults are 'the
-      shared constants RiskConfig itself defaults to'). candidate_eligibility
-      accepts and ignores it since 2026-09-17
-      (src/agents/portfolio_manager/candidate_ranking.py::CandidateRanking.rank_candidates).
   - id: src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS
     value: 8
     status: not-trade-governing
@@ -8127,17 +8055,6 @@ numbers:
       live prompt by tests/test_deterministic_selection.py. No src/, main.py or scripts/ module imports
       this file (grep 2026-10-05), so it sizes no order.
       Value defined at ops/model_policy/deterministic_selection.py::MAX_POSITION_RISK_PCT.
-  - id: ops.model_policy.deterministic_selection.RR_FLOOR
-    value: 1.5
-    site: ops/model_policy/deterministic_selection.py
-    status: derived
-    source: src/risk/constants.py::REWARD_RISK_FLOOR
-    derived_from: src.risk.constants.REWARD_RISK_FLOOR
-    base_value: 1.5
-    note: >-
-      Imported, not retyped: `RR_FLOOR = REWARD_RISK_FLOOR` at
-      ops/model_policy/deterministic_selection.py, so the scanner sees the resolved value of the live
-      floor. The live row is src.risk.constants.REWARD_RISK_FLOOR.
   - id: ops.model_policy.deterministic_selection.SUBFLOOR_CATALYST_RISK_PCT
     value: 0.5
     site: ops/model_policy/deterministic_selection.py

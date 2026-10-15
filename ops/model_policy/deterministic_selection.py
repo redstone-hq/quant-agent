@@ -41,7 +41,6 @@ if str(_REPO) not in sys.path:  # pragma: no cover - import convenience
 from src.agents.portfolio_manager import PortfolioManagerAgent  # noqa: E402
 from src.portfolio_constructor import PortfolioConstructor  # noqa: E402
 from src.risk.constants import (  # noqa: E402
-    REWARD_RISK_FLOOR,
     STARTER_POSITION_RISK_PCT,
     reward_risk_floor_applies,
 )
@@ -58,16 +57,10 @@ from src.risk.rules import (  # noqa: E402
 # cannot silently desync them.
 MAX_POSITION_RISK_PCT = 5.0
 
-# **Imported, never retyped (2026-09-14).** These two were literals here, and
-# the 1.5 in particular was the last copy of the retired universal floor left
-# anywhere in the benchmark. It is NOT a pass mark and has not been one since
-# 2026-09-11 (docs/WORK.md item 1(d)): the ONLY thing this number still does,
-# here and in production, is name the reward:risk below which a Type A /
-# range target is capped at the smallest size the desk will hold. Importing
-# the live constants means a change to the cap moves this audit with it
-# instead of leaving a stale duplicate behind — which is exactly how the
-# `pm_selection` grader ended up scoring models against a deleted rule.
-RR_FLOOR = REWARD_RISK_FLOOR
+# **Imported, never retyped (2026-09-14).** Importing the live constant means
+# a change to the cap moves this audit with it instead of leaving a stale
+# duplicate behind. The reward:risk floor (1.5) was deleted 2026-10-15: no
+# ratio, however thin, is compared against any number here.
 SUBFLOOR_CATALYST_RISK_PCT = STARTER_POSITION_RISK_PCT
 # **CORRECTED 2026-09-14.** These were `high (1.5, 3.0) / medium (1.0, 2.0)`,
 # the bands `config/prompts/portfolio_manager.md` stated BEFORE 2026-09-10.
@@ -177,9 +170,7 @@ def evaluate(selection: dict, analyses, positions, news_intel) -> list[dict]:
         # ratio, only on its ABSENCE, and it does not run at all for a Type B
         # / breakout candidate (no overhead level to measure a reward
         # against; see `src.risk.constants.reward_risk_floor_applies`).
-        # `rr` is still reported per row, and `RR_FLOOR` still names the
-        # size below which the PM's post-decision gate caps a range target at
-        # starter size.
+        # `rr` is still reported per row; no number is compared against it.
         subfloor_catalyst = False
         if reward_risk_floor_applies(a.setup_type):
             if rr is None:
@@ -189,8 +180,6 @@ def evaluate(selection: dict, analyses, positions, news_intel) -> list[dict]:
                     blocked.append(
                         "R4 R/R unmeasurable, no dated catalyst row"
                     )
-            elif rr < RR_FLOOR and symbol.upper() in catalysts:
-                subfloor_catalyst = True
             # FLAGGED, NOT FIXED (2026-09-14, verified against
             # `PortfolioManagerAgent._apply_subfloor_catalyst_rule`): live,
             # EVERY measurable sub-floor range target is capped at starter

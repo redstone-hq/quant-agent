@@ -546,7 +546,7 @@ def test_the_named_hidden_trade_numbers_are_now_sites() -> None:
     # is pinned on the other parameter default it found, so the shape stays
     # covered and a new one still cannot arrive unseen.
     assert not any(i.startswith("src.pipeline_risk_gate.RiskGate._refuse_queued_earnings_buys") for i in ids)
-    assert "src.agents.portfolio_manager.PortfolioManagerAgent.decide(rr_floor)" in ids
+    assert "src.agents.portfolio_manager.PortfolioManagerAgent.decide(starter_risk_pct)" in ids
     # (d) class attributes.
     assert "src.execution.broker.AlpacaBroker._MAX_REPLACEMENT_HOPS" in ids
     # `_EMERGENCY_LIMIT_CUSHION_PCT` (dead) was deleted 2026-10-09 and

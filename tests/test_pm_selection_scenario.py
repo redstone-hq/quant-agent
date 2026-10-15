@@ -425,7 +425,7 @@ def test_the_catalyst_door_still_admits_an_unmeasurable_payoff():
         )
         if r["subfloor_catalyst"] and r["eligible"]
     }
-    assert door == {"MSFT", "TSM"}
+    assert door == set()
     checks = _by_name(
         scenarios._pm_selection_grade(
             _decision(_target("TSM"), _target("FLNC", direction="short")),

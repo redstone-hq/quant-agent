@@ -123,35 +123,6 @@ def reward_risk_floor_applies(
     )
 
 
-REWARD_RISK_FLOOR = 1.5
-"""Retired numeric reward:risk threshold. **Not a pass/fail gate and not a
-size cap anywhere** (owner 2026-09-17: invented R/R leftovers are a
-defect; 2026-09-11 item 1(d) had already stopped using it as a refusal).
-
-Kept only as the default of the historical `RiskConfig.min_reward_risk_
-after_widening` settings key so a silent rename cannot drop a deployed
-threshold, and as a name tests/docs still import. Nothing in the live
-entry path compares a ticket against this number to refuse or shrink it.
-
-A Type B / breakout trade is not measured on reward:risk at all
-(`reward_risk_floor_applies`). A Type A / range trade's real per-trade
-ratio is still computed and still reaches `src/verdicts.py::rank_verdicts`
-as an ordering signal. An UNMEASURABLE range payoff (cannot compute the
-ratio at all) is recorded, not refused — honesty about unknown geometry,
-not this number.
-
-The arithmetic that once justified 1.5 — R/R X breaks even at 1/(1+X) —
-is still true and still unused: this desk has no measured per-setup hit
-rate to spend.
-
-Consumers (must stay aligned — if you edit one, verify the others):
-  - `RiskConfig.min_reward_risk_after_widening`   (inert historical key;
-                                                   default only)
-  - `config/prompts/portfolio_manager.md`         (ranking signal, not
-                                                   a Python cap)
-  - `config/prompts/risk_manager.md`              (must not refuse on it)
-"""
-
 STARTER_POSITION_RISK_PCT = 0.5
 """The smallest position this desk will hold, as % of equity at risk.
 

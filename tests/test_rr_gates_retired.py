@@ -192,7 +192,6 @@ def test_measurable_range_under_1_5_keeps_the_pm_asked_size():
         positions=[],
         total_value=EQUITY,
         active_state_changes="",
-        rr_floor=1.5,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol={"RSG": 0.81},
     )
@@ -208,7 +207,6 @@ def test_an_unmeasurable_range_without_catalyst_keeps_the_asked_size():
         positions=[],
         total_value=EQUITY,
         active_state_changes="",
-        rr_floor=99.0,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol={"RSG": None},
     )
@@ -225,7 +223,6 @@ def test_rr_floor_argument_cannot_reinstate_the_size_cap():
         positions=[],
         total_value=EQUITY,
         active_state_changes="",
-        rr_floor=99.0,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol={"AAA": 3.0},
     )

@@ -73,7 +73,7 @@ from src.models import (
     TechAnalysisResult,
     TechReasoningChain,
 )
-from src.risk.constants import REWARD_RISK_FLOOR, STARTER_POSITION_RISK_PCT
+from src.risk.constants import STARTER_POSITION_RISK_PCT
 
 
 # The fixture block below is copied from the 2026-09-01 session, and the gate
@@ -237,7 +237,6 @@ def _apply(
         positions=positions or [],
         total_value=100_000,
         active_state_changes=asc,
-        rr_floor=REWARD_RISK_FLOOR,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol=real_reward_risk_by_symbol,
     )
@@ -586,12 +585,12 @@ def test_the_retired_cap_does_not_resize_a_small_unmeasurable():
 
 
 def test_a_pick_sitting_exactly_on_the_floor_clears_it():
-    """The floor is inclusive — `>= rr_floor`, matching
+    """A ratio of exactly 1.5 is not special — matching
     `PortfolioConstructor`'s own `reward_risk < floor` rejection. Entry 100 /
     stop 95 / target 107.5 is R/R 1.50 exactly, and must trade at full size
     with no catalyst at all."""
     analysis = _analysis("GEV", target=107.5)
-    assert analysis.risk_reward == REWARD_RISK_FLOOR
+    assert analysis.risk_reward == 1.5
     decision = _decision([_target("GEV", risk=4.0, catalyst="")])
     result = _apply(decision, [analysis])
     assert [t.symbol for t in result.targets] == ["GEV"]

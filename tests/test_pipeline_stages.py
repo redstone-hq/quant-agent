@@ -1710,14 +1710,12 @@ def test_decision_stage_still_model_dumps_a_fresh_macro_model():
     assert kwargs["macro_analysis"] == macro_model.model_dump()
 
 
-def test_decision_stage_threads_the_configured_rr_floor_and_starter_size():
-    """`rr_floor` has no settings key any more (board item 81 — the inert
-    `min_reward_risk_after_widening` key was removed) so it always threads
-    as the historical `REWARD_RISK_FLOOR` constant. `starter_risk_pct` is
+def test_decision_stage_threads_the_configured_starter_size():
+    """No reward:risk floor is threaded any more (the constant was deleted
+    2026-10-15). `starter_risk_pct` is
     still read off the deterministic risk layer's own config, so a
     settings.yaml override moves it (2026-09-02)."""
     from src.pipeline import TradingPipeline
-    from src.risk.constants import REWARD_RISK_FLOOR
 
     p = build_pipeline(db=MagicMock(), portfolio_manager=MagicMock())
     p.db.get_latest_insights.return_value = None
@@ -1768,7 +1766,7 @@ def test_decision_stage_threads_the_configured_rr_floor_and_starter_size():
     DecisionStage(pipeline=p).run(ctx)
 
     kwargs = p.portfolio_manager.decide.call_args.kwargs
-    assert kwargs["rr_floor"] == REWARD_RISK_FLOOR
+    assert "rr_floor" not in kwargs
     assert kwargs["starter_risk_pct"] == 0.3
 
 
