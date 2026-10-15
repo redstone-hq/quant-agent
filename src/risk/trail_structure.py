@@ -7,7 +7,7 @@ types stay in `src/risk/trailing.py`; read its module docstring first.
 
 from __future__ import annotations
 
-from src.risk.trailing import PIVOT_WINDOW, _finite
+from src.data.levels import turning_points
 
 __all__ = [
     "_swing_lows",
@@ -18,19 +18,21 @@ __all__ = [
 ]
 
 
-def _swing_lows(bars, window: int = PIVOT_WINDOW) -> list[float]:
+def _swing_lows(bars) -> list[float]:
     """Confirmed swing lows, oldest first.
 
-    A low is confirmed only when `window` bars on BOTH sides are higher, so the
-    most recent `window` bars can never produce one. That lag is the point: an
-    unconfirmed low is just today's price, and trailing under today's price is
-    how a stop ends up inside the noise band.
+    Read from `src.data.levels.turning_points`, the one detector (owner
+    ruling, Rex 2026-10-15): a low is confirmed only once price has since
+    risen from it by at least the stock's own ATR(14), read at that low's
+    bar. The latest, still-unconfirmed candidate is never returned. That lag
+    is the point: an unconfirmed low is just today's price, and trailing
+    under today's price is how a stop ends up inside the noise band.
 
     **Measured 2026-09-30, live production DB: this function has never once
     produced a stop.** All nine deterministic trails ever placed came from the
     chandelier fallback (eight) or the Type A breakeven ratchet (one); the
     structural leg has contributed zero. The cause is arithmetic, not a bug:
-    `window * 2 + 1` = 7 bars are needed before a single low can be confirmed,
+    the then 3-bar window needed 7 bars before a single low can be confirmed,
     and this desk's positions were 4-9 sessions old when evaluated, with a
     scale-in additionally resetting the caller's bar window to zero until
     the caller was changed to slice from the position open instead of the
@@ -80,93 +82,46 @@ def _swing_lows(bars, window: int = PIVOT_WINDOW) -> list[float]:
 
     So on today's holding periods the chandelier IS the trail, and the
     "trail under each successive higher low" rule in the module docstring
-    describes an intent rather than observed behaviour. Shortening
-    `PIVOT_WINDOW` would make structure fire, and that is precisely why it
-    has not been done: the constant is documented above as unsourceable in
-    the literature, and moving it to obtain a result the data would like is
-    picking a number.
+    describes an intent rather than observed behaviour. The measurements
+    above were taken under the deleted 3-bar window; since 2026-10-15 the
+    confirmation is the ATR reversal below, which needs the ATR's own
+    warm-up inside the bars handed in, so they do not carry over.
     """
-    lows: list[float] = []
-    n = len(bars)
-    if n < window * 2 + 1:
-        return lows
-    values = [_finite(getattr(b, "low", None)) for b in bars]
-    for i in range(window, n - window):
-        centre = values[i]
-        if centre is None:
-            continue
-        neighbourhood = [v for v in values[i - window : i + window + 1] if v is not None]
-        if len(neighbourhood) < window + 1:
-            continue
-        if centre <= min(neighbourhood):
-            lows.append(centre)
-    return lows
+    return [price for _, price in _swing_pivots_dated(bars, highs=False)]
 
 
-def _swing_highs(bars, window: int = PIVOT_WINDOW) -> list[float]:
+def _swing_highs(bars) -> list[float]:
     """Confirmed swing highs, oldest first — the short's mirror of `_swing_lows`.
 
-    A high is confirmed only when `window` bars on BOTH sides are lower, so
-    the most recent `window` bars can never produce one, for the same lag
-    reason as the long side: an unconfirmed high is just today's price, and
-    trailing above today's price is how a short's stop ends up inside the
-    noise band.
+    A high is confirmed only once price has since fallen from it by at least
+    the stock's own ATR(14), read at that high's bar; the unconfirmed latest
+    candidate is never returned, for the same reason as the long side.
     """
-    highs: list[float] = []
-    n = len(bars)
-    if n < window * 2 + 1:
-        return highs
-    values = [_finite(getattr(b, "high", None)) for b in bars]
-    for i in range(window, n - window):
-        centre = values[i]
-        if centre is None:
-            continue
-        neighbourhood = [v for v in values[i - window : i + window + 1] if v is not None]
-        if len(neighbourhood) < window + 1:
-            continue
-        if centre >= max(neighbourhood):
-            highs.append(centre)
-    return highs
+    return [price for _, price in _swing_pivots_dated(bars, highs=True)]
 
 
-def _swing_pivots_dated(bars, window: int, *, highs: bool) -> list[tuple[object, float]]:
+def _swing_pivots_dated(bars, *, highs: bool) -> list[tuple[object, float]]:
     """`_swing_lows` / `_swing_highs` with each pivot's BAR DATE kept.
 
-    The same confirmation rule, line for line: a pivot is confirmed only when
-    `window` bars on both sides are higher (lower, for highs). The date is the
-    session the extreme PRINTED on — `bar.date`, or None when the bar carries
-    none — never the later session on which it became confirmed.
-
-    A separate function, not a change to `_swing_lows` / `_swing_highs`: the
-    trailing stop calls those and must not change behaviour. Only the trend
-    exit (`src.risk.alignment_exit`) needs to know WHEN a swing printed, so it
-    can ignore a lower low the position never lived through.
+    The same detector (`turning_points`). The date is the session the extreme
+    PRINTED on — `bar.date`, or None when the bar carries none — never the
+    later session on which it became confirmed. Only the trend exit
+    (`src.risk.alignment_exit`) needs to know WHEN a swing printed, so it can
+    ignore a lower low the position never lived through.
     """
-    out: list[tuple[object, float]] = []
-    n = len(bars)
-    if n < window * 2 + 1:
-        return out
-    values = [_finite(getattr(b, "high" if highs else "low", None)) for b in bars]
-    for i in range(window, n - window):
-        centre = values[i]
-        if centre is None:
-            continue
-        neighbourhood = [v for v in values[i - window : i + window + 1] if v is not None]
-        if len(neighbourhood) < window + 1:
-            continue
-        if (centre >= max(neighbourhood)) if highs else (centre <= min(neighbourhood)):
-            out.append((getattr(bars[i], "date", None), centre))
-    return out
+    bars = list(bars or [])
+    want = "H" if highs else "L"
+    return [(getattr(bars[i], "date", None), price) for i, price, kind in turning_points(bars) if kind == want]
 
 
-def _swing_lows_dated(bars, window: int = PIVOT_WINDOW) -> list[tuple[object, float]]:
+def _swing_lows_dated(bars) -> list[tuple[object, float]]:
     """Confirmed swing lows as (bar date, low), oldest first. See `_swing_pivots_dated`."""
-    return _swing_pivots_dated(bars, window, highs=False)
+    return _swing_pivots_dated(bars, highs=False)
 
 
-def _swing_highs_dated(bars, window: int = PIVOT_WINDOW) -> list[tuple[object, float]]:
+def _swing_highs_dated(bars) -> list[tuple[object, float]]:
     """Confirmed swing highs as (bar date, high), oldest first. See `_swing_pivots_dated`."""
-    return _swing_pivots_dated(bars, window, highs=True)
+    return _swing_pivots_dated(bars, highs=True)
 
 
 def _structural_pivot(pivots: list[float], *, is_short: bool) -> float | None:

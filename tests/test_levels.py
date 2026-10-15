@@ -195,7 +195,8 @@ class TestRelevanceFiltering:
         touch count (4 each) so only distance from the last close can be
         doing the separating.
         """
-        far = _oscillation(58.0, 60.0, cycles=4)
+        # 14 flat bars first: turning points need the stock's own ATR(14).
+        far = [58.0] * 14 + _oscillation(58.0, 60.0, cycles=4)
         ramp = [60.0 + i * (33.0 / 120) for i in range(120)]
         near = _oscillation(93.0, 95.0, cycles=4) + [95.5, 96.0, 96.5, 97.0, 97.5, 98.0]
         supports, _ = find_structural_levels(_bars(far + ramp + near), atr=25.0)
@@ -285,9 +286,10 @@ def test_cluster_tolerance_fallback_is_unreachable_on_cleaned_bars():
         "neg_inf_low": (101.0, float("-inf")),
     }
     for name, (high, low) in corrupt.items():
-        bars = [_bar(i, 101.0, 99.0) for i in range(260)]
+        # An oscillating tape: turning points need a move of one ATR (2026-10-15).
+        bars = [_bar(i, c + 1.0, c - 1.0) for i, c in enumerate(_oscillation(90.0, 110.0, cycles=22))]
         bars[130] = _bar(130, high, low)
-        pivots = _levels._find_pivots(_levels._clean_bars(bars), _levels.PIVOT_WINDOW)
+        pivots = _levels._find_pivots(_levels._clean_bars(bars))
         assert pivots, name
         unmeasurable = [p for p in pivots if not (_math.isfinite(p[3]) and _math.isfinite(p[4]) and p[3] <= p[4])]
         assert unmeasurable == [], name

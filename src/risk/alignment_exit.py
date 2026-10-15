@@ -23,9 +23,10 @@ is broken when the chart has confirmed it. For a long that is either the
 most recent confirmed swing low printing BELOW the one before it (a lower
 low), or a completed close BELOW the last confirmed higher low; a short
 mirrors both against swing highs. The swings are the trailing stop's own
-(`src.risk.trail_structure._swing_lows` / `_swing_highs`), confirmed with
-its existing `src.risk.trailing.PIVOT_WINDOW` (3 bars each side). No new
-number is introduced. When no swing is confirmed yet the rule does not
+(`src.risk.trail_structure._swing_lows` / `_swing_highs`), confirmed by the
+one detector `src.data.levels.turning_points`: a reversal of at least the
+stock's own ATR(14) (owner ruling, Rex 2026-10-15). No new number is
+introduced. When no swing is confirmed yet the rule does not
 fire and says so ("no swing reference"); the trailing stop still protects.
 
 THE LOWER LOW MUST BELONG TO THIS POSITION (2026-10-13). The bars run over
@@ -73,7 +74,6 @@ from src.risk.chart_averages import moving_average, simple_moving_average
 from src.risk.exit_guard import _MA_REF_RE
 from src.risk.target_vote import target_vote
 from src.risk.trail_structure import _swing_highs_dated, _swing_lows_dated
-from src.risk.trailing import PIVOT_WINDOW
 
 __all__ = [
     "AlignmentExitCheck",
@@ -480,8 +480,8 @@ def _structure_verdict(
             None,
             None,
             None,
-            f"no swing reference — no swing {side} is confirmed ({PIVOT_WINDOW} bars "
-            f"each side) in the {len(bars or [])} bar(s) read, so structure cannot "
+            f"no swing reference — no swing {side} is confirmed (a reversal of at least "
+            f"one ATR) in the {len(bars or [])} bar(s) read, so structure cannot "
             f"call the trend broken; the trailing stop still protects; {vote}",
             **common,
         )

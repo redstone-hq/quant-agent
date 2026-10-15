@@ -27,15 +27,18 @@ def _dates(n: int) -> list[date]:
 
 
 def _bars(closes: list[float]) -> list[types.SimpleNamespace]:
-    return [types.SimpleNamespace(low=c - 0.5, high=c + 0.5) for c in closes]
+    return [types.SimpleNamespace(low=c - 0.5, high=c + 0.5, close=c) for c in closes]
 
 
-# LONG: a rising tape with ONE dip to 105 (a confirmed higher low, three
-# rising bars each side), last close 120 — structure intact. BROKEN adds a
+# LONG: a rising tape with ONE dip to 105 (a confirmed higher low, the
+# bounce clears one ATR), last close 120 — structure intact. BROKEN adds a
 # close at 104, below that higher low. SHORT / SHORT_BROKEN mirror it.
-LONG = [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
+# 14 flat bars first: swings are a reversal of the stock's own ATR(14)
+# (2026-10-15), which needs that warm-up.
+WARM = [100.0] * 14
+LONG = WARM + [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
 LONG_BROKEN = LONG + [104.0]
-SHORT = [100.0 - i for i in range(10)] + [95.0] + [89.0 - i for i in range(10)]
+SHORT = WARM + [100.0 - i for i in range(10)] + [95.0] + [89.0 - i for i in range(10)]
 SHORT_BROKEN = SHORT + [96.0]
 
 

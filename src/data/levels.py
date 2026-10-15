@@ -35,63 +35,24 @@ from src.models import OHLCV
 from src.data.technical import ATR_PERIOD, atr_series
 from src.risk.constants import is_trend_trade
 
-# A pivot is a bar whose high (or low) is the most extreme within this many
-# bars either side, for THIS module only.
-#
-# **This is a convention with no derivation.** The previous comment here
-# ("5 keeps genuine swing structure while ignoring single-bar wiggles;
-# smaller values produce noise, larger ones miss real turning points") read
-# as a justification but was an unsourced assertion — it states the generic
-# sensitivity tradeoff that applies to ANY window and picks 5 out of it,
-# which is not a derivation of 5.
-#
-# The archetype is adopted, the constant is not. See the long note beside
-# `src/risk/trailing.py::PIVOT_WINDOW` for the fetched sources (TA-Lib
-# FRACTAL, MetaTrader 5, fxssi, LuxAlgo, reviewed 2026-09-13): every one of
-# them states a bar count as convention and none derives it, TA-Lib's own
-# default is 2 either side, and LuxAlgo states there is no universally best
-# setting. So 5 stays, honestly labelled, rather than being changed to
-# another number with no better claim.
-#
-# 2026-09-13, second pass (docs/WORK.md item 55): the ACADEMIC literature on
-# this exact construction was found, and it does not derive the window either
-# — but it does bound what is known. Tsinaslanidis, "Technical Trading
-# Strategies, Pattern Recognition and Financial Risk Management" (PhD thesis,
-# University of Macedonia, 2012, §4.3, the published method of Zapranis &
-# Tsinaslanidis 2012a) defines a pivot exactly as this module does, as a
-# symmetric rolling-window extreme: "in order to characterize the closing
-# price observed at time t (Pt) as a regional peak, when a rolling window
-# with a length of 50 days is used, this price has to be greater than the 25
-# preceding and 25 following days simultaneously." The shape is the same; the
-# scale is not. Their tested windows are 50, 100 and 150 days TOTAL — 25, 50
-# and 75 bars either side — and they report the results "robust to any
-# different parameterization" ACROSS THAT RANGE. Nothing in that finding
-# reaches down to 3 or 5 bars either side, so it does not license this
-# constant; it only says the object is insensitive somewhere else entirely.
-# Two further differences that stop this being a like-for-like citation:
-# they read CLOSES, this module reads highs and lows; and their window is
-# tuned to identify multi-month swing structure, not the multi-day structure
-# a stop sits on.
-#
-# `src/risk/trailing.py` uses 3, NOT 5, and that is not an error to fix by
-# copying. Consumers of THIS window are `find_structural_levels` and
-# `structure_coverage` in this file (and `MIN_SCAN_BARS` below, which is read
-# from it). Nothing downstream compares a level computed here against a pivot
-# found by `src/risk/trailing.py`, so the disagreement is currently harmless;
-# `tests/test_pivot_window_independence.py` pins both that they differ and
-# that no shared consumer exists.
-PIVOT_WINDOW = 5
+# A turning point is found from the stock's OWN movement, never a bar count
+# (owner ruling, Rex 2026-10-15: "a turning point must come from the stock's
+# own movement, not a made-up bar count"). The two bar-count windows that used
+# to stand here and in `src/risk/trailing.py` (5 and 3 bars either side, both
+# ledgered `arbitrary`) are deleted. The rule is the standard zigzag reversal,
+# as VectorBT PRO's `pivot_info_1d_nb` implements it, with the reversal
+# threshold set to the stock's own Wilder ATR(14) (`atr_series`, ledgered as
+# Wilder 1978) — no multiplier, no new constant. See `turning_points` below,
+# which is the ONE detector the level scan, the trailing stop and the trend
+# exit all read.
 
-# The fewest CLEAN bars the level scan can run over — READ from the scan's
-# own two preconditions, never chosen here: a single pivot needs
-# ``PIVOT_WINDOW * 2 + 1`` bars (the pivot and its window either side), and
-# since 2026-09-12 the relevance window needs an ATR, which needs
-# ``ATR_PERIOD`` bars (`src/data/technical.py::atr_series` returns nothing
-# below that). Whichever is larger is the scan's real minimum, and both
-# `find_structural_levels` and `structure_coverage` read it from here so
-# they can never disagree about whether the scan could have run. (Before
-# this was unified, the scan needed 14 and the coverage check said 11.)
-MIN_SCAN_BARS = max(PIVOT_WINDOW * 2 + 1, ATR_PERIOD)
+# The fewest CLEAN bars that can yield one confirmed turning point — READ from
+# the ATR warm-up, never chosen here: the first reversal threshold exists on
+# bar ``ATR_PERIOD`` (`atr_series` returns nothing below that), and a candidate
+# there is confirmed at the earliest by the next bar. Both
+# `find_structural_levels` and `structure_coverage` read it from here so they
+# can never disagree about whether the scan could have run.
+MIN_SCAN_BARS = ATR_PERIOD + 1
 
 # Two pivots within this percentage of each other are the same level. Price
 # does not respect a number to the cent — it respects a zone.
@@ -625,33 +586,106 @@ def _clean_bars(bars: list[OHLCV]) -> list[OHLCV]:
     return keep
 
 
-def _find_pivots(bars: list[OHLCV], window: int) -> list[tuple[int, float, str, float, float]]:
-    """Locate swing highs and lows.
+def turning_points(bars) -> list[tuple[int, float, str]]:
+    """Confirmed swing highs and lows, oldest first, as ``(index, price, kind)``.
+
+    ``kind`` is ``"H"`` for a swing high and ``"L"`` for a swing low. THE one
+    detector: the level scan, the trailing stop and the trend exit all read it.
+
+    The standard zigzag reversal rule, line for line as VectorBT PRO's
+    ``pivot_info_1d_nb`` implements it, with an absolute threshold instead of
+    a percentage: a candidate low is CONFIRMED once a later high is at least
+    ``candidate_low + threshold``; a candidate high once a later low is at most
+    ``candidate_high - threshold``; until then the candidate moves to each
+    more extreme value; highs and lows alternate. The threshold is read at the
+    candidate's own bar, and it is the stock's own Wilder ATR(14) on that bar
+    — the move the stock itself typically makes in a day. No multiplier.
+
+    The final candidate is never returned: it is unconfirmed, i.e. just the
+    latest extreme, and trailing or exiting on it is trailing on today's price.
+
+    Bars before the ATR has warmed up carry no threshold and cannot be a
+    candidate. A bar with a missing or non-finite high/low/close is skipped
+    (the true range needs the close). One departure from VectorBT: the first
+    bar after the warm-up is never itself returned as a pivot — it is where
+    the data starts, not where the stock turned.
+    """
+    bars = list(bars or [])
+    n = len(bars)
+    if n < MIN_SCAN_BARS:
+        return []
+
+    def _val(b, name):
+        try:
+            v = float(getattr(b, name, None))
+        except (TypeError, ValueError):
+            return math.nan
+        return v if math.isfinite(v) else math.nan
+
+    high = np.array([_val(b, "high") for b in bars], dtype=float)
+    low = np.array([_val(b, "low") for b in bars], dtype=float)
+    close = np.array([_val(b, "close") for b in bars], dtype=float)
+    ok = ~(np.isnan(high) | np.isnan(low) | np.isnan(close))
+    th = np.full(n, np.nan)
+    idx = np.flatnonzero(ok)
+    if idx.size >= ATR_PERIOD:
+        atr = atr_series([bars[i] for i in idx])
+        th[idx[ATR_PERIOD - 1 :]] = atr
+
+    out: list[tuple[int, float, str]] = []
+    first = -1
+    last_kind = ""  # "L" or "H" — the current, unconfirmed candidate
+    last_i = -1
+    last_v = math.nan
+    for i in range(n):
+        if np.isnan(high[i]) or np.isnan(low[i]):
+            continue
+        if first == -1:
+            if np.isnan(th[i]):
+                continue
+            first = i
+        if last_i == -1:
+            t = th[first]
+            up = high[i] >= low[first] + t
+            down = low[i] <= high[first] - t
+            # The first move of one ATR only sets the direction. VectorBT
+            # also books the starting bar as a confirmed pivot here; that bar
+            # is the edge of the data, not a turn the stock made (a straight
+            # climb would "confirm" a swing low at its first bar), so it is
+            # not returned.
+            if up and not down:
+                last_kind, last_i, last_v = "H", i, float(high[i])
+            elif down and not up:
+                last_kind, last_i, last_v = "L", i, float(low[i])
+            continue
+        t = th[last_i]
+        if last_kind == "L":
+            if not np.isnan(t) and high[i] >= last_v + t:
+                out.append((last_i, last_v, "L"))
+                last_kind, last_i, last_v = "H", i, float(high[i])
+            elif low[i] < last_v:
+                last_i, last_v = i, float(low[i])
+        else:
+            if not np.isnan(t) and low[i] <= last_v - t:
+                out.append((last_i, last_v, "H"))
+                last_kind, last_i, last_v = "L", i, float(low[i])
+            elif high[i] > last_v:
+                last_i, last_v = i, float(high[i])
+    return out
+
+
+def _find_pivots(bars: list[OHLCV]) -> list[tuple[int, float, str, float, float]]:
+    """Locate swing highs and lows with `turning_points`.
 
     Returns ``(index, price, "R"|"S", bar_low, bar_high)``. The last two are
     the pivot BAR's own traded range, which is what `_cluster` groups on
     (item 55, 2026-09-30) — the pivot price alone cannot say how wide the
     turning point actually was.
-
-    `window` is unchanged and deliberately so: no threshold-free equivalent
-    for the swing-point bar count has been found, so it stays a stated
-    number rather than being replaced by an invented rule.
     """
-    n = len(bars)
-    if n < window * 2 + 1:
-        return []
-    highs = np.array([b.high for b in bars], dtype=float)
-    lows = np.array([b.low for b in bars], dtype=float)
-
-    pivots: list[tuple[int, float, str, float, float]] = []
-    for i in range(window, n - window):
-        lo, hi = i - window, i + window + 1
-        bar_low, bar_high = float(lows[i]), float(highs[i])
-        if highs[i] >= highs[lo:hi].max():
-            pivots.append((i, float(highs[i]), "R", bar_low, bar_high))
-        if lows[i] <= lows[lo:hi].min():
-            pivots.append((i, float(lows[i]), "S", bar_low, bar_high))
-    return pivots
+    return [
+        (i, price, "R" if kind == "H" else "S", float(bars[i].low), float(bars[i].high))
+        for i, price, kind in turning_points(bars)
+    ]
 
 
 def _cluster(
@@ -768,7 +802,6 @@ def cluster_span(cluster: list[tuple[int, float, str, float, float]]) -> tuple[f
 def find_structural_levels(
     bars: list[OHLCV],
     *,
-    pivot_window: int = PIVOT_WINDOW,
     tolerance_pct: float = CLUSTER_TOLERANCE_PCT,
     min_touches: int = MIN_TOUCHES,
     atr: float | None = None,
@@ -821,7 +854,7 @@ def find_structural_levels(
     the trade, never as "no structure exists".
     """
     clean = _clean_bars(bars)
-    if len(clean) < max(pivot_window * 2 + 1, MIN_SCAN_BARS):
+    if len(clean) < MIN_SCAN_BARS:
         return [], []
 
     last_close = clean[-1].close
@@ -843,7 +876,7 @@ def find_structural_levels(
         return [], []
 
     last_index = len(clean) - 1
-    pivots = _find_pivots(clean, pivot_window)
+    pivots = _find_pivots(clean)
 
     supports: list[Level] = []
     resistances: list[Level] = []
@@ -1240,8 +1273,6 @@ _FAULT_COVERAGE = frozenset(
 
 def structure_coverage(
     bars: Sequence[OHLCV] | None,
-    *,
-    pivot_window: int = PIVOT_WINDOW,
 ) -> str:
     """Which COVERAGE_* state this bar history is in, read from the bars.
 
@@ -1255,8 +1286,7 @@ def structure_coverage(
     """
     if not bars:
         return COVERAGE_NO_BARS
-    minimum = max(pivot_window * 2 + 1, MIN_SCAN_BARS)
-    if len(_clean_bars(list(bars))) < minimum:
+    if len(_clean_bars(list(bars))) < MIN_SCAN_BARS:
         return COVERAGE_UNUSABLE_BARS
     return COVERAGE_MEASURED
 
@@ -1681,7 +1711,7 @@ def derive_structural_target(
 # than a wider or narrower one, that a pivot confirmed by N bars predicted
 # nothing.
 #
-# IT MAY NEVER BE SWEPT FOR A BETTER NUMBER. Choosing `PIVOT_WINDOW` or
+# IT MAY NEVER BE SWEPT FOR A BETTER NUMBER. Choosing a swing-point rule or
 # `CLUSTER_TOLERANCE_PCT` by trying candidate values against the outcomes
 # stored here is FITTING A NUMBER TO THIS DESK'S OWN HISTORY, which this desk
 # bars outright ("no fitting, only reading"). A replacement for either number
@@ -1699,7 +1729,7 @@ def derive_structural_target(
 #: Schema version for `describe_stop_level_basis`. Bumped only when a FIELD is
 #: added or its meaning changes, so a later reader can tell which rows carry
 #: which facts rather than guessing from absence.
-STOP_LEVEL_BASIS_VERSION = 1
+STOP_LEVEL_BASIS_VERSION = 2
 
 
 def describe_stop_level_basis(
@@ -1710,7 +1740,6 @@ def describe_stop_level_basis(
     computed_levels: Sequence[float] | None = None,
     computed_level_touches: dict | None = None,
     is_short: bool = False,
-    pivot_window: int = PIVOT_WINDOW,
     tolerance_pct: float = CLUSTER_TOLERANCE_PCT,
 ) -> dict:
     """The identity of the level standing behind a stop, as plain facts.
@@ -1736,11 +1765,10 @@ def describe_stop_level_basis(
       `level_touches`       — how many pivots clustered into it, i.e. how many
                               separate times price turned there. Null when the
                               analysis carried no touch count for that price.
-      `pivot_window_bars`   — bars required EITHER SIDE of a bar for it to
-                              count as a swing point, and `pivot_confirm_bars`
-                              the whole confirmation span (window*2+1). This is
-                              the "how many bars make a swing point" half of
-                              the open question, recorded as it stood at entry.
+      `pivot_rule`/`pivot_atr_period` — how a swing point was confirmed at
+                              entry: a reversal of at least the stock's own
+                              ATR over this many sessions (`turning_points`).
+                              Version 1 rows carried a bar-count window instead.
       `zone_low`/`zone_high`/`zone_width` — the level's own zone, the "how wide
                               is a level's zone" half, as the live
                               `level_zone_halfwidth` drew it at entry.
@@ -1772,8 +1800,8 @@ def describe_stop_level_basis(
         "level_price": price,
         "level_kind": None if price is None else ("resistance" if is_short else "support"),
         "level_touches": None,
-        "pivot_window_bars": int(pivot_window),
-        "pivot_confirm_bars": int(pivot_window) * 2 + 1,
+        "pivot_rule": "zigzag_reversal_atr",
+        "pivot_atr_period": int(ATR_PERIOD),
         "zone_low": None,
         "zone_high": None,
         "zone_width": None,

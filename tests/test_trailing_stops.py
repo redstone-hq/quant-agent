@@ -11,6 +11,7 @@ import pytest
 
 from src.risk.trailing import (
     CHANDELIER_ATR_MULTIPLE,
+    MIN_BARS_FOR_A_READING,
     MIN_RATCHET_TICKS,
     min_ratchet_floor,
     venue_tick,
@@ -34,6 +35,19 @@ class _Bar:
     high: float
     low: float
     date: _date = _BAR_DAY
+    close: float | None = None
+
+    def __post_init__(self):
+        # The swing detector reads the stock's own ATR, whose true range needs
+        # a close; a fixture bar closes mid-range unless it says otherwise.
+        if self.close is None:
+            self.close = (self.high + self.low) / 2
+
+
+#: Swings are confirmed by a reversal of the stock's own ATR(14) since
+#: 2026-10-15, so a swing fixture opens with 14 flat bars for that ATR to
+#: warm up on. Flat bars make no turn of their own.
+_WARM = 14
 
 
 def _bars(pattern):
@@ -44,16 +58,14 @@ def _bars(pattern):
 def _rising_with_higher_lows():
     """A clean uptrend with two CONFIRMED swing lows, at 100 and 110.
 
-    Confirmed means three bars on each side are higher — `trailing.py`'s own
-    `PIVOT_WINDOW`, which is 3. NOT the same definition `src/data/levels.py`
-    uses: that module's window is 5 and the two are independent on purpose
-    (see `tests/test_pivot_window_independence.py`). This docstring claimed
-    they matched until 2026-09-13; they never did.
+    Confirmed means price has since moved back by at least the stock's own
+    ATR(14) — `src.data.levels.turning_points`, the one detector the level
+    scan reads too (owner ruling 2026-10-15; no bar-count window remains).
     The lows series is deliberately V-shaped around
     each pivot; a monotonic ramp contains no swing lows at all, which is
     exactly what the chandelier fallback is for.
     """
-    lows = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
+    lows = [110] * _WARM + [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
     return _bars([(lo + 2, lo) for lo in lows])
 
 
@@ -709,7 +721,7 @@ def _falling_with_lower_lows():
     "highest usable low" rule trailed to 110: a level price had since traded
     straight through, twice, and only climbed back above afterwards.
     """
-    lows = [
+    lows = [118] * _WARM + [
         118,
         116,
         114,
@@ -779,7 +791,7 @@ def test_the_trail_follows_the_most_recent_higher_low_not_the_highest():
 def test_a_single_confirmed_low_is_still_accepted():
     """No sequence to judge yet. This is what a freshly broken-out position
     looks like, and refusing it would remove protection, not add it."""
-    lows = [110, 108, 106, 100, 106, 108, 110, 112]
+    lows = [110] * _WARM + [110, 108, 106, 100, 106, 108, 110, 112]
     proposal = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",
@@ -798,7 +810,30 @@ def test_a_single_confirmed_low_is_still_accepted():
 def test_short_mirror_a_higher_high_sequence_gets_no_structural_trail():
     """The short's mirror: it trails above successive LOWER highs, so a
     sequence of HIGHER highs offers no structure to trail against."""
-    highs = [90, 92, 94, 98, 94, 92, 90, 96, 98, 100, 104, 100, 98, 96, 100, 102, 104, 107, 104, 102, 100, 90]
+    highs = [90] * _WARM + [
+        90,
+        92,
+        94,
+        98,
+        94,
+        92,
+        90,
+        96,
+        98,
+        100,
+        104,
+        100,
+        98,
+        96,
+        100,
+        102,
+        104,
+        107,
+        104,
+        102,
+        100,
+        90,
+    ]
     proposal = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",
@@ -1226,3 +1261,56 @@ def test_item82_mislabelled_range_breakout_now_gets_type_b():
     # And it matches the correctly-labelled breakout exactly.
     breakout = _regime_fixture("breakout", None)
     assert (proposal.source, proposal.new_stop) == (breakout.source, breakout.new_stop)
+
+
+def _dated_history(lows, first_day):
+    from datetime import timedelta as _td
+
+    return [_Bar(high=lo + 2, low=lo, date=first_day + _td(days=i)) for i, lo in enumerate(lows)]
+
+
+def test_a_swing_confirmed_after_entry_uses_history_from_before_entry():
+    """The structure leg reads the FULL history for its ATR(14) warm-up and
+    keeps only swings that printed on or after the entry day (2026-10-15).
+
+    Entry is on day 20; only eight bars follow it — far fewer than the 15 the
+    detector would need if it were handed the since-entry slice alone. The
+    pre-entry swing low at 95 is ignored; the post-entry low at 104 is used."""
+    from datetime import timedelta as _td
+
+    from src.risk.trailing import TRAIL_CODE_TRAILED, evaluate_trailing_stop
+
+    first = _date(2026, 1, 1)
+    pre = [110] * 14 + [105, 100, 95, 100, 105, 110]  # swing low 95, day 16
+    post = [112, 110, 106, 104, 106, 108, 110, 114]  # swing low 104, day 23
+    bars = _dated_history(pre + post, first)
+    entry_day = first + _td(days=len(pre))
+    assert len([b for b in bars if b.date >= entry_day]) < MIN_BARS_FOR_A_READING
+    ev = evaluate_trailing_stop(
+        symbol="AAA",
+        setup_type="breakout",
+        entry=110.0,
+        current_price=116.0,
+        current_stop=100.0,
+        reference_target=None,
+        bars=bars,
+        entry_date=entry_day,
+        atr=None,
+    )
+    assert ev.code == TRAIL_CODE_TRAILED, ev.code
+    assert ev.proposal.source == "structure"
+    assert ev.proposal.new_stop == 104.0
+    # The since-entry slice alone could not confirm it: the old wiring waited.
+    since = [b for b in bars if b.date >= entry_day]
+    stale = evaluate_trailing_stop(
+        symbol="AAA",
+        setup_type="breakout",
+        entry=110.0,
+        current_price=116.0,
+        current_stop=100.0,
+        reference_target=None,
+        bars=since,
+        entry_date=entry_day,
+        atr=None,
+    )
+    assert stale.proposal is None

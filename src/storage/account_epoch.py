@@ -154,6 +154,7 @@ def record_reset(conn: sqlite3.Connection, *, now: datetime | None = None) -> di
 
 def current_account_daily_pnl(conn: sqlite3.Connection, limit: int, before_date: str | None = None) -> list[dict]:
     """The daily_pnl rows since the latest reset, newest first (same shape as the uncut analytics read)."""
+    install_guard(conn)  # the view calls the guard; a plain connection would fail "no such function"
     where, params = ("WHERE date < ?", (before_date,)) if before_date else ("", ())
     cur = conn.execute(
         f"SELECT * FROM {CURRENT_DAILY_PNL_VIEW} {where} ORDER BY date DESC LIMIT ?",  # noqa: S608 - literal

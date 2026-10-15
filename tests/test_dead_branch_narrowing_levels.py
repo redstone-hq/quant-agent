@@ -52,6 +52,20 @@ def _run():
 def test_level_finder_reach_measurements():
     windows, touches, changed = _run()
     assert windows == 1176
-    assert sorted(touches.items()) == [(2, 1345), (3, 432), (4, 94), (5, 15)]
-    assert changed["reach5"] == 11 and changed["hor250"] == 11
-    assert changed["hor20"] == 150 and changed["reach0.5"] == 490
+    # Re-measured 2026-10-15: swing points are a reversal of the stock's own
+    # ATR(14), not a 5-bar window, so the finder sees more turns per window.
+    assert sorted(touches.items()) == [
+        (2, 1429),
+        (3, 1135),
+        (4, 829),
+        (5, 516),
+        (6, 331),
+        (7, 164),
+        (8, 86),
+        (9, 39),
+        (10, 16),
+        (11, 10),
+        (12, 2),
+    ]
+    assert changed["reach5"] == 13 and changed["hor250"] == 13
+    assert changed["hor20"] == 204 and changed["reach0.5"] == 686

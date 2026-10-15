@@ -20,7 +20,10 @@ OPENED = date(2026, 1, 2)
 
 def _bars(closes: list[float]) -> list[SimpleNamespace]:
     # Dated from OPENED: every swing here printed while the position was on.
-    return [SimpleNamespace(date=OPENED + timedelta(days=i), low=c - 0.5, high=c + 0.5) for i, c in enumerate(closes)]
+    return [
+        SimpleNamespace(date=OPENED + timedelta(days=i), low=c - 0.5, high=c + 0.5, close=c)
+        for i, c in enumerate(closes)
+    ]
 
 
 def _read(closes: list[float], *, is_short: bool = False, bars=None):
@@ -34,11 +37,14 @@ def _read(closes: list[float], *, is_short: bool = False, bars=None):
     )
 
 
-# A rising tape with ONE dip to 105: a confirmed higher low (three rising
-# bars on each side), the tape then runs to 120.
-LONG = [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
+# A rising tape with ONE dip to 105: a confirmed higher low (the bounce
+# clears one ATR), the tape then runs to 120.
+# Since 2026-10-15 swings are confirmed by a reversal of the stock's own
+# ATR(14), so each tape opens with 14 flat bars for the ATR to warm up on.
+WARM = [100.0] * 14
+LONG = WARM + [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
 # The mirror: a falling tape with one pop to 95, a confirmed lower high.
-SHORT = [100.0 - i for i in range(10)] + [95.0] + [89.0 - i for i in range(10)]
+SHORT = WARM + [100.0 - i for i in range(10)] + [95.0] + [89.0 - i for i in range(10)]
 
 
 def test_long_closing_below_the_last_higher_low_exits() -> None:

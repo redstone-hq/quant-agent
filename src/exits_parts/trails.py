@@ -195,11 +195,11 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
             # broker fill (ET date). Unknown -> no bars, so neither leg reads
             # a guessed window.
             entry_day = _entry_fill_day(owner, buy, position.qty, symbol)
-            bars = [
-                b
-                for b in all_bars
-                if entry_day is not None and str(getattr(b, "date", ""))[:10] >= entry_day.isoformat()
-            ]
+            # The FULL history goes in: since 2026-10-15 swings are confirmed
+            # by a reversal of the stock's own ATR(14), which warms up on bars
+            # before entry; the evaluator itself keeps only swings printed on
+            # or after the entry day, and the chandelier only bars after it.
+            bars = list(all_bars) if entry_day is not None else []
             record_exit_guard(owner, "trail.bar_fetch")
         except Exception as e:  # noqa: BLE001
             record_exit_guard(
