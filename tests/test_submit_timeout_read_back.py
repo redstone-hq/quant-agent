@@ -163,7 +163,9 @@ def test_c_key_the_broker_does_not_hold_is_marked_never_landed():
     db.confirm_trade_submitted.assert_not_called()
 
 
-class _BrokerReply(Exception):
+class _BrokerReply(OSError):
+    """An OSError on purpose: the status code, not the class, marks a reply."""
+
     def __init__(self, status_code):
         super().__init__(f"status {status_code}")
         self.status_code = status_code
@@ -191,3 +193,28 @@ def test_c_pending_row_key_reaches_the_sweep_read(tmp_path):
     db.initialize()
     columns = {row[1] for row in db.conn.execute("PRAGMA table_info(current_account_trades)")}
     assert "idempotency_key" in columns
+
+
+def test_d_an_http_error_carrying_a_response_propagates_without_a_read_back():
+    import requests
+
+    client = MagicMock(name="client")
+    client.submit_order.side_effect = requests.exceptions.HTTPError("502", response=SimpleNamespace(status_code=502))
+    with pytest.raises(requests.exceptions.HTTPError):
+        _desk(client).submit_order(symbol="ZZZ", qty=10, side="sell")
+    client.get_order_by_client_id.assert_not_called()
+
+
+@pytest.mark.parametrize("lost", ["read_timeout", "connection_error", "builtin_timeout"])
+def test_d_every_lost_reply_shape_is_read_back(lost):
+    import requests
+
+    exc = {
+        "read_timeout": requests.exceptions.ReadTimeout("read timed out"),
+        "connection_error": requests.exceptions.ConnectionError("connection aborted"),
+        "builtin_timeout": TimeoutError("timed out"),
+    }[lost]
+    client = MagicMock(name="client")
+    client.submit_order.side_effect = exc
+    client.get_order_by_client_id.side_effect = _placed
+    assert _desk(client).submit_order(symbol="ZZZ", qty=10, side="sell")["id"] == "ord-zzz-1"

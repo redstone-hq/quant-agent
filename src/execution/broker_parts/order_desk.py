@@ -85,14 +85,15 @@ def _announced_key(symbol: str, side: str, qty: float, limit_price: float | None
 
 
 def _reply_lost(exc: BaseException) -> bool:
-    """True when a submit failed for want of a reply: a timeout or a dropped
-    connection, carrying no HTTP status. Only then may the order have reached
-    the broker unseen. A reply the broker DID return (any status code) and
-    every other error are not this, and propagate exactly as before."""
-    import requests
+    """True when a submit failed for want of a reply: a transport error with no
+    HTTP reply attached. Only then may the order have reached the broker unseen.
 
-    lost = (TimeoutError, ConnectionError, requests.exceptions.Timeout, requests.exceptions.ConnectionError)
-    return getattr(exc, "status_code", None) is None and isinstance(exc, lost)
+    The builtin TimeoutError/ConnectionError and the HTTP library's Timeout and
+    ConnectionError are all OSError subclasses; a reply the broker DID return
+    carries a status code (the SDK's APIError) or a response object. Those, and
+    every non-OSError, are not this and propagate exactly as before."""
+    no_reply = getattr(exc, "status_code", None) is None and getattr(exc, "response", None) is None
+    return isinstance(exc, OSError) and no_reply
 
 
 class OrderDesk:
