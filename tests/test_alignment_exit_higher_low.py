@@ -20,7 +20,10 @@ OPENED = date(2026, 1, 2)
 
 def _bars(closes: list[float]) -> list[SimpleNamespace]:
     # Dated from OPENED: every swing here printed while the position was on.
-    return [SimpleNamespace(date=OPENED + timedelta(days=i), low=c - 0.5, high=c + 0.5, close=c) for i, c in enumerate(closes)]
+    return [
+        SimpleNamespace(date=OPENED + timedelta(days=i), low=c - 0.5, high=c + 0.5, close=c)
+        for i, c in enumerate(closes)
+    ]
 
 
 def _read(closes: list[float], *, is_short: bool = False, bars=None):

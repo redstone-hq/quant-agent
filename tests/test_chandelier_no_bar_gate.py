@@ -228,9 +228,7 @@ def test_long_structure_gated_below_the_atr_warm_up():
     bars = [_bar(d, lo, lo + 2.0) for d, lo in zip(_DATES, _LONG_LOWS)]
     full = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars, atr=None)
     assert full.proposal is not None and full.proposal.source == "structure"
-    short = _eval(
-        entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars[-_SHORT_OF_WARM_UP:], atr=None
-    )
+    short = _eval(entry_date=date(2026, 10, 1), cur=108.0, stop=LONG_STOP, bars=bars[-_SHORT_OF_WARM_UP:], atr=None)
     assert short.proposal is None and short.code == TRAIL_CODE_TOO_FEW_BARS
 
 

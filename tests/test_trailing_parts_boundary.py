@@ -42,9 +42,7 @@ def test_structure_leg_runs_from_a_stub_bar_alone():
     # 14 flat bars first for the detector's ATR(14) to warm up on (2026-10-15);
     # then a dip to 96, a rally, a pullback to 100 and a further rally. Each
     # bar trades a 2.00 range, so one ATR is ~2.
-    rising = _bars(
-        [(101, 99)] * 14 + [(lo + 2, lo) for lo in (99, 98, 97, 96, 101, 102, 103, 100, 104, 105, 106)]
-    )
+    rising = _bars([(101, 99)] * 14 + [(lo + 2, lo) for lo in (99, 98, 97, 96, 101, 102, 103, 100, 104, 105, 106)])
     lows = trail_structure._swing_lows(rising)
     assert lows == [96.0, 100.0]
     assert trail_structure._structural_pivot(lows, is_short=False) == 100.0

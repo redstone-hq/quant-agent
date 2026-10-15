@@ -810,7 +810,30 @@ def test_a_single_confirmed_low_is_still_accepted():
 def test_short_mirror_a_higher_high_sequence_gets_no_structural_trail():
     """The short's mirror: it trails above successive LOWER highs, so a
     sequence of HIGHER highs offers no structure to trail against."""
-    highs = [90] * _WARM + [90, 92, 94, 98, 94, 92, 90, 96, 98, 100, 104, 100, 98, 96, 100, 102, 104, 107, 104, 102, 100, 90]
+    highs = [90] * _WARM + [
+        90,
+        92,
+        94,
+        98,
+        94,
+        92,
+        90,
+        96,
+        98,
+        100,
+        104,
+        100,
+        98,
+        96,
+        100,
+        102,
+        104,
+        107,
+        104,
+        102,
+        100,
+        90,
+    ]
     proposal = compute_trailing_stop(
         symbol="AAA",
         setup_type="breakout",
