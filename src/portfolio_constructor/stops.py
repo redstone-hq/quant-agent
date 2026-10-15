@@ -229,25 +229,44 @@ class StopRules:
              short -- at any touch count, the SAME rule `_level_backing_stop`
              applies (2026-10-14: a real level beats none at the same
              distance, and touch count adds nothing). This is a swing-low /
-             structure stop (IG, LuxAlgo). The shipping stop is placed one
-             buffer BEYOND the level (the losing side).
+             structure stop (IG, LuxAlgo). The shipping stop sits at the
+             level's OWN zone extreme -- the lowest low of the bars that
+             formed a support (short: highest high of a resistance), read
+             from `computed_level_zones`, else from `computed_level_bars`.
+             A level with neither falls through to tier 2.
           2. The signal (last completed) bar's low for a long / high for a
              short -- a prior-bar low stop (Ticker Daily), which is also what a
              Donchian channel-low collapses to when only the last bar is
-             trustworthy. The shipping stop is placed one buffer beyond it.
+             trustworthy. The shipping stop sits at that bar extreme itself.
 
         Returns (matched_level_or_None, stop_price, rule) or None when neither
         tier yields a usable level on the protective side of entry (a monotonic
         move, no structure, or zero bars -- the ruling's genuine skip case).
-        The buffer is `ConstructorConfig.structural_stop_buffer_pct` --
-        owner-appetite, ledgered with an open question, not doctrine.
+        No chosen percentage is applied anywhere (2026-10-15: the 0.5% buffer
+        was a made-up number); every stop price is a bar extreme the stock
+        itself printed.
         """
-        buffer_pct = self.cfg.structural_stop_buffer_pct
 
-        def _beyond(level_price: float) -> float:
-            # Just past the level on the losing side: below it for a long,
-            # above it for a short.
-            return level_price * (1.0 + buffer_pct) if is_short else level_price * (1.0 - buffer_pct)
+        def _zone_extreme(level_price: float) -> float | None:
+            # The level's own losing-side edge: zone low for a long, zone
+            # high for a short. Measured zone first, else the pivot bars.
+            zone = (getattr(analysis, "computed_level_zones", None) or {}).get(level_price)
+            edges: list[float] = []
+            if isinstance(zone, (list, tuple)) and len(zone) == 2:
+                edges = [zone[1] if is_short else zone[0]]
+            else:
+                bars = (getattr(analysis, "computed_level_bars", None) or {}).get(level_price) or ()
+                edges = [
+                    rng[1] if is_short else rng[0] for rng in bars if isinstance(rng, (list, tuple)) and len(rng) == 2
+                ]
+            try:
+                vals = [float(e) for e in edges]
+            except (TypeError, ValueError):
+                return None
+            vals = [v for v in vals if math.isfinite(v)]
+            if not vals:
+                return None
+            return max(vals) if is_short else min(vals)
 
         def _usable(stop_price: float) -> bool:
             return (
@@ -267,7 +286,7 @@ class StopRules:
             analysis,
             is_short,
             entry_price,
-            buffer_pct,
+            None,  # no buffer exists any more; the row's field reads null
         )
         for raw in raw_levels:
             try:
@@ -287,8 +306,8 @@ class StopRules:
             if gap < best_gap:
                 best_level, best_gap = price, gap
         if best_level is not None:
-            stop = _beyond(best_level)
-            if _usable(stop):
+            stop = _zone_extreme(best_level)
+            if stop is not None and _usable(stop):
                 # Counted, never altered: `row` returns its argument.
                 return row(
                     no_atr_rows.OUTCOME_LEVEL,
@@ -313,7 +332,7 @@ class StopRules:
             and bar_edge > 0
             and (bar_edge > entry_price if is_short else bar_edge < entry_price)
         ):
-            stop = _beyond(bar_edge)
+            stop = bar_edge
             if _usable(stop):
                 return row(
                     no_atr_rows.OUTCOME_PRIOR_BAR,

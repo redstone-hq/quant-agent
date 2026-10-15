@@ -51,7 +51,6 @@ src.exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)
 src.models.analysis.RATING_MAGNITUDE['buy']
 src.models.analysis.RATING_MAGNITUDE['strong_buy']
 src.pipeline_intraday._NAMES_PER_PAID_CALL
-src.portfolio_constructor.config.ConstructorConfig.structural_stop_buffer_pct
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)
 src.prompt_facts.decisions.PromptDecisions._build_pm_recent_decisions(limit)
 src.prompt_facts.decisions.PromptDecisions._build_rm_recent_verdicts(limit)

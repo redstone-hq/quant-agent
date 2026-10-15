@@ -1016,7 +1016,7 @@ def test_no_volatility_reading_derives_structural_stop_and_holds():
     missing volatility reading is never a reason to skip protection. The first
     item-80 pass refused this input; the ruling overruled it ("there are always
     levels"). The unverifiable typed 97.6 does NOT set the stop — the nearest
-    VERIFIED computed level below entry does, one buffer below it."""
+    VERIFIED computed level below entry does, at its own zone low."""
     constructor = PortfolioConstructor()
     # A close, verified structural level below entry (the fixture leaves the
     # typed stop unbacked; `computed` supplies the level the fallback reads).
@@ -1028,7 +1028,7 @@ def test_no_volatility_reading_derives_structural_stop_and_holds():
         atr=None,
         computed=[97.0],
     )
-    buffer = constructor.cfg.structural_stop_buffer_pct
+    analysis.computed_level_zones = {97.0: [96.6, 97.4]}
     stop = constructor._widen_stop_past_noise(
         "MSFT",
         analysis,
@@ -1037,7 +1037,7 @@ def test_no_volatility_reading_derives_structural_stop_and_holds():
         target_price=160.0,
     )
     assert stop is not None, "a missing ATR must not skip protection"
-    assert abs(stop - 97.0 * (1.0 - buffer)) < 1e-9
+    assert abs(stop - 96.6) < 1e-9
     assert constructor.last_refusals == {}
 
 

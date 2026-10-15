@@ -548,14 +548,14 @@ def _no_atr_analysis(**overrides):
 
 def test_no_atr_derives_structural_stop_from_computed_level_and_holds():
     """A verified computed level below entry with no ATR yields a stop placed
-    one buffer below the level, and the position is HELD (not refused). On the
+    the level's own zone low, and the position is HELD (not refused). On the
     first item-80 pass this same input was refused outright."""
     constructor = PortfolioConstructor()
     analysis = _no_atr_analysis(
         computed_levels=[95.0],
         computed_level_touches={95.0: 5},
+        computed_level_zones={95.0: [94.4, 95.6]},
     )
-    buffer = constructor.cfg.structural_stop_buffer_pct
     result = constructor._widen_stop_past_noise(
         "ACME",
         analysis,
@@ -565,7 +565,7 @@ def test_no_atr_derives_structural_stop_from_computed_level_and_holds():
         target_price=None,
     )
     assert result is not None, "a missing ATR must not skip protection"
-    assert abs(result - 95.0 * (1.0 - buffer)) < 1e-9
+    assert abs(result - 94.4) < 1e-9
     assert constructor.last_refusals == {}
     # The derived structural read, never the unverifiable typed 96.0.
     assert abs(result - 96.0) > 0.5
@@ -582,7 +582,6 @@ def test_no_atr_falls_back_to_prior_bar_low_when_no_verified_level():
         computed_level_touches={105.0: 2},
         signal_bar_low=97.0,
     )
-    buffer = constructor.cfg.structural_stop_buffer_pct
     result = constructor._widen_stop_past_noise(
         "ACME",
         analysis,
@@ -592,19 +591,19 @@ def test_no_atr_falls_back_to_prior_bar_low_when_no_verified_level():
         target_price=None,
     )
     assert result is not None
-    assert abs(result - 97.0 * (1.0 - buffer)) < 1e-9
+    assert abs(result - 97.0) < 1e-9
     assert constructor.last_refusals == {}
 
 
 def test_no_atr_short_derives_from_resistance_and_holds():
     """The short side is mirrored: resistance above entry with no ATR places
-    the stop one buffer above the level, and holds."""
+    the stop at the level's own zone high, and holds."""
     constructor = PortfolioConstructor()
     analysis = _no_atr_analysis(
         computed_levels=[105.0],
         computed_level_touches={105.0: 6},
+        computed_level_zones={105.0: [104.4, 105.6]},
     )
-    buffer = constructor.cfg.structural_stop_buffer_pct
     result = constructor._widen_stop_past_noise(
         "TSLA",
         analysis,
@@ -614,7 +613,7 @@ def test_no_atr_short_derives_from_resistance_and_holds():
         target_price=None,
     )
     assert result is not None
-    assert abs(result - 105.0 * (1.0 + buffer)) < 1e-9
+    assert abs(result - 105.6) < 1e-9
     assert constructor.last_refusals == {}
 
 
@@ -664,6 +663,8 @@ def test_no_atr_wide_structural_stop_is_held_not_refused_on_width():
     analysis = _no_atr_analysis(
         computed_levels=[40.0],
         computed_level_touches={40.0: 6},
+        # Entry-path analyses carry the pivot bars that drew each level.
+        computed_level_bars={40.0: [(39.5, 41.0)]},
     )
     result = constructor._widen_stop_past_noise(
         "FAR",
@@ -702,6 +703,7 @@ def test_no_atr_nothing_typed_derives_and_holds():
     analysis = _no_atr_analysis(
         computed_levels=[95.0],
         computed_level_touches={95.0: 5},
+        computed_level_bars={95.0: [(94.6, 95.4)]},
     )
     result = constructor._widen_stop_past_noise(
         "BARE",

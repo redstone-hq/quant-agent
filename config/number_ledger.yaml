@@ -1143,7 +1143,7 @@ numbers:
       needs no number because the chart supplies the level). This desk
       already computes structural levels with touch counts, and
       `_derive_structural_stop_no_atr` — owner-ratified under item 80 and
-      already using the ratified `structural_stop_buffer_pct` — already
+      placing the stop at the level's own zone extreme since 2026-10-15 — already
       reads a stop from structure; only its trigger condition would
       change. The asymmetry that makes it viable is measured IN THIS REPO
       and is not fitting, because it is measured off bars rather than off
@@ -1205,7 +1205,7 @@ numbers:
       governs, and it is answered by BUILDING item 199, not by a ruling:
       when no 5-touch level backs the stop, does the nearest computed
       level below entry at any touch count (>= MIN_TOUCHES = 2), plus the
-      already-ratified `structural_stop_buffer_pct`, give a floor read off
+      level's own zone extreme (no buffer, 2026-10-15), give a floor read off
       the chart instead of off this multiple? Item 191 settles what
       fraction of real candidates that covers and what the stop does when
       no computed level exists below entry at all, which is the only
@@ -1903,7 +1903,7 @@ numbers:
       of the Commission's threshold; it governs stop geometry, not external
       admission, and it stays open on the stop rows
       (`src.config.RiskConfig.absolute_min_stop_atr_multiple` and
-      `src.portfolio_constructor.config.ConstructorConfig.structural_stop_buffer_pct`),
+      the no-ATR structural stop, which since 2026-10-15 sits at the level's own zone extreme),
       where the stop distance it would bound is actually computed. The desk may
       still want a HIGHER external floor than $5 for that reason; this entry
       sources the floor that is here, and says plainly that a tick-and-spread
@@ -2788,74 +2788,6 @@ numbers:
       version claimed the 0.50% floor existed in one place while listing it in
       two. Base-drift now fails the build if the pair stops agreeing, which
       nothing previously checked.
-  - id: src.portfolio_constructor.config.ConstructorConfig.structural_stop_buffer_pct
-    value: 0.005
-    status: arbitrary
-    site: src/portfolio_constructor/config.py
-    note: >-
-      NARROWED 2026-10-04 (branch reachability only; the value is NOT
-      settled): the only consumer is the no-ATR branch, entered when the
-      analysis carries no ATR(14). Running the live indicator function over
-      every 40-bar window of the committed daily-bar fixture (1197 windows,
-      7 symbols) produced an ATR in all of them [measured]; it is absent only
-      under 15 bars of history, so this branch is NEVER EXERCISED on that
-      data -- not proven safe, not proven broken. Pinned by
-      tests/test_no_atr_branch_reachability.py. No other consumer reads it.
-      How far BELOW a structural level (ABOVE it for a short) the protective
-      stop is placed when it must be READ from price structure because there is
-      no ATR reading -- `_derive_structural_stop_no_atr`, added for board item
-      80 (owner ruling 2026-09-25: a missing volatility reading is never a
-      reason to skip protection or to size off an unverifiable typed number, so
-      the stop is derived from the nearest verified computed level, else the
-      signal/prior bar, and the position is HELD). A fraction of the level
-      price, so a wick that just tags the level does not trigger. The published
-      methods this implements -- swing-low (IG, LuxAlgo), prior-bar low (Ticker
-      Daily), Donchian channel-low -- all agree a buffer is needed but none
-      fixes its size, so this is OWNER-APPETITE, not doctrine. 0.5% is a modest
-      default, deliberately smaller than the 1.0% level-cluster zone
-      (levels.CLUSTER_TOLERANCE_PCT) so the stop sits just past the zone the
-      level was matched within, never inside it.
-    open_question: >-
-      What buffer past a structural level does the owner want a no-ATR
-      protective stop to sit at -- a fixed percentage like this, the level's
-      own cluster half-width, or a value tied to the instrument's recent range?
-    cost_while_unanswered: >-
-      A no-ATR name's protective stop sits a flat 0.5% past its level rather
-      than a distance anyone chose; too tight risks a wick-out, too loose gives
-      up more than intended on the rare name that loses its ATR reading.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        src/portfolio_constructor/no_atr_stop_record.py emits one row per branch
-        entry on the portfolio-constructor package logger, prefixed NO_ATR_STOP_ROW
-        and read back by its own rows_from/summarise. The state stays `specified`
-        and NOT `built` on purpose -- `built` in this ledger means the evidence
-        lands in a named storage field, and this recording's evidence lands in a
-        log row, so claiming `built` would mean naming a field nothing writes.
-        docs/board_notes/item-090.md (item 90)
-      records: >-
-        every entry into the no-ATR structural stop branch, ONE ROW PER DECISION and
-        no running total of any kind -- every count is computed from the rows at read
-        time. Each row carries the rule it took (nearest verified computed level, else
-        the signal/prior bar, else nothing usable), the level and its touch count, the
-        distance this flat 0.5% put the stop at, the stop's distance from entry, and
-        the half-width of the MEASURED cluster span that formed the level TOGETHER
-        WITH a flag saying whether that half-width was readable at all rather than
-        absent. A branch entry that finds no usable structure writes its own row, so
-        "never reached" (no row), "ran and placed" and "ran and found nothing" stay
-        three distinguishable facts. Nothing here consults the trade's profit or loss
-        and nothing here moves a stop
-      closes_when: >-
-        enough rows exist to show how often this branch runs at all and how often a
-        measured cluster half-width is present at placement. BUILDING THE RECORDING
-        SETTLES NOTHING: this row stays `arbitrary` until real entries accumulate --
-        the instrumentation exists, the evidence does not. If the half-width is
-        routinely present the buffer becomes that measured half-width per name and the
-        flat percentage is DELETED; if it is routinely unavailable the flat percentage
-        stays and the recording states how often the branch ran, so the cost is at
-        least a measured number instead of an assumption; if the branch effectively
-        never runs the number stops mattering and the ledger says so instead of guessing
   - base_value: 0.5
     derived_from: src.config.RiskConfig.min_position_risk_pct
     id: src.portfolio_constructor.config.ConstructorConfig.min_risk_pct
