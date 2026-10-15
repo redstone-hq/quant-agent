@@ -118,9 +118,11 @@ def test_entry_timeout_then_retry_leaves_one_order(_d):
     stub = _StubBroker()
     b = _broker_with(stub)
     stub.timeout_next = True
-    with pytest.raises(TimeoutError):  # ambiguous failure propagates (unchanged)
-        b.submit_order(symbol="AAPL", qty=10, side="buy", limit_price=100.0)
-    assert len(stub.orders) == 1
+    # The broker accepted but the reply timed out: the desk reads the order
+    # back by its own key and returns it as placed (no TimeoutError).
+    first = b.submit_order(symbol="AAPL", qty=10, side="buy", limit_price=100.0)
+    assert first["id"] == "srv-1" and first["status"] == "accepted"
+    assert stub.posts == 1 and len(stub.orders) == 1
     result = b.submit_order(symbol="AAPL", qty=10, side="buy", limit_price=100.0)
     assert stub.posts == 2
     assert len(stub.orders) == 1, "retry must NOT create a second position"

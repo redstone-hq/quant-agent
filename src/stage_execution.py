@@ -1104,6 +1104,11 @@ class ExecutionStage:
                         # carry no analysis — the message then omits the
                         # range rather than inventing one.
                         atr=getattr(entry_analysis, "atr_14", None),
+                        # The order's own idempotency key, on the write-ahead
+                        # row BEFORE it is sent: a submit that ends UNKNOWN
+                        # (timeout, crash) is then found by the orphan sweep
+                        # by this key, on either side (a SHORT is a sell).
+                        before_send=lambda key: pipeline.db.set_trade_idempotency_key(pending_row_id, key),
                     )
                 except Exception as e:
                     # Submit raised — broker may or may not have the

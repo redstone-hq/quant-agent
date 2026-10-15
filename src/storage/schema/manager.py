@@ -1036,6 +1036,10 @@ class DatabaseSchema:
         # legacy exit-family row's decision_id NULL-ness is a known fact,
         # not a gap to guess at.
         _ensure_column("trades", "decision_id_status", "decision_id_status TEXT")
+        # The idempotency key an entry is submitted under, written on the
+        # pending_submit row before the submit; the orphan sweep reads the
+        # order back by it. NULL on rows written before it existed.
+        _ensure_column("trades", "idempotency_key", "idempotency_key TEXT")
         # Defect (d) fix: evening's structured feedback-loop fields. The LLM
         # has produced these every night since the 2026-04 value-lens
         # upgrade, but `save_evening_snapshot` had no parameter for any of

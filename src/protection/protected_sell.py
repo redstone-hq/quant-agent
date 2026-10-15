@@ -266,12 +266,13 @@ class ProtectedSell:
             record_guarded_pass((self.broker, self.db), "protected_sell.submit", context={"symbol": symbol})
         except Exception as exc:  # noqa: BLE001
             record_guarded_pass((self.broker, self.db), "protected_sell.submit", exc, context={"symbol": symbol})
-            # Submit raised → the position is intact but its stops are
-            # cancelled. Restore them in-session rather than waiting for the
-            # next drain (this used to vary by site — only the since-deleted
-            # auto take-profit restored; the others rode naked until drain).
-            logger.error("%s: submit failed for %s: %s", label, symbol, exc)
-            _put_back_protection()
+            # Submit raised AFTER the desk read the order back by its own key
+            # and did not find it (a found order comes back as placed and
+            # takes the accepted path below): the outcome is UNKNOWN, not
+            # "nothing sold". The put-back reads what is held NOW and covers
+            # only that (`cover_to_held`), so a sale that did land leaves no
+            # stop over shares already gone.
+            self._submit_unknown(label, symbol, side, exc, _put_back_protection)
             return None
         if not self._order_accepted(order, symbol, side):
             # A MUST-FILL emergency de-lever cannot afford to skip a name here.
@@ -314,13 +315,7 @@ class ProtectedSell:
                     record_guarded_pass(
                         (self.broker, self.db), "protected_sell.market_escalation", exc, context={"symbol": symbol}
                     )
-                    logger.error(
-                        "%s: MARKET escalation submit failed for %s: %s",
-                        label,
-                        symbol,
-                        exc,
-                    )
-                    _put_back_protection()
+                    self._submit_unknown(label, symbol, side, exc, _put_back_protection)
                     return None
             if not self._order_accepted(order, symbol, side):
                 # Broker rejected (no escalation, or the market order itself was
@@ -352,6 +347,14 @@ class ProtectedSell:
             # of restoring a stop over it.
             prot["kept_leg"] = kept_leg
         return order, prot
+
+    def _submit_unknown(self, label, symbol, side, exc, put_back) -> None:
+        """A submit whose outcome is unknown: cover what is held now, and tell the owner."""
+        put_back()
+        self._last_stop_clear_refusal = "submit_unknown"
+        why = _OWN_REASONS["submit_unknown"]
+        logger.error("%s: %s — %s (%s)", label, symbol, why, exc)
+        self._alert_owner_exit_declined(symbol, side=side, why=why)
 
     def _clear_stops_for(self, label, symbol, qty, position_qty_before_sell, side):
         """A trim KEEPS shares, so its stop is shrunk in place (whole-share
@@ -614,6 +617,11 @@ class ProtectedSell:
 
 #: Owner-alert wording for the refusals this step records itself.
 _OWN_REASONS = {
+    "submit_unknown": (
+        "the exit order's submission failed without a broker answer and the order could not be found by its "
+        "own key, so whether it reached the broker is unknown; protection was put back over what is held now "
+        "and the next pass decides again"
+    ),
     "stop_fired": (
         "its protective stop FILLED before the exit was sent, so the position is already "
         "exiting through the stop and no order was sent"

@@ -24,6 +24,7 @@ import logging
 
 from src.execution.broker_parts import order_desk_reads as _reads
 from src.execution.broker_parts.order_desk_effects import mark, ok
+from src.sentinel.guarded import record_guarded_pass
 import math
 import time
 
@@ -57,6 +58,42 @@ from src.execution.broker_parts.submission_rejection import _is_terminal_submiss
 
 # The one order-terminal ceiling lives with the cancel confirmation (the lower module) so neither imports the other back.
 from src.execution.broker_parts.cancel_confirm import ORDER_TERMINAL_CEILING_S  # noqa: E402,F401 (re-export)
+
+
+def entry_client_order_id(symbol: str, side: str, qty: float, limit_price: float | None) -> str:
+    """The idempotency key `OrderDesk.submit_order` sends for this order today.
+
+    The one derivation (symbol and price normalized exactly as the submit
+    does), so a caller can record the key on its write-ahead row BEFORE the
+    submit and the orphan sweep can find the order by it on either side."""
+    return _client_order_id(
+        purpose="ENT",
+        symbol=_alpaca_symbol(_internal_symbol(symbol)),
+        side=side,
+        session_date=_idem._session_date_key(),
+        qty=qty,
+        price=_quantize_price(limit_price),
+    )
+
+
+def _announced_key(symbol: str, side: str, qty: float, limit_price: float | None, before_send) -> str:
+    """This order's idempotency key, handed to `before_send` (when given) before anything is sent."""
+    key = entry_client_order_id(symbol, side, qty, limit_price)
+    if before_send is not None:
+        before_send(key)
+    return key
+
+
+def _reply_lost(exc: BaseException) -> bool:
+    """True when a submit failed for want of a reply: a transport error with no
+    HTTP reply attached. Only then may the order have reached the broker unseen.
+
+    The builtin TimeoutError/ConnectionError and the HTTP library's Timeout and
+    ConnectionError are all OSError subclasses; a reply the broker DID return
+    carries a status code (the SDK's APIError) or a response object. Those, and
+    every non-OSError, are not this and propagate exactly as before."""
+    no_reply = getattr(exc, "status_code", None) is None and getattr(exc, "response", None) is None
+    return isinstance(exc, OSError) and no_reply
 
 
 class OrderDesk:
@@ -210,9 +247,21 @@ class OrderDesk:
         symbol: str,
         side: str,
         after,
+        key: str | None = None,
     ) -> list[dict] | None:
-        """All of `symbol`'s orders on `side` since `after` (see order_desk_reads)."""
-        return _reads.list_recent_orders(self, symbol, side, after)
+        """All of `symbol`'s orders on `side` since `after` (see order_desk_reads).
+
+        With `key`: only the order the broker holds under that idempotency
+        key, either side — `[]` when the broker answers that none does, None
+        when the read failed (the same contract as the listing)."""
+        if key is None:
+            return _reads.list_recent_orders(self, symbol, side, after)
+        try:
+            order = _idem._existing_order_for_client_id(self.client, key)
+        except Exception as exc:  # noqa: BLE001
+            record_guarded_pass(self.client, "order_desk.order_for_key", exc, log=logger, context={"symbol": symbol})
+            return [] if _idem._is_no_such_order(exc) else None
+        return [{"id": str(order.id), "symbol": symbol, "side": side, "qty": order.qty, "status": str(order.status)}]
 
     def list_filled_sell_orders(self, symbol: str, after) -> list[dict] | None:
         """Every FILLED sell-side order for `symbol` filled since `after` (see order_desk_reads)."""
@@ -395,8 +444,13 @@ class OrderDesk:
         take_profit_price: float | None = None,
         reference_price: float | None = None,
         atr: float | None = None,
+        before_send=None,
     ) -> dict:
         """Submit an entry or exit order.
+
+        `before_send`, when given, is called with the order's idempotency key
+        just before it is sent, so a caller can record the key on its
+        write-ahead row and find the order by it if the outcome is unknown.
 
         `atr` is OPTIONAL and is used for the OWNER-FACING WORDING ONLY —
         never for a gate, a threshold or a size. It is the desk's own
@@ -680,14 +734,7 @@ class OrderDesk:
 
         # Idempotency key (src/execution/order_idempotency.py): a retried
         # submission reuses it and the broker refuses the duplicate.
-        client_order_id = _client_order_id(
-            purpose="ENT",
-            symbol=alpaca_symbol,
-            side=side,
-            session_date=_idem._session_date_key(),
-            qty=qty,
-            price=limit_price,
-        )
+        client_order_id = _announced_key(symbol, side, qty, limit_price, before_send)
         if limit_price is not None:
             request = LimitOrderRequest(
                 symbol=alpaca_symbol,
@@ -752,7 +799,17 @@ class OrderDesk:
                     "symbol": internal_symbol,
                     "detail": str(exc),
                 }
-            raise
+            # A lost reply (timeout, dropped connection) proves nothing either
+            # way, and the order may be live: ask the broker for it by its own
+            # key. Found -> it IS placed and takes the normal accepted path
+            # below. Not found, or the read failed -> the submit's own failure
+            # propagates (outcome UNKNOWN): an order not yet visible is never
+            # read as "not placed". Any reply the broker returned propagates.
+            order = (
+                self._read_back_after_unknown_submit(exc, client_order_id, side, symbol) if _reply_lost(exc) else None
+            )
+            if order is None:
+                raise  # the submit's own failure, unchanged: outcome UNKNOWN
         bracket_info = f" [SL=${stop_loss_price} to be placed on fill]" if use_stop else ""
         logger.info(
             "Order submitted: %s %s %s @ %s%s — status: %s",
@@ -788,6 +845,20 @@ class OrderDesk:
             # (see _place_entry_protection). Absent/None => nothing to place.
             "pending_stop_price": stop_loss_price if use_stop else None,
         }
+
+    def _read_back_after_unknown_submit(self, exc, client_order_id: str, side: str, symbol: str):
+        """The order the broker holds under this submit's key, or None (outcome UNKNOWN, noted on `exc`)."""
+        context = {"side": side, "symbol": symbol}
+        try:
+            order = _idem._existing_order_for_client_id(self.client, client_order_id)
+            if order.client_order_id != client_order_id:
+                raise LookupError("the broker's answer is not an order under this key")
+        except Exception as lookup_exc:  # noqa: BLE001
+            record_guarded_pass(self.client, "order_desk.submit_order_unknown", lookup_exc, log=logger, context=context)
+            exc.add_note(f"read-back by idempotency key {client_order_id!r} failed ({lookup_exc}); outcome UNKNOWN")
+            return None
+        record_guarded_pass(self.client, "order_desk.submit_order_read_back", exc, log=logger, context=context)
+        return order
 
     def cancel_entry_order(self, order_id: str) -> bool:
         """Cancel one order by id. True when the broker accepted the cancel.
