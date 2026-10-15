@@ -363,21 +363,8 @@ class MissedOpportunity(LLMOutputModel):
     def _sym(cls, v: str) -> str:
         return _normalize_symbol(v)
 
-    @model_validator(mode="after")
-    def _theme_required_for_real_misses(self) -> "MissedOpportunity":
-        real_miss_categories = {
-            "trend_timing_miss",
-            "theme_blindspot",
-            "fundamentals_mispricing",
-            "value_entry_missed",
-        }
-        if self.miss_category in real_miss_categories:
-            if not (self.theme_if_any or "").strip():
-                raise ValueError(
-                    f"MissedOpportunity miss_category='{self.miss_category}' "
-                    f"requires theme_if_any so quarterly aggregation can group by theme"
-                )
-        return self
+    # A real miss with no clear theme is a valid finding: the model must not be
+    # pushed to invent a theme. Consumers bucket an empty theme as "no theme".
 
     # audit round 2 #31: the former `_theme_durability_required_when_themed`
     # validator (raise when theme_if_any set and theme_durability is None)

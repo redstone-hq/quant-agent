@@ -557,7 +557,7 @@ upcoming events that bear on held theses. Respond as JSON matching
         #
         # 2026-05-01 incident: LLM emitted a CMCSA entry with
         # miss_category='value_entry_missed' and theme_if_any='', which the
-        # _theme_required_for_real_misses validator rightly rejected — but
+        # (since removed) _theme_required_for_real_misses validator rejected — but
         # the rejection bubbled up through EveningReport's list-of-models
         # validation and dropped the whole report (7 thesis_health_review
         # narratives, sell_grades, tomorrow_outlook, all clean) before it

@@ -599,9 +599,9 @@ def _the_2026_05_01_bad_entry() -> dict:
     """Exact shape of the entry that crashed the 2026-05-01 evening report.
 
     LLM marked CMCSA as a 'value_entry_missed' but left theme_if_any empty,
-    which the model_validator rejects (real misses must carry a theme so the
-    quarterly digest can group by theme). This fixture must remain a faithful
-    reproduction so the regression doesn't bit-rot.
+    which USED to be rejected; a theme-less miss is now valid (see
+    test_evening_missed_no_theme.py). The fixture is kept as a genuinely malformed
+    entry (empty lesson) so the drop path stays covered.
     """
     return {
         "symbol": "CMCSA",
@@ -610,7 +610,7 @@ def _the_2026_05_01_bad_entry() -> dict:
         "miss_category": "value_entry_missed",
         "theme_if_any": "",
         "theme_durability": "unknown",
-        "lesson": "Down on cable subscriber concerns; no clear theme attached.",
+        "lesson": "",
         "universe_addition_recommendation": "no",
         "universe_addition_reason": "Already in universe.",
     }
