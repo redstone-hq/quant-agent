@@ -86,6 +86,8 @@ detail: docs/board_notes/item-055.md
 
 **63. `signal_weight` cannot say "attend, sign reversed" — OPEN, from item 52. [3 of 6 ticked; 81 buildable; 84 MEASURED 2026-10-04 and ticked; 82, 86 stale.]**
 
+**PARKED.** Parked 2026-10-15: 0 of 96 insider observations since 12 Oct were sales, so there is nothing to build until a sale is observed.
+
 DONE WHEN:
   - [x] TRACED 2026-10-01, the prerequisite above is ANSWERED and the cause is not the parser: …(rest: docs/board_notes/item-063.md)
   - [x] RECORDING BUILT 2026-10-01 and NOT YET PROVEN IN PRODUCTION: [full text: docs/board_notes/item-063.md]
