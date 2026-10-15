@@ -66,7 +66,6 @@ from src.risk.exit_guard_deltas import (  # noqa: F401 -- lifted verbatim, re-ex
     _HIGHER_IS_BETTER,
     _STOP_DEPENDENT_METRIC,
     _PROVENANCE_KEYS,
-    _NOISE_FLOOR,
     _finite,
     MetricDeltas,
     compute_deltas,

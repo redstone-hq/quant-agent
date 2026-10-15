@@ -66,10 +66,6 @@ src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)
 src.quantities.AVG_DOLLAR_VOLUME_WINDOW
 src.risk.constants.STARTER_POSITION_RISK_PCT
-src.risk.exit_guard_deltas._NOISE_FLOOR['distance_to_stop_pct']
-src.risk.exit_guard_deltas._NOISE_FLOOR['pace']
-src.risk.exit_guard_deltas._NOISE_FLOOR['r_multiple']
-src.risk.exit_guard_deltas._NOISE_FLOOR['thesis_progress_pct']
 src.risk.gross_ladder.GROSS_LADDER[0][0]
 src.risk.gross_ladder.GROSS_LADDER[0][1]
 src.risk.gross_ladder.GROSS_LADDER[1][0]

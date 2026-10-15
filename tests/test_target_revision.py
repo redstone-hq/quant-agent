@@ -107,12 +107,12 @@ def test_live_target_denominator_switches_the_veto_off():
         "pace": _pace(_progress(entry, 108.0, 125.0), 5, 10),
     }
     deltas = compute_deltas("AAPL", prior, current)
-    assert deltas.worsened, "the revision should look like deterioration here"
+    # 2026-10-15: thesis progress and pace are measured against the AI's own
+    # target, so they are shown but never scored. A target revision can no
+    # longer register as deterioration at all.
+    assert deltas.worsened == []
     assert not deltas.net_improved
-    assert veto_contradicted_exit("SELL", STALL_REASON, deltas) is None, (
-        "with a live-target denominator the guard stops protecting the "
-        "position — this is the machine for selling winners"
-    )
+    assert veto_contradicted_exit("SELL", STALL_REASON, deltas) is None
 
 
 def test_pinned_target_denominator_keeps_the_veto_on():
@@ -129,9 +129,9 @@ def test_pinned_target_denominator_keeps_the_veto_on():
     }
     deltas = compute_deltas("AAPL", prior, current)
     assert not deltas.worsened
-    assert deltas.net_improved
-    veto = veto_contradicted_exit("SELL", STALL_REASON, deltas)
-    assert veto is not None and "vetoed" in veto
+    # Unscored since 2026-10-15: thesis progress alone never vetoes an exit.
+    assert not deltas.net_improved
+    assert veto_contradicted_exit("SELL", STALL_REASON, deltas) is None
 
 
 def test_a_revision_alone_moves_neither_guarded_metric_at_all():
