@@ -62,12 +62,23 @@ class ScoreNoiseBrake:
 UNMEASURED = ScoreNoiseBrake(value=None, pairs=0, observations=0)
 
 
+#: How `RankedCandidate.score` is computed. Bump it whenever the score's
+#: arithmetic changes, so scores from two bases never pair.
+SCORE_BASIS = "equal_seats"
+
+
 def evidence_key(candidate) -> str:
     """The name's seat coverage plus every dated fact its seats cited.
 
     Undated numbers (prices, levels, ratios) are left out on purpose: they
     move with the tape every session and are the inputs the scoring is meant
     to be stable across, not news. `""` when the candidate carries nothing.
+
+    `score_basis` names how the score itself was computed. Seat weights were
+    deleted on 2026-10-15 (n06, every seat now counts equally), so a row
+    scored under the old weights carries no basis and a new row carries
+    `SCORE_BASIS`; the two keys can never be identical, so an old score is
+    never paired with a new one and the brake restarts its measurement.
     """
     if candidate is None:
         return ""
@@ -78,7 +89,7 @@ def evidence_key(candidate) -> str:
         for item in v.evidence
         if item.as_of is not None
     )
-    return json.dumps({"seats": seats, "dated": dated}, sort_keys=True)
+    return json.dumps({"seats": seats, "dated": dated, "score_basis": SCORE_BASIS}, sort_keys=True)
 
 
 def measure_score_noise(observations: Iterable[tuple[str, str, str, float, str]]) -> ScoreNoiseBrake:

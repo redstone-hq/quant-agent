@@ -447,8 +447,8 @@ class CandidateRanking:
         """The eligible names in ranked order, plus the blocked names with
         their reasons. Ordering is `src/verdicts.py::rank_verdicts` over
         every seat's `AnalystVerdict` (2026-09-03: extended from Technical
-        alone to all five — see `_collect_seat_verdicts`), at the
-        research-informed prior weight (`src/verdicts.py::SEAT_WEIGHT`).
+        alone to all five — see `_collect_seat_verdicts`), every seat counted
+        equally (per-seat weights deleted 2026-10-15, n06).
         Blocked names are never ordered: they are reported, not ranked.
 
         Eligibility itself is still decided from Technical's own analyses
