@@ -820,11 +820,25 @@ class ExitEngineMixin:
                         )
                         continue
                     if new_stop >= existing[0].current_price:
-                        logger.warning(
-                            "Midday: TRAIL_STOP %s skipped — new_stop $%.2f >= current $%.2f",
-                            symbol,
-                            new_stop,
-                            existing[0].current_price,
+                        from src.risk.exit_refusal import (
+                            CODE_TRAIL_STOP_AT_OR_ABOVE_PRICE,
+                        )
+
+                        detail = (
+                            f"TRAIL_STOP {symbol} refused: new stop "
+                            f"${new_stop:,.2f} is at or above the current "
+                            f"${existing[0].current_price:,.2f} price, so it "
+                            f"would fill at once. Old stop kept."
+                        )
+                        logger.warning("Midday: %s", detail)
+                        self._record_exit_refusal(
+                            symbol=symbol,
+                            run_id=run_id,
+                            action=act,
+                            code=CODE_TRAIL_STOP_AT_OR_ABOVE_PRICE,
+                            dropped=True,
+                            detail=detail[:400],
+                            layer="midday_trail_above_price",
                         )
                         continue
                     # Minimum-ratchet floor: a raise must land on a
@@ -853,15 +867,26 @@ class ExitEngineMixin:
 
                         min_new_stop = min_ratchet_floor(old_stop)
                         if new_stop < min_new_stop - venue_tick(old_stop) / 2.0:
-                            logger.warning(
-                                "Midday: TRAIL_STOP %s skipped — new_stop "
-                                "$%.4f does not clear the live stop $%.4f by "
-                                "one venue tick (floor $%.4f); it is the same "
-                                "stop after quantization. Old stop kept.",
-                                symbol,
-                                new_stop,
-                                old_stop,
-                                min_new_stop,
+                            from src.risk.exit_refusal import (
+                                CODE_TRAIL_BELOW_MIN_RATCHET,
+                            )
+
+                            detail = (
+                                f"TRAIL_STOP {symbol} refused: new stop "
+                                f"${new_stop:,.4f} does not clear the live "
+                                f"stop ${old_stop:,.4f} by one venue tick "
+                                f"(floor ${min_new_stop:,.4f}); it is the same "
+                                f"stop after quantization. Old stop kept."
+                            )
+                            logger.warning("Midday: %s", detail)
+                            self._record_exit_refusal(
+                                symbol=symbol,
+                                run_id=run_id,
+                                action=act,
+                                code=CODE_TRAIL_BELOW_MIN_RATCHET,
+                                dropped=True,
+                                detail=detail[:400],
+                                layer="midday_trail_min_ratchet",
                             )
                             continue
                     # WIDTH IS ANSWERED BY ADJUSTING THE STOP, NEVER BY
@@ -908,7 +933,8 @@ class ExitEngineMixin:
                     # `min_stop_atr_multiple` times the largest setup and
                     # regime scalers, 3.00 at today's settings) against
                     # THIS name's live ATR14. The clamped price is below
-                    # the 1.25 x ATR noise floor by construction, so the
+                    # the NOISE_BAND_ATR_MULTIPLE x ATR noise floor by
+                    # construction (the widest multiple exceeds it), so the
                     # noise-band clamp below cannot then reject it. If the
                     # name is so volatile that even that widest stop lands
                     # at or below zero, there is no legitimate stop to
@@ -965,8 +991,9 @@ class ExitEngineMixin:
                             )
                             new_stop = widest_stop
                     # Noise-band clamp (RC1 exit-quality forensics,
-                    # 2026-07-16): a stop inside 1.25×ATR14 of the current
-                    # price sits inside one day's normal range — it converts
+                    # 2026-07-16; one ATR per owner ruling 2026-10-09): a
+                    # stop inside NOISE_BAND_ATR_MULTIPLE x ATR14 of the
+                    # current price sits inside one day's normal range — it converts
                     # routine volatility into a realized exit, so the old
                     # stop is kept. The band is read off THIS stock's own
                     # ATR14, so a tighten that clears it is applied however
@@ -977,13 +1004,16 @@ class ExitEngineMixin:
                     # repeated. A refused tighten is recorded per-symbol and
                     # durably, never only logged.
                     if atr is not None and not _reason_cites_hard_trigger(action_item.get("reason", "")):
-                        noise_floor = existing[0].current_price - 1.25 * atr
+                        from src.risk.trailing import NOISE_BAND_ATR_MULTIPLE
+
+                        noise_floor = existing[0].current_price - NOISE_BAND_ATR_MULTIPLE * atr
                         if new_stop > noise_floor:
                             from src.risk.exit_refusal import CODE_NOISE_BAND
 
                             detail = (
                                 f"TRAIL_STOP {symbol} refused: new stop "
-                                f"${new_stop:,.2f} is inside the 1.25 x ATR "
+                                f"${new_stop:,.2f} is inside the "
+                                f"{NOISE_BAND_ATR_MULTIPLE:g} x ATR "
                                 f"noise band (floor ${noise_floor:,.2f}, ATR14 "
                                 f"${atr:,.2f}); routine volatility would fill "
                                 f"it. Old stop kept; cite a hard trigger to "

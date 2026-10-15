@@ -745,8 +745,9 @@ class ConstructorConfig:
     # anything: no order size, refusal or gate changes. The sweep's own
     # `cash_sweep.min_order_usd` is a different field and is untouched.
     # Minimum stop distance, in ATRs. A stop inside ordinary volatility is not
-    # a thesis invalidation, it is a coin flip on noise — Phase 3 already
-    # established 1.25 ATR as one ordinary day's range for a TRAILING stop,
+    # a thesis invalidation, it is a coin flip on noise — one ordinary day's
+    # range is one ATR for a TRAILING stop (owner ruling 2026-10-09; it was
+    # an unrecorded 1.25 before, never measured — `NOISE_BAND_ATR_MULTIPLE`),
     # and an entry stop has to survive the whole expected hold, not one
     # session. Measured 2026-08-27: the book's stops sat a median 4.3% below
     # entry against a median ATR of 2.56% of price — about 1.7 ATRs, barely

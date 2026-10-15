@@ -232,7 +232,8 @@ def _field_default(node: ast.AnnAssign) -> ast.AST | None:
 #: Rule (e)'s band. A literal in [0.5, 2.0), other than 1.0, used as a
 #: multiplier or divisor is a price or size scaled by a policy margin — a
 #: limit 0.5% through the market, a 2% proceeds cushion, a 1.25 ATR noise
-#: floor. The band is a CLASSIFIER, not a trade number: it was chosen by
+#: floor (that noise floor was 1.25 when the band was drawn; it is 1.0 ATR
+#: by owner ruling since 2026-10-09). The band is a CLASSIFIER, not a trade number: it was chosen by
 #: listing every literal operand of arithmetic in scope on 2026-09-19 (about
 #: seventy) and finding that everything outside it is a unit conversion
 #: (10_000 bps, 365 days, 60 s, 1_000_000), a float epsilon, or a query

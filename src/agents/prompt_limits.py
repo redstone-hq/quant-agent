@@ -75,13 +75,14 @@ FLAGS_NAMESPACE = "flags"
 
 def _flags_values() -> dict[str, float]:
     """Imported lazily: `src.risk.metrics` must not import this module back."""
-    from src.risk import metrics
+    from src.risk.trailing import NOISE_BAND_ATR_MULTIPLE
 
-    # Empty since 2026-10-09: the drift flag's two thresholds were deleted
-    # with the rule they served. Register a constant here only if real code
-    # reads it at run time.
-    _ = metrics
-    return {}
+    # The drift flag's two thresholds were deleted 2026-10-09 with the rule
+    # they served. Register a constant here only if real code reads it at
+    # run time. The noise band is read by the midday TRAIL_STOP clamp and the
+    # deterministic trail; the position reviewer's sheet renders it so the
+    # model is told the band the pipeline actually enforces.
+    return {"noise_band_atr_multiple": NOISE_BAND_ATR_MULTIPLE}
 
 
 #: Every prompt sheet on disk, and what is responsible for its placeholders.

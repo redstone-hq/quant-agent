@@ -65,7 +65,7 @@ def _pipeline_tightened_yesterday():
         }
     ]
     pipeline._format_qty = lambda q: str(q)
-    pipeline._atr_for_symbol = lambda s: 8.0  # noise floor = 360 - 1.25 * 8 = 350
+    pipeline._atr_for_symbol = lambda s: 8.0  # noise floor = 360 - 1.0 * 8 = 352
     pipeline._record_exit_refusal = MagicMock(name="record_exit_refusal")
     return pipeline
 

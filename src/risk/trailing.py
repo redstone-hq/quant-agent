@@ -4,7 +4,7 @@ Trailing is arithmetic. It belongs in Python, not in an LLM's discretion.
 
 Until this landed, every stop movement came from the Position Reviewer
 emitting a `TRAIL_STOP` action with a price it chose, clamped after the fact
-by a ratchet cooldown and a 1.25x ATR noise band. Those clamps exist because
+by a ratchet cooldown and an ATR noise band (`NOISE_BAND_ATR_MULTIPLE`). Those clamps exist because
 the discretionary version marched stops into the daily-noise band in three or
 four sessions — GE was ratcheted 325 -> 350 in eight sessions on one flag.
 Clamping a bad generator is not the same as having a good one.
@@ -116,8 +116,14 @@ __all__ = [
 CHANDELIER_ATR_MULTIPLE = 3.0
 
 #: A stop closer than this many ATRs to current price sits inside one ordinary
-#: day's range. Same value the TRAIL_STOP clamp in `pipeline.py` uses.
-NOISE_BAND_ATR_MULTIPLE = 1.25
+#: day's range. Owner ruling (Rex, 2026-10-09): "a stop is never closer than
+#: one normal day's move", and the normal day's move IS the stock's own
+#: 14-day Wilder ATR -- so the multiple is exactly one ATR, ruled, not chosen.
+#: The former 1.25 carried no recorded derivation for its extra 0.25.
+#: Defined ONCE here; the midday TRAIL_STOP clamp (`src/pipeline_exits.py`),
+#: the deterministic trail (`src/risk/trail_evaluate.py`) and the position
+#: reviewer's prompt (`{{flags.noise_band_atr_multiple}}`) all read it.
+NOISE_BAND_ATR_MULTIPLE = 1.0
 
 #: The fewest bars SINCE ENTRY the STRUCTURE leg needs for a reading. Not a
 #: chosen number: swing points come from `src.data.levels.turning_points`, the
