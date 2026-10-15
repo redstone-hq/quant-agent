@@ -143,8 +143,8 @@ def test_measured_ledger_id_counts_for_the_two_modules() -> None:
     assert len(ledger_ids_for_module("src.pipeline_intraday", ledger)) == 2
     assert (
         len(ledger_ids_for_module("src.pipeline_delever", ledger)) == 0
-        and len(ledger_ids_for_module("src.delever.forced", ledger)) == 1
-    )  # _force_delever moved to its part 2026-10-04
+        and len(ledger_ids_for_module("src.delever.forced", ledger)) == 0
+    )  # _force_delever moved to its part 2026-10-04; its 0.97 haircut id deleted 2026-10-15
     assert (
         len(ledger_ids_for_module("src.pipeline_prompt_facts", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.decisions", ledger)) == 3

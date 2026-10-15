@@ -162,9 +162,9 @@ def test_item_138_order_price_buffers_have_one_source_each() -> None:
     # market order, src/exit_quote.py), and the rotation projection's own
     # copy went the same day: it now credits the LIVE bid / ask.
     assert "src.execution.broker.AlpacaBroker.STOP_LIMIT_BUFFER_PCT" not in ledger
-    haircut = ledger["src.delever.forced.DeleverForced._force_delever:factor[0]"]
-    assert haircut["status"] == "arbitrary" and haircut["value"] == 0.97
-    assert "derived_from" not in haircut
+    # 2026-10-15: the 0.97 haircut itself was DELETED; a whole-position sale is
+    # credited qty x the live sell quote, like the partial slice.
+    assert "src.delever.forced.DeleverForced._force_delever:factor[0]" not in ledger
     for gone in (
         "src.rotation_projection._projected_post_sale_cash:factor[0]",
         "src.rotation_projection._projected_post_sale_cash:factor[1]",
@@ -560,7 +560,8 @@ def test_the_named_hidden_trade_numbers_are_now_sites() -> None:
     # proceeds haircut: the sweep-sizing cushion that used to sit ahead of it
     # was reformulated away on 2026-09-30 (board item 182), which renumbered
     # the haircut factor[1] -> factor[0]. One site still proves rule (e).
-    assert "src.delever.forced.DeleverForced._force_delever:factor[0]" in ids
+    # 2026-10-15: the haircut factor site is gone (proceeds credited at the live quote).
+    assert "src.delever.forced.DeleverForced._force_delever:factor[0]" not in ids
     assert "src.pipeline.TradingPipeline._force_delever:factor[1]" not in ids
     # The decision-path and midday exit pads were DELETED 2026-10-09: every
     # ordinary exit is now a plain market order (src/exit_quote.py), and the
