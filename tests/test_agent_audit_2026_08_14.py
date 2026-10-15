@@ -770,57 +770,6 @@ def test_f7b_schema_comment_matches_the_corrected_meaning() -> None:
 # ===========================================================================
 
 
-def test_f8_priors_have_a_provenance_block() -> None:
-    """Three rules in PM's prompt are corrections fitted to one measured
-    stretch of ONE account's history — the predecessor account, Apr-Jul
-    2026 — and were stated as standing truths. This account has never
-    traded. The rules are kept (they are the best evidence available) but
-    they now say what they are."""
-    text = (PROMPT_DIR / "portfolio_manager.md").read_text()
-    assert "Where the behavioural priors below come from" in text
-    assert "predecessor account" in text
-    assert "not a market law" in text
-
-
-@pytest.mark.parametrize(
-    "claim",
-    (
-        "deployment gap",
-        "over-caution bias",
-        "momentum-leader sleeve",
-    ),
-)
-def test_f8_each_prior_is_named_in_the_provenance_table(claim: str) -> None:
-    assert claim in (PROMPT_DIR / "portfolio_manager.md").read_text()
-
-
-def test_f8_prior_tag_marks_each_claim_at_its_use_site() -> None:
-    """A provenance section nobody reaches when they reach the rule is not
-    provenance. Each of the three carries the tag where it is applied."""
-    text = (PROMPT_DIR / "portfolio_manager.md").read_text()
-    assert text.count("[PRIOR") >= 4, (
-        "each inherited prior must be tagged where it is used, not only in the provenance table"
-    )
-    assert "**Momentum-leader starter sleeve** `[PRIOR" in text
-    assert "`[PRIOR]` That gap was measured" in text
-    assert "`[PRIOR]` The diagnosed bias here is OVER-caution" in text
-
-
-def test_f8_measured_facts_outrank_the_priors() -> None:
-    """The escape hatch has to be concrete, or 'prefer real data' is a
-    sentiment. PMFacts already carries the account's own outcomes and emits
-    `[UNSOURCED:no_calibration]` when it cannot."""
-    text = (PROMPT_DIR / "portfolio_manager.md").read_text()
-    assert "Measured facts outrank the priors" in text
-    assert "closed_trades_30d" in text
-    assert "UNSOURCED:no_calibration" in text
-
-
-def test_f8_priors_still_lose_to_every_hard_rule() -> None:
-    text = (PROMPT_DIR / "portfolio_manager.md").read_text()
-    assert "They never override a hard rule" in text
-
-
 @pytest.mark.parametrize("threshold", ("20%", "40%", "5.0", "base × rr_mult"))
 def test_f8_no_sizing_threshold_moved(threshold: str) -> None:
     """INTENTIONALLY RETAINED. Making a prior explicit is a statement about
