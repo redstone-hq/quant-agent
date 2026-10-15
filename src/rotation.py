@@ -36,7 +36,8 @@ Neither source hands over one universal number — practitioner tolerance-
 band discussions for rebalancing cluster loosely in the 5%-25% relative-
 band range depending on the asset class and cost profile (see e.g. Alpha
 Architect's writing on rebalancing tolerance bands). This module takes the
-CONSERVATIVE (hardest-to-trigger) end of that range, 25% relative on the
+CONSERVATIVE (hardest-to-trigger) end of that range (SUPERSEDED 2026-10-15:
+see the owner decision below), 25% relative on the
 composite verdict score, and marks it PROVISIONAL — the same posture
 `src/verdicts.py::SEAT_WEIGHT` already uses for its own literature-derived
 but unmeasured numbers: a considered starting point, not a measured fact,
@@ -77,7 +78,7 @@ discipline. No gate is bypassed, and no new exempt reason category exists.
 Why only the categorical tier is automated: an ineligible holding fails the
 same rule a brand-new buy must clear today, so the case is a rule outcome,
 not a ranking judgement. The ranked-margin tier stays information-only
-because a 25% score gap is a PROVISIONAL, unmeasured band (see above), and
+because its swap brake was a PROVISIONAL, unmeasured band (see above), and
 selling an eligible, thesis-intact position on an unmeasured margin would be
 exactly the "arbitrary number decides a trade" pattern this desk refuses
 elsewhere.
@@ -95,9 +96,12 @@ an object carrying the projected numbers the buy was cleared on, which no
 configuration can produce.
 
 The paragraph above is still the reason the switch is OFF, and it is not a
-formality. `ROTATION_MARGIN_PCT` is recorded in
-`config/number_ledger.yaml` as `arbitrary` — "a round quarter percent with
-no source". Closing the sequencing defect removed a reason this tier could
+formality. OWNER DECISION 2026-10-15 (q07): the unsourced 25% relative
+margin is DELETED; a swap must now clear the desk's own measured score
+noise (`src/rotation_parts/score_noise.py`; the largest score change on a
+name with no new evidence between two sessions), and refuses while that
+noise is unmeasured. The switch stays OFF; a trading-cost brake follows the
+paper reset. Closing the sequencing defect removed a reason this tier could
 not be turned on; it did not answer the one stated here. `docs/WORK.md`
 item 39(a) is the remaining blocker: it lists what has already been ruled
 out (the citations above among them — the SHAPE is sourced, the NUMBER is
@@ -229,7 +233,7 @@ refuse before the comparison matters, because a row saying only "the book
 had room" is not a dataset and board item 39(a) — the open research
 question behind the unmeasured 25% margin — cannot progress without one.
 
-Neither change touches `ROTATION_MARGIN_PCT` or
+Neither change touches the swap margin or
 `rotation_ranked_margin_enabled`. Both remain blocked by 39(a). What
 changed is whether the comparison is ever REACHED and whether its outcome
 is RECORDED.
@@ -250,8 +254,8 @@ the lowest when a better candidate qualifies — that mandate IS the
 ranked-margin tier, and it stays blocked, for two independent reasons, not
 one:
 
-  * board item 39(a): "how much better" is `ROTATION_MARGIN_PCT`, an
-    arbitrary, UNIDENTIFIABLE constant on the ordinal score (only four
+  * board item 39(a): "how much better" was then a 25% relative margin, an
+    arbitrary (replaced 2026-10-15 by the measured score-noise brake), UNIDENTIFIABLE constant on the ordinal score (only four
     distinct score ratios occur across the whole band; the fraction of pairs
     clearing any threshold from 0.05 to 0.25 is identical), and 39(a) says
     do not promote it to an execution gate until answered; and
@@ -308,6 +312,7 @@ from src.rotation_unrecorded import empty_pass_lines
 from dataclasses import replace
 
 from src.risk.min_risk import MinRiskFloor
+from src.rotation_parts.score_noise import ScoreNoiseBrake, evidence_key
 from src.rotation_parts.constraints import (
     funding_view_measured,
     holdings_below_entry_bar,
@@ -316,7 +321,6 @@ from src.rotation_parts.constraints import (
 from src.rotation_parts.types import (
     CONVICTION_BAR_REASON_PREFIX,
     REQUIRED_BUY_LEG_GATES,
-    ROTATION_MARGIN_PCT,
     ROTATION_REASON_MAX_CHARS,
     ROTATION_REFUSAL_POINTS,
     RotationClearance,
@@ -352,7 +356,7 @@ from src.rotation_parts.reporting_lines import (
 
 __all__ = [
     "REQUIRED_BUY_LEG_GATES",
-    "ROTATION_MARGIN_PCT",
+    "ScoreNoiseBrake",
     "ROTATION_REFUSAL_POINTS",
     "RotationClearance",
     "RotationOpportunity",
@@ -378,7 +382,7 @@ def evaluate_rotation_opportunity(
     held_symbols: set[str],
     headroom_pct: float,
     floor_pct: float,
-    margin_pct: float = ROTATION_MARGIN_PCT,
+    noise_brake: float | None = None,
     entry_budget_usd: float | None = None,
     min_risk_floor: MinRiskFloor | None = None,
 ) -> RotationOpportunity | None:
@@ -395,7 +399,7 @@ def evaluate_rotation_opportunity(
         held_symbols=held_symbols,
         headroom_pct=headroom_pct,
         floor_pct=floor_pct,
-        margin_pct=margin_pct,
+        noise_brake=noise_brake,
         entry_budget_usd=entry_budget_usd,
         min_risk_floor=min_risk_floor,
     ).opportunity
@@ -408,7 +412,7 @@ def evaluate_rotation(
     held_symbols: set[str],
     headroom_pct: float,
     floor_pct: float,
-    margin_pct: float = ROTATION_MARGIN_PCT,
+    noise_brake: float | None = None,
     entry_budget_usd: float | None = None,
     min_risk_floor: MinRiskFloor | None = None,
 ) -> RotationOutcome:
@@ -429,7 +433,7 @@ def evaluate_rotation(
         held_symbols=held_symbols,
         headroom_pct=headroom_pct,
         floor_pct=floor_pct,
-        margin_pct=margin_pct,
+        noise_brake=noise_brake,
         entry_budget_usd=entry_budget_usd,
         funding=funding,
     )
@@ -443,7 +447,7 @@ def _evaluate_rotation_core(
     held_symbols: set[str],
     headroom_pct: float,
     floor_pct: float,
-    margin_pct: float,
+    noise_brake: float | None,
     entry_budget_usd: float | None = None,
     funding=None,
 ) -> RotationOutcome:
@@ -500,7 +504,7 @@ def _evaluate_rotation_core(
                 detail=detail,
                 best_new=best_new,
                 weakest_held=weakest_held,
-                margin_pct=margin_pct,
+                noise_brake=noise_brake,
                 binding=binding,
             )
         )
@@ -542,7 +546,6 @@ def _evaluate_rotation_core(
                 held_score=None,
                 tier="ineligible_hold",
                 reasons=ineligible_held[held_symbol],
-                margin_pct=margin_pct,
                 ineligible_candidates=tuple((sym, ineligible_held[sym]) for sym in ordered),
             )
         )
@@ -589,12 +592,21 @@ def _evaluate_rotation_core(
             f"relative margin against a non-positive score is not a "
             f"meaningful comparison",
         )
-    if best_new.score < weakest_held.score * (1.0 + margin_pct):
+    # Owner decision 2026-10-15 (q07): the gap must EXCEED the desk's own
+    # measured score noise; unmeasured noise means no swap.
+    if noise_brake is None:
+        return _refuse(
+            "score_noise_unmeasured",
+            "the score-noise brake is unmeasured (no recorded pair of sessions "
+            "with no new evidence on a name), so no gap can be told apart from "
+            "scoring jitter and no swap is made",
+        )
+    if best_new.score - weakest_held.score <= noise_brake:
         return _refuse(
             "full_composite_margin_not_cleared",
-            f"{best_new.symbol} ({best_new.score:.4f}) does not clear "
-            f"{weakest_held.symbol} ({weakest_held.score:.4f}) by "
-            f"{margin_pct:.0%} on the full composite",
+            f"{best_new.symbol} ({best_new.score:.4f}) does not beat "
+            f"{weakest_held.symbol} ({weakest_held.score:.4f}) by more than "
+            f"the measured score noise {noise_brake:.4f} on the full composite",
         )
 
     # `docs/INCIDENT_HISTORY.md` 2026-09-14. The full composite is a
@@ -628,11 +640,12 @@ def _evaluate_rotation_core(
             f"shared seats ({', '.join(shared_seats)}); no relative margin "
             f"is meaningful against that",
         )
-    if new_shared < held_shared * (1.0 + margin_pct):
+    if new_shared - held_shared <= noise_brake:
         return _refuse(
             "shared_composite_margin_not_cleared",
-            f"{best_new.symbol} ({new_shared:.4f}) does not clear "
-            f"{weakest_held.symbol} ({held_shared:.4f}) by {margin_pct:.0%} "
+            f"{best_new.symbol} ({new_shared:.4f}) does not beat "
+            f"{weakest_held.symbol} ({held_shared:.4f}) by more than the "
+            f"measured score noise {noise_brake:.4f} "
             f"on the seats scoring both ({', '.join(shared_seats)}), though "
             f"it cleared on the full composite",
         )
@@ -644,7 +657,7 @@ def _evaluate_rotation_core(
             held_symbol=weakest_held.symbol,
             held_score=weakest_held.score,
             tier="ranked_margin",
-            margin_pct=margin_pct,
+            noise_brake=noise_brake,
             shared_seats=shared_seats,
             held_shared_score=round(held_shared, 4),
             new_shared_score=round(new_shared, 4),
@@ -658,7 +671,7 @@ def _describe_refusal(
     detail: str,
     best_new: RankedCandidate | None,
     weakest_held: RankedCandidate | None,
-    margin_pct: float,
+    noise_brake: float | None,
     binding: tuple[str, ...],
 ) -> RotationRefusal:
     """One refusal row with the comparison filled in as far as it exists.
@@ -707,8 +720,10 @@ def _describe_refusal(
         held_shared_score=held_shared,
         new_shared_score=new_shared,
         ratio=ratio,
-        margin_pct=margin_pct,
+        noise_brake=noise_brake,
         binding=binding,
+        held_evidence_key=evidence_key(weakest_held),
+        new_evidence_key=evidence_key(best_new),
     )
 
 

@@ -106,7 +106,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Rotation margin and seat weights; settled by measured ranking-score noise and each seat's forward discriminating power on public data.
 
-- `rotation.ROTATION_MARGIN_PCT` = 0.25
+- ~~`rotation.ROTATION_MARGIN_PCT` = 0.25~~ -- DELETED 2026-10-15 (owner decision q07): the stock-swap gap must now exceed the desk's own measured score noise, the largest score change on a name with no new evidence between two recorded sessions since the clean-record start; unmeasured means no swap. Nothing typed replaces it, so it has no ledger row. The tier stays switched off; a trading-cost brake follows the paper reset.
 - `verdicts.SEAT_WEIGHT['earnings']` = 1.2
 - `verdicts.SEAT_WEIGHT['macro']` = 0.8
 - `verdicts.SEAT_WEIGHT['smart_money']` = 0.8

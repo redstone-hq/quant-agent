@@ -341,11 +341,10 @@ execution:
   # src/pipeline_stages.py can mint.
   #
   # It stays false because item 39(a) is unanswered, not out of caution:
-  # ROTATION_MARGIN_PCT, the 25% score gap that decides when this tier
-  # fires at all, is recorded in config/number_ledger.yaml as `arbitrary` -
-  # "a round quarter percent with no source". Turning this on would make an
-  # unmeasured number the sole reason for selling a position whose thesis
-  # is intact, which this desk refuses everywhere else. docs/WORK.md item
+  # the swap brake was a typed 25% score gap with no source. Owner decision
+  # 2026-10-15: that brake is now the desk's own measured score noise (no
+  # swap while unmeasured), and this stays false until a trading-cost brake
+  # is added after the paper reset. docs/WORK.md item
   # 39(a) holds what has already been ruled out (do not repeat it) and
   # what would settle it. It is a research question, not an owner call.
   rotation_ranked_margin_enabled: false

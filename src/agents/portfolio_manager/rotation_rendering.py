@@ -51,6 +51,7 @@ class RotationSection:
         ceiling_pct: float,
         entry_budget_usd: float | None = None,
         min_risk_floor: MinRiskFloor | None = None,
+        score_noise_brake: float | None = None,
     ) -> RotationPrecheck:
         """Phase 14 — run the opportunity-cost comparison once and keep its
         inputs. `_render_rotation_section` renders this for the prompt;
@@ -110,6 +111,9 @@ class RotationSection:
             floor_pct=STARTER_POSITION_RISK_PCT,
             entry_budget_usd=entry_budget_usd,
             min_risk_floor=min_risk_floor,
+            # Owner decision 2026-10-15 (q07): the measured score noise;
+            # `None` = unmeasured, and the ranked-margin tier refuses.
+            noise_brake=score_noise_brake,
         )
         opportunity: RotationOpportunity | None = outcome.opportunity
         return RotationPrecheck(
@@ -297,9 +301,9 @@ class RotationSection:
                 f"{opportunity.held_symbol} is the weakest still-eligible "
                 f"held position (score {opportunity.held_score:.2f}). "
                 f"{opportunity.new_symbol} ranks {opportunity.new_score:.2f}, "
-                f"at least {opportunity.margin_pct:.0%} higher — a real "
-                "margin, not a noise-level difference (cross-sectional "
-                "replacement-rule convention; see src/rotation.py) — but "
+                f"more than {opportunity.noise_brake:.4f} higher — more than "
+                "the largest move the desk's own score has made on a name "
+                "with no new evidence, so not scoring noise — but "
                 "there is no room to buy it without freeing capital first."
             )
         if (
@@ -317,8 +321,8 @@ class RotationSection:
                 f"{opportunity.held_symbol} is "
                 f"{opportunity.held_shared_score:.2f} and "
                 f"{opportunity.new_symbol} is "
-                f"{opportunity.new_shared_score:.2f} — the same "
-                f"{opportunity.margin_pct:.0%} margin clears there too, so "
+                f"{opportunity.new_shared_score:.2f} — the gap beats the same "
+                f"measured score noise ({opportunity.noise_brake:.4f}) there too, so "
                 "this gap is not an artefact of coverage. Had it not, "
                 "nothing would have been surfaced."
             )
