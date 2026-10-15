@@ -221,7 +221,7 @@ def test_a_wider_stop_is_not_an_improvement(
     d = compute_deltas(
         symbol,
         prior={"distance_to_stop_pct": before, "stop_loss": stop_then, "current_price": px_then},
-        current={"distance_to_stop_pct": after, "stop_loss": stop_now, "current_price": px_now},
+        current={"atr_pct": 1.0, "distance_to_stop_pct": after, "stop_loss": stop_now, "current_price": px_now},
     )
     assert d.stop_driven == ["distance_to_stop_pct"]
     assert d.improved == []
@@ -237,7 +237,7 @@ def test_price_moving_away_from_a_fixed_stop_still_counts():
     d = compute_deltas(
         "AAA",
         prior={"distance_to_stop_pct": 2.0, "stop_loss": 98.0, "current_price": 100.0},
-        current={"distance_to_stop_pct": 8.9, "stop_loss": 98.0, "current_price": 107.6},
+        current={"atr_pct": 1.0, "distance_to_stop_pct": 8.9, "stop_loss": 98.0, "current_price": 107.6},
     )
     assert d.stop_driven == []
     assert d.improved == ["distance_to_stop_pct"]
@@ -251,7 +251,13 @@ def test_a_tightened_stop_still_reads_as_worsened():
     d = compute_deltas(
         "AAA",
         prior={"distance_to_stop_pct": 8.0, "r_multiple": 0.5, "stop_loss": 92.0, "current_price": 100.0},
-        current={"distance_to_stop_pct": 3.0, "r_multiple": 0.9, "stop_loss": 97.0, "current_price": 100.0},
+        current={
+            "atr_pct": 1.0,
+            "distance_to_stop_pct": 3.0,
+            "r_multiple": 0.9,
+            "stop_loss": 97.0,
+            "current_price": 100.0,
+        },
     )
     assert d.worsened == ["distance_to_stop_pct"]
     assert d.net_improved is False

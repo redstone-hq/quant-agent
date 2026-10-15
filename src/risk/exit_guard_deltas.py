@@ -73,14 +73,18 @@ _STOP_DEPENDENT_METRIC = "distance_to_stop_pct"
 #: short reviewed.
 _PROVENANCE_KEYS = ("stop_loss", "current_price", "qty")
 
-#: How much a metric must move before it counts as a real change rather than
-#: rounding noise. Expressed in each metric's own units.
-_NOISE_FLOOR = {
-    "thesis_progress_pct": 0.5,
-    "distance_to_stop_pct": 0.1,
-    "r_multiple": 0.05,
-    "pace": 0.05,
-}
+#: Metrics scored against the name's own 14-day Wilder ATR (owner ruling,
+#: 2026-10-15: a move smaller than one ATR is noise — a derived rule, not a
+#: chosen multiplier). Both are price measures, so one ATR of price is the
+#: noise band, expressed in each metric's own units by `MetricDeltas._floor`.
+_ATR_SCORED = ("distance_to_stop_pct", "r_multiple")
+
+#: Metrics shown but never scored improved/worsened. Both are measured
+#: against the AI-asserted progress target (`pace` is
+#: `thesis_progress_pct / time_fraction`), so no price noise band applies
+#: and none is invented for them (the deleted ledger rows' own DELETE
+#: outcome).
+_UNSCORED = ("thesis_progress_pct", "pace")
 
 
 def _finite(value: object) -> float | None:
@@ -106,10 +110,34 @@ class MetricDeltas:
     #: snapshot written before 2026-09-18, which is handled explicitly
     #: rather than guessed.
     provenance: dict[str, tuple[float, float]] = field(default_factory=dict)
+    #: The name's 14-day Wilder ATR as % of the CURRENT price, read from the
+    #: position facts (`atr_pct`, from `_atr_for_symbol`). None when bars
+    #: were unavailable — the ATR-scored metrics are then unscored, never
+    #: compared against a fallback constant.
+    atr_pct: float | None = None
 
     @property
     def has_prior(self) -> bool:
         return bool(self.changes)
+
+    def _floor(self, name: str) -> float | None:
+        """One ATR of price in `name`'s own units; None means unscored.
+
+        `distance_to_stop_pct` is % of price, so one ATR is `atr_pct`.
+        `r_multiple` is linear in price at fixed lots, so one ATR in R is
+        ATR x |dR / dPrice| over this snapshot pair; None when the pair
+        carries no price move to read that slope from.
+        """
+        if name not in _ATR_SCORED or self.atr_pct is None or self.atr_pct <= 0:
+            return None
+        if name == "distance_to_stop_pct":
+            return self.atr_pct
+        pair = self.changes.get(name)
+        prices = self.provenance.get("current_price")
+        if pair is None or prices is None or prices[1] <= 0 or prices[1] == prices[0]:
+            return None
+        atr_dollars = self.atr_pct / 100 * prices[1]
+        return atr_dollars * abs((pair[1] - pair[0]) / (prices[1] - prices[0]))
 
     def _distance_move_is_price_driven(self) -> bool | None:
         """Did `distance_to_stop_pct` improve because the PRICE moved?
@@ -123,8 +151,8 @@ class MetricDeltas:
 
         The test is the metric's own formula with the stop pinned to its
         prior value — an exact decomposition, not an estimate, and it
-        introduces no number: it reuses `_NOISE_FLOOR` exactly as
-        `improved` does. It must mirror
+        introduces no number: it reuses the one-ATR floor (`_floor`)
+        exactly as `improved` does. It must mirror
         `TradingPipeline._build_position_facts`'s side-aware formula
         exactly (2026-09-18 fix + follow-up), or it silently reproduces
         the pre-fix long-only arithmetic for every short reviewed —
@@ -167,7 +195,9 @@ class MetricDeltas:
         # PRIOR value; only price is let move, to isolate its contribution.
         numerator = (stop_then - price_now) if is_short else (price_now - stop_then)
         counterfactual = numerator / price_now * 100
-        floor = _NOISE_FLOOR.get(_STOP_DEPENDENT_METRIC, 0.0)
+        floor = self._floor(_STOP_DEPENDENT_METRIC)
+        if floor is None:
+            return None
         return counterfactual - pair[0] > floor
 
     @property
@@ -189,7 +219,8 @@ class MetricDeltas:
         if _STOP_DEPENDENT_METRIC not in self.changes:
             return []
         before, after = self.changes[_STOP_DEPENDENT_METRIC]
-        if after - before <= _NOISE_FLOOR.get(_STOP_DEPENDENT_METRIC, 0.0):
+        floor = self._floor(_STOP_DEPENDENT_METRIC)
+        if floor is None or after - before <= floor:
             return []  # not an apparent improvement at all
         return [] if self._distance_move_is_price_driven() else [_STOP_DEPENDENT_METRIC]
 
@@ -204,9 +235,10 @@ class MetricDeltas:
         excluded = set(self.stop_driven)
         out = []
         for name, (before, after) in self.changes.items():
-            if name not in _HIGHER_IS_BETTER or name in excluded:
+            floor = self._floor(name)
+            if floor is None or name in excluded:
                 continue
-            if after - before > _NOISE_FLOOR.get(name, 0.0):
+            if after - before > floor:
                 out.append(name)
         return sorted(out)
 
@@ -223,9 +255,10 @@ class MetricDeltas:
         """
         out = []
         for name, (before, after) in self.changes.items():
-            if name not in _HIGHER_IS_BETTER:
+            floor = self._floor(name)
+            if floor is None:
                 continue
-            if before - after > _NOISE_FLOOR.get(name, 0.0):
+            if before - after > floor:
                 out.append(name)
         return sorted(out)
 
@@ -249,8 +282,12 @@ class MetricDeltas:
             before, after = self.changes[name]
             arrow = "→"
             direction = ""
-            if name in _HIGHER_IS_BETTER:
-                floor = _NOISE_FLOOR.get(name, 0.0)
+            floor = self._floor(name)
+            if name in _UNSCORED:
+                direction = " (unscored: measured against the AI's own target)"
+            elif name in _HIGHER_IS_BETTER and floor is None:
+                direction = " (unscored, no ATR)"
+            elif name in _HIGHER_IS_BETTER:
                 if name in stop_driven:
                     # Never shown to the reviewer as "(improved)". It read
                     # that way on real 2026-09-01 snapshots for V, CMCSA
@@ -266,7 +303,7 @@ class MetricDeltas:
                 elif before - after > floor:
                     direction = " (worsened)"
                 else:
-                    direction = " (flat)"
+                    direction = " (flat, within one ATR)"
             bits.append(f"{name} {before:.2f} {arrow} {after:.2f}{direction}")
         stamp = f" since {self.prior_timestamp}" if self.prior_timestamp else ""
         return f"  {self.symbol}{stamp}: " + " | ".join(bits)
@@ -278,7 +315,11 @@ def compute_deltas(
     current: dict | None,
     prior_timestamp: str | None = None,
 ) -> MetricDeltas:
-    """Metric-by-metric change, skipping anything missing on either side."""
+    """Metric-by-metric change, skipping anything missing on either side.
+
+    `atr_pct` is read from `current` only — the live ATR is today's noise
+    band, and older snapshots never persisted it.
+    """
     changes: dict[str, tuple[float, float]] = {}
     provenance: dict[str, tuple[float, float]] = {}
     if prior and current:
@@ -303,6 +344,7 @@ def compute_deltas(
         changes=changes,
         prior_timestamp=prior_timestamp,
         provenance=provenance,
+        atr_pct=_finite((current or {}).get("atr_pct")),
     )
 
 

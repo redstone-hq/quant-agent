@@ -372,10 +372,17 @@ def test_deltas_detect_improvement():
     d = compute_deltas(
         "EPD",
         prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
-        current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2, "stop_loss": 24.0, "current_price": 25.32},
+        current={
+            "thesis_progress_pct": 20.0,
+            "distance_to_stop_pct": 5.2,
+            "stop_loss": 24.0,
+            "current_price": 25.32,
+            "atr_pct": 1.0,
+        },
     )
     assert d.has_prior
-    assert d.improved == ["distance_to_stop_pct", "thesis_progress_pct"]
+    # thesis progress is shown but never scored (measured against the AI's own target)
+    assert d.improved == ["distance_to_stop_pct"]
     assert d.stop_driven == []
     assert d.worsened == []
     assert d.net_improved is True
@@ -393,11 +400,11 @@ def test_distance_improvement_without_provenance_is_not_counted():
     """
     d = compute_deltas(
         "EPD",
-        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0},
-        current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2},
+        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
+        current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2, "atr_pct": 1.0},
     )
     assert d.stop_driven == ["distance_to_stop_pct"]
-    assert d.improved == ["thesis_progress_pct"]
+    assert d.improved == []
     assert "provenance unknown" in d.render()
 
 
@@ -412,7 +419,13 @@ def test_deltas_short_price_driven_improvement_still_counts():
     d = compute_deltas(
         "XYZ",
         prior={"distance_to_stop_pct": 10.0, "stop_loss": 110.0, "current_price": 100.0, "qty": -10.0},
-        current={"distance_to_stop_pct": 22.22, "stop_loss": 110.0, "current_price": 90.0, "qty": -10.0},
+        current={
+            "distance_to_stop_pct": 22.22,
+            "stop_loss": 110.0,
+            "current_price": 90.0,
+            "qty": -10.0,
+            "atr_pct": 1.0,
+        },
     )
     assert d.stop_driven == []
     assert d.improved == ["distance_to_stop_pct"]
@@ -432,7 +445,13 @@ def test_deltas_short_widened_stop_is_not_an_improvement():
     d = compute_deltas(
         "XYZ",
         prior={"distance_to_stop_pct": 10.0, "stop_loss": 110.0, "current_price": 100.0, "qty": -10.0},
-        current={"distance_to_stop_pct": 23.8, "stop_loss": 130.0, "current_price": 105.0, "qty": -10.0},
+        current={
+            "distance_to_stop_pct": 23.8,
+            "stop_loss": 130.0,
+            "current_price": 105.0,
+            "qty": -10.0,
+            "atr_pct": 1.0,
+        },
     )
     assert d.stop_driven == ["distance_to_stop_pct"]
     assert d.improved == []
@@ -443,9 +462,9 @@ def test_deltas_detect_deterioration():
     d = compute_deltas(
         "AAA",
         prior={"thesis_progress_pct": 40.0},
-        current={"thesis_progress_pct": 12.0},
+        current={"thesis_progress_pct": 12.0, "atr_pct": 1.0},
     )
-    assert d.worsened == ["thesis_progress_pct"]
+    assert d.worsened == []  # thesis progress is shown, never scored
     assert d.net_improved is False
 
 
@@ -455,9 +474,9 @@ def test_a_mixed_picture_is_not_net_improvement():
     d = compute_deltas(
         "AAA",
         prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 8.0},
-        current={"thesis_progress_pct": 22.0, "distance_to_stop_pct": 3.0},
+        current={"thesis_progress_pct": 22.0, "distance_to_stop_pct": 3.0, "atr_pct": 1.0},
     )
-    assert d.improved == ["thesis_progress_pct"]
+    assert d.improved == []  # thesis progress is never scored
     assert d.worsened == ["distance_to_stop_pct"]
     assert d.net_improved is False
 
@@ -514,8 +533,14 @@ def test_the_epd_defect_is_vetoed():
     had risen 16% -> 20% and distance-to-stop had improved."""
     d = compute_deltas(
         "EPD",
-        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0},
-        current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2},
+        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
+        current={
+            "thesis_progress_pct": 20.0,
+            "distance_to_stop_pct": 5.2,
+            "stop_loss": 24.0,
+            "current_price": 25.32,
+            "atr_pct": 1.0,
+        },
     )
     veto = veto_contradicted_exit("SELL", "stalled winner, not progressing", d)
     assert veto is not None
@@ -528,7 +553,7 @@ def test_an_exit_on_new_information_is_never_vetoed():
     authority (spec 3.8) and the guard must not touch it."""
     d = compute_deltas(
         "AAA",
-        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0},
+        prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
         current={"thesis_progress_pct": 30.0, "distance_to_stop_pct": 9.0},
     )
     assert (
@@ -583,17 +608,17 @@ def test_deltas_are_built_against_the_previous_run_not_this_one():
     pipeline = _pipeline()
     pipeline.db.get_prior_position_review_metrics.return_value = {
         "AAA": {
-            "evidence_json": '{"thesis_progress_pct": 16.0}',
+            "evidence_json": '{"distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0}',
             "timestamp": "2026-08-26 13:00:00",
         },
     }
     deltas = pipeline._build_review_metric_deltas(
-        {"AAA": {"thesis_progress_pct": 20.0}},
+        {"AAA": {"distance_to_stop_pct": 5.2, "stop_loss": 24.0, "current_price": 25.32, "atr_pct": 1.0}},
         run_id="midday-xyz",
     )
     pipeline.db.get_prior_position_review_metrics.assert_called_once()
     assert pipeline.db.get_prior_position_review_metrics.call_args.kwargs["exclude_run_id"] == "midday-xyz"
-    assert deltas["AAA"].improved == ["thesis_progress_pct"]
+    assert deltas["AAA"].improved == ["distance_to_stop_pct"]
 
 
 def test_unparseable_prior_snapshot_degrades_to_no_prior():
@@ -648,8 +673,14 @@ def test_reviewer_prompt_warns_about_positions_that_improved():
     deltas = {
         "EPD": compute_deltas(
             "EPD",
-            prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0},
-            current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2},
+            prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
+            current={
+                "thesis_progress_pct": 20.0,
+                "distance_to_stop_pct": 5.2,
+                "stop_loss": 24.0,
+                "current_price": 25.32,
+                "atr_pct": 1.0,
+            },
         ),
     }
     msg = agent.build_user_message(
@@ -707,8 +738,14 @@ def test_executor_drops_a_vetoed_sell_and_records_it():
     deltas = {
         "EPD": compute_deltas(
             "EPD",
-            prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0},
-            current={"thesis_progress_pct": 20.0, "distance_to_stop_pct": 5.2},
+            prior={"thesis_progress_pct": 16.0, "distance_to_stop_pct": 4.0, "stop_loss": 24.0, "current_price": 25.0},
+            current={
+                "thesis_progress_pct": 20.0,
+                "distance_to_stop_pct": 5.2,
+                "stop_loss": 24.0,
+                "current_price": 25.32,
+                "atr_pct": 1.0,
+            },
         ),
     }
     orders = pipeline._midday_execute_llm_actions(
