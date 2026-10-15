@@ -10,6 +10,7 @@ from typing import get_args
 from pydantic import ValidationError
 
 from src.agents.base import BaseAgent, AgentResult
+from src.models.macro import _rows_to_map
 from src.models import (
     NewsIntelligenceReport,
     StateChange,
@@ -531,7 +532,7 @@ Analyze all the above and produce your intelligence report as JSON."""
         # _drop_invalid_missed_opportunities (PR #73) and the
         # TechAnalyst.analyze_batch isolate-failures-by-symbol discipline.
         parsed = self._drop_invalid_state_changes(parsed)
-        parsed = self._drop_invalid_stock_news(parsed)
+        parsed, stock_news_reasons = self._quarantine_invalid_stock_news(parsed)
         # HEAL FIRST, DROP ONLY AS FALLBACK (docs/OUTCOME.md order). An
         # unreadable top-level field is a reason to ask the seat AGAIN, not
         # a reason to give up on the field: the desk has already paid for
@@ -588,7 +589,7 @@ Analyze all the above and produce your intelligence report as JSON."""
                 news_coverage=news_coverage,
                 _retry_used=True,
             )
-        report.unreadable_fields = unreadable_fields
+        report.unreadable_fields = {**unreadable_fields, **stock_news_reasons}
         report = self._filter_hallucinated_state_changes(
             report,
             news_text,
@@ -637,7 +638,7 @@ Analyze all the above and produce your intelligence report as JSON."""
         are this one field ("mixed" x4 on 2026-08-25/27/27/28,
         "mixed-to-bearish" on 2026-08-21), and each one discarded a whole
         otherwise-valid report. Same shape as
-        `_drop_invalid_state_changes` / `_drop_invalid_stock_news` and as the
+        `_drop_invalid_state_changes` / `_quarantine_invalid_stock_news` and as the
         technical seat's row-by-row salvage (#538): drop the unreadable unit,
         keep everything else.
 
@@ -762,66 +763,38 @@ Analyze all the above and produce your intelligence report as JSON."""
         return parsed
 
     @staticmethod
-    def _drop_invalid_stock_news(parsed: dict) -> dict:
-        """Pre-validate each StockNewsItem under each symbol bucket.
+    def _quarantine_invalid_stock_news(parsed: dict) -> tuple[dict, dict[str, str]]:
+        """Validate each StockNewsItem under each stock row.
 
-        `stock_news` is a dict[str, list[StockNewsItem]]. A single item
-        with an empty headline (the most common LLM glitch) currently
-        kills the whole NewsIntelligenceReport — including macro_narrative
-        and pm_briefing, which PM needs even if a single per-symbol
-        bullet is malformed. Drop bad items per-symbol. An explicit empty
-        list from the model (`"TICKER": []`) is kept: that is the uncovered
-        / incidental marker, not an omission. If the model emitted items
-        and every one was malformed, drop the key so `_find_dropped_news_symbols`
-        can flag the loss.
+        The provider enforces the row schema, but it cannot express "headline
+        not blank", so an item can still be invalid. One bad item must not
+        kill the report (macro_narrative, pm_briefing), so it is set aside
+        and the reason is returned PER STOCK for `unreadable_fields` — never
+        a log line alone (docs/OUTCOME.md). An explicit empty list is the
+        uncovered marker and is kept; a stock whose items were all invalid
+        loses its key so `_find_dropped_news_symbols` flags it.
         """
-        raw = parsed.get("stock_news")
-        if raw is None:
-            return parsed
+        if "stock_news" not in parsed:
+            return parsed, {}
+        raw = _rows_to_map(parsed["stock_news"], "symbol", "items")
         if not isinstance(raw, dict):
-            logger.warning(
-                "News analyst: stock_news is %s, not dict — replacing with {}",
-                type(raw).__name__,
-            )
-            parsed["stock_news"] = {}
-            return parsed
-        cleaned: dict[str, list[dict]] = {}
+            return {**parsed, "stock_news": {}}, {
+                "stock_news": f"answered {type(raw).__name__}, not a list of stock rows"
+            }
+        reasons: dict[str, str] = {}
+        cleaned: dict[str, list] = {}
         for sym, items in raw.items():
             if not isinstance(items, list):
-                logger.warning(
-                    "News analyst: stock_news[%s] is %s, not list — dropping",
-                    sym,
-                    type(items).__name__,
-                )
+                reasons[f"stock_news[{sym}]"] = f"items was {type(items).__name__}, not a list"
                 continue
-            valid: list[dict] = []
+            valid = []
             for i, item in enumerate(items):
-                if not isinstance(item, dict):
-                    logger.warning(
-                        "News analyst: dropping non-dict stock_news entry under %s at index %d: %r",
-                        sym,
-                        i,
-                        item,
-                    )
-                    continue
                 try:
-                    StockNewsItem(**item)
+                    StockNewsItem.model_validate(item)
                 except ValidationError as e:
-                    headline = (item.get("headline") or f"<idx {i}>")[:80]
-                    logger.warning(
-                        "News analyst: dropping malformed stock_news entry under %s (%s): %s",
-                        sym,
-                        headline,
-                        e,
-                    )
+                    reasons[f"stock_news[{sym}]"] = f"item {i} unreadable: {e.errors()[0]['msg']}"
                     continue
                 valid.append(item)
-            if valid:
+            if valid or not items:
                 cleaned[sym] = valid
-            elif not items:
-                # Model emitted an explicit empty list: shown, not
-                # decision-relevant, no headlines invented. Keep the key
-                # so this is distinct from omitting the symbol entirely.
-                cleaned[sym] = []
-        parsed["stock_news"] = cleaned
-        return parsed
+        return {**parsed, "stock_news": cleaned}, reasons

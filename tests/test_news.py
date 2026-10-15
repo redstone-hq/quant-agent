@@ -769,7 +769,7 @@ def test_drop_invalid_state_changes_strips_bad_conviction_keeps_rest():
     assert events == ["Fed signals pause", "ECB holds"]
 
 
-def test_drop_invalid_stock_news_strips_empty_headline_keeps_rest():
+def test_quarantine_invalid_stock_news_strips_empty_headline_keeps_rest():
     """Empty `headline` is the most likely LLM glitch — a `field_validator`
     rejects it, which used to fail the whole report. Now drops only that
     bullet under that symbol."""
@@ -782,7 +782,7 @@ def test_drop_invalid_stock_news_strips_empty_headline_keeps_rest():
         ],
         "AAPL": [_valid_stock_news_item("Services 76% margin")],
     }
-    out = NewsAnalystAgent._drop_invalid_stock_news(parsed)
+    out, _ = NewsAnalystAgent._quarantine_invalid_stock_news(parsed)
     assert len(out["stock_news"]["NVDA"]) == 2
     assert all(item["headline"].strip() for item in out["stock_news"]["NVDA"])
     assert len(out["stock_news"]["AAPL"]) == 1
@@ -830,7 +830,7 @@ def test_state_change_symbol_direction_defaults_to_empty():
     assert sc.symbol_direction == {}
 
 
-def test_drop_invalid_stock_news_keeps_explicit_empty_list():
+def test_quarantine_invalid_stock_news_keeps_explicit_empty_list():
     """An explicit `"GOOGL": []` from the model is the uncovered marker
     and must survive cleaning — dropping the key would make it
     indistinguishable from an omitted symbol."""
@@ -839,12 +839,12 @@ def test_drop_invalid_stock_news_keeps_explicit_empty_list():
         "NVDA": [_valid_stock_news_item("real")],
         "GOOGL": [],
     }
-    out = NewsAnalystAgent._drop_invalid_stock_news(parsed)
+    out, _ = NewsAnalystAgent._quarantine_invalid_stock_news(parsed)
     assert out["stock_news"]["NVDA"]
     assert out["stock_news"]["GOOGL"] == []
 
 
-def test_drop_invalid_stock_news_drops_symbol_when_all_items_bad():
+def test_quarantine_invalid_stock_news_drops_symbol_when_all_items_bad():
     """If every bullet under a symbol is malformed, drop the symbol key
     entirely so PM doesn't see an empty list and infer 'no news' (which
     would be misleading vs. 'we got news but it was unparseable')."""
@@ -853,9 +853,10 @@ def test_drop_invalid_stock_news_drops_symbol_when_all_items_bad():
         "NVDA": [_valid_stock_news_item("real")],
         "GOOGL": [{**_valid_stock_news_item(), "headline": ""}],
     }
-    out = NewsAnalystAgent._drop_invalid_stock_news(parsed)
+    out, reasons = NewsAnalystAgent._quarantine_invalid_stock_news(parsed)
     assert "NVDA" in out["stock_news"]
     assert "GOOGL" not in out["stock_news"]
+    assert "headline" in reasons["stock_news[GOOGL]"], "the loss is named per stock, not only logged"
 
 
 def test_news_report_constructs_after_dropping_bad_subitems():
@@ -875,7 +876,7 @@ def test_news_report_constructs_after_dropping_bad_subitems():
             {**_valid_stock_news_item(), "headline": ""},
         ],
     }
-    cleaned = NewsAnalystAgent._drop_invalid_stock_news(NewsAnalystAgent._drop_invalid_state_changes(parsed))
+    cleaned = NewsAnalystAgent._quarantine_invalid_stock_news(NewsAnalystAgent._drop_invalid_state_changes(parsed))[0]
     report = NewsIntelligenceReport(**cleaned)
     assert report.pm_briefing.startswith("Quiet tape")
     assert len(report.state_changes) == 1
@@ -889,10 +890,10 @@ def test_drop_invalid_state_changes_handles_non_list_shape():
     assert out["state_changes"] == []
 
 
-def test_drop_invalid_stock_news_handles_non_dict_shape():
+def test_quarantine_invalid_stock_news_handles_non_dict_shape():
     parsed = _valid_news_json()
     parsed["stock_news"] = "oops not a dict"
-    out = NewsAnalystAgent._drop_invalid_stock_news(parsed)
+    out, _ = NewsAnalystAgent._quarantine_invalid_stock_news(parsed)
     assert out["stock_news"] == {}
 
 

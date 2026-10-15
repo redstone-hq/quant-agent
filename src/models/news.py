@@ -10,7 +10,23 @@ from src.models.analysis import (
     VerdictEvidence,
     _sanitize_nominations_field,
 )
-from src.models.macro import MacroNarrative
+from src.models.macro import MacroNarrative, _AsWireRows, _rows_to_map
+
+
+class SymbolDirectionRow(LLMOutputModel):
+    """Wire shape of one `symbol_direction` entry: the AI fills a list of
+    these (a strict schema cannot express a ticker-keyed map)."""
+
+    symbol: str
+    direction: Literal["bullish", "bearish", "neutral"]
+
+
+class StockNewsRow(LLMOutputModel):
+    """Wire shape of one `stock_news` entry: one row per stock. An empty
+    `items` list is the explicit "shown, nothing to report" marker."""
+
+    symbol: str
+    items: list["StockNewsItem"]
 
 
 class StateChange(LLMOutputModel):
@@ -37,12 +53,16 @@ class StateChange(LLMOutputModel):
     # change` (src/agents/portfolio_manager.py) treats that the same as
     # an explicit "neutral": it does not qualify for the sub-floor
     # catalyst exception. Fail closed, matching the rest of that gate.
-    symbol_direction: dict[str, Literal["bullish", "bearish", "neutral"]] = {}
+    symbol_direction: Annotated[
+        dict[str, Literal["bullish", "bearish", "neutral"]], _AsWireRows(SymbolDirectionRow)
+    ] = {}
 
     @model_validator(mode="before")
     @classmethod
     def _normalize_enum_case(cls, values):
         values = _normalize_enum_case_fields(values, lower_fields=("conviction",))
+        if isinstance(values, dict) and "symbol_direction" in values:
+            values = {**values, "symbol_direction": _rows_to_map(values["symbol_direction"], "symbol", "direction")}
         if isinstance(values, dict):
             raw = values.get("symbol_direction")
             if isinstance(raw, dict):
@@ -255,7 +275,7 @@ def news_verdict_for_symbol(symbol: str, items: list["StockNewsItem"]) -> "Analy
 class NewsIntelligenceReport(LLMOutputModel):
     macro_narrative: MacroNarrative
     state_changes: list[StateChange] = []
-    stock_news: dict[str, list[StockNewsItem]] = {}
+    stock_news: Annotated[dict[str, list[StockNewsItem]], _AsWireRows(StockNewsRow)] = {}
     pm_briefing: str
     # OPTIONAL SINCE 2026-09-26 (board item 152) — and `None` here means
     # ABSENT, never "neutral". Measured against the retained production logs:
@@ -319,13 +339,9 @@ class NewsIntelligenceReport(LLMOutputModel):
         required. Python stays tolerant; the model is still told the field
         is mandatory and still told the only three legal words.
 
-        (The news answer cannot use `strict: true` at all — `stock_news` is
-        a ticker-keyed free-form map, which strict mode cannot express; see
-        `_response_format_for` in `src/agents/base.py` and the 2026-09-14
-        rejection recorded there. That is why this field is quarantined
-        after the fact rather than prevented at source the way the technical
-        seat's wrapper-object schema prevents its own, and it is a property
-        of the answer's SHAPE, not something this change can fix.)
+        (`stock_news` is asked for as a list of per-stock rows, so the
+        schema is strict-able; `_rows_to_map` turns the rows back into the
+        map. Python stays tolerant of this field; the wire does not.)
         """
         schema = handler(core_schema)
         props = schema.get("properties")
@@ -384,10 +400,13 @@ class NewsIntelligenceReport(LLMOutputModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_enum_case(cls, values):
-        return _normalize_enum_case_fields(
+        values = _normalize_enum_case_fields(
             values,
             lower_fields=("market_sentiment", "confidence"),
         )
+        if isinstance(values, dict) and "stock_news" in values:
+            values = {**values, "stock_news": _rows_to_map(values["stock_news"], "symbol", "items")}
+        return values
 
     @model_validator(mode="before")
     @classmethod
