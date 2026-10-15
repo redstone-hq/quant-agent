@@ -1,7 +1,7 @@
 """The answer schema holds end to end, so answer text is never patched.
 
 (a) OpenRouter may only route a schema call to an endpoint that honours it.
-(b) The news seat's schema is strict (blocked — see the xfail reason).
+(b) The news seat's schema is strict.
 (c) An answer that is not JSON gets one re-ask, then a per-symbol refusal.
 (d) A schema seat is never answered by a backup rung that cannot take it.
 """
@@ -30,11 +30,6 @@ def test_openrouter_requires_every_parameter_alongside_the_schema(order):
         assert body["provider"]["order"] == order, "the endpoint preference must survive"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="stock_news and symbol_direction are free-form maps, which strict mode cannot express; "
-    "the fix changes the answer shape, which the news seat's own pre-validation and prompt must follow",
-)
 def test_the_news_seat_schema_is_strict():
     from src.agents.llm_schema import _response_format_for
     from src.models.news import NewsIntelligenceReport
