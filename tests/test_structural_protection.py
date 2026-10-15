@@ -12,7 +12,7 @@ never by elapsed time. Priority order tested below:
   2. Absent/unparseable (1): the verified structural level backing the
      stop — level IDENTIFICATION uses the same touch-count/zone rule as
      `PortfolioConstructor._level_backing_stop` (any touch count, and
-     the stop falling inside the level's own `CLUSTER_TOLERANCE_PCT`
+     the stop falling inside the level's own measured zone
      zone), no new constant introduced.
   3. Neither resolves (or no data to read either): NOT protected (owner
      mandate 2026-10-09: cut losers fast; the protective stop bounds every
@@ -42,22 +42,12 @@ Every number below is hand-computed against the real formulas in
 `src/risk/exit_guard.py`, never guessed.
 """
 
-from src.data.levels import CLUSTER_TOLERANCE_PCT
 from src.risk.exit_guard import (
     BREAK_CONFIRMATION_ATR_MULTIPLE,
     check_structural_protection,
     level_zone_span_phrase,
     structural_protection_broken,
 )
-
-# Level IDENTIFICATION only, and NOT a tunable: this is
-# `src.data.levels.CLUSTER_TOLERANCE_PCT`, the same constant
-# `find_structural_levels` uses to cluster pivots into a zone, imported here
-# rather than restated so the test cannot pass against a stale copy. It
-# replaced a 0.25-ATR multiple on 2026-09-13 (docs/WORK.md item 46) — see
-# `tests/test_level_match_zone.py` for why an ATR multiple could never stay
-# consistent with a percentage-of-price zone.
-ZONE_PCT = CLUSTER_TOLERANCE_PCT
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +67,6 @@ def test_thesis_invalid_if_triggered_two_consecutive_closes_lifts_protection():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=True,  # yesterday's close was ALSO below MA20
     )
@@ -91,7 +80,6 @@ def test_thesis_invalid_if_triggered_two_consecutive_closes_lifts_protection():
             entry_price=100.0,
             stop_loss=90.0,
             atr=2.0,
-            level_cluster_tolerance_pct=ZONE_PCT,
             ma_20=98.0,
             break_seen_prior_close=True,
         )
@@ -108,7 +96,6 @@ def test_thesis_invalid_if_triggered_single_close_stays_protected():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=False,  # no prior confirming close on record
     )
@@ -128,7 +115,6 @@ def test_spring_reversal_the_next_day_does_not_lift_protection():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=False,
     )
@@ -141,7 +127,6 @@ def test_spring_reversal_the_next_day_does_not_lift_protection():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=day1.raw_broken,
     )
@@ -155,7 +140,6 @@ def test_spring_reversal_the_next_day_does_not_lift_protection():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=day2.raw_broken,  # False -> resets
     )
@@ -173,7 +157,6 @@ def test_thesis_invalid_if_not_triggered_stays_protected_indefinitely():
         entry_price=100.0,
         stop_loss=90.0,
         atr=2.0,
-        level_cluster_tolerance_pct=ZONE_PCT,
         ma_20=98.0,
         break_seen_prior_close=True,  # even a stale confirmed break can't matter here
     )
@@ -209,7 +192,6 @@ def test_structural_level_broken_two_consecutive_closes_lifts_protection():
         # traded 90.0-90.6, and the 90.00 stop sits inside that session's own
         # range — the level cannot be taken out without the stop being hit.
         computed_level_bars={90.3: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=True,
     )
     assert result.raw_broken is True
@@ -232,7 +214,6 @@ def test_structural_level_broken_single_close_stays_protected():
         # traded 90.0-90.6, and the 90.00 stop sits inside that session's own
         # range — the level cannot be taken out without the stop being hit.
         computed_level_bars={90.3: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=False,
     )
     assert result.raw_broken is True
@@ -263,7 +244,6 @@ def test_small_close_below_level_within_break_margin_is_not_a_break():
         # traded 90.0-90.6, and the 90.00 stop sits inside that session's own
         # range — the level cannot be taken out without the stop being hit.
         computed_level_bars={90.3: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=True,  # even a stale prior break can't matter — not broken now
     )
     assert result.raw_broken is False
@@ -288,7 +268,6 @@ def test_structural_level_intact_stays_protected_at_30_days_equivalent():
         # traded 90.0-90.6, and the 90.00 stop sits inside that session's own
         # range — the level cannot be taken out without the stop being hit.
         computed_level_bars={90.3: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=False,
     )
     assert result.protected is True
@@ -309,7 +288,6 @@ def test_structural_level_broken_short_side_mirrors_long():
         computed_levels=[109.8],
         computed_level_touches={109.8: 6},
         computed_level_bars={109.8: [(109.4, 110.0)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=True,
     )
     assert result.protected is False
@@ -333,7 +311,6 @@ def test_unparseable_thesis_falls_back_to_structural_level():
         # traded 90.0-90.6, and the 90.00 stop sits inside that session's own
         # range — the level cannot be taken out without the stop being hit.
         computed_level_bars={90.3: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=ZONE_PCT,
         break_seen_prior_close=True,
     )
     assert result.basis == "structural_level_broken"
@@ -355,7 +332,6 @@ def _no_basis(**over):
         atr=2.0,
         computed_levels=[],
         computed_level_touches={},
-        level_cluster_tolerance_pct=ZONE_PCT,
     )
     kwargs.update(over)
     return check_structural_protection(**kwargs)
@@ -430,7 +406,6 @@ def test_confirmed_chart_break_is_recorded_only_on_a_confirmed_break():
             computed_level_touches={95.0: 5},
             computed_level_zones={95.0: [94.5, 95.5]},
             computed_level_bars={95.0: [(94.5, 95.5)]},
-            level_cluster_tolerance_pct=1.0,
         ).confirmed_chart_break
         is False
     )
@@ -450,7 +425,6 @@ def _intact_check(**over):
         computed_level_touches={95.0: 5},
         computed_level_zones={95.0: [94.5, 95.5]},
         computed_level_bars={95.0: [(94.5, 95.5)]},
-        level_cluster_tolerance_pct=1.0,
     )
     kwargs.update(over)
     return check_structural_protection(**kwargs)

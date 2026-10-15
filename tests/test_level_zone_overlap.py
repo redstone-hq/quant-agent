@@ -12,7 +12,6 @@ import math
 import pytest
 
 from src.data.levels import (
-    CLUSTER_TOLERANCE_PCT_FALLBACK,
     _cluster,
     cluster_span,
     level_zone_halfwidth,
@@ -90,31 +89,32 @@ def test_complete_linkage_holds_whatever_order_the_pivots_arrive_in():
 def test_zone_halfwidth_is_read_off_the_span_not_a_percentage():
     hw = level_zone_halfwidth(100.0, zone_low=96.0, zone_high=103.0)
     assert hw == pytest.approx(4.0), "the furthest edge of the level's own band"
-    assert hw != pytest.approx(100.0 * CLUSTER_TOLERANCE_PCT_FALLBACK / 100.0)
 
 
-def test_no_zone_falls_back_to_todays_behaviour():
-    """FAIL CLOSED. A bare price keeps the old bound, never a zero zone."""
-    expected = 200.0 * CLUSTER_TOLERANCE_PCT_FALLBACK / 100.0
-    assert level_zone_halfwidth(200.0) == pytest.approx(expected)
-    assert level_zone_halfwidth(200.0, zone_low=None, zone_high=None) == pytest.approx(expected)
+def test_no_zone_uses_one_atr_or_nothing():
+    """No measured zone: one 14-day ATR if known, else no zone (fail closed)."""
+    assert level_zone_halfwidth(200.0, atr=3.5) == pytest.approx(3.5)
+    assert level_zone_halfwidth(200.0) == 0.0
+    assert level_zone_halfwidth(200.0, zone_low=None, zone_high=None) == 0.0
     # Unusable bounds are the same case, not a narrower zone.
-    assert level_zone_halfwidth(200.0, zone_low=float("nan"), zone_high=210.0) == pytest.approx(expected)
-    assert level_zone_halfwidth(200.0, zone_low=210.0, zone_high=190.0) == pytest.approx(expected)
+    assert level_zone_halfwidth(200.0, zone_low=float("nan"), zone_high=210.0) == 0.0
+    assert level_zone_halfwidth(200.0, zone_low=210.0, zone_high=190.0) == 0.0
     # A zero-range bar cannot bound a match either.
-    assert level_zone_halfwidth(200.0, zone_low=200.0, zone_high=200.0) == pytest.approx(expected)
+    assert level_zone_halfwidth(200.0, zone_low=200.0, zone_high=200.0) == 0.0
 
 
-def test_unevaluable_range_falls_back_to_the_percentage_rule():
-    """A pivot whose bar range is not a number still gets grouped, not dropped."""
+def test_unevaluable_range_joins_within_one_atr_else_is_dropped():
+    """A pivot whose bar range is not a number joins within one 14-day ATR
+    of every member; with no ATR it is dropped, never placed by a percentage."""
     nan = float("nan")
     a = pivot(0, 100.0, "S", 99.9, 100.1)
-    b = pivot(9, 100.5, "R", nan, nan)  # within the old 1% of 100.0
+    b = pivot(9, 100.5, "R", nan, nan)  # within one ATR (2.0) of 100.0
     c = pivot(18, 140.0, "R", nan, nan)  # far outside it
-    groups = _cluster([a, b, c])
+    groups = _cluster([a, b, c], 2.0)
     assert len(groups) == 2
-    assert b in groups[0], "unmeasurable range keeps yesterday's answer"
+    assert b in groups[0]
     assert c not in groups[0]
+    assert _cluster([a, b, c]) == [[a]]
 
 
 def test_cluster_span_is_none_when_nothing_is_measurable():

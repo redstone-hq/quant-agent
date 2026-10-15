@@ -74,7 +74,6 @@ class TargetRevision:
         """
         from src.data.levels import (
             BREAKOUT_PROJECTION_ATR_MULTIPLE,
-            CLUSTER_TOLERANCE_PCT,
             COVERAGE_UNKNOWN,
             MAX_HORIZON_SESSIONS,
             MAX_REACH_ATR_MULTIPLE,
@@ -245,6 +244,7 @@ class TargetRevision:
                 # the price fed to a break test is the latest COMPLETED DAILY
                 # CLOSE, never a live quote.
                 levels: list[float] = []
+                level_zones: dict[float, tuple] = {}
                 atr = close_price = bar_date = None
                 coverage = None
                 try:
@@ -275,6 +275,7 @@ class TargetRevision:
                         atr = compute_indicators(sym, bars).atr_14
                         supports, resistances = find_structural_levels(bars)
                         levels = sorted(lv.price for lv in (*supports, *resistances))
+                        level_zones = {lv.price: (lv.zone_low, lv.zone_high) for lv in (*supports, *resistances)}
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "target revision: bars/indicator fetch failed for %s (%s) "
@@ -295,9 +296,10 @@ class TargetRevision:
                 target_level = level_backing_target(
                     stored_target=stored_target,
                     computed_levels=levels,
-                    # NOT a knob — the exact constant `find_structural_levels`
-                    # clustered these zones with (docs/WORK.md item 46).
-                    level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
+                    # Each level's own measured zone; one 14-day ATR where a
+                    # level has none. No percentage (docs/NUMBER_TRIAGE.md).
+                    computed_level_zones=level_zones,
+                    atr=atr,
                 )
 
                 # Cross-day confirmation, keyed off THIS READ's own bar_date so

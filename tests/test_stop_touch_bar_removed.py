@@ -10,7 +10,6 @@ stop, the no-volatility structural anchor, and the exit guard.
 
 from __future__ import annotations
 
-from src.data.levels import CLUSTER_TOLERANCE_PCT
 from src.models import TargetPosition, TechAnalysisResult, TechReasoningChain
 from src.portfolio_constructor import STOP_RULE_STRUCTURAL_NO_ATR, ConstructorConfig, PortfolioConstructor
 from src.portfolio_constructor.stops import StopRules
@@ -85,7 +84,6 @@ def test_the_exit_guard_treats_a_two_touch_level_as_backing_the_stop() -> None:
         computed_levels=[LEVEL],
         computed_level_touches={LEVEL: 2},
         computed_level_bars={LEVEL: [(94.90, 95.40)]},
-        level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     assert check.basis == "structural_level_intact"
     assert check.protected is True

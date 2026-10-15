@@ -456,6 +456,7 @@ class StopRules:
             computed_levels=getattr(analysis, "computed_levels", None),
             computed_level_touches=getattr(analysis, "computed_level_touches", None),
             is_short=is_short,
+            computed_level_bars=getattr(analysis, "computed_level_bars", None),
         )
         # The ATR precondition `shipped_stop_rule` applies is an EXEMPTION
         # question, not a structure question, so it is recorded rather than

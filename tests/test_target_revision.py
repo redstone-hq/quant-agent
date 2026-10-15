@@ -34,7 +34,7 @@ import re
 
 import pytest
 
-from src.data.levels import CLUSTER_TOLERANCE_PCT, COVERAGE_MEASURED
+from src.data.levels import COVERAGE_MEASURED
 from src.models import TargetRevisionFlag
 from tests.pipeline_factory import build_pipeline
 from src.risk import target_revision as tr
@@ -597,14 +597,13 @@ def test_a_measured_move_target_has_no_level_to_break():
         tr.level_backing_target(
             stored_target=110.0,
             computed_levels=[95.0, 128.0],
-            level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
         )
         is None
     )
     assert tr.level_backing_target(
         stored_target=110.0,
         computed_levels=[95.0, 110.2, 128.0],
-        level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
+        computed_level_zones={110.2: (109.8, 110.6)},
     ) == pytest.approx(110.2)
 
 

@@ -21,7 +21,6 @@ from src.portfolio_constructor import (
 )
 from src.data.levels import (
     describe_stop_level_basis,
-    level_zone_halfwidth,
 )
 from src.data.technical import ATR_PERIOD
 from src.storage.db import Database, _categorize_exit_reason
@@ -204,6 +203,7 @@ def _basis(**over):
         entry_price=100.0,
         computed_levels=[95.0, 110.0],
         computed_level_touches={95.0: 3},
+        computed_level_bars={95.0: [(94.0, 96.0)]},
     )
     record.update(over)
     return json.dumps(record, sort_keys=True)
@@ -216,6 +216,7 @@ def test_stop_level_basis_records_the_level_identity_not_a_verdict():
         entry_price=100.0,
         computed_levels=[95.0, 110.0],
         computed_level_touches={95.0: 3},
+        computed_level_bars={95.0: [(94.0, 96.0)]},
     )
     assert record["level_backed"] is True
     assert record["level_price"] == pytest.approx(95.0)
@@ -229,7 +230,7 @@ def test_stop_level_basis_records_the_level_identity_not_a_verdict():
     assert record["pivot_atr_period"] == ATR_PERIOD
     assert "pivot_window_bars" not in record and "pivot_confirm_bars" not in record
     # The zone, read off the live definition rather than restated here.
-    half = level_zone_halfwidth(95.0)
+    half = 1.0  # measured span 94-96
     assert record["zone_low"] == pytest.approx(95.0 - half)
     assert record["zone_high"] == pytest.approx(95.0 + half)
     assert record["zone_width"] == pytest.approx(half * 2)
@@ -296,7 +297,7 @@ def test_what_price_did_to_the_level_is_stored_as_raw_distances(db):
     respected, pierced or broken against a cutoff IT states — none is baked
     in here.
     """
-    half = level_zone_halfwidth(95.0)
+    half = 1.0  # measured span 94-96
     trade_id = db.insert_trade(
         symbol="BBB",
         action="BUY",
@@ -343,7 +344,7 @@ def test_a_level_never_reached_records_no_penetration(db):
     db.sync_positions([])
     row = _row(db, trade_id)
     assert row["level_max_penetration"] is None
-    assert row["level_closest_approach"] == pytest.approx(104.0 - (95.0 + level_zone_halfwidth(95.0)))
+    assert row["level_closest_approach"] == pytest.approx(104.0 - (95.0 + 1.0))  # measured span 94-96
 
 
 def test_a_trade_with_no_level_record_keeps_both_distances_null(db):
