@@ -20,7 +20,6 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     FAULT_STALE_PRICE,
     ONLY_STALE,
     PortfolioManagerAgent,
-    REWARD_RISK_FLOOR,
     RunContext,
     SOFT_EXIT_MISSING_AFTER_RETRY,
     STARTER_POSITION_RISK_PCT,
@@ -367,12 +366,7 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         | set(ctx.admitted_symbols),
         transient_admitted_symbols=set(ctx.admitted_symbols),
         # The unmeasurable-payoff gate reads the SAME starter size the
-        # risk budget will actually grant. `rr_floor` is retired as a
-        # size/refuse threshold (owner 2026-09-17) and is still threaded
-        # so existing callers/tests do not silently re-default a number
-        # that must not decide size. No settings key backs it any more
-        # (board item 81) — it is always the historical constant.
-        rr_floor=float(REWARD_RISK_FLOOR),
+        # risk budget will actually grant.
         starter_risk_pct=float(
             getattr(
                 pipeline.config.risk,

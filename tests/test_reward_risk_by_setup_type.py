@@ -192,7 +192,6 @@ def test_a_breakout_is_exempt_from_the_pm_subfloor_gate_entirely():
         positions=[],
         total_value=EQUITY,
         active_state_changes="",
-        rr_floor=1.5,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol={"AAA": 0.4},
     )
@@ -213,7 +212,6 @@ def test_a_range_trade_on_the_same_numbers_is_not_size_capped_either():
         positions=[],
         total_value=EQUITY,
         active_state_changes="",
-        rr_floor=1.5,
         starter_risk_pct=STARTER_POSITION_RISK_PCT,
         real_reward_risk_by_symbol={"AAA": 0.4},
     )

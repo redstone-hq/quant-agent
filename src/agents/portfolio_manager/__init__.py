@@ -29,7 +29,6 @@ from src.models import (
 from src.data.news_store import ACTIVE_STATE_CHANGE_WINDOW_DAYS
 from src.quantities import collapse_stances
 from src.risk.constants import (
-    REWARD_RISK_FLOOR,
     STARTER_POSITION_RISK_PCT,
     reward_risk_floor_applies,
 )
@@ -361,7 +360,6 @@ class PortfolioManagerAgent(
             positions=positions,
             allowed_buy_symbols=set(allowed_buy_symbols),
             active_state_changes=kwargs.get("active_state_changes") or "",
-            rr_floor=float(kwargs.get("rr_floor", REWARD_RISK_FLOOR)),
             news_intel=news_intel,
             macro_analysis=macro_analysis,
             earnings_analyses=earnings_analyses,
@@ -1319,12 +1317,11 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         session_type: str = "morning",
         allowed_buy_symbols: set[str] | None = None,
         transient_admitted_symbols: set[str] | None = None,
-        # The sub-floor catalyst gate's two thresholds. Defaults are
+        # The sub-floor catalyst gate's threshold. Its default is
         # the shared constants `RiskConfig` itself defaults to, so a
         # caller that does not thread config (the model-policy
         # harness, most tests) gates on exactly the production
         # numbers rather than on a second opinion about them.
-        rr_floor: float = REWARD_RISK_FLOOR,
         starter_risk_pct: float = STARTER_POSITION_RISK_PCT,
         # Phase 14 (opportunity-cost rotation): the EXISTING book's
         # per-symbol risk (before anything this session proposes) and
@@ -1415,7 +1412,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             # Phase 13: the candidate ranking shown in the prompt gates on
             # the same floor `_apply_subfloor_catalyst_rule` enforces after
             # submission, so the PM is ranked on the rule it is held to.
-            rr_floor=rr_floor,
             # Phase 14: opportunity-cost rotation pre-check inputs.
             existing_risk_pct=existing_risk_pct,
             max_portfolio_risk_pct=max_portfolio_risk_pct,
@@ -1514,7 +1510,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
                 positions=positions,
                 total_value=total_value,
                 active_state_changes=active_state_changes,
-                rr_floor=rr_floor,
                 starter_risk_pct=starter_risk_pct,
                 real_reward_risk_by_symbol=real_reward_risk_by_symbol,
                 existing_risk_pct=existing_risk_pct,
@@ -1630,7 +1625,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
                         positions=positions,
                         total_value=total_value,
                         active_state_changes=active_state_changes,
-                        rr_floor=rr_floor,
                         starter_risk_pct=starter_risk_pct,
                         real_reward_risk_by_symbol=real_reward_risk_by_symbol,
                         existing_risk_pct=existing_risk_pct,

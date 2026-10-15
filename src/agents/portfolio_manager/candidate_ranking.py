@@ -16,7 +16,6 @@ from src.models import (
     TechAnalysisResult,
     news_verdict_for_symbol,
 )
-from src.risk.constants import REWARD_RISK_FLOOR
 from src.risk.rules import own_bar_block_reason, own_bar_opposition_reason, signed_source_score
 from src.verdicts import RankedCandidate, rank_verdicts
 
@@ -92,7 +91,6 @@ class CandidateRanking:
         non_corroborating_sources: dict[str, set[str]] | None = None,
         allowed_buy_symbols: set[str] | None,
         active_state_changes: str,
-        rr_floor: float = REWARD_RISK_FLOOR,
         asof: date | None = None,
         real_reward_risk_by_symbol: dict[str, float | None] | None = None,
         constructor_refusals_by_symbol: dict[str, dict[str, str]] | None = None,
@@ -112,12 +110,11 @@ class CandidateRanking:
               holding's direction (owner Option A, 14 Oct 2026)
           R3  a long must be in the BUY-eligible set — the same set
               `validate_grounding` refuses increases outside of
-          R4  **retired 2026-09-17.** Used to read "R/R ≥ `rr_floor`", then
-              "R/R must be measurable or a catalyst row names the symbol".
-              Neither is a block. A range ratio, including None, is ranking
-              information. A breakout is not measured on reward:risk. The
-              `rr_floor` argument is accepted and ignored so callers do not
-              silently re-default a retired number. Catalyst is not an
+          R4  **retired 2026-09-17.** Used to read "R/R at or above a floor",
+              then "R/R must be measurable or a catalyst row names the
+              symbol". Neither is a block. A range ratio, including None, is
+              ranking information. A breakout is not measured on
+              reward:risk. The floor argument is deleted. Catalyst is not an
               admission door.
           R5  net independent source score ≥ 1 for the proposed direction
               (`signed_source_score`; §9.4 refuses net ≤ 0 outright —
@@ -161,7 +158,7 @@ class CandidateRanking:
         `PortfolioConstructor` instance to hand); production always
         supplies it.
         """
-        _ = (active_state_changes, asof, rr_floor, real_reward_risk_by_symbol)
+        _ = (active_state_changes, asof, real_reward_risk_by_symbol)
         allowed = {str(s).strip().upper() for s in (allowed_buy_symbols or set()) if str(s).strip()}
         stale = stale_sources or {}
         # Item 109: a macro stance broadcast onto a name whose sector this
@@ -188,7 +185,7 @@ class CandidateRanking:
                 blocked.append("R3 not BUY-eligible")
             # R4 is retired. Reward:risk — computed, thin, or unmeasurable —
             # does not admit or refuse. Ranking still consumes the number
-            # when it exists. `rr_floor` and catalyst rows are not a door.
+            # when it exists. Catalyst rows are not a door.
             sources = evidence_registry.get(symbol, {})
             net = (
                 signed_source_score(
@@ -437,7 +434,6 @@ class CandidateRanking:
         non_corroborating_sources: dict[str, set[str]] | None = None,
         allowed_buy_symbols: set[str] | None,
         active_state_changes: str,
-        rr_floor: float = REWARD_RISK_FLOOR,
         asof: date | None = None,
         news_intel: "NewsIntelligenceReport | None" = None,
         macro_analysis: dict | None = None,
@@ -479,7 +475,6 @@ class CandidateRanking:
             non_corroborating_sources=non_corroborating_sources,
             allowed_buy_symbols=allowed_buy_symbols,
             active_state_changes=active_state_changes,
-            rr_floor=rr_floor,
             real_reward_risk_by_symbol=real_reward_risk_by_symbol,
             constructor_refusals_by_symbol=constructor_refusals_by_symbol,
             asof=asof,
@@ -618,9 +613,9 @@ class CandidateRanking:
             return "\n".join(lines)
         lines += [
             "The names below passed every rule that can be checked before you "
-            "decide (actionable rating; longs BUY-eligible; R/R at or above "
-            "the floor, or a current state-change row naming the symbol; net "
-            "independent evidence ≥ 1). They are ORDERED by the SUM across "
+            "decide (actionable rating; longs BUY-eligible; net independent "
+            "evidence ≥ 1; not refused by the order constructor's own "
+            "preview). They are ORDERED by the SUM across "
             "every seat that reported a direction on the name, of that "
             "seat's stated strength plus its stated conviction — technical "
             "and earnings weighted 1.2x, news at 1.0x baseline, smart_money "

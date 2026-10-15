@@ -147,7 +147,6 @@ for _n in ("logging", "math", "re", "annotations", "logger"):
 # and covers BOTH move sets. Defining a second one here would be shadowed by it
 # and would silently stop mirroring the sizing / earnings-quality names.
 from src.risk.constants import (
-    REWARD_RISK_FLOOR,
     STARTER_POSITION_RISK_PCT,
 )
 

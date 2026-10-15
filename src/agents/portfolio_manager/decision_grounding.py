@@ -676,7 +676,6 @@ class DecisionGrounding:
         positions: list[Position],
         total_value: float,
         active_state_changes: str,
-        rr_floor: float,
         starter_risk_pct: float,
         asof: date | None = None,
         real_reward_risk_by_symbol: dict[str, float | None] | None = None,
@@ -697,10 +696,10 @@ class DecisionGrounding:
                                         not drop, shrink, or require a
                                         catalyst.
 
-        `rr_floor` is accepted and ignored. Starter size is not assigned
+        Starter size is not assigned
         here. This is not an entry in `validate_grounding`'s error list.
         """
-        _ = (rr_floor, starter_risk_pct, asof, active_state_changes)
+        _ = (starter_risk_pct, asof, active_state_changes)
         if real_reward_risk_by_symbol is not None:
             rr_by_symbol = {a.symbol.upper(): real_reward_risk_by_symbol.get(a.symbol.upper()) for a in analyses}
         else:

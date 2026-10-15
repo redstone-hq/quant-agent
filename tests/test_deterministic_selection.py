@@ -103,6 +103,7 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
         "JNJ",
         "JPM",
         "KO",
+        "MSFT",
         "MU",
         "NKE",
         "NUE",
@@ -111,14 +112,15 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
         "PFE",
         "RSG",
         "SLB",
+        "TSM",
         "V",
         "VLO",
         "XLE",
     ]
-    # The catalyst door has all but closed: only the two names whose payoff
-    # is UNMEASURABLE still need it. That is the redundancy item 1(d)
-    # creates, visible on real data.
-    assert summary["enters_via_catalyst_door"] == ["MSFT", "TSM"]
+    # The catalyst door is closed on this day: MSFT and TSM used to enter
+    # through it on a sub-1.5 analyst ratio; with the 1.5 floor deleted
+    # (2026-10-15) they clear alone like every other measurable name.
+    assert summary["enters_via_catalyst_door"] == []
     # 47.24% against a 25% total-risk budget. NEW as of item 1(d) and worth
     # stating plainly: the eligible set no longer fits at once, so the
     # RISK BUDGET — not the reward:risk floor — is now what forces a choice
@@ -145,7 +147,7 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
     # normalisation is unchanged by an affine rescale of the encoding. What
     # moves is how far past the budget the admitted names ask, which makes the
     # finding stronger, not different.
-    assert summary["total_max_risk_pct"] == 60.0
+    assert summary["total_max_risk_pct"] == 64.0  # 60.0 -> 64.0 2026-10-15: MSFT, TSM no longer starter-capped
     assert summary["total_max_risk_pct"] > 25.0
     assert summary["rules_name_a_single_pick"] is False
 
@@ -159,14 +161,16 @@ def test_subfloor_catalyst_door_is_reachable_only_by_news_covered_names(rows):
     # now by a name whose payoff is UNMEASURABLE — a thin-but-real one walks
     # in the front. On this day that leaves MSFT and TSM; NVDA, the name this
     # whole line of work was written about, no longer needs the door.
-    assert by_door == {"MSFT", "TSM"}
+    assert by_door == set()
     # Both mega-caps the benchmark's `familiarity_bias` check USED to
     # penalise are ADMITTED by the desk's own rules — which is why that check
     # is a weight-0 diagnostic as of 2026-09-14 rather than a pass mark.
     for symbol in ("NVDA", "MSFT"):
         row = next(r for r in rows if r["symbol"] == symbol)
         assert row["eligible"] is True
-    assert next(r for r in rows if r["symbol"] == "MSFT")["max_risk_pct"] == 0.5
+    assert (
+        next(r for r in rows if r["symbol"] == "MSFT")["max_risk_pct"] == 2.5
+    )  # was 0.5 via the deleted catalyst starter cap
 
 
 def test_three_of_the_five_qualified_shorts_are_refused_by_the_net_rule(rows):
