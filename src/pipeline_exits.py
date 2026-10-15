@@ -9,8 +9,8 @@ untouched.
 
 This is the live-money SELL path: target-revision adjudication, structural
 protection for a holding and the voicing of its break, exit-trigger
-substantiation, the holding-discipline fact-check, the deterministic trails and
-their ratchet cooldown, the event-risk block, the alignment exit (scan, cache,
+substantiation, the holding-discipline fact-check, the deterministic trails,
+the event-risk block, the alignment exit (scan, cache,
 per-holding verdict and reading record), the AI risk review of exits, the
 refusal and approval records, and `_midday_execute_llm_actions`.
 
@@ -249,17 +249,6 @@ class ExitEngineMixin:
             structural_protection_for_holding=_collab_of(self, "_structural_protection_for_holding"),
             db=_collab_of(self, "db"),
         )._holding_discipline_check_for_exit(*args, **kwargs)
-
-    def _trail_tightened_recently(self, *args, **kwargs):
-        """Thin shim: builds the standalone ExitRecords and calls it (body moved to src/exits/exit_records.py)."""
-        from src.exits.exit_records import ExitRecords
-
-        return ExitRecords(
-            trade_executed_or_pending=_collab_of(self, "_trade_executed_or_pending"),
-            record_exit_refusal=_collab_of(self, "_record_exit_refusal"),
-            db=_collab_of(self, "db"),
-            market=_collab_of(self, "market"),
-        )._trail_tightened_recently(*args, **kwargs)
 
     def _apply_deterministic_trails(self, *args, **kwargs):
         """Thin shim: body moved verbatim to src/exits_parts/trails.py."""
@@ -975,45 +964,42 @@ class ExitEngineMixin:
                                 layer="midday_trail_width",
                             )
                             new_stop = widest_stop
-                    # RC1 exit-quality clamps (2026-07-16 forensics: 5 trail
-                    # fills missed avg +30.7% post-exit; LLY was whipsawed
-                    # twice identically). A hard-trigger citation in the
-                    # reason bypasses both — mirroring the SELL/REDUCE gate.
-                    if not _reason_cites_hard_trigger(action_item.get("reason", "")):
-                        # (a) Ratchet cooldown: at most one accepted tighten
-                        # per 4-calendar-day window per symbol (~2-4 trading
-                        # sessions depending on weekday).
-                        if self._trail_tightened_recently(symbol):
-                            logger.warning(
-                                "Midday: TRAIL_STOP %s skipped — a trail was "
-                                "already tightened within the last 4 calendar "
-                                "days (~2-4 trading sessions depending on "
-                                "weekday; ratchet cooldown; cite a hard "
-                                "trigger to bypass)",
-                                symbol,
+                    # Noise-band clamp (RC1 exit-quality forensics,
+                    # 2026-07-16): a stop inside 1.25×ATR14 of the current
+                    # price sits inside one day's normal range — it converts
+                    # routine volatility into a realized exit, so the old
+                    # stop is kept. The band is read off THIS stock's own
+                    # ATR14, so a tighten that clears it is applied however
+                    # recently the last one landed — there is no day-count
+                    # lock. A hard-trigger citation in the reason bypasses
+                    # the clamp, mirroring the SELL/REDUCE gate. `atr` was
+                    # read above for the typo guard; the fetch is not
+                    # repeated. A refused tighten is recorded per-symbol and
+                    # durably, never only logged.
+                    if atr is not None and not _reason_cites_hard_trigger(action_item.get("reason", "")):
+                        noise_floor = existing[0].current_price - 1.25 * atr
+                        if new_stop > noise_floor:
+                            from src.risk.exit_refusal import CODE_NOISE_BAND
+
+                            detail = (
+                                f"TRAIL_STOP {symbol} refused: new stop "
+                                f"${new_stop:,.2f} is inside the 1.25 x ATR "
+                                f"noise band (floor ${noise_floor:,.2f}, ATR14 "
+                                f"${atr:,.2f}); routine volatility would fill "
+                                f"it. Old stop kept; cite a hard trigger to "
+                                f"bypass."
+                            )
+                            logger.warning("Midday: %s", detail)
+                            self._record_exit_refusal(
+                                symbol=symbol,
+                                run_id=run_id,
+                                action=act,
+                                code=CODE_NOISE_BAND,
+                                dropped=True,
+                                detail=detail[:400],
+                                layer="midday_trail_noise_band",
                             )
                             continue
-                        # (b) Noise-band clamp: a stop inside 1.25×ATR14 of
-                        # the current price sits inside one day's normal
-                        # range — it converts routine volatility into a
-                        # realized exit. Keep the old stop instead.
-                        # `atr` was read above for the typo guard; the
-                        # fetch is not repeated.
-                        if atr is not None:
-                            noise_floor = existing[0].current_price - 1.25 * atr
-                            if new_stop > noise_floor:
-                                logger.warning(
-                                    "Midday: TRAIL_STOP %s skipped — new_stop "
-                                    "$%.2f is inside the 1.25×ATR noise band "
-                                    "(floor $%.2f, ATR14 $%.2f); routine "
-                                    "volatility would fill it. Old stop kept; "
-                                    "cite a hard trigger to bypass.",
-                                    symbol,
-                                    new_stop,
-                                    noise_floor,
-                                    atr,
-                                )
-                                continue
                     from src.execution.stop_records import (
                         accepted_stop_order,
                         replace_stop_and_record,

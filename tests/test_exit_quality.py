@@ -7,8 +7,8 @@ guards close the mechanical part:
 
   1. Noise-band clamp — a TRAIL_STOP inside 1.25×ATR14 of current price is
      rejected (routine volatility would fill it); hard-trigger reasons bypass.
-  2. Ratchet cooldown — at most one accepted tighten per ~2 trading days per
-     symbol; hard-trigger reasons bypass.
+  2. (Ratchet cooldown — a made-up 4-calendar-day lock — DELETED 2026-10-15;
+     a tighten that clears the noise band is applied however recent the last.)
   3. Entry ATR floor — a BUY whose stop is closer than 1×ATR14 gets the stop
      widened (qty sizing compensates, per-trade $ risk unchanged).
 
@@ -40,7 +40,7 @@ def _mk_pipeline(position: Position) -> TradingPipeline:
     pipeline.broker.replace_stop_loss.return_value = {"id": "stop-1", "status": "accepted"}
     # Realistic live stop below the noise-floor tests' new stops, so the
     # min-ratchet floor (new_stop >= old_stop × 1.02) is satisfied by the
-    # existing noise/cooldown fixtures and does not shadow their assertions.
+    # existing noise-band fixtures and does not shadow their assertions.
     pipeline.broker.get_current_stop_price.return_value = 330.0
     pipeline.db.get_trades.return_value = []
     pipeline._format_qty = lambda q: str(q)
@@ -120,9 +120,10 @@ def test_trail_unknowable_atr_degrades_open():
     assert len(orders) == 1
 
 
-def test_trail_ratchet_cooldown_blocks_repeat_tighten():
-    """A non-canceled TRAIL_STOP within the last ~2 trading days blocks a
-    second soft-reason tighten (GE was ratcheted 7× in 8 sessions)."""
+def test_trail_repeat_tighten_is_not_day_locked():
+    """A TRAIL_STOP that landed today no longer blocks a second soft-reason
+    tighten: the made-up 4-day cooldown was deleted 2026-10-15; only the
+    stock's own ATR noise band can refuse it."""
     from datetime import datetime, timezone
 
     pipeline = _mk_pipeline(GE)
@@ -139,35 +140,8 @@ def test_trail_ratchet_cooldown_blocks_repeat_tighten():
         run_id="r-1",
         review=_trail_review("GE", 344.0, "TARGET_BREACH — trail up again"),
     )
-    assert orders == []
-    pipeline.broker.replace_stop_loss.assert_not_called()
-
-
-def test_trail_cooldown_counts_superseded_rows_but_not_old_ones():
-    """audit round 2: a TRAIL_STOP row is only written after the broker
-    ACCEPTED the replace, so fill_status='canceled' means superseded-by-a-
-    later-trail — the tighten still happened and still counts for the
-    cooldown. Only age (and ex-div rows) exclude."""
-    from datetime import datetime, timezone
-
-    pipeline = _mk_pipeline(GE)
-    pipeline._atr_for_symbol = lambda s: 8.0
-    pipeline.db.get_trades.return_value = [
-        {
-            "action": "TRAIL_STOP",
-            "fill_status": "submitted",
-            "timestamp": "2026-06-01T14:00:00+00:00",
-        },  # weeks old → excluded
-    ]
-    assert pipeline._trail_tightened_recently("GE") is False
-    pipeline.db.get_trades.return_value = [
-        {
-            "action": "TRAIL_STOP",
-            "fill_status": "canceled",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },  # superseded today
-    ]
-    assert pipeline._trail_tightened_recently("GE") is True
+    assert len(orders) == 1
+    pipeline.broker.replace_stop_loss.assert_called_once_with("GE", 344.0)
 
 
 # ---------- minimum-ratchet floor (item 108: prompt/code drift) ----------
@@ -176,7 +150,7 @@ def test_trail_cooldown_counts_superseded_rows_but_not_old_ones():
 # as a hard schema rule, but the TRAIL_STOP validation block never enforced it:
 # an under-2% raise reached the broker, paying cancel/replace churn. These lock
 # the floor. It is single-sourced from src.risk.trailing.min_ratchet_floor and,
-# unlike the noise band / cooldown, is NOT bypassable by a hard trigger.
+# unlike the noise band, is NOT bypassable by a hard trigger.
 
 from src.risk.trailing import min_ratchet_floor, venue_tick  # noqa: E402
 
@@ -232,7 +206,7 @@ def test_trail_exactly_at_min_ratchet_floor_passes():
 
 
 def test_trail_min_ratchet_floor_not_bypassed_by_hard_trigger():
-    """Unlike the noise band and ratchet cooldown, a cited hard trigger does
+    """Unlike the noise band, a cited hard trigger does
     NOT let an under-2% raise through — a sub-floor bump is churn regardless."""
     pipeline = _mk_pipeline(GE)
     pipeline.broker.get_current_stop_price.return_value = 340.0
@@ -249,7 +223,7 @@ def test_trail_min_ratchet_floor_not_bypassed_by_hard_trigger():
 
 def test_trail_missing_old_stop_establishes_protection():
     """No readable live stop → floor cannot be computed, so a TRAIL_STOP still
-    establishes protection rather than being blocked (noise/cooldown still apply)."""
+    establishes protection rather than being blocked (the noise band still applies)."""
     pipeline = _mk_pipeline(GE)
     pipeline.broker.get_current_stop_price.return_value = None
     pipeline._atr_for_symbol = lambda s: None  # no noise clamp

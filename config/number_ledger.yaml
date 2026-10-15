@@ -3425,7 +3425,7 @@ numbers:
       the first version rendered that as the quotation "new_stop >= old_stop x
       1.02", which is a paraphrase presented as a quote. CAMPAIGN REVIEW
       2026-09-25: the adversary reviewed this and the ~2-4-session ratchet
-      cooldown (src/pipeline.py `_trail_tightened_recently`) and RULED
+      cooldown (src/pipeline.py `_trail_tightened_recently`, deleted 2026-10-15) and RULED
       not-to-reform, staying `arbitrary` — status quo kept, no behavior
       change. It is ratified as owner CHURN-appetite: a chosen
       "is this move worth an order" threshold, not a derived or measured
@@ -3494,7 +3494,7 @@ numbers:
       refusal record, with no new number and no owner input, exactly as this
       question proposed. (1) The premise was wrong: there are TWO gates on
       the deterministic path, not three. The ~2-4-session ratchet cooldown
-      (`_trail_tightened_recently`) is reached only from the discretionary
+      (`_trail_tightened_recently`, deleted 2026-10-15) was reached only from the discretionary
       midday `TRAIL_STOP` branch in `src/pipeline.py` and never from
       `_apply_deterministic_trails`, so it has never refused a deterministic
       trail. (2) The two that ARE stacked are not redundant: all seven
@@ -5690,32 +5690,6 @@ numbers:
       Midday noise-band clamp: a new stop inside 1.25 x ATR14 of price is
       refused (src/pipeline_exits.py::ExitEngineMixin._midday_execute_llm_actions). The same 1.25 as the trailing-
       stop noise band, which carries the open question.
-  - id: src.exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)
-    value: 4
-    status: arbitrary
-    site: src/exits/exit_records.py
-    note: >-
-      Trail-tightening cooldown: midday skips a TRAIL_STOP when one landed in
-      the last 4 calendar days (src/exits/exit_records.py::ExitRecords._trail_tightened_recently, lifted verbatim 2026-10-04, caller
-      src/pipeline_exits.py::ExitEngineMixin._midday_execute_llm_actions passes nothing). The docstring's reason is a
-      forensic observation, not a measured cooldown length. ITEM 90 TRANCHE 2 (PIPELINE), 2026-10-01 -- ROUTED. Derivation attempt (1): derive the 4 calendar days from the ratified swing mandate. FAILED -- the mandate names no number, by design. Attempt (2): derive it from the reviewer's >=1.02x min-bump rule, i.e. the sessions needed for 2% of range to accumulate. FAILED -- that rule bounds the SIZE of one tighten and says nothing about spacing, and the 1.02 is itself unsourced. The measurement below is the route. Value unchanged.
-    open_question: >-
-      Over how many sessions does a tightened trail on this desk's names stay
-      outside the daily-noise band, measured from its own trail history?
-    cost_while_unanswered: >-
-      A justified tightening is refused for up to four days, or a repeated one
-      is allowed too soon and marches the stop into noise.
-    settles_by:
-      kind: "measurement"
-      state: "specified"
-      where: "docs/board_notes/item-090.md (item 90, the 2026-10-01 pipeline tranche)"
-      records: >-
-        for every ACCEPTED trail tighten on this desk, the number of sessions that passed before that stop next sat
-        inside the 1.25 ATR14 noise band, read from the recorded trail history and the daily ranges of the name itself
-      closes_when: >-
-        that session count has a stable distribution across names, so the cooldown is set from how long a tightened
-        stop actually stays clear of noise on the instrument, instead of from the single 2026-07-16 forensic anecdote
-        the docstring currently offers as its reason
   - id: src.pipeline.TradingPipeline.run_quarterly_meta_reflection(lookback_days)
     value: 90
     status: not-trade-governing
