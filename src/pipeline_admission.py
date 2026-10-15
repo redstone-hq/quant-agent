@@ -332,33 +332,31 @@ class AdmissionService:
         horizon = int(self.config.risk.max_target_horizon_sessions)
         return self.broker.trading_sessions_held(disclosed, et_today()) <= horizon
 
-    def _admit_screened_universe_symbols(self, positions=None) -> tuple[set[str], dict[str, dict]]:
-        """This session's share of the screened universe (screen on only).
+    def _admit_screened_universe_symbols(self, positions=None) -> tuple[list[str], dict[str, dict]]:
+        """Last night's screened passers for this morning, best score first (screen on only).
 
-        Every held admitted name, plus at most `nominations.
-        max_per_seat_per_run` others, rotated least-recently-offered first —
-        the screen is one more source of candidates and is capped like one
-        seat, so the portfolio manager's bill is a number that is set.
+        Owner ruling 2026-10-14: send names in score order instead of rotating
+        three at a time. Reads the nightly record (`src/universe_daily.py`) of
+        the last completed session and returns ``(ranked, details)`` from
+        `universe_screen.rank_passers`: every passer with a score K, highest
+        first, and the details of every passer (unscored ones included, with
+        the record's reason). The morning stage puts held, SEC-admitted and
+        configured names ahead, sends the top `universe_screen.morning_top_n`
+        and records every other passer with its reason. Raises when that
+        session has no complete record, so the stage files a fault and runs
+        with no screened name rather than with a stale list.
         """
         if not self._universe_screen_enabled():
-            return set(), {}
-        from src.universe_screen import UniverseStore, select_for_run
-        from src.util.time import et_today
+            return [], {}
+        from src.universe_daily import _screen_day, already_recorded, record_dir
+        from src.trading_calendar import et_today, utc_now
+        from src.universe_screen import rank_passers
 
-        store = UniverseStore(self.config.universe_screen.data_dir)
-        state = store.load()
-        held = {str(getattr(p, "symbol", "") or "").strip().upper() for p in (positions or [])}
-        configured = {str(s).strip().upper() for s in self.config.trading.universe}
-        chosen = select_for_run(
-            state,
-            held=held,
-            cap=int(self.config.nominations.max_per_seat_per_run),
-            today=et_today(),
-        )
-        chosen = {s: d for s, d in chosen.items() if s not in configured}
-        if chosen:
-            store.save(state)
-        return set(chosen), chosen
+        data_dir = self.config.universe_screen.data_dir
+        day = _screen_day(self.broker, et_today(), utc_now())
+        if day is None or not already_recorded(data_dir, day):
+            raise FileNotFoundError(f"no complete nightly universe record for session {day}")
+        return rank_passers(record_dir(data_dir) / f"{day.isoformat()}.jsonl")
 
     def _run_universe_screen(self, run_id: str) -> dict | None:
         """The weekly screen's incremental pass, run after the evening report

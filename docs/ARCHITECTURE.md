@@ -833,3 +833,23 @@ single-lot position gives the same R as before. One path: `summarize_closed_posi
 Open positions: unrealised R = unrealised P&L on the shares still held / the same per-lot risk sum scaled
 by held qty / total entry qty. A partial sell therefore leaves R at the same price unchanged. Closed
 positions use the full-lot sum, because realised P&L covers every share sold.
+
+## Morning research order and screened names (owner ruling 2026-10-14)
+
+The morning stage builds one ordered list that the research seats, the Tech batch (split in input order)
+and the news candidate list follow: held names, then this run's SEC Form 4 admissions, then the configured
+universe, then screened names best score first. Screened names are last night's nightly-filter passers
+(the `src/universe_daily.py` record, read by `universe_screen.rank_passers`), ordered by the score K that
+record carries. Only the top `universe_screen.morning_top_n` = floor(`morning_budget_usd` /
+`morning_cost_per_name_usd`) are sent. Every other passer gets a dropped-name pipeline event through
+`record_dropped_name`: `not_sent_weaker_rank` with its rank, or `not_sent_unscored` with the record's own
+reason when K is None. A held passer is coverage and is never capped. No complete record for the last
+session is a morning fault and no screened name. `nominations.max_per_seat_per_run` still caps each
+nominating seat and no longer caps screened names. All of it sits behind `universe_screen.enabled`.
+
+Where N comes from. B = `morning_budget_usd` = the owner's $7 a month (2026-10-14) / 21 sessions = $0.33,
+NEW money added to `llm_cost_circuit.daily_cost_limit_usd` (2.75 -> 3.08).
+Per-name cost c = $0.0033 is the slope of settled cost against names analysed over the 26 paid morning
+portfolio-manager calls 2026-08-25..2026-10-14 (production `agent_logs`), measured 2026-10-14 by the
+coordinating session. c is the PM call's marginal cost only; the Tech seat's per-name cost is not in it.
+N = floor(0.33 / 0.0033) = 100.

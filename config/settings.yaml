@@ -1083,8 +1083,13 @@ nominations:
 universe_screen:
   # Universe expansion and pruning (src/universe_screen.py; design agreed
   # with the owner 2026-09-01, built 2026-09-19). OFF until the mechanical
-  # setup funnel lands - owner 2026-10-09. Off = no weekly screen, no screened symbol in any
-  # session, and the Form 4 / nomination side doors keep their old gates.
+  # setup funnel lands - owner 2026-10-09. ON 2026-10-14 (owner: "send stocks to the
+  # AI in score order instead of rotating 3 at a time; every stock left out gets
+  # its reason recorded"). On = the weekly screen runs after the evening session,
+  # the morning message shows its stock-list changes, the Form 4 and nomination
+  # side doors run the screen's checks (Form 4 gets its age gate back), and the
+  # morning reads last night's record below and sends the top
+  # floor(morning_budget_usd / morning_cost_per_name_usd) passers by score K.
   # Thresholds and their sources: src/config/__init__.py::UniverseScreenConfig and
   # config/number_ledger.yaml.
   # Separately, src/universe_daily.py (owner ruling 2026-10-09, step A) runs the
@@ -1092,12 +1097,16 @@ universe_screen:
   # RECORDS each verdict under <data_dir>/daily/. Record-only: it admits and
   # removes nothing and does not read 'enabled'. It reuses data_dir,
   # screen_deadline_s and bars_batch_size (symbols per bar request).
-  enabled: false
+  enabled: true
   data_dir: "data/universe"
   min_price_usd: 5
   min_market_cap_usd: 30000000
   screen_deadline_s: 900
   bars_batch_size: 50
+  # Owner's "$7 a month" / 21 sessions, and the measured cost of one more name
+  # in the morning portfolio-manager call. N = floor(0.33 / 0.0033) = 100.
+  morning_budget_usd: 0.33
+  morning_cost_per_name_usd: 0.0033
 
 news:
   # Max items placed in the news analyst's prompt after dedup (see
@@ -1360,7 +1369,10 @@ llm_cost_circuit:
   enabled: true
   require_telegram_alerts: true
   session_cost_limit_usd: 0.90
-  daily_cost_limit_usd: 2.75
+  # 2.75 + 0.33 (2026-10-14): universe_screen.morning_budget_usd is NEW money
+  # the owner approved for the morning score-order send, added here rather than
+  # taken from other calls. Ledger: src.config.UniverseScreenConfig.morning_budget_usd.
+  daily_cost_limit_usd: 3.08
   # Last OpenRouter top-up, owner-recorded. Balance fallback for the dashboard
   # runway warning (src/llm_balance_runway.py) when the provider reports none.
   openrouter_topup_usd: 10.0

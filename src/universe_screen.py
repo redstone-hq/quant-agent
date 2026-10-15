@@ -1268,43 +1268,41 @@ def run_screen(
 
 
 # --------------------------------------------------------------------------
-# Per-run selection (the cap on what reaches the portfolio manager)
+# Morning order (owner ruling 2026-10-14: send in score order, record the rest)
 # --------------------------------------------------------------------------
 
 
-def select_for_run(state: dict, *, held: Iterable[str], cap: int, today: date) -> dict[str, dict]:
-    """Admitted names that join THIS run's research surface.
+def rank_passers(record_path: str | Path) -> tuple[list[str], dict[str, dict]]:
+    """Last night's passers from the nightly record (`src/universe_daily.py`), best score first.
 
-    Every held admitted name (coverage, not discovery — never capped), plus
-    at most `cap` others, least-recently-offered first so the whole admitted
-    set is rotated through rather than the same few names every morning.
-    Stamps `last_offered_on` on the ones chosen.
+    Returns ``(ranked, details)``: ``ranked`` holds every passer with a score K,
+    highest K first (ties by symbol); ``details`` holds EVERY passer, the ones
+    without a K included, each with its K, its nightly rank and, when K is
+    None, the record's own reason. A passer with no K is never ranked on a
+    guess. Read with pandas; the record is one JSON object per line.
     """
-    held_set = {str(s).strip().upper() for s in held}
-    admitted = state.get("admitted", {})
-    chosen: dict[str, dict] = {}
-    for symbol in sorted(admitted):
-        if symbol in held_set:
-            chosen[symbol] = admitted[symbol]
-    others = sorted(
-        (s for s in admitted if s not in held_set),
-        key=lambda s: (admitted[s].get("last_offered_on") or "", admitted[s].get("admitted_on") or "", s),
-    )
-    for symbol in others[: max(0, int(cap))]:
-        chosen[symbol] = admitted[symbol]
-    for symbol in chosen:
-        admitted[symbol]["last_offered_on"] = today.isoformat()
-    return {
-        symbol: {
+    import pandas as pd
+
+    frame = pd.read_json(record_path, lines=True, dtype=False, convert_dates=False)
+    if frame.empty or "status" not in frame:
+        return [], {}
+    passed = frame[frame["status"] == "passed"].copy()
+    if "second_filter" not in passed:
+        passed["second_filter"] = None
+    score = passed["second_filter"].map(lambda sf: sf if isinstance(sf, dict) else {})
+    passed["k"] = score.map(lambda sf: sf.get("k"))
+    details: dict[str, dict] = {}
+    for symbol, sf, measured in zip(passed["symbol"], score, passed.get("measured", [None] * len(passed))):
+        details[str(symbol)] = {
+            **(measured if isinstance(measured, dict) else {}),
             "temporary": True,
             "reason": "universe_screen_admission",
-            "admitted_on": record.get("admitted_on"),
-            "status": record.get("status"),
-            "held": symbol in held_set,
-            **{k: v for k, v in (record.get("measured") or {}).items()},
+            "k": sf.get("k"),
+            "nightly_rank": sf.get("rank"),
+            "score_reason": sf.get("reason") if sf else "second_filter_missing",
         }
-        for symbol, record in chosen.items()
-    }
+    scored = passed[passed["k"].notna()].sort_values(["k", "symbol"], ascending=[False, True])
+    return [str(s) for s in scored["symbol"]], details
 
 
 # --------------------------------------------------------------------------

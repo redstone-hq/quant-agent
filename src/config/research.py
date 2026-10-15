@@ -3,6 +3,8 @@
 Moved verbatim from src/config/__init__.py (pure move; bodies AST-identical).
 """
 
+import math
+
 from pydantic import BaseModel, Field
 
 
@@ -74,9 +76,11 @@ class UniverseScreenConfig(BaseModel):
 
     The spread and volatility thresholds have no field here on purpose: they
     are DERIVED at run time from `execution.max_entry_slippage_bps` and
-    `risk.min_stop_atr_multiple` (see the module docstring), and the cap on
-    screened names per session is `nominations.max_per_seat_per_run` — the
-    screen is one more source of candidates, capped like one seat.
+    `risk.min_stop_atr_multiple` (see the module docstring). Screened names
+    reach the morning in score order (owner ruling 2026-10-14): the top
+    `morning_top_n` of last night's passers by K, every other passer
+    recorded with its reason; `nominations.max_per_seat_per_run` no longer
+    caps them (it still caps each nominating seat).
 
     The daily record-only run (`src/universe_daily.py`, owner ruling
     2026-10-09, step A) reads `data_dir`, `screen_deadline_s` and
@@ -123,6 +127,19 @@ class UniverseScreenConfig(BaseModel):
     # that lifts is noticed well inside the night.
     yahoo_backoff_s: float = Field(default=30.0, ge=0)
     yahoo_backoff_max_s: float = Field(default=900.0, ge=0)
+    # Morning score-order send (owner ruling 2026-10-14). B: the owner's "$7 a
+    # month" for these names over 21 sessions a month = $0.33 a session; it is
+    # NEW money, added to `llm_cost_circuit.daily_cost_limit_usd`. c: measured
+    # marginal cost of one more name in the paid morning portfolio-manager
+    # call (slope of cost vs names analysed, 26 calls 2026-08-25..2026-10-14).
+    # Sources in config/number_ledger.yaml.
+    morning_budget_usd: float = Field(default=0.33, gt=0)
+    morning_cost_per_name_usd: float = Field(default=0.0033, gt=0)
+
+    @property
+    def morning_top_n(self) -> int:
+        """N = floor(B / c): how many screened names the morning sends."""
+        return math.floor(self.morning_budget_usd / self.morning_cost_per_name_usd)
 
 
 class NewsConfig(BaseModel):
