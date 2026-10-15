@@ -94,10 +94,9 @@ def test_clamp_refused_tighten_writes_a_durable_per_symbol_refusal_row():
 
 def test_no_trail_tightened_recently_remains_in_src():
     from src.exits.exit_records import ExitRecords
-    from src.pipeline import TradingPipeline
 
     assert not hasattr(ExitRecords, "_trail_tightened_recently")
-    assert not hasattr(TradingPipeline, "_trail_tightened_recently")
+    assert not hasattr(type(build_pipeline()), "_trail_tightened_recently")
     # No definition or call anywhere in src (a historical prose mention is not code).
     hits = [str(p) for p in (ROOT / "src").rglob("*.py") if "_trail_tightened_recently(" in p.read_text()]
     assert hits == []
