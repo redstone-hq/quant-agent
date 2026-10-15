@@ -131,7 +131,6 @@ def _no_level(entry: float, price: float, atr: float | None) -> StructuralProtec
         atr=atr,
         computed_levels=[],
         computed_level_touches={},
-        level_cluster_tolerance_pct=0.5,
     )
 
 

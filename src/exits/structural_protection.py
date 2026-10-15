@@ -84,7 +84,6 @@ class StructuralProtection:
         separately so a memory hiccup degrades to "unconfirmed" /
         "unpersisted" rather than losing the whole check.
         """
-        from src.data.levels import CLUSTER_TOLERANCE_PCT
         from src.risk.exit_guard import check_structural_protection
         from src.trading_calendar import et_today
 
@@ -174,11 +173,6 @@ class StructuralProtection:
             computed_level_touches=computed_level_touches,
             computed_level_zones=computed_level_zones,
             computed_level_bars=computed_level_bars,
-            # NOT a setting and not a fallback default — this is the exact
-            # constant `find_structural_levels` used to cluster pivots into
-            # the zones being matched against, so the tolerance cannot be
-            # anything else. docs/WORK.md item 46.
-            level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
             ma_20=ma_20,
             ma_50=ma_50,
             ma_200=ma_200,

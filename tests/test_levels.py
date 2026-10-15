@@ -254,10 +254,10 @@ def test_detection_is_deterministic(cycles):
         assert find_structural_levels(bars) == first
 
 
-def test_cluster_tolerance_fallback_is_unreachable_on_cleaned_bars():
-    """Route (2) of `CLUSTER_TOLERANCE_PCT_FALLBACK` is dead on real bars.
+def test_unmeasurable_pivot_branch_is_unreachable_on_cleaned_bars():
+    """`_cluster`'s non-finite-range branch is dead on real bars.
 
-    `_cluster` consults the percentage fallback only for a pivot whose bar
+    `_cluster` consults its ATR-adjacency rule only for a pivot whose bar
     range is not finite. `_clean_bars` removes every bar that could produce
     one, so the branch cannot be reached from `find_structural_levels`.
     Measured 2026-10-04 and recorded against the ledger row of the same name.

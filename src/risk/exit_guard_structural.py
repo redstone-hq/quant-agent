@@ -65,7 +65,6 @@ def _structural_level_backing_stop(
     computed_levels: list | None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    level_cluster_tolerance_pct: float,
 ) -> float | None:
     """The verified structural level nearest `stop_loss`, or None.
 
@@ -81,15 +80,9 @@ def _structural_level_backing_stop(
     would be a bug; there is deliberately only one set of numbers (the
     caller's), never a second one invented here.
 
-    `level_cluster_tolerance_pct` is NOT a knob. It is
-    `src.data.levels.CLUSTER_TOLERANCE_PCT`, the constant
-    `find_structural_levels` used to build these zones, passed in rather
-    than imported only because this module is deliberately stdlib-only.
-    Every caller must pass exactly that; `tests/test_level_match_zone.py`
-    checks that they all do. Until 2026-09-13 this was an ATR multiple
-    (`level_match_atr_tolerance`, 0.25) claiming to be "at least as wide"
-    as the 1% zone — a claim in a different unit that only held above 4%
-    ATR — see docs/WORK.md item 46 / docs/INCIDENT_HISTORY.md.
+    No percentage band is used: the stop must rest on a bar that drew the
+    level (its own measured range). The old `level_cluster_tolerance_pct`
+    (1%) parameter was deleted 2026-10-15 (docs/NUMBER_TRIAGE.md).
     """
     bars_by_price = computed_level_bars or {}
     best: float | None = None
@@ -107,15 +100,12 @@ def _structural_level_backing_stop(
             continue
         # "AT this level", not "inside its band" — docs/WORK.md item 215.
         # The stop must lie inside the high-low range of at least one BAR
-        # that drew the level. `level_cluster_tolerance_pct` bounds the whole
-        # merged zone, which can span a fifth of the price, so a stop at one
+        # that drew the level. The whole merged zone can span a fifth of the price, so a stop at one
         # end of it could be taken out with the level never broken and the
         # desk still reporting the position structurally protected. Missing
         # bar ranges fail closed to not-backed, same as an unmatched stop.
         # Mirrors `src.data.levels.stop_rests_on_level`, restated here in
         # full only because this module imports nothing.
-        if price * level_cluster_tolerance_pct / 100.0 <= 0:
-            continue
         # OUTWARD BOUND, mirroring `src.data.levels.stop_rests_on_level`: the
         # level's measured zone must be STRICTLY NARROWER than the trade's own
         # risk. Membership in a forming bar alone has no ceiling — the zone

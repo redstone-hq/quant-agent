@@ -179,19 +179,20 @@ def level_backing_target(
     *,
     stored_target: float | None,
     computed_levels: list | tuple | None,
-    level_cluster_tolerance_pct: float,
+    computed_level_zones: dict | None = None,
+    atr: float | None = None,
 ) -> float | None:
     """Which computed structural level the stored target sits on, or None.
 
     The entry derivation recorded `TargetDerivation.level_used`, but that
     field is not persisted on the trade row — only the resulting price is.
-    So the level is RECOVERED here by the same IDENTITY test the stop side
-    already uses (`exit_guard._structural_level_backing_stop`): the closest
-    computed level whose own zone, `level_cluster_tolerance_pct` of its
-    price, contains the stored target. That constant is
-    `src.data.levels.CLUSTER_TOLERANCE_PCT` — the one
-    `find_structural_levels` clustered the pivots with — and is passed in
-    rather than imported so there is only ever one set of numbers.
+    So the level is RECOVERED here: the closest computed level whose own
+    MEASURED zone (`computed_level_zones[price] = (low, high)`, the span of
+    the bars that drew it) contains the stored target. A level with no
+    measured zone matches within one 14-day ATR (`atr`) — the stock's
+    typical daily move, derived, not a chosen multiplier. With neither,
+    that level cannot match (fail closed). No percentage is used; the old
+    1% match band was deleted 2026-10-15 (docs/NUMBER_TRIAGE.md).
 
     Returning None is the honest answer for a `measured_move` target: it was
     never measured against a level, so no level of its can break. Such a
@@ -201,19 +202,31 @@ def level_backing_target(
     target = _finite(stored_target)
     if target is None or target <= 0:
         return None
-    try:
-        tol = float(level_cluster_tolerance_pct)
-    except (TypeError, ValueError):
-        return None
+    vol = _finite(atr)
+    if vol is not None and vol <= 0:
+        vol = None
+    zones = computed_level_zones or {}
     best: float | None = None
     best_gap = float("inf")
     for raw in computed_levels or []:
         price = _finite(raw)
         if price is None or price <= 0:
             continue
-        zone = abs(price) * tol / 100.0
         gap = abs(price - target)
-        if gap <= zone and gap < best_gap:
+        zone = zones.get(raw) if raw in zones else zones.get(price)
+        lo = hi = None
+        if zone is not None:
+            try:
+                lo, hi = _finite(zone[0]), _finite(zone[1])
+            except (TypeError, IndexError):
+                lo = hi = None
+        if lo is not None and hi is not None and lo <= hi:
+            inside = lo <= target <= hi
+        elif vol is not None:
+            inside = gap <= vol
+        else:
+            inside = False
+        if inside and gap < best_gap:
             best, best_gap = price, gap
     return best
 

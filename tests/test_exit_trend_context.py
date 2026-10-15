@@ -24,7 +24,6 @@ import datetime as dt
 import json
 from unittest.mock import MagicMock, patch
 
-from src.data.levels import CLUSTER_TOLERANCE_PCT
 from src.data.technical import ADX_PERIOD, compute_indicators
 from src.models import OHLCV
 from src.risk.exit_guard import (
@@ -65,7 +64,6 @@ def _common(**over):
         # stop sits on the session that turned at 90.00 and traded to 90.60;
         # every level states the narrowest bar that can have drawn it.
         computed_level_bars={lv: [(lv, lv)] for lv in _LEVELS} | {90.0: [(90.0, 90.6)]},
-        level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     base.update(over)
     return base

@@ -186,10 +186,8 @@ BREAK_CONFIRMATION_ATR_MULTIPLE = 1.0
 #      the model — see that method's docstring), at any touch count
 #      (the touch bar was deleted 2026-10-14: a real level beats none at
 #      the same distance and extra touches add nothing), matched to the
-#      stop by whether the stop falls inside that level's own zone
-#      (`level_cluster_tolerance_pct` of the level price —
-#      `src.data.levels.CLUSTER_TOLERANCE_PCT`, the constant that built
-#      the zone). No new constant is introduced here — the bar is the one
+#      stop by whether the stop rests on a bar that drew the level
+#      (its own measured range — no percentage). No new constant is introduced here — the bar is the one
 #      `_level_backing_stop` already uses, reused rather than duplicated.
 #      A long's level is "broken" when price is at or through
 #      it by more than one ATR noise band (a different question in a
@@ -342,7 +340,6 @@ def check_structural_protection(
     computed_level_touches: dict | None = None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    level_cluster_tolerance_pct: float,
     ma_20: float | None = None,
     ma_50: float | None = None,
     ma_200: float | None = None,
@@ -543,7 +540,6 @@ def check_structural_protection(
             computed_levels=computed_levels,
             computed_level_zones=computed_level_zones,
             computed_level_bars=computed_level_bars,
-            level_cluster_tolerance_pct=level_cluster_tolerance_pct,
         )
         if level is not None:
             cur = _finite(current_price)
@@ -781,7 +777,6 @@ def structural_protection_broken(
     computed_level_touches: dict | None = None,
     computed_level_zones: dict | None = None,
     computed_level_bars: dict | None = None,
-    level_cluster_tolerance_pct: float,
     ma_20: float | None = None,
     ma_50: float | None = None,
     ma_200: float | None = None,
@@ -815,7 +810,6 @@ def structural_protection_broken(
         computed_level_touches=computed_level_touches,
         computed_level_zones=computed_level_zones,
         computed_level_bars=computed_level_bars,
-        level_cluster_tolerance_pct=level_cluster_tolerance_pct,
         ma_20=ma_20,
         ma_50=ma_50,
         ma_200=ma_200,

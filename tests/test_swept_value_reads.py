@@ -5,8 +5,7 @@ inert" when the harness had never reached the parameter at all. These
 tests pin the three ways that happened and the counter that now makes it
 visible:
 
-* ``find_structural_levels`` freezes ``tolerance_pct``
-  / ``min_touches`` as DEFAULT ARGUMENTS, evaluated once at definition
+* ``find_structural_levels`` freezes ``min_touches`` as DEFAULT ARGUMENTS, evaluated once at definition
   time — reassigning the module constant was swept past silently.
 * ``compute_trailing_stop`` lives in ``src/risk/trail_evaluate.py`` and
   binds its chandelier / noise-band multiples with ``from
@@ -53,7 +52,6 @@ def test_a_run_reads_every_level_tunable_at_its_use_site():
     _, params, _ = _run(_build_long_win_series())
     counts = params.meter.counts()
     assert "levels.pivot_window" not in counts
-    assert counts["levels.cluster_tolerance_pct"] >= 1
     assert counts["levels.min_touches"] >= 1
 
 
@@ -75,7 +73,6 @@ def test_reassigning_the_defining_module_constant_now_reaches_the_finder(monkeyp
     sweep that reassigned the module constant never arrived. The engine now
     reads it late and passes it explicitly — captured here as it arrives."""
     seen = _capture(monkeypatch)
-    monkeypatch.setattr(levels_module, "CLUSTER_TOLERANCE_PCT", levels_module.CLUSTER_TOLERANCE_PCT + 0.5)
     monkeypatch.setattr(levels_module, "MIN_TOUCHES", levels_module.MIN_TOUCHES + 1)
     meter = swept_values.SweepMeter()
     _resolve_structural_stop_and_target(_build_long_win_series(), "long", 105.0, meter=meter)
@@ -83,9 +80,8 @@ def test_reassigning_the_defining_module_constant_now_reaches_the_finder(monkeyp
     assert len(seen) == 1
     assert "pivot_window" not in seen[0]
     assert seen[0]["min_touches"] == levels_module.MIN_TOUCHES
-    assert seen[0]["tolerance_pct"] == levels_module.CLUSTER_TOLERANCE_PCT
+    assert "tolerance_pct" not in seen[0]
     assert meter.counts()["levels.min_touches"] == 1
-    assert meter.counts()["levels.cluster_tolerance_pct"] == 1
 
 
 def test_a_meter_override_wins_over_the_module_constant(monkeypatch):

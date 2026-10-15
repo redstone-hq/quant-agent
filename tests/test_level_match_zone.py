@@ -7,7 +7,7 @@ away from the thing it claims to cover, expressed in another.
 WHAT WENT WRONG. `risk.level_match_atr_tolerance` was `0.25`, i.e. a stop
 counted as sitting AT a computed level if it was within 0.25 ATR of it, and
 its config comment justified 0.25 by saying a computed level is a ZONE
-(`find_structural_levels` clusters pivots within `CLUSTER_TOLERANCE_PCT` =
+(`find_structural_levels` once clustered pivots within a fixed percentage =
 1% of price into one level) and that the tolerance therefore had to be "at
 least that wide". Those are different units, so the justification was never
 a statement about the setting — it was a statement about the instrument:
@@ -25,7 +25,7 @@ here, because the ratio between an ATR multiple and a percentage of price
 is a different number for every name on every day. So the constant is gone
 rather than re-tuned: the match tolerance is read from
 `src.data.levels.level_zone_halfwidth`, which derives it from the very
-`CLUSTER_TOLERANCE_PCT` that built the zone. One number, one unit, one
+fixed percentage that built the zone (deleted 2026-10-15: zones are measured). One number, one unit, one
 file. `test_no_atr_multiple_survives_anywhere` is the mechanical guard.
 
 The ATR question was not deleted, it was put back where it belongs: whether
@@ -43,7 +43,6 @@ import pytest
 
 from src.config import RiskConfig
 from src.data.levels import (
-    CLUSTER_TOLERANCE_PCT,
     cluster_span,
     MIN_TOUCHES,
     _cluster,
@@ -61,21 +60,6 @@ REPO = Path(__file__).resolve().parents[1]
 # 1. The relationship itself: the tolerance covers the zone, at EVERY price
 #    and for EVERY volatility, because volatility is no longer an input.
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("price", [1.0, 7.5, 42.37, 100.0, 1234.56, 9999.0])
-def test_tolerance_is_exactly_the_zone_width(price):
-    assert level_zone_halfwidth(price) == pytest.approx(price * CLUSTER_TOLERANCE_PCT / 100.0)
-
-
-def test_tolerance_tracks_the_cluster_constant_not_a_copy_of_it():
-    """Change `CLUSTER_TOLERANCE_PCT` and the tolerance moves with it.
-
-    This is the whole point of the fix. Under the old ATR multiple, widening
-    the clustering zone would have silently left the matcher behind.
-    """
-    widened = CLUSTER_TOLERANCE_PCT * 3
-    assert level_zone_halfwidth(200.0, widened) == pytest.approx(level_zone_halfwidth(200.0) * 3)
 
 
 def test_tolerance_covers_every_pivot_the_clusterer_would_have_merged():
@@ -134,38 +118,6 @@ OLD_ATR_MULTIPLE = 0.25  # the deleted `risk.level_match_atr_tolerance`
 QUOTED_MEDIAN_ATR_PCT = 2.56  # docs/QAMC_REMEDIATION_SPEC.md, measured 2026-08-27
 
 
-def test_old_multiple_undercovered_the_zone_at_the_quoted_median_atr():
-    """The item's arithmetic, verified rather than repeated.
-
-    NOTE ON `QUOTED_MEDIAN_ATR_PCT`: it is a snapshot of the live book on
-    2026-08-27 recorded in prose in docs/QAMC_REMEDIATION_SPEC.md, with no
-    reproducible artifact in this repo. It is used here ONLY to reproduce
-    the historical defect and is load-bearing for nothing that ships — the
-    fix is deliberately independent of what the median ATR is, which is the
-    point of the next test.
-    """
-    price = 100.0
-    old_tolerance = OLD_ATR_MULTIPLE * (QUOTED_MEDIAN_ATR_PCT / 100.0 * price)
-    zone = level_zone_halfwidth(price)
-
-    assert old_tolerance == pytest.approx(0.64)
-    assert zone == pytest.approx(1.0)
-    assert old_tolerance < zone
-    assert zone / old_tolerance == pytest.approx(1.5625, rel=1e-6)
-
-
-def test_old_multiple_only_covered_the_zone_above_four_percent_atr():
-    """`0.25 * ATR >= 0.01 * price` <=> `ATR >= 4% of price`. The crossover."""
-    price = 100.0
-    zone = level_zone_halfwidth(price)
-    crossover_atr_pct = CLUSTER_TOLERANCE_PCT / OLD_ATR_MULTIPLE
-    assert crossover_atr_pct == pytest.approx(4.0)
-
-    for atr_pct, covers in ((1.5, False), (2.56, False), (4.0, True), (9.0, True)):
-        old_tolerance = OLD_ATR_MULTIPLE * (atr_pct / 100.0 * price)
-        assert (old_tolerance >= zone - 1e-12) is covers, atr_pct
-
-
 def test_new_tolerance_is_independent_of_volatility():
     """The fix is right for all four of those names, not three of them.
 
@@ -183,7 +135,6 @@ def test_new_tolerance_is_independent_of_volatility():
             is_short=False,
             computed_levels=[level_price],
             computed_level_bars=bars,
-            level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
         )
         assert matched == level_price, f"unmatched at atr={atr}"
 
@@ -256,7 +207,6 @@ def test_constructor_and_exit_guard_match_identically(gap):
         is_short=False,
         computed_levels=[level_price],
         computed_level_bars=bars,
-        level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
     )
     assert from_constructor == from_exit_guard
     assert from_constructor == _MATCH_TRUTH_TABLE[gap]
@@ -305,7 +255,6 @@ def test_boundary_scales_with_price_in_both_implementations():
                 is_short=False,
                 computed_levels=[level_price],
                 computed_level_bars=bars,
-                level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
             )
             assert from_ctor == from_guard, (level_price, stop)
             assert (from_ctor == level_price) is inside, (level_price, stop)
@@ -354,7 +303,6 @@ def test_stop_to_level_distance_is_bounded_by_the_trade_own_risk():
             is_short=False,
             computed_levels=[level_price],
             computed_level_bars=bars,
-            level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
         )
         assert from_ctor == from_guard, (bar, stop)
         return from_ctor
@@ -421,25 +369,6 @@ def test_no_atr_multiple_survives_anywhere():
         "docs/WORK.md item 46 deleted `level_match_atr_tolerance`; a live "
         "reference reappeared at: " + ", ".join(offenders)
     )
-
-
-def test_cluster_constant_has_exactly_one_definition():
-    """One source of truth, or the drift this item fixed comes straight back.
-
-    Asserts WHICH FILE defines it, never which line. A line number in an
-    assertion rots the first time anything above it is edited — this test
-    failed on its own merge for exactly that reason, telling us nothing
-    about the constant it exists to guard.
-    """
-    definitions = []
-    for root in (REPO / "src", REPO / "config"):
-        for path in root.rglob("*"):
-            if path.suffix not in {".py", ".yaml", ".yml"} or not path.is_file():
-                continue
-            for line in path.read_text(errors="replace").splitlines():
-                if line.startswith("CLUSTER_TOLERANCE_PCT_FALLBACK ="):
-                    definitions.append(str(path.relative_to(REPO)))
-    assert definitions == ["src/data/levels.py"], definitions
 
 
 def test_min_touches_is_two_and_that_one_is_sourced():
@@ -582,7 +511,6 @@ def test_a_stop_inside_the_zone_but_on_no_forming_bar_is_not_backed():
                 is_short=False,
                 computed_levels=[level_price],
                 computed_level_bars=bars,
-                level_cluster_tolerance_pct=CLUSTER_TOLERANCE_PCT,
             )
             == expected
         )
