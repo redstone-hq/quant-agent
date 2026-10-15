@@ -76,9 +76,10 @@ CODE_UNRECOGNIZED_TRIGGER = "unrecognized_trigger"
 # 2026-10-09) when an AI Risk reject still dropped the exit. Nothing writes
 # it now; kept so readers can still name those rows.
 CODE_AI_RISK_REJECT = "ai_risk_reject"
-# Historical only: rows written before 2026-10-09, when the entry-anchored
-# ATR noise band still dropped a losing sale. Nothing writes it now; kept so
-# readers can still name those rows.
+# Written by the midday TRAIL_STOP branch (`src/pipeline_exits.py`) when a
+# proposed stop lands inside `NOISE_BAND_ATR_MULTIPLE` x ATR14 of price and no
+# hard trigger is cited; the old stop is kept. Rows written before 2026-10-09
+# with this code are the entry-anchored band that then dropped a losing sale.
 CODE_NOISE_BAND = "inside_atr_noise_band"
 CODE_CONTRADICTS_METRICS = "contradicts_own_metrics"
 CODE_HOLDING_DISCIPLINE_FALSE = "holding_discipline_claim_false"
@@ -113,6 +114,16 @@ CODE_AI_RISK_OBJECTION = "ai_risk_objection_advisory"
 # established; this row records that the desk, not the model, chose the
 # price.
 CODE_TRAIL_CLAMPED_TO_WIDEST = "trail_stop_clamped_to_widest_placeable"
+
+# Two midday TRAIL_STOP refusals that used to reach the log only, so a
+# per-symbol reader could not see why a proposed stop never moved
+# (2026-10-15). Both keep the existing stop (dropped=True: the proposal is
+# dropped, protection is not). The first: the proposed stop sits at or above
+# the current price, so it would fill at once -- it is not a stop. The
+# second: the proposed stop does not clear the live stop by one venue tick
+# (`src.risk.trailing.min_ratchet_floor`), so it is the same price.
+CODE_TRAIL_STOP_AT_OR_ABOVE_PRICE = "trail_stop_at_or_above_price"
+CODE_TRAIL_BELOW_MIN_RATCHET = "trail_stop_below_min_ratchet_floor"
 
 
 def classify_trigger_reason(

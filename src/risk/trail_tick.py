@@ -62,13 +62,14 @@ __all__ = ["MIN_RATCHET_TICKS", "venue_tick", "min_ratchet_floor"]
 #: (ledger: `MIN_RATCHET_TICKS`).
 #:
 #: What the same pass DID settle is the redundancy question the ledger left
-#: open. On THIS deterministic path there are two gates, not three: the
-#: ~2-4-session ratchet cooldown (`_trail_tightened_recently`) is reached
-#: only from the discretionary midday `TRAIL_STOP` branch and never from
-#: `_apply_deterministic_trails`. And the two that are here are NOT
-#: redundant — all seven reconstructed refusals sat OUTSIDE the 1.25-ATR
-#: noise band, so the noise band would have admitted every one of them and
-#: this gate is doing independent work.
+#: open. On THIS deterministic path there were two gates, not three: the
+#: ~2-4-session ratchet cooldown was reached only from the discretionary
+#: midday `TRAIL_STOP` branch, and that day-count lock has since been
+#: DELETED outright (#1810) -- no path has it now. And the two that were
+#: here were NOT redundant -- all seven reconstructed refusals sat OUTSIDE
+#: the then-1.25-ATR noise band (1.0 ATR since the 2026-10-09 owner
+#: ruling), so the noise band would have admitted every one of them and
+#: this gate was doing independent work.
 #: ---------------------------------------------------------------------
 #: RETIRED 2026-10-02 (owner ruling: ratchet stops on smaller moves, lock
 #: gains in sooner). Everything above is HISTORY, kept because it records

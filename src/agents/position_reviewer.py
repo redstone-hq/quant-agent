@@ -342,7 +342,8 @@ class PositionReviewerAgent(BaseAgent):
             if pf.get("distance_to_target_pct") is not None:
                 metric_bits.append(f"to_target={pf['distance_to_target_pct']:.1f}%")
             # Vol units. The prompt tells the reviewer to reason in ATRs ("a
-            # stop <1.25 ATRs away is inside daily noise") and the pipeline
+            # stop closer than NOISE_BAND_ATR_MULTIPLE ATRs, rendered into the
+            # sheet, is inside daily noise") and the pipeline
             # pays for an ATR fetch per position to compute these — but they
             # were never rendered, so the instruction referred to data the
             # model could not see (2026-07-16 audit; drift introduced with the

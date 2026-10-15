@@ -989,8 +989,9 @@ def test_a_move_smaller_than_the_ratchet_threshold_is_not_worth_an_order():
 def test_a_stop_is_never_placed_inside_the_atr_noise_band():
     """Same floor the discretionary TRAIL_STOP path clamps to, applied at the
     source instead of after the fact."""
-    # ATR 13 => noise floor 125 - 1.25*13 = 108.75; the 110 swing low sits
-    # inside it, so no order is worth placing.
+    # ATR 16 => noise floor 125 - 1.0*16 = 109 (one ATR, owner ruling
+    # 2026-10-09); the 110 swing low sits inside it, so no order is worth
+    # placing.
     assert (
         compute_trailing_stop(
             symbol="AAA",
@@ -1001,7 +1002,7 @@ def test_a_stop_is_never_placed_inside_the_atr_noise_band():
             reference_target=None,
             bars=_rising_with_higher_lows(),
             entry_date=_ENTRY_DAY,
-            atr=13.0,
+            atr=16.0,
         )
         is None
     )

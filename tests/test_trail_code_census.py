@@ -77,7 +77,7 @@ def test_candidate_inside_the_band_is_still_refused_outright():
     a mean 1.44 ATR against 13 better by a mean 0.61 ATR. Refusing stands.
     """
     atr = 2.0
-    bars = [_Bar(104.0, 100.0, 103.0)] * 20
+    bars = [_Bar(105.0, 100.0, 103.0)] * 20
     ev = evaluate_trailing_stop(
         symbol="TEST",
         setup_type="breakout",
@@ -91,6 +91,6 @@ def test_candidate_inside_the_band_is_still_refused_outright():
         qty=10,
         risk_per_share=abs(100.0 - 90.0),
     )
-    # chandelier 104 - 3*2 = 98.0 sits above the band floor 100.0 - 2.5 = 97.5
+    # chandelier 105 - 3*2 = 99.0 sits above the one-ATR band floor 100.0 - 2.0 = 98.0
     assert ev.proposal is None
     assert ev.code == TRAIL_CODE_INSIDE_NOISE_BAND

@@ -3559,11 +3559,19 @@ numbers:
       https://www.ecfr.gov/current/title-17/section-242.612 Same mirror
       note as the at-or-above-$1 increment above.
   - id: src.risk.trailing.NOISE_BAND_ATR_MULTIPLE
-    value: 1.25
+    value: 1.0
     status: owner-ruled
-    ruled_on: '2026-10-04'
-    ruling_summary: "Owner ruled on 2026-10-04 (\"Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move\") that a multiplier on a per-name quantity (stop multiples, ATR scales, noise bands, break confirmation, R-multiple ratchets) is self-adjusting to the stock and closes as RULED, not measured."
-    ruling_record: owner ruling 2026-10-04 (per-stock multiples are self-adjusting), "Yes, self adjusting. The 2.5 is not a made up number, it is specific to its own stock move"
+    ruled_on: '2026-10-09'
+    ruling_summary: "Owner ruled on 2026-10-09 that a stop is never closer than one normal day's move, and that the normal day's move is the stock's own 14-day ATR (Wilder) - derived, not made up. So the band is exactly one ATR. The former 1.25 had no recorded derivation for its extra 0.25."
+    ruling_record: owner ruling 2026-10-09 (checklist row Made-up numbers), "a stop is never closer than one normal day's move"; recorded in docs/OUTCOME.md
+    site: src/risk/trailing.py
+    note: >-
+      The trailing-stop noise band. Defined once; read by the midday
+      TRAIL_STOP clamp (src/pipeline_exits.py), the deterministic trail
+      (src/risk/trail_evaluate.py) and the position reviewer's prompt
+      ({{flags.noise_band_atr_multiple}}). The settings comment once called
+      the old 1.25 MEASURED; the 2026-09-14 verification found nothing was
+      measured.
     engine_ab_2026_10_05: >-
       NOT ANSWERABLE YET - measured 2026-10-05, and the first attempt to answer it
       was WRONG. The engine does exercise the trailing path: a probe counted 504
@@ -3581,18 +3589,6 @@ numbers:
       src/risk/trail_evaluate.py, and prove the wiring by counting how many of the
       504 calls return a changed stop under each value before reading anything off
       the P&L.
-    site: src/risk/trailing.py
-    note: >-
-      The trailing-stop noise band. The settings comment called it MEASURED;
-      the 2026-09-14 verification found nothing was measured. Its width is
-      approximately the stop width, which is why broker stops do almost all
-      real exits (docs/WORK.md).
-    open_question: >-
-      How wide is the band inside which a price move is noise rather than
-      information, for THIS desk's holds?
-    cost_while_unanswered: >-
-      This band is roughly the width of a stop, which is why broker stops do
-      almost all real exiting - see docs/WORK.md item 18.
   # REMOVED 2026-10-15: src.risk.trailing.PIVOT_WINDOW — a bar-count swing window (or a number derived from one), deleted by
   # owner ruling (Rex, 2026-10-15): a turning point comes from the stock's own movement, not a made-up
   # bar count. Swings are now confirmed by src.data.levels.turning_points, a zigzag reversal of at
@@ -5680,16 +5676,8 @@ numbers:
     cost_while_unanswered: >-
       Decides which names the technical seat ever looks at; a name filtered
       out here cannot be traded that session.
-  - id: src.pipeline_exits.ExitEngineMixin._midday_execute_llm_actions:factor[0]
-    value: 1.25
-    status: derived
-    site: src/pipeline_exits.py
-    derived_from: src.risk.trailing.NOISE_BAND_ATR_MULTIPLE
-    base_value: 1.25
-    note: >-
-      Midday noise-band clamp: a new stop inside 1.25 x ATR14 of price is
-      refused (src/pipeline_exits.py::ExitEngineMixin._midday_execute_llm_actions). The same 1.25 as the trailing-
-      stop noise band, which carries the open question.
+  # REMOVED 2026-10-15: src.pipeline_exits.ExitEngineMixin._midday_execute_llm_actions:factor[0] - the midday
+  # noise-band clamp no longer types 1.25; it reads src.risk.trailing.NOISE_BAND_ATR_MULTIPLE (owner ruling 2026-10-09).
   - id: src.pipeline.TradingPipeline.run_quarterly_meta_reflection(lookback_days)
     value: 90
     status: not-trade-governing

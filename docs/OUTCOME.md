@@ -870,6 +870,8 @@ however tight, down to the absolute floor of one times the daily move. The
 
 Do not route this to the owner again. It has been reopened six times.
 
+**Owner ruling, 2026-10-09:** a stop is never moved closer than one normal day's move (the stock's own 14-day ATR), so a trailing stop's noise band is exactly 1.0 ATR.
+
 ## A short is treated exactly like a long
 
 **Owner ruling, 2026-10-04:** *"A short is not riskier than long... ATR

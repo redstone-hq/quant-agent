@@ -614,8 +614,9 @@ risk:
   # only the dates and the implication that 1.5 was ever live are wrong.
   #
   # 3.0 -> 1.5 (PR #269, sub-commit one). THE 3.0 WAS NEVER DERIVED. Traced back, the
-  # comment that introduced it jumps from a MEASURED 1.25 ATR ("one ordinary
-  # day's range") to a CHOSEN 3.0 with nothing cited in between. Measured
+  # comment that introduced it jumps from a 1.25 ATR ("one ordinary day's
+  # range" -- itself never measured; the owner ruled it 1.0 ATR on
+  # 2026-10-09) to a CHOSEN 3.0 with nothing cited in between. Measured
   # against this desk's own record (docs/WORK.md item 33): 0 of 42 real
   # candidates cleared the floor on the one day with usable structural-level
   # data, and for RANGE setups — this desk's majority setup — 0 of 222 real

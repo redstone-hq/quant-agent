@@ -245,11 +245,12 @@ def test_trailing_short_ratchets_down_only():
 
 def test_trailing_short_noise_band():
     """Mirror of test_a_stop_is_never_placed_inside_the_atr_noise_band: a
-    candidate stop within 1.25xATR of current price is inside one ordinary
+    candidate stop within 1.0xATR of current price is inside one ordinary
     day's range and must not be placed, on either side."""
     mbars = _mirror_bars(_rising_with_higher_lows(), _AXIS)
-    # ATR 13 => noise ceiling 175 + 1.25*13 = 191.25; the mirrored 190 swing
-    # high sits inside it, so no order is worth placing.
+    # ATR 16 => noise ceiling 175 + 1.0*16 = 191 (one ATR, owner ruling
+    # 2026-10-09); the mirrored 190 swing high sits inside it, so no order
+    # is worth placing.
     assert (
         compute_trailing_stop(
             symbol="SSS",
@@ -260,7 +261,7 @@ def test_trailing_short_noise_band():
             reference_target=None,
             bars=mbars,
             entry_date=_ENTRY_DAY,
-            atr=13.0,
+            atr=16.0,
             qty=-1.0,
         )
         is None

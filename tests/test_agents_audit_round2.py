@@ -667,8 +667,10 @@ def test_idx29_37_prompt_matches_executor_enforcement():
     assert "EVERY SELL and COVER, first exit of the day included" in text
     assert "REDUCE" not in text
     # TRAIL_STOP clamps are named where the exemption is claimed.
-    assert "ratchet cooldown" in text
-    assert "1.25×ATR" in text
+    # The 4-day ratchet cooldown was deleted (#1810) and the band's multiple
+    # is rendered from `NOISE_BAND_ATR_MULTIPLE` (owner ruling 2026-10-09).
+    assert "ratchet cooldown" not in text
+    assert "{{flags.noise_band_atr_multiple}}×ATR" in text
 
 
 # ---------------------------------------------------------------------------
