@@ -36,3 +36,5 @@ Per-row result:
 - Recurring-missed-theme memory, 14 days — caller citation replaced.
 - Recent risk-seat memory, 5 verdicts — confirmed.
 - Evening thesis-health memory, 8 weeks — caller citation replaced.
+
+**Cannot-tell pass 2026-10-15 —** The substantiation guard listed 40 note citations that were dead or never mentioned the row (10 dead, 30 no-mention); all 40 are now cleared and the allow-list is empty (before 40, after 0). Each was either re-pointed to the constant or function that actually holds the number (for example the tech-seat chunk and retry limits, the earnings-quality tolerances, the coverage tolerance, the margin-ladder callers), or reworded so the note no longer pins a location it cannot substantiate (the OUTCOME swing-mandate line, the broker stop-amend story, the caller-passes-nothing claims). The portfolio-manager risk-ceiling row's note was swapped and is corrected: the 25 default is the decide signature, the inline 25.0 fallback is in build_user_message. The "no citation is left as cannot-tell" box can be ticked.
