@@ -1030,10 +1030,14 @@ def test_deterministic_trail_places_a_broker_order():
     class _B:
         def __init__(self, hi, lo, d):
             self.high, self.low, self.date = hi, lo, d
+            self.close = (hi + lo) / 2
 
     lows = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
     pipeline.market = MagicMock()
-    pipeline.market.get_ohlcv.return_value = [_B(lo + 2, lo, "2026-08-10") for lo in lows]
+    # 14 flat bars from BEFORE the 7 Aug fill: the swing detector's ATR(14)
+    # warms up on pre-entry history, which the live caller now passes in full.
+    warm = [_B(112, 110, "2026-08-01") for _ in range(14)]
+    pipeline.market.get_ohlcv.return_value = warm + [_B(lo + 2, lo, "2026-08-10") for lo in lows]
     pipeline.broker.replace_stop_loss.return_value = {"id": "o1"}
 
     orders = pipeline._apply_deterministic_trails(
@@ -1061,10 +1065,14 @@ def test_deterministic_trail_keeps_the_old_stop_when_the_broker_call_fails():
     class _B:
         def __init__(self, hi, lo, d):
             self.high, self.low, self.date = hi, lo, d
+            self.close = (hi + lo) / 2
 
     lows = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
     pipeline.market = MagicMock()
-    pipeline.market.get_ohlcv.return_value = [_B(lo + 2, lo, "2026-08-10") for lo in lows]
+    # 14 flat bars from BEFORE the 7 Aug fill: the swing detector's ATR(14)
+    # warms up on pre-entry history, which the live caller now passes in full.
+    warm = [_B(112, 110, "2026-08-01") for _ in range(14)]
+    pipeline.market.get_ohlcv.return_value = warm + [_B(lo + 2, lo, "2026-08-10") for lo in lows]
     orders = pipeline._apply_deterministic_trails(
         [_position("AAA", qty=10, avg_entry=100.0, current_price=125.0)],
         run_id="r1",

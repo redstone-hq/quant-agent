@@ -29,7 +29,7 @@ THE TWO WAYS A VALUE GOES UNREAD, both found in this codebase:
 
 2. ``def f(..., knob=MODULE_CONSTANT)`` evaluates the default ONCE, at
    function-definition time. ``find_structural_levels`` freezes its
-   ``pivot_window`` / ``tolerance_pct`` / ``min_touches`` this way, so a
+   ``tolerance_pct`` / ``min_touches`` this way, so a
    sweep that reassigns the module constant is swept past silently.
 
 The repairs are ENGINE-SIDE ONLY and change no value and no trading
@@ -55,7 +55,6 @@ from typing import Any, Iterator
 #: still counted if read, but an unknown name in an override is reported
 #: rather than silently applied to nothing.
 KNOWN_VALUES: dict[str, str] = {
-    "levels.pivot_window": "bars either side of a pivot (src/data/levels.py)",
     "levels.cluster_tolerance_pct": "level cluster width pct (src/data/levels.py)",
     "levels.min_touches": "touches before a level counts (src/data/levels.py)",
     "trailing.chandelier_atr_multiple": "chandelier ATR multiple (src/risk/trailing.py)",

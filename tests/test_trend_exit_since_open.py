@@ -26,7 +26,9 @@ D0 = date(2026, 8, 3)
 # VLO's shape. A decline prints swing low 374.5 (bar 5), then a LOWER swing
 # low 364.5 (bar 13); the position opens on bar 14 and price rises straight
 # to 436 with no swing confirmed since.
-PRE = [400.0, 395, 390, 385, 380, 375, 380, 385, 390, 385, 380, 375, 370, 365]
+# 14 flat bars first: swings are confirmed by a reversal of the stock's own
+# ATR(14) (2026-10-15), which needs that warm-up.
+PRE = [400.0] * 14 + [400.0, 395, 390, 385, 380, 375, 380, 385, 390, 385, 380, 375, 370, 365]
 RALLY = [370.0 + 3 * i for i in range(23)]  # 370 .. 436
 VLO = PRE + RALLY
 OPEN_BAR = len(PRE)  # the first bar after the lower low printed
@@ -99,7 +101,7 @@ def test_b_a_lower_low_printed_after_the_open_still_exits() -> None:
 def test_c_closing_through_a_pre_open_higher_low_still_exits() -> None:
     """The close-through test reads the full history: a higher low printed
     before the open is still the line, and closing under it sells."""
-    rise = [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
+    rise = [100.0] * 14 + [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
     opened = D0 + timedelta(days=len(rise))  # after every swing in the tape
     v = _pure(rise + [104.0], opened=opened)
     assert v.status == "EXIT" and v.code == CODE_EXIT
@@ -135,6 +137,6 @@ def test_g_unknown_open_holds_under_its_own_code_and_does_not_claim_a_clean_tren
 
 
 def test_h_unknown_open_still_exits_when_the_close_goes_through_the_swing() -> None:
-    rise = [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
+    rise = [100.0] * 14 + [100.0 + i for i in range(10)] + [105.0] + [111.0 + i for i in range(10)]
     v = _pure(rise + [104.0], opened=None)
     assert v.status == "EXIT" and v.code == CODE_EXIT

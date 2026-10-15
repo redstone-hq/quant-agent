@@ -22,7 +22,10 @@ def test_the_atr_unit_is_in_scope_not_only_its_multipliers() -> None:
     """
     ids = {site.site_id for site in collect_sites()}
     assert "src.data.technical.ATR_PERIOD" in ids
-    assert "src.data.levels.PIVOT_WINDOW" in ids
+    # The level scan's swing warm-up is in scope; the bar-count window it
+    # replaced is deleted (2026-10-15), not merely unscanned.
+    assert "src.data.levels.MIN_SCAN_BARS" in ids
+    assert "src.data.levels.PIVOT_WINDOW" not in ids
     assert "src.pipeline_stages.MAX_ENTRY_SLIPPAGE_BPS" in ids
     assert "src.verdicts.CONVICTION_SCORE['medium']" in ids
 

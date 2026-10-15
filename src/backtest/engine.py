@@ -390,8 +390,11 @@ def run_backtest(
                 del open_positions[symbol]
                 continue
 
-            # Still open: propose a trail using bars SINCE ENTRY, through today.
-            bars_since_entry = bars_sorted[symbol][pos.entry_index : idx + 1]
+            # Still open: propose a trail from the full history through today.
+            # The evaluator keeps only swings printed on/after the entry day and
+            # only chandelier bars after it; the history before entry is what
+            # the swing detector's ATR(14) warms up on (2026-10-15).
+            bars_through_today = bars_sorted[symbol][: idx + 1]
             atr_today = compute_indicators(symbol, bars_sorted[symbol][: idx + 1]).atr_14
             qty_sign = pos.shares if pos.direction == "long" else -pos.shares
             proposal = compute_trailing_stop(
@@ -401,7 +404,7 @@ def run_backtest(
                 current_price=bar.close,
                 current_stop=pos.stop,
                 reference_target=pos.target,
-                bars=bars_since_entry,
+                bars=bars_through_today,
                 atr=atr_today,
                 qty=qty_sign,
                 # 1R per share from the SAME per-lot function the live trail

@@ -23,11 +23,16 @@ from tests.test_phase3_exit_rework import _pipeline, _position
 class _Bar:
     def __init__(self, hi, lo, d="2026-08-10"):
         self.high, self.low, self.date = hi, lo, d
+        self.close = (hi + lo) / 2
 
 
 #: The fixture `test_deterministic_trail_places_a_broker_order` already uses:
 #: entry 100, price 125, stop 95 -> the trail proposes 110.
 _LOWS = [110, 108, 106, 100, 106, 108, 110, 118, 116, 114, 110, 114, 116, 118, 125]
+#: 14 flat bars dated before the fill first: the swing detector's ATR(14)
+#: warms up on pre-entry history, which the live caller passes in full
+#: (2026-10-15). The fixture's own bars stay dated after the fill.
+_HISTORY = [(110, "2026-08-01")] * 14 + [(lo, "2026-08-10") for lo in _LOWS]
 
 
 def _desk(*, short=False, stop=None):
@@ -58,9 +63,9 @@ def _desk(*, short=False, stop=None):
     p.broker.replace_stop_loss.side_effect = _replace
     p.market = MagicMock()
     if short:  # the long fixture mirrored about the entry (100)
-        p.market.get_ohlcv.return_value = [_Bar(200 - lo, 200 - lo - 2) for lo in _LOWS]
+        p.market.get_ohlcv.return_value = [_Bar(200 - lo, 200 - lo - 2, d) for lo, d in _HISTORY]
     else:
-        p.market.get_ohlcv.return_value = [_Bar(lo + 2, lo) for lo in _LOWS]
+        p.market.get_ohlcv.return_value = [_Bar(lo + 2, lo, d) for lo, d in _HISTORY]
     return p, live
 
 

@@ -472,7 +472,8 @@ def _bars_with_a_double_bottom() -> list[OHLCV]:
     """Enough clean bars for the scan, with two clear pivot lows near 95."""
     bars: list[OHLCV] = []
     closes = (
-        [105, 104, 103, 102, 101, 100, 99, 98, 97, 96]
+        [105] * 14  # flat warm-up: swings are an ATR(14) reversal (2026-10-15)
+        + [105, 104, 103, 102, 101, 100, 99, 98, 97, 96]
         + [95.0]  # pivot low 1
         + [96, 97, 98, 99, 100, 101, 102, 103, 104, 105]
         + [95.4]  # pivot low 2 — inside 1% of 95.0

@@ -27,7 +27,6 @@ from src.data.levels import (
     FAULT_NO_VOLATILITY,
     MAX_HORIZON_SESSIONS,
     MIN_SCAN_BARS,
-    PIVOT_WINDOW,
     derive_structural_target,
     find_structural_levels,
     structure_coverage,
@@ -372,8 +371,9 @@ class TestRefusals:
         assert structure_coverage(None) == COVERAGE_NO_BARS
         assert structure_coverage([]) == COVERAGE_NO_BARS
         assert structure_coverage(_bars([100.0] * 4)) == COVERAGE_UNUSABLE_BARS
-        # The minimum is the scan's own: one pivot AND one ATR reading.
-        assert MIN_SCAN_BARS == max(PIVOT_WINDOW * 2 + 1, ATR_PERIOD)
+        # The minimum is the scan's own: the ATR(14) warm-up the swing
+        # detector needs plus the one bar that can confirm a turn (2026-10-15).
+        assert MIN_SCAN_BARS == ATR_PERIOD + 1
         assert structure_coverage(_bars([100.0] * (MIN_SCAN_BARS - 1))) == COVERAGE_UNUSABLE_BARS
         assert structure_coverage(_bars([100.0] * MIN_SCAN_BARS)) == COVERAGE_MEASURED
         assert structure_coverage(_bars([100.0] * 40)) == COVERAGE_MEASURED

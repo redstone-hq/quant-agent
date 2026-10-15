@@ -104,7 +104,6 @@ __all__ = [
     "min_ratchet_floor",
     "CHANDELIER_ATR_MULTIPLE",
     "NOISE_BAND_ATR_MULTIPLE",
-    "PIVOT_WINDOW",
     "RANGE_BREAKEVEN_R_MULTIPLE",
     "RANGE_SECOND_RATCHET_TRIGGER_R",
     "RANGE_SECOND_RATCHET_LOCK_R",
@@ -120,72 +119,18 @@ CHANDELIER_ATR_MULTIPLE = 3.0
 #: day's range. Same value the TRAIL_STOP clamp in `pipeline.py` uses.
 NOISE_BAND_ATR_MULTIPLE = 1.25
 
-#: Bars either side of a candidate swing low, for THIS module only.
-#:
-#: **This is a convention with no derivation, and it is deliberately not
-#: reconciled with `src/data/levels.py`.** Until 2026-09-13 the comment here
-#: claimed it "matches `src/data/levels.py`'s pivot detection so 'a higher
-#: low' means the same thing in both places". That was false the day it was
-#: written: `src/data/levels.py::PIVOT_WINDOW` is 5, this is 3, and they have
-#: never been equal.
-#:
-#: What the desk adopted is the ARCHETYPE, not anyone's constant: a swing
-#: point is a bar that strictly dominates N bars on BOTH sides, and the
-#: right-hand arm means the verdict arrives N bars late. That is the Williams
-#: fractal / pivot-high-low construction as implemented by TA-Lib's FRACTAL
-#: (`optInLeftBars` / `optInRightBars`, https://ta-lib.org/functions/fractal.html)
-#: and by Pine's `ta.pivothigh` / `ta.pivotlow`.
-#:
-#: The NUMBER is not adopted, because no source derives one:
-#:   * TA-Lib's FRACTAL defaults both arms to 2 and states no rationale; the
-#:     page only notes "Bill Williams' original is the symmetric five-candle
-#:     case" — i.e. 2 either side, which is neither 3 nor 5.
-#:   * MetaTrader 5's own fractal documentation defines the pattern as "at
-#:     least five successive bars ... and two lower HIGHs on both sides" and
-#:     gives no reason for the count
-#:     (https://www.metatrader5.com/en/terminal/help/indicators/bw_indicators/fractals).
-#:   * fxssi records that Williams did NOT require five, and that five became
-#:     standard "due to its inclusion in the list of standard indicators of
-#:     MetaTrader 4 trading terminal" (https://fxssi.com/bill-williams-fractals)
-#:     — i.e. the popular number is a default that shipped, not a measurement.
-#:   * LuxAlgo's swing high/low reference states outright: "There is no
-#:     universally best setting ... different settings produce genuinely
-#:     different structure from the same chart"
-#:     (https://www.luxalgo.com/library/concept/swing-high-low/).
-#: Reviewed 2026-09-13; ~all of this literature is assertion rather than
-#: measurement, and no source fetched offered a derivation for any window.
-#:
-#: Second pass the same day (docs/WORK.md item 55) added the ACADEMIC source
-#: the vendor docs above are not: Tsinaslanidis, "Technical Trading
-#: Strategies, Pattern Recognition and Financial Risk Management" (PhD
-#: thesis, University of Macedonia, 2012, §4.3). It defines the identical
-#: symmetric construction and, uniquely, MEASURES its sensitivity — but at
-#: rolling windows of 50/100/150 days total, i.e. 25/50/75 bars either side,
-#: reporting the results "robust to any different parameterization" over
-#: that range. That range does not contain 3, so it neither supports nor
-#: refutes this constant. It is evidence that the object is insensitive at
-#: swing scale, and silence at the scale a stop is actually placed on.
-#:
-#: So 3 stays, labelled honestly, rather than being changed to a number with
-#: no better claim on being right. Changing it would be picking a number.
-#:
-#: Sole consumers: `_swing_lows` / `_swing_highs` in this file, reached only
-#: through `compute_trailing_stop`. Callers of that are
-#: `src/pipeline.py::_trail_open_positions` and
-#: `src/backtest/engine.py`. Nothing downstream compares a pivot found here
-#: against a level from `src/data/levels.py`, so the two windows disagreeing
-#: is currently harmless — see `src/data/levels.py::PIVOT_WINDOW` for the
-#: other half of this note and `tests/test_pivot_window_independence.py` for
-#: the test that pins it.
-PIVOT_WINDOW = 3
 #: The fewest bars SINCE ENTRY the STRUCTURE leg needs for a reading. Not a
-#: chosen number: `_swing_lows` needs `window` bars on both sides of a low
-#: before it will confirm one, so this is exactly that window. It gates the
-#: structure leg ONLY. The chandelier is not held to it (2026-10-13): it needs
-#: ONE completed daily bar dated after the entry day and reads the highest
-#: such high (never the fill, the entry-day bar or a forming bar) - 3 x the
-#: current 14-day ATR. Gating it at 7 meant it first read in session 8.
-MIN_BARS_FOR_A_READING = PIVOT_WINDOW * 2 + 1
+#: chosen number: swing points come from `src.data.levels.turning_points`, the
+#: one zigzag detector (owner ruling, Rex 2026-10-15 — a turning point comes
+#: from the stock's own movement, not a bar count; the old `PIVOT_WINDOW = 3`
+#: is deleted). Its reversal threshold is the stock's own ATR(14), which first
+#: exists on bar 14, and a candidate there is confirmed at the earliest by the
+#: next bar — so this is `src.data.levels.MIN_SCAN_BARS`, read, not copied.
+#: It gates the structure leg ONLY. The chandelier is not held to it
+#: (2026-10-13): it needs ONE completed daily bar dated after the entry day and
+#: reads the highest such high (never the fill, the entry-day bar or a forming
+#: bar) - 3 x the current 14-day ATR.
+from src.data.levels import MIN_SCAN_BARS as MIN_BARS_FOR_A_READING  # noqa: E402
 
 #: How many initial-risk-units (R) of profit a Type A / range trade must
 #: bank before its stop ratchets to breakeven. 1.0 is the standard,

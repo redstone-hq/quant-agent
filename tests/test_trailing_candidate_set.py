@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from src.risk.trailing import (
     CHANDELIER_ATR_MULTIPLE,
+    MIN_BARS_FOR_A_READING,
     NOISE_BAND_ATR_MULTIPLE,
     TRAIL_CODE_INSIDE_NOISE_BAND,
     TRAIL_CODE_NO_CANDIDATE,
@@ -46,10 +47,16 @@ class _Bar:
     high: float
     low: float
     date: _date = _BAR_DAY
+    close: float | None = None
+
+    def __post_init__(self):
+        # The swing detector's ATR needs a close; mid-range unless stated.
+        if self.close is None:
+            self.close = (self.high + self.low) / 2
 
 
 def _bars(lows, *, peak):
-    """Seven bars with the given lows; the LAST bar carries the run high.
+    """Bars with the given lows; the LAST bar carries the run high.
 
     Highs are otherwise pinned just above their own low so that `peak` is
     unambiguously `max(high)` and therefore fixes the chandelier level.
@@ -80,10 +87,10 @@ def _evaluate(bars):
     )
 
 
-# A strict local minimum with three higher lows on each side — `PIVOT_WINDOW`
-# is 3, so seven bars is the minimum that can confirm one pivot.
+# A V whose bounce clears the bars' own ATR(14), after 14 flat bars for that
+# ATR to warm up on (swings are confirmed by an ATR reversal since 2026-10-15).
 def _pivot_at(level: float):
-    return [level + 1.5, level + 1.0, level + 0.5, level, level + 0.5, level + 1.0, level + 1.5]
+    return [level + 1.5] * 14 + [level + 1.5, level + 1.0, level + 0.5, level, level + 0.5, level + 1.0, level + 1.5]
 
 
 def test_a_pivot_inside_the_noise_band_no_longer_suppresses_the_chandelier():
@@ -166,7 +173,7 @@ def test_bars_present_but_no_usable_leg_still_reports_no_candidate():
         current_price=PRICE,
         current_stop=STOP,
         reference_target=None,
-        bars=_bars([130.0] * 7, peak=131.0),
+        bars=_bars([130.0] * MIN_BARS_FOR_A_READING, peak=131.0),
         entry_date=_ENTRY_DAY,
         atr=None,
     )
