@@ -107,10 +107,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 **Tier 2 gates entries/exits or shapes stops after entry.** Rotation margin and seat weights; settled by measured ranking-score noise and each seat's forward discriminating power on public data.
 
 - ~~`rotation.ROTATION_MARGIN_PCT` = 0.25~~ -- DELETED 2026-10-15 (owner decision q07): the stock-swap gap must now exceed the desk's own measured score noise, the largest score change on a name with no new evidence between two recorded sessions since the clean-record start; unmeasured means no swap. Nothing typed replaces it, so it has no ledger row. The tier stays switched off; a trading-cost brake follows the paper reset.
-- `verdicts.SEAT_WEIGHT['earnings']` = 1.2
-- `verdicts.SEAT_WEIGHT['macro']` = 0.8
-- `verdicts.SEAT_WEIGHT['smart_money']` = 0.8
-- `verdicts.SEAT_WEIGHT['technical']` = 1.2
+- ~~Per-seat ranking weights (technical and earnings 1.2, macro and smart money 0.8)~~ -- DELETED 2026-10-15 (n06): every seat now counts equally in the ranking score. The score is a sum read only by order and by gaps, so a common multiplier changes nothing and only seat ratios carry information; no ratio is measured (published work gives a direction only, momentum and post-earnings drift strong, macro weak out of sample), so nothing typed replaces them and they have no ledger row. The swap brake's evidence key now carries the score basis, so it restarts its measurement on equal-seat scores.
 
 **Tier 3 shapes which names reach the seats.** Signal-classification windows, candidate caps and scan cadence; settled from filing-date and screen-demand recordings. They shape which names reach the seats, not size or stops.
 

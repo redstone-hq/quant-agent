@@ -3699,169 +3699,17 @@ numbers:
       src/verdicts.py::CONVICTION_SCORE: equal spacing on a three-point scale puts the
       midpoint at 0.5 by construction, and the comment states nothing measured
       justifies anything else. The spacing is read off the scale; whether the
-      scale should be equally spaced is the open question on the SEAT_WEIGHT
-      entries.
+      scale should be equally spaced is an open question; the per-seat weights it
+      was once multiplied by were deleted 2026-10-15 (n06).
     note: >-
       Ordinal encoding of the desk's own three-point conviction scale onto
-      0..1, read at src/verdicts.py::CONVICTION_SCORE and multiplied by SEAT_WEIGHT into a
-      magnitude that orders the book.
-  - id: src.verdicts.SEAT_WEIGHT['earnings']
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: 'the forward discriminating power of the earnings seat''s own signal, measured on public
-        data over the universe the desk could trade, on public daily bars and NOT on this desk''s
-        fills: the difference in forward move between names the seat called favourably and names it
-        did not, over a stated horizon, for every seat on the same footing'
-      closes_when: every seat carries a measured discriminating power and the weights are restated
-        as their ratio; the WHOLE dict is DELETED, and the score becomes an unweighted mean, if no
-        seat separates from another beyond sampling error -- the spacing here is load-bearing, because
-        these weights are summed into a score compared ACROSS candidates, not used as positions in
-        a sort key
-    value: 1.2
-    status: arbitrary
-    site: src/verdicts.py
-    note: >-
-      Per-seat ranking multiplier. The DIRECTION is genuinely sourced -
-      src/verdicts.py::SEAT_WEIGHT cites five WebSearch-verified literature reviews
-      of 2026-09-03 and docs/QAMC_REMEDIATION_SPEC.md section 13.3 for the
-      per-seat citation list, here post-earnings-announcement drift (Ball &
-      Brown 1968; Bernard & Thomas 1989/1990). The MAGNITUDE is not: nothing
-      in that literature sets the spacing at 0.2. By this desk's own rule a
-      source for a direction is not a source for a point value, so it is
-      recorded honestly as arbitrary rather than as sourced.
-    open_question: >-
-      What relative weight does the published effect size for the earnings
-      seat imply, and does it survive the conviction ledger's own
-      20-resolved-call bar once this desk has that sample?
-    cost_while_unanswered: >-
-      Ranking decides which names get taken when the book is full, so a wrong
-      spacing silently reorders the book; src/verdicts.py@`The amendment: use a real, externally published prior now, on outside literature about the general reliability of each TYPE of analysis (not a claim about how good THIS desk's specific analyst prompts are) — and let it be overridden the moment the desk's own conviction ledger clears the 20-resolved-call bar per seat` already
-      commits to overriding it with measured history.
-  - id: src.verdicts.SEAT_WEIGHT['macro']
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: 'the forward discriminating power of the macro seat''s own signal, measured on public
-        data over the universe the desk could trade, on public daily bars and NOT on this desk''s
-        fills: the difference in forward move between names the seat called favourably and names it
-        did not, over a stated horizon, for every seat on the same footing'
-      closes_when: every seat carries a measured discriminating power and the weights are restated
-        as their ratio; the WHOLE dict is DELETED, and the score becomes an unweighted mean, if no
-        seat separates from another beyond sampling error -- the spacing here is load-bearing, because
-        these weights are summed into a score compared ACROSS candidates, not used as positions in
-        a sort key
-    value: 0.8
-    status: arbitrary
-    site: src/verdicts.py
-    note: >-
-      Per-seat ranking multiplier. The DIRECTION is genuinely sourced -
-      src/verdicts.py::SEAT_WEIGHT cites five WebSearch-verified literature reviews
-      of 2026-09-03 and docs/QAMC_REMEDIATION_SPEC.md section 13.3 for the
-      per-seat citation list, here macro forecast effects fitting in-sample
-      and failing out-of-sample (Benhenda 2026). The MAGNITUDE is not: nothing
-      in that literature sets the spacing at 0.2. By this desk's own rule a
-      source for a direction is not a source for a point value, so it is
-      recorded honestly as arbitrary rather than as sourced.
-    open_question: >-
-      What relative weight does the published effect size for the macro seat
-      imply, and does it survive the conviction ledger's own 20-resolved-call
-      bar once this desk has that sample?
-    cost_while_unanswered: >-
-      Ranking decides which names get taken when the book is full, so a wrong
-      spacing silently reorders the book; src/verdicts.py@`The amendment: use a real, externally published prior now, on outside literature about the general reliability of each TYPE of analysis (not a claim about how good THIS desk's specific analyst prompts are) — and let it be overridden the moment the desk's own conviction ledger clears the 20-resolved-call bar per seat` already
-      commits to overriding it with measured history.
-  - id: src.verdicts.SEAT_WEIGHT['news']
-    value: 1
-    status: derived
-    site: src/verdicts.py
-    derived_from: src.verdicts._DEFAULT_SEAT_WEIGHT
-    base_value: 1
-    note: >-
-      The news seat sits at the unweighted baseline rather than above or below
-      it (src/verdicts.py@`both are documented to be decaying over time as`). Same number and same baseline as
-      _DEFAULT_SEAT_WEIGHT.
-  - id: src.verdicts.SEAT_WEIGHT['smart_money']
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: 'the forward discriminating power of the smart_money seat''s own signal, measured on
-        public data over the universe the desk could trade, on public daily bars and NOT on this desk''s
-        fills: the difference in forward move between names the seat called favourably and names it
-        did not, over a stated horizon, for every seat on the same footing'
-      closes_when: every seat carries a measured discriminating power and the weights are restated
-        as their ratio; the WHOLE dict is DELETED, and the score becomes an unweighted mean, if no
-        seat separates from another beyond sampling error -- the spacing here is load-bearing, because
-        these weights are summed into a score compared ACROSS candidates, not used as positions in
-        a sort key
-    value: 0.8
-    status: arbitrary
-    site: src/verdicts.py
-    note: >-
-      Per-seat ranking multiplier. The DIRECTION is genuinely sourced -
-      src/verdicts.py::SEAT_WEIGHT cites five WebSearch-verified literature reviews
-      of 2026-09-03 and docs/QAMC_REMEDIATION_SPEC.md section 13.3 for the
-      per-seat citation list, here insider edges living almost entirely in the
-      pre-disclosure window. The MAGNITUDE is not: nothing in that literature
-      sets the spacing at 0.2. By this desk's own rule a source for a
-      direction is not a source for a point value, so it is recorded honestly
-      as arbitrary rather than as sourced.
-    open_question: >-
-      What relative weight does the published effect size for the smart_money
-      seat imply, and does it survive the conviction ledger's own
-      20-resolved-call bar once this desk has that sample?
-    cost_while_unanswered: >-
-      Ranking decides which names get taken when the book is full, so a wrong
-      spacing silently reorders the book; src/verdicts.py@`The amendment: use a real, externally published prior now, on outside literature about the general reliability of each TYPE of analysis (not a claim about how good THIS desk's specific analyst prompts are) — and let it be overridden the moment the desk's own conviction ledger clears the 20-resolved-call bar per seat` already
-      commits to overriding it with measured history.
-  - id: src.verdicts.SEAT_WEIGHT['technical']
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: 'the forward discriminating power of the technical seat''s own signal, measured on
-        public data over the universe the desk could trade, on public daily bars and NOT on this desk''s
-        fills: the difference in forward move between names the seat called favourably and names it
-        did not, over a stated horizon, for every seat on the same footing'
-      closes_when: every seat carries a measured discriminating power and the weights are restated
-        as their ratio; the WHOLE dict is DELETED, and the score becomes an unweighted mean, if no
-        seat separates from another beyond sampling error -- the spacing here is load-bearing, because
-        these weights are summed into a score compared ACROSS candidates, not used as positions in
-        a sort key
-    value: 1.2
-    status: arbitrary
-    site: src/verdicts.py
-    note: >-
-      Per-seat ranking multiplier. The DIRECTION is genuinely sourced -
-      src/verdicts.py::SEAT_WEIGHT cites five WebSearch-verified literature reviews
-      of 2026-09-03 and docs/QAMC_REMEDIATION_SPEC.md section 13.3 for the
-      per-seat citation list, here cross-sectional momentum (Jegadeesh &
-      Titman 1993; replicated by Rouwenhorst 1998). The MAGNITUDE is not:
-      nothing in that literature sets the spacing at 0.2. By this desk's own
-      rule a source for a direction is not a source for a point value, so it
-      is recorded honestly as arbitrary rather than as sourced.
-    open_question: >-
-      What relative weight does the published effect size for the technical
-      seat imply, and does it survive the conviction ledger's own
-      20-resolved-call bar once this desk has that sample?
-    cost_while_unanswered: >-
-      Ranking decides which names get taken when the book is full, so a wrong
-      spacing silently reorders the book; src/verdicts.py@`The amendment: use a real, externally published prior now, on outside literature about the general reliability of each TYPE of analysis (not a claim about how good THIS desk's specific analyst prompts are) — and let it be overridden the moment the desk's own conviction ledger clears the 20-resolved-call bar per seat` already
-      commits to overriding it with measured history.
-  - id: src.verdicts._DEFAULT_SEAT_WEIGHT
-    value: 1
-    status: sourced
-    site: src/verdicts.py
-    source: >-
-      src/verdicts.py::_DEFAULT_SEAT_WEIGHT: unweighted, never zero, so a seat added before
-      its own literature review lands is never silently muted. 1.0 is the
-      unweighted baseline the table itself is expressed against, not a chosen
-      magnitude.
-    note: >-
-      Fallback weight for a seat SEAT_WEIGHT does not name.
+      0..1, read at src/verdicts.py::CONVICTION_SCORE and summed, every seat counted
+      equally, into a score that orders the book. Per-seat weights were deleted
+      2026-10-15 (n06): the score is a sum read only by order and by gaps, so a
+      common multiplier changes nothing and only seat RATIOS carry information;
+      none is measured (published work gives a direction only, momentum and
+      post-earnings drift strong, macro weak out of sample, never a ratio), so
+      the rule needs no constant.
 
   # --- 2026-09-19, board item 130: src/execution/broker.py, src/coverage_watchdog.py,
   # src/pipeline.py and src/agents brought into scope. 47 new sites, 0 in

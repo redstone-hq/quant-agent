@@ -47,11 +47,9 @@ from src.models import (
 from src.verdicts import (
     CONVICTION_SCORE,
     RANKING_SIGNALS,
-    SEAT_WEIGHT,
     level_touches_of,
     rank_verdicts,
     score_verdict,
-    seat_weight,
 )
 
 REPO = Path(__file__).parent.parent
@@ -445,29 +443,10 @@ def test_ranking_reads_two_signals_at_equal_weight():
     assert CONVICTION_SCORE == {"low": 0.0, "medium": 0.5, "high": 1.0}
 
 
-def test_seat_weight_is_the_ratified_research_informed_prior():
-    """§13.3 AMENDED 2026-09-03, this module only. `src/risk/rules.py`'s
-    sizing-path SEAT_WEIGHT is untouched and stays pinned at 1 — see
-    `tests/test_signed_dissent.py`. This one may hold a per-seat prior
-    because it only reorders already-eligible, already-agreeing candidates;
-    it never changes how much money a trade risks."""
-    assert SEAT_WEIGHT == {
-        "technical": 1.2,
-        "earnings": 1.2,
-        "news": 1.0,
-        "smart_money": 0.8,
-        "macro": 0.8,
-    }
-    assert seat_weight("technical") == 1.2
-    assert seat_weight("some_future_seat_not_yet_reviewed") == 1.0, (
-        "an unreviewed seat must default to unweighted, never zero or missing"
-    )
-
-
-def test_only_one_seat_weight_table_exists_in_the_ranking_module():
-    """A SECOND, undocumented seat-keyed numeric dict sneaking in alongside
-    the ratified `SEAT_WEIGHT` would be an uncited, chosen weight — the
-    exact thing §13.3 still forbids anywhere except the one reviewed table.
+def test_no_seat_weight_table_exists_in_the_ranking_module():
+    """Every seat counts equally (n06, 2026-10-15): the per-seat weight
+    table is deleted, so ANY seat-keyed numeric dict reappearing here would
+    be an uncited, chosen weight. Zero tables, not one.
 
     Catches both a `{}` literal AND a `dict(seat=weight, ...)` call — a
     prior version of this guard only walked `ast.Dict` nodes and an
@@ -485,7 +464,7 @@ def test_only_one_seat_weight_table_exists_in_the_ranking_module():
             kw_keys = {kw.arg for kw in node.keywords if kw.arg is not None}
             if kw_keys & seats:
                 hits.append(node.lineno)
-    assert len(hits) == 1, f"expected exactly one seat-keyed table (SEAT_WEIGHT), found at lines {hits}"
+    assert hits == [], f"expected no seat-keyed table, found at lines {hits}"
 
 
 def test_score_is_magnitude_plus_conviction():
@@ -498,30 +477,28 @@ def test_score_is_magnitude_plus_conviction():
 
 
 def test_rank_verdicts_orders_by_score_then_symbol_and_skips_neutral():
-    """Scores carry technical's 1.2 seat weight since 2026-09-13: the
-    aggregation is a weighted SUM, so a lone seat's weight multiplies its own
-    score instead of cancelling out of an average. Ordering is unchanged."""
+    """Every seat counts equally since n06 (2026-10-15), so a lone seat's
+    score is its own `score_verdict`. Ordering is unchanged."""
     verdicts = [
-        _tech("CCC", "buy", "medium").to_verdict(),  # 1.0 * 1.2
-        _tech("AAA", "buy", "medium").to_verdict(),  # 1.0 * 1.2 — ties on symbol
-        _tech("BBB", "strong_sell", "high").to_verdict(),  # 2.0 * 1.2
-        _tech("DDD", "buy", "low").to_verdict(),  # 0.5 * 1.2
+        _tech("CCC", "buy", "medium").to_verdict(),  # 1.0
+        _tech("AAA", "buy", "medium").to_verdict(),  # 1.0 — ties on symbol
+        _tech("BBB", "strong_sell", "high").to_verdict(),  # 2.0
+        _tech("DDD", "buy", "low").to_verdict(),  # 0.5
         _tech("EEE", "neutral", invalid_if="").to_verdict(),  # no lean — not scored
     ]
     ranked = rank_verdicts(verdicts)
     assert [c.symbol for c in ranked] == ["BBB", "AAA", "CCC", "DDD"]
-    assert [c.score for c in ranked] == [2.4, 1.2, 1.2, 0.6]
+    assert [c.score for c in ranked] == [2.0, 1.0, 1.0, 0.5]
     assert ranked[0].direction == "bearish"
     assert ranked[0].seats == ["technical"]
     # Pure: same input, same order.
     assert [c.symbol for c in rank_verdicts(verdicts)] == ["BBB", "AAA", "CCC", "DDD"]
 
 
-def test_two_seats_on_one_symbol_sum_at_the_research_informed_weight():
-    """Same fixture as the old unit-weight test, recomputed for the
-    2026-09-13 change from a weighted AVERAGE to a weighted SUM. Technical
-    enters at 1.2x, news at 1.0x, and each seat's contribution is ADDED."""
-    tech = _tech("XLE", "buy", "high").to_verdict()  # 0.5 + 1.0, weight 1.2
+def test_two_seats_on_one_symbol_sum_with_every_seat_counted_equally():
+    """A SUM since 2026-09-13; every seat counted equally since n06
+    (2026-10-15). Each seat's contribution is ADDED, unweighted."""
+    tech = _tech("XLE", "buy", "high").to_verdict()  # 0.5 + 1.0
     other = AnalystVerdict(
         seat="news",
         symbol="XLE",
@@ -529,26 +506,26 @@ def test_two_seats_on_one_symbol_sum_at_the_research_informed_weight():
         magnitude=1.0,
         conviction="low",
         evidence=_evidence(),
-        invalidation="x",  # 1.0 + 0.0, weight 1.0
+        invalidation="x",  # 1.0 + 0.0
     )
     [c] = rank_verdicts([tech, other])
-    # magnitude: 0.5*1.2 + 1.0*1.0 = 1.6
-    # conviction: 1.0*1.2 + 0.0*1.0 = 1.2
-    # risk_reward_tiebreak: still a weighted MEAN, deliberately — it
+    # magnitude: 0.5 + 1.0 = 1.5
+    # conviction: 1.0 + 0.0 = 1.0
+    # risk_reward_tiebreak: still a MEAN, deliberately — it
     # aggregates several estimates of ONE quantity in a real unit. Only
     # technical carries risk_reward evidence (2.40, from its 100/95/112
-    # fixture geometry); "news" contributes 0 weight, not 0 value:
-    # (2.40*1.2) / 1.2 = 2.40. Tiebreak only — never folded into `score`.
+    # fixture geometry); "news" states none and is left out, not 0 value:
+    # 2.40 / 1 = 2.40. Tiebreak only — never folded into `score`.
     # level_touches_tiebreak: 0.0 — the `_tech` fixture sets no
     # `computed_level_touches`, and neither seat here is one that would
     # carry the evidence anyway besides technical (item 141, 2026-09-20).
     assert c.components == {
-        "magnitude": 1.6,
-        "conviction_score": 1.2,
+        "magnitude": 1.5,
+        "conviction_score": 1.0,
         "risk_reward_tiebreak": 2.4,
         "level_touches_tiebreak": 0.0,
     }
-    assert c.score == 2.8
+    assert c.score == 2.5
     assert c.seats == ["news", "technical"]
 
 
@@ -589,21 +566,17 @@ def test_a_second_agreeing_seat_can_never_lower_a_candidates_score():
     assert scores == sorted(scores), scores
     # And strictly higher wherever the added seat actually said something:
     # only the low-conviction news seat contributes exactly zero.
-    assert scores[0] == 2.4  # technical alone, 2.0 * 1.2
+    assert scores[0] == 2.0  # technical alone
     assert scores[1] > scores[0]  # + smart_money `actionable`
     assert scores[4] > scores[1]
 
 
-def test_a_lone_seats_own_weight_now_scales_its_score():
-    """Changed 2026-09-13 with the move from average to sum. Under the
-    average a lone seat's weight cancelled out, so a lone macro read and a
-    lone technical read of identical strength scored the same — which made
-    the researched prior silently inert on every single-seat candidate, the
-    majority of them. Under a sum the weight applies, so the seat this desk
-    has the best-sourced reason to trust ranks above the one it does not."""
+def test_a_lone_seat_scores_the_same_whichever_seat_it_is():
+    """Every seat counts equally since n06 (2026-10-15): a lone macro read
+    and a lone technical read of identical strength score the same."""
     tech = _tech("XLE", "buy", "high").to_verdict()
     [c] = rank_verdicts([tech])
-    assert c.score == round(score_verdict(tech) * SEAT_WEIGHT["technical"], 4) == 1.8
+    assert c.score == round(score_verdict(tech), 4) == 1.5
     macro_like = AnalystVerdict(
         seat="macro",
         symbol="XLE",
@@ -614,8 +587,8 @@ def test_a_lone_seats_own_weight_now_scales_its_score():
         invalidation="x",
     )
     [m] = rank_verdicts([macro_like])
-    assert m.score == round(score_verdict(macro_like) * SEAT_WEIGHT["macro"], 4)
-    assert c.score > m.score
+    assert m.score == round(score_verdict(macro_like), 4)
+    assert c.score == m.score
 
 
 def test_a_seat_that_looked_and_had_no_lean_is_recorded_not_dropped():
@@ -833,9 +806,9 @@ def test_a_seat_that_states_no_strength_is_absent_from_the_strength_term():
     assert c.strength_seats == []
     assert c.no_strength_seats == sorted(seats)
     # The seats are still fully counted — on conviction, which is the whole
-    # of what they state. 1.0*(1.0 + 0.8 + 0.8 + 1.2) = 3.8.
-    assert c.components["conviction_score"] == 3.8
-    assert c.score == 3.8
+    # of what they state, every seat equally: 1.0 * 4 seats = 4.0.
+    assert c.components["conviction_score"] == 4.0
+    assert c.score == 4.0
 
 
 def test_a_seat_that_states_a_strength_carries_it_into_the_ranking():
@@ -847,10 +820,10 @@ def test_a_seat_that_states_a_strength_carries_it_into_the_ranking():
     [c] = rank_verdicts([tech, *(_no_strength(s) for s in ("news", "macro", "smart_money", "earnings"))])
     assert c.strength_seats == ["technical"]
     assert c.no_strength_seats == ["earnings", "macro", "news", "smart_money"]
-    # 1.0 (strong_buy) * 1.2 (technical's prior) — and nothing else, because
-    # nothing else has a strength to add.
-    assert c.components["magnitude"] == 1.2
-    assert c.score == round(1.2 + (1.2 + 1.0 + 0.8 + 0.8 + 1.2), 4)
+    # 1.0 (strong_buy) — and nothing else, because nothing else has a
+    # strength to add.
+    assert c.components["magnitude"] == 1.0
+    assert c.score == round(1.0 + 5 * 1.0, 4)
 
 
 def test_the_score_is_unchanged_by_the_absence_encoding():
@@ -859,18 +832,18 @@ def test_the_score_is_unchanged_by_the_absence_encoding():
     that reordered candidates would have been a money defect, and this is
     the test that says it was not and still is not. Scored against the
     arithmetic the old literal-0.0 encoding produced, written out longhand:
-    a seat with no strength adds `weight * (0 + conviction)`."""
-    tech = _tech("XLE", "buy", "medium").to_verdict()  # 0.5 + 0.5, x1.2
+    a seat with no strength adds `0 + conviction`."""
+    tech = _tech("XLE", "buy", "medium").to_verdict()  # 0.5 + 0.5
     group = [
         tech,
-        _no_strength("news", conviction="low"),  # 0 + 0.0, x1.0
+        _no_strength("news", conviction="low"),  # 0 + 0.0
         _no_strength("earnings", conviction="high"),
-    ]  # 0 + 1.0, x1.2
+    ]  # 0 + 1.0
     [c] = rank_verdicts(group)
-    expected = 1.2 * (0.5 + 0.5) + 1.0 * (0.0 + 0.0) + 1.2 * (0.0 + 1.0)
+    expected = (0.5 + 0.5) + (0.0 + 0.0) + (0.0 + 1.0)
     assert c.score == round(expected, 4)
     # Same total through the per-verdict helper the rotation margin reuses.
-    assert round(sum(seat_weight(v.seat) * score_verdict(v) for v in group), 4) == c.score
+    assert round(sum(score_verdict(v) for v in group), 4) == c.score
 
 
 def test_a_directional_verdict_cannot_state_a_strength_of_zero():
@@ -956,9 +929,9 @@ def test_pm_ranks_equally_eligible_candidates_deterministically():
     )
     assert blocked == {}
     assert [c.symbol for c in ranked] == ["AAA", "BBB", "CCC", "DDD"]
-    # Each is a lone technical read, so each carries technical's 1.2 weight
-    # (2026-09-13: a weighted sum, so a lone seat's weight no longer cancels).
-    assert [c.score for c in ranked] == [2.4, 1.8, 1.2, 0.6]
+    # Each is a lone technical read, scored at its own `score_verdict`
+    # (every seat counts equally since n06, 2026-10-15).
+    assert [c.score for c in ranked] == [2.0, 1.5, 1.0, 0.5]
 
 
 def test_the_real_ratio_orders_candidates_instead_of_admitting_them():
@@ -1106,7 +1079,7 @@ def test_rank_candidates_combines_all_five_seats_at_their_researched_weight():
     # SOLO is untouched by the new seats: still exactly its own score at its
     # own seat weight, with nothing added and nothing averaged away.
     solo_candidate = ranked[1]
-    assert solo_candidate.score == round(score_verdict(solo.to_verdict()) * SEAT_WEIGHT["technical"], 4)
+    assert solo_candidate.score == round(score_verdict(solo.to_verdict()), 4)
 
 
 def test_rank_candidates_survives_a_malformed_earnings_entry():
@@ -1441,8 +1414,8 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     )
     section = msg.split("## Candidate Ranking")[1].split("\n## ")[0]
     lines = [ln for ln in section.splitlines() if ln[:2] in ("1.", "2.", "3.")]
-    assert lines[0].startswith("1. AAA — bullish | score 3.40")
-    assert lines[1].startswith("2. CCC — bullish | score 2.20")
+    assert lines[0].startswith("1. AAA — bullish | score 3.00")
+    assert lines[1].startswith("2. CCC — bullish | score 2.00")
     # The prompt must say the aggregation is a SUM, or the PM reads the number
     # as a 0-2 fraction. Both survivors now carry two seats.
     assert "summed over 2 seat(s)" in lines[0]
@@ -1453,7 +1426,7 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     # summed over, and news — which has no strength scale — is listed as
     # such instead of silently feeding a 0.0 into a figure the prompt
     # describes as covering every leaning seat.
-    assert "strength 1.20 from technical" in lines[0]
+    assert "strength 1.00 from technical" in lines[0]
     assert "no strength scale: news" in lines[0]
     assert "they are absent from the strength term entirely" in section
     # The ranking sits AFTER the reports it orders.
@@ -1609,7 +1582,7 @@ def test_all_breakout_tied_tier_breaks_on_level_touches_not_alphabet():
     for c in ranked:
         assert "risk_reward_tiebreak" not in c.components  # breakout: no R/R at all
     assert [c.symbol for c in ranked] == ["Z", "A", "M"]
-    # Unweighted — see `level_touches_of` for why `SEAT_WEIGHT` does not
+    # Unweighted, like every summed signal — see `level_touches_of`; it does not
     # apply to a deterministic pivot count.
     assert [c.components["level_touches_tiebreak"] for c in ranked] == [9.0, 5.0, 2.0]
     # Pure and stable: same input, same order, every time.

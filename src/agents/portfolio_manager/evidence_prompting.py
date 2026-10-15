@@ -399,7 +399,7 @@ class PromptEvidence:
         counts in the tally exactly as before, and a broadcast stance still
         reaches the candidate RANKING through the seat's own stated
         `confidence` (`MacroAnalysis.to_verdict` ->
-        `src/verdicts.py::score_verdict`, at `SEAT_WEIGHT["macro"]`). Only
+        `src/verdicts.py::score_verdict`, counted like every other seat). Only
         its claim to be per-NAME agreement goes.
 
         **WHY ONE-SIDED, and why the first attempt at this was wrong.** The

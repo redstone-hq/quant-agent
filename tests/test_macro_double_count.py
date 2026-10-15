@@ -44,7 +44,7 @@ from src.risk.rules import (
     own_bar_block_reason,
     signed_source_score,
 )
-from src.verdicts import score_verdict, seat_weight
+from src.verdicts import score_verdict
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +379,6 @@ def test_a_stronger_macro_reading_weighs_more_than_a_weaker_one():
     weighted." Measured from the reading, not chosen here."""
     scores = [score_verdict(_macro_analysis(confidence=c).to_verdict("XOM")) for c in ("low", "medium", "high")]
     assert scores == sorted(scores) and scores[0] < scores[-1]
-    assert seat_weight("macro") > 0  # never muted
 
 
 # ---------------------------------------------------------------------------

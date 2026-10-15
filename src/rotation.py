@@ -39,8 +39,8 @@ Architect's writing on rebalancing tolerance bands). This module takes the
 CONSERVATIVE (hardest-to-trigger) end of that range (SUPERSEDED 2026-10-15:
 see the owner decision below), 25% relative on the
 composite verdict score, and marks it PROVISIONAL — the same posture
-`src/verdicts.py::SEAT_WEIGHT` already uses for its own literature-derived
-but unmeasured numbers: a considered starting point, not a measured fact,
+the (since deleted, n06 2026-10-15) per-seat ranking weights took for their
+literature-derived but unmeasured numbers: a considered starting point, not a measured fact,
 revisable the moment this desk has its own rotation-outcome data to spend.
 
 **Two tiers, not one.** A held position that no longer clears this desk's
@@ -149,7 +149,7 @@ inside five sessions. Coverage churn is a daily fact of this book, so this
 is reachable now, not eventually.
 
 The fix introduces no number and does not touch the sum. Tier 2 now
-computes the SAME weighted arithmetic over only the seats that scored BOTH
+computes the SAME arithmetic over only the seats that scored BOTH
 names — the intersection of their coverage — and requires the margin to
 clear on that like-for-like sub-score as well as on the full composite. A
 term present on one side and absent on the other cannot enter a comparison
@@ -307,7 +307,7 @@ new number can substitute for.
 
 from __future__ import annotations
 
-from src.verdicts import RankedCandidate, score_verdict, seat_weight
+from src.verdicts import RankedCandidate, score_verdict
 from src.rotation_unrecorded import empty_pass_lines
 from dataclasses import replace
 
@@ -610,13 +610,13 @@ def _evaluate_rotation_core(
         )
 
     # `docs/INCIDENT_HISTORY.md` 2026-09-14. The full composite is a
-    # weighted SUM over
+    # SUM over
     # whichever seats happen to cover each name today, so the two totals
     # above are not comparable term-for-term once the two names' coverage
     # differs — and it does, daily (see the module docstring for the
     # archive measurement). Re-run the identical arithmetic over the seats
     # that scored BOTH names and require the same margin there too. No
-    # constant is introduced: `seat_weight` and `score_verdict` are
+    # constant is introduced: `score_verdict` is
     # `src/verdicts.py`'s own, unchanged, and the margin is the same one.
     shared = _shared_seat_comparison(held=weakest_held, new=best_new)
     if shared is None:
@@ -628,7 +628,7 @@ def _evaluate_rotation_core(
         return _refuse(
             "no_shared_scoring_seat",
             f"no seat scored both {weakest_held.symbol} and "
-            f"{best_new.symbol}, so the two weighted sums are not "
+            f"{best_new.symbol}, so the two sums are not "
             f"comparable term-for-term",
         )
     shared_seats, held_shared, new_shared = shared
@@ -732,15 +732,15 @@ def _shared_seat_comparison(
     held: RankedCandidate,
     new: RankedCandidate,
 ) -> tuple[tuple[str, ...], float, float] | None:
-    """Each name's weighted score over ONLY the seats that scored both.
+    """Each name's score over ONLY the seats that scored both.
 
     Returns `(shared_seats, held_score, new_score)`, or `None` when the two
     names share no scoring seat.
 
     The arithmetic is `src/verdicts.py`'s own and is reproduced, not
     re-derived: a seat's contribution to `RankedCandidate.score` is
-    `seat_weight(seat) * (magnitude + conviction_score)`, which is exactly
-    `seat_weight(seat) * score_verdict(verdict)`. Summing that over a
+    `magnitude + conviction_score` (every seat counts equally since n06,
+    2026-10-15), which is exactly `score_verdict(verdict)`. Summing that over a
     subset of seats therefore yields the same composite restricted to that
     subset — a partial sum of the real score, not a second scoring scheme.
 
@@ -755,6 +755,6 @@ def _shared_seat_comparison(
     shared = sorted(set(held_by_seat) & set(new_by_seat))
     if not shared:
         return None
-    held_total = sum(seat_weight(seat) * score_verdict(held_by_seat[seat]) for seat in shared)
-    new_total = sum(seat_weight(seat) * score_verdict(new_by_seat[seat]) for seat in shared)
+    held_total = sum(score_verdict(held_by_seat[seat]) for seat in shared)
+    new_total = sum(score_verdict(new_by_seat[seat]) for seat in shared)
     return tuple(shared), held_total, new_total

@@ -76,5 +76,5 @@ def test_a_citation_that_cannot_substantiate_anything_is_refused(cite: str) -> N
 
 def test_a_citation_that_substantiates_is_accepted() -> None:
     root = Path(__file__).resolve().parent.parent
-    row = {"x.y": {"status": "sourced", "source": "see src/verdicts.py::SEAT_WEIGHT"}}
+    row = {"x.y": {"status": "sourced", "source": "see src/verdicts.py::CONVICTION_SCORE"}}
     assert broken_citations(row, root) == []

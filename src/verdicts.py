@@ -1,4 +1,4 @@
-"""Phase 13 — ranking analyst verdicts, at a research-informed prior weight.
+"""Phase 13 — ranking analyst verdicts, every seat counted equally.
 
 `docs/QAMC_REMEDIATION_SPEC.md` §13: the Portfolio Manager's rules gate and
 ceiling but never ORDER. Read as code on run-64290730 (item 18, 2026-09-03)
@@ -24,72 +24,28 @@ No min-max normalisation across the candidate set: both inputs are absolute,
 so a candidate's score does not move when a different peer joins the list —
 which is what makes the order reproducible from the verdicts alone.
 
-**§13.3 AMENDED 2026-09-03 (owner decision, this ranking module only —
-`src/risk/rules.py::SEAT_WEIGHT`, which sizes real positions, is untouched
-and still requires 20+ of this desk's own resolved calls per seat before any
-weight applies there).** The original rule was "start equal, adjust only on
-this desk's own out-of-sample proof" — sound in principle, but the owner's
-point is that "equal until we have our own data" is functionally identical
-to "always equal," for however long that data takes to accumulate, which
-directly contradicts the desk's own repeated, load-bearing instruction that
-analysts are never interchangeable. The amendment: use a real, externally
-published prior now, on outside literature about the general reliability of
-each TYPE of analysis (not a claim about how good THIS desk's specific
-analyst prompts are) — and let it be overridden the moment the desk's own
-conviction ledger clears the 20-resolved-call bar per seat
-(`_CONVICTION_OUTCOME_MIN_N`, `src/storage/analytics/calibration.py`; not yet wired — tracked in
-`docs/WORK.md`).
+**Every seat counts equally (n06, 2026-10-15; replaces the 2026-09-03
+per-seat prior).** The score is a SUM across seats, and it is only ever
+used by ORDER (which name ranks first) and by GAPS between two sums (the
+rotation margin). Multiplying every seat by one common number changes
+neither, so the only information a per-seat weight can carry is the RATIO
+between seats. No such ratio has been measured — the literature gives a
+direction only (cross-sectional momentum and post-earnings drift are the
+strongest-replicated effects; macro turning-point calls are weak out of
+sample), never a number — so a ratio would be invented. With no measured
+ratio, the rule needs no constant: each seat's contribution is its own
+`score_verdict`, added once. Sizing (`src/risk/rules.py`) was never
+affected. A per-seat ratio may come back only from this desk's own
+resolved calls, measured, not chosen.
 
-`SEAT_WEIGHT` is a per-seat multiplier, sourced from real published research
-(five parallel literature reviews, 2026-09-03, WebSearch-verified — see
-`docs/QAMC_REMEDIATION_SPEC.md` §13.3 for the full citation list per seat):
-
-  * **technical 1.2, earnings 1.2** — the two strongest, most-replicated
-    effects found: cross-sectional momentum (Jegadeesh & Titman 1993,
-    replicated internationally by Rouwenhorst 1998) and post-earnings-
-    announcement drift (Ball & Brown 1968; Bernard & Thomas 1989/1990) are
-    among the most persistent anomalies in the academic literature, though
-    both are documented to be decaying over time as more capital trades on
-    them — this is a real edge, not a permanent one.
-  * **news 1.0** — a genuine, replicated effect (Tetlock 2007) but narrow:
-    short-horizon (days), concentrated in small/illiquid names, and the
-    literature specifically flags LLM-generated sentiment for looking strong
-    in-sample and failing out-of-sample (Benhenda 2026) — directly relevant
-    to this seat's own nature. Left at the unweighted baseline rather than
-    above it.
-  * **smart_money 0.8, macro 0.8** — both carry a real effect in the
-    literature that is specifically undermined by how this desk actually
-    consumes the signal: smart-money/insider edges live almost entirely in
-    the pre-disclosure window and are largely gone by the time a filing is
-    public (Cohen, Malloy & Pomorski 2012; a 2025 Finance Research Letters
-    lag study) — all this desk ever sees is the public, lagged version.
-    Macro's "regime matters" claim is well supported, but the specific
-    capability this seat is asked for — calling turning points — is one of
-    the most consistently, repeatedly debunked findings in applied
-    macroeconomics (IMF WP/18/39 studied 153 recession episodes across 63
-    countries and found professional forecasters missed the onset in the
-    vast majority of them).
-
-These are modest, deliberately bounded multipliers (not aggressive ones) —
-no source in the research handed over an exact cross-category ratio, only a
-real, sourced ordinal ranking of confidence. Treat the specific numbers as a
-considered but revisable starting point, not a measured fact.
-
-When more than one seat has a verdict on the same symbol, the per-seat scores
-are SUMMED AT THIS WEIGHT, so two agreeing seats of different
-trustworthiness are not treated as interchangeable votes. **All five seats
-have produced verdicts since 2026-09-03**, so this weighting has been live
-rather than latent since then — the note here previously still said only
-Technical was wired in, which stopped being true the day the prior landed.
-
-**2026-09-13 (retired item 31).** What this weight multiplies changed for
+**2026-09-13 (retired item 31).** What the (since deleted) seat weight multiplied changed for
 four of the five seats. `score_verdict` is `magnitude + conviction`, and
 news, macro and smart_money were each deriving `magnitude` from the very
 field they also reported as `conviction` — so those seats fed one signal in
-twice, at three different unsourced spacings, before this weight ever saw
+twice, at three different unsourced spacings, before that weight ever saw
 them. Those tables are deleted; every seat but Technical now carries
-`NO_STATED_STRENGTH` on any call, so what this prior weights for those
-four seats is exactly the seat's stated conviction. Technical keeps a real
+`NO_STATED_STRENGTH` on any call, so what each of those
+four seats contributes is exactly the seat's stated conviction. Technical keeps a real
 gradient, because its rating rungs are a strength it actually states.
 
 **2026-09-26 (item 65, retired).** `NO_STATED_STRENGTH` was the literal
@@ -164,11 +120,9 @@ from src.risk.constants import reward_risk_floor_applies
 __all__ = [
     "CONVICTION_SCORE",
     "RANKING_SIGNALS",
-    "SEAT_WEIGHT",
     "RankedCandidate",
     "conviction_score",
     "score_verdict",
-    "seat_weight",
     "rank_verdicts",
     "risk_reward_of",
     "level_touches_of",
@@ -180,27 +134,6 @@ CONVICTION_SCORE: dict[str, float] = {"low": 0.0, "medium": 0.5, "high": 1.0}
 
 #: The two verdict fields the score reads, each at weight 1.0.
 RANKING_SIGNALS: tuple[str, ...] = ("magnitude", "conviction_score")
-
-#: Research-informed prior, per seat. See the module docstring for the
-#: citations behind each number and why this module (ranking only, no
-#: sizing impact) is allowed one while `src/risk/rules.py::SEAT_WEIGHT`
-#: (sizing) is not.
-SEAT_WEIGHT: dict[str, float] = {
-    "technical": 1.2,
-    "earnings": 1.2,
-    "news": 1.0,
-    "smart_money": 0.8,
-    "macro": 0.8,
-}
-
-#: Fallback for a seat this table doesn't name (a future seat added to the
-#: Phase 13 shape before its own literature review lands) — unweighted,
-#: never zero, so an unreviewed seat is never silently muted.
-_DEFAULT_SEAT_WEIGHT = 1.0
-
-
-def seat_weight(seat: str) -> float:
-    return SEAT_WEIGHT.get(seat, _DEFAULT_SEAT_WEIGHT)
 
 
 def conviction_score(conviction: str) -> float:
@@ -255,16 +188,11 @@ def level_touches_of(verdict: AnalystVerdict) -> float | None:
     Only the technical seat attaches this today (it is the only seat with a
     chart), so this is None for every other seat's verdict.
 
-    NOT weighted by `SEAT_WEIGHT` where it is used below, unlike
-    magnitude/conviction/risk_reward. `SEAT_WEIGHT` is a published prior on
-    how reliably a TYPE of analysis forecasts direction (module docstring)
-    — it has no bearing on a deterministic pivot count, which does not
-    become more or less trustworthy for having come from a seat the
-    literature rates highly. Applying it here would be borrowing a number
-    for a purpose it was never derived for, and — because this signal is
-    summed, not averaged, across whatever seats attach it — would silently
-    double the total the day a second seat ever reports its own chart
-    structure under the same label.
+    Summed unweighted below, like every other signal since per-seat
+    weights were deleted (n06, 2026-10-15). Because it is summed, not
+    averaged, across whatever seats attach it, the total would double the
+    day a second seat ever reports its own chart structure under the same
+    label.
     """
     for item in verdict.evidence:
         if item.label == "stop_side_level_touches" and item.value is not None:
@@ -298,7 +226,7 @@ class RankedCandidate:
     #: (news, macro, smart_money, earnings — see
     #: `src/models.py::NO_STATED_STRENGTH`). They are ABSENT from the
     #: strength term, not present at zero, and they still contribute their
-    #: weighted conviction to `score` exactly as before.
+    #: conviction to `score` exactly as before.
     no_strength_seats: list[str] = field(default_factory=list)
 
     @property
@@ -359,9 +287,9 @@ def rank_verdicts(
     choice (`qamc-no-arbitrary-numbers-principle`):
 
       * It introduces NO number. It deletes a divisor. Every constant in the
-        arithmetic afterwards — the seat weights, the conviction ordinal —
-        is one that was already ratified for this module and is unchanged.
-      * It is monotone by construction. Every term is `weight > 0` times a
+        arithmetic afterwards — the conviction ordinal — is one that was
+        already ratified for this module and is unchanged.
+      * It is monotone by construction. Every term is a
         non-negative pair of signals, so an added seat can only ADD.
         "Agreement can only add" stops being a property to test for and
         becomes a property of the arithmetic.
@@ -383,7 +311,7 @@ def rank_verdicts(
         ratio, so it is unaffected by the change of scale, but it IS affected
         by coverage decay on a held name. Called out in `docs/WORK.md`.
 
-    The recorded reward:risk component below stays a weighted MEAN, deliberately. It
+    The recorded reward:risk component below stays a MEAN, deliberately. It
     aggregates several seats' estimates of ONE quantity in a real unit; two
     seats both reading 2.0 do not make 4.0. Evidence adds, measurements
     average.
@@ -403,8 +331,8 @@ def rank_verdicts(
     filings for one ticker were both analysed the same session (a real,
     if uncommon, case: nothing upstream enforces one-filing-per-symbol-per-
     run). Aggregating per seat already assumes one vote per
-    seat (`SEAT_WEIGHT` is keyed by seat name, not by verdict) — silently
-    letting a duplicate through would double that seat's weight without
+    seat — silently
+    letting a duplicate through would double that seat's vote without
     anyone deciding it should count twice. Found and fixed 2026-09-03 by an
     adversarial review before this shipped: caught via the concrete case of
     two earnings verdicts pushing earnings' effective weight from 50% to
@@ -427,7 +355,6 @@ def rank_verdicts(
         directions = {v.direction for v in group}
         if len(directions) != 1:
             continue
-        weights = [seat_weight(v.seat) for v in group]
         # SUM, not mean — see the docstring. Adding an agreeing seat adds a
         # non-negative term and can never reduce the total.
         #
@@ -439,9 +366,12 @@ def rank_verdicts(
         # `components["magnitude"]` no longer claims coverage it never had,
         # and a placeholder can no longer be mistaken for a measurement by
         # whatever reads this next.
-        stated = [(v, w) for v, w in zip(group, weights) if v.magnitude is not None]
-        magnitude = sum(v.magnitude * w for v, w in stated)
-        conviction = sum(conviction_score(v.conviction) * w for v, w in zip(group, weights))
+        # Every seat counts once, unweighted (n06, 2026-10-15): the score is
+        # read only by order and by gaps, so only a seat RATIO could carry
+        # information, and none has been measured.
+        stated = [v for v in group if v.magnitude is not None]
+        magnitude = sum(v.magnitude for v in stated)
+        conviction = sum(conviction_score(v.conviction) for v in group)
         components = {"conviction_score": round(conviction, 4)}
         # ABSENT, not zero, when no seat on this name has a strength scale —
         # the same distinction `risk_reward_tiebreak` already makes below.
@@ -455,7 +385,7 @@ def rank_verdicts(
         # into `score` and no longer used to order candidates — the target
         # it is built on is not a sell rule and is unscored. Kept because
         # the `candidate_ranked` pipeline event records it. Weighted the
-        # same way as the score's own inputs.
+        # same way as the score's own inputs (every seat equally).
         #
         # Which number: the desk's own REAL, structure-derived ratio when
         # the caller supplies one (item 1(d)), otherwise the figure each
@@ -469,20 +399,14 @@ def rank_verdicts(
             risk_reward = None if raw is None else float(raw)
         else:
             rr_values = [risk_reward_of(v) for v in group]
-            rr_total_weight = sum(w for w, rr in zip(weights, rr_values) if rr is not None)
-            risk_reward = (
-                sum(rr * w for w, rr in zip(weights, rr_values) if rr is not None) / rr_total_weight
-                if rr_total_weight > 0
-                else None
-            )
+            rr_stated = [rr for rr in rr_values if rr is not None]
+            risk_reward = sum(rr_stated) / len(rr_stated) if rr_stated else None
         if risk_reward is not None:
             components["risk_reward_tiebreak"] = round(risk_reward, 4)
         # Second-stage tiebreak (item 141, 2026-09-20; second since
         # 2026-10-10): summed
-        # `stop_side_level_touches` evidence — UNWEIGHTED, deliberately
-        # unlike every summed signal above (see `level_touches_of`'s
-        # docstring for why `SEAT_WEIGHT` does not belong on a
-        # deterministic pivot count). Unlike `risk_reward`, an absence
+        # `stop_side_level_touches` evidence — unweighted, like every
+        # summed signal above. Unlike `risk_reward`, an absence
         # here is a real zero (no computed structural levels on the risk
         # side of the chart at all) — not a quantity
         # `reward_risk_floor_applies` deliberately withholds for a whole
