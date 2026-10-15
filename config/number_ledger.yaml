@@ -6094,7 +6094,7 @@ numbers:
       https://press.spglobal.com/2024-12-09-S-P-Dow-Jones-Indices-Float-Adjusted-Liquidity-Ratio-Clarification-for-Certain-U-S-Indices
       (fetched 2026-10-13).
   - id: src.data.levels.STOP_LEVEL_BASIS_VERSION
-    value: 2
+    value: 3
     status: not-trade-governing
     site: src/data/levels.py
     note: >
