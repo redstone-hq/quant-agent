@@ -594,6 +594,10 @@ def test_force_delever_stops_once_deficit_covered():
     ]
 
     hold(pipeline.broker, {p.symbol: p.qty for p in ctx.positions})  # what the broker holds when the exit is re-sized
+    pipeline.broker.get_latest_quote.return_value = {
+        "bid_price": 100.0,
+        "ask_price": 100.0,
+    }  # a real quote: proceeds are qty x quote
     orders = pipeline._force_delever(ctx)
 
     assert len(orders) == 1
@@ -691,6 +695,10 @@ def test_force_delever_tiebreak_is_deterministic_on_equal_pnl():
     ]
 
     hold(pipeline.broker, {p.symbol: p.qty for p in ctx.positions})  # what the broker holds when the exit is re-sized
+    pipeline.broker.get_latest_quote.return_value = {
+        "bid_price": 100.0,
+        "ask_price": 100.0,
+    }  # a real quote: proceeds are qty x quote
     orders = pipeline._force_delever(ctx)
     assert len(orders) == 1
     first_sym = pipeline.broker.submit_order.call_args.kwargs["symbol"]

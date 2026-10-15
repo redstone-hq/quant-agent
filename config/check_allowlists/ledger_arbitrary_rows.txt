@@ -46,7 +46,6 @@ src.data.insider_signal._WEIGHTS[INDETERMINATE]
 src.data.levels.CLUSTER_TOLERANCE_PCT_FALLBACK
 src.data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
-src.delever.forced.DeleverForced._force_delever:factor[0]
 src.exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)
 src.models.analysis.RATING_MAGNITUDE['buy']
 src.models.analysis.RATING_MAGNITUDE['strong_buy']

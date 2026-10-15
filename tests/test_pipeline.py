@@ -3550,6 +3550,10 @@ def test_force_delever_sells_long_before_inverse_etf_hedge():
     ctx.positions = [sh_hedge, nvda_long]
 
     hold(pipeline.broker, {p.symbol: p.qty for p in ctx.positions})  # the broker holds what is de-levered
+    pipeline.broker.get_latest_quote.side_effect = lambda s, *a, **k: {
+        "bid_price": {"SH": 18.0}.get(s, 400.0),
+        "ask_price": {"SH": 18.0}.get(s, 400.0),
+    }
     pipeline._force_delever(ctx)
 
     # First (and only) SELL must be on the LONG (NVDA), not the HEDGE (SH).

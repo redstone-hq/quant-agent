@@ -97,10 +97,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `risk.alignment_exit.ALIGNMENT_GIVE_BACK_ATR_MULTIPLE` = 3.0 (REMOVED 2026-10-09: the trend exit now fires on a confirmed swing break, not a give-back)
 - `risk.exit_guard.NOISE_BAND_ATR_MULTIPLE` = 1 (REMOVED 2026-10-09 with the entry-anchored sale gate)
 - `risk.exit_guard.BREAK_CONFIRMATION_ATR_MULTIPLE` = 1
-- `risk.exit_guard._NOISE_FLOOR['distance_to_stop_pct']` = 0.1
-- `risk.exit_guard._NOISE_FLOOR['pace']` = 0.05
-- `risk.exit_guard._NOISE_FLOOR['r_multiple']` = 0.05
-- `risk.exit_guard._NOISE_FLOOR['thesis_progress_pct']` = 0.5
+- `risk.exit_guard._NOISE_FLOOR[...]` (four floors) (REMOVED 2026-10-15: replaced by the stock's own 14-day ATR for distance-to-stop and R; thesis progress and pace are now unscored)
 - `risk.trailing.NOISE_BAND_ATR_MULTIPLE` = 1.25
 - `risk.trailing.RANGE_BREAKEVEN_R_MULTIPLE` = 1
 - `risk.trailing.RANGE_SECOND_RATCHET_TRIGGER_R` = 2

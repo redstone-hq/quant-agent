@@ -2020,6 +2020,7 @@ def test_a_multi_symbol_cash_only_delever_restores_each_stop_before_touching_the
     ctx.total_value = EQUITY
 
     hold(pipeline.broker, {p.symbol: p.qty for p in ctx.positions})  # what the broker holds when the exit is re-sized
+    pipeline.broker.get_latest_quote.return_value = {"bid_price": 100.0, "ask_price": 100.0}  # proceeds are qty x quote
     orders = pipeline._force_delever(ctx)
 
     touched = _assert_no_symbol_left_naked_while_another_is_touched(events)

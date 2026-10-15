@@ -291,12 +291,10 @@ class DeleverForced:
                 # position to cover a deficit the in-flight order had already
                 # covered — liquidating real holdings over a bookkeeping
                 # failure (2026-07-16 audit).
-                # Conservative proceeds estimate for the break-early guard:
-                # mark × 0.97, i.e. assume the marketable fill lands up to 3%
-                # below the mark (its own arbitrary number since the 3%
-                # stop-limit buffer it was copied from was deleted). Under-
-                # counting proceeds is the safe error here — it never stops the
-                # sweep one position too early and leaves a residual deficit.
+                # Proceeds for the break-early guard: the shares sold at the
+                # live SELL limit the order carries (a sell limit fills at or
+                # above it). With no live quote the order is a MARKET order
+                # and the last mark is the only price there is.
                 #
                 # ON THE SHARES ACTUALLY SOLD (2026-09-30). `market_value`
                 # is the position's FULL value, and every branch here sells
@@ -313,10 +311,10 @@ class DeleverForced:
                 # counting a correctly-sized slice at a lower figure than it
                 # was sized to raise would make the loop believe it fell
                 # short and sell the next position on top of it.
-                if qty < p.qty:
+                if sizing_price is not None:
                     projected_proceeds += float(qty) * float(sizing_price)
                 else:
-                    projected_proceeds += p.market_value * 0.97
+                    projected_proceeds += p.market_value
                 orders.append(order)
                 logger.info(
                     "FORCE DE-LEVER SELL %s qty=%s @ limit=%s (unrealized_pnl=$%.2f, mkt_value=$%.2f)",
