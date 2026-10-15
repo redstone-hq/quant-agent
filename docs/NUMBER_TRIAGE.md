@@ -86,7 +86,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 **Tier 2 gates entries/exits or shapes stops after entry.** Cash reserve and deployment band; settled by recorded assumed-vs-debited cash and by the measured round-trip cost of trading the gap.
 
 - `config.CashReserveConfig.pct` = 1
-- `config.DeploymentGapConfig.band_pct` = 1
+- ~~DeploymentGapConfig cash band of 1 point~~ -- DELETED 2026-10-15: the idle-cash warning now fires only past the book's own measured one-session drift (position weight times ATR over price).
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Touches needed before a level is honoured as a stop; settled by bounce rate per touch count on public bars.
 
