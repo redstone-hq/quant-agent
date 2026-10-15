@@ -586,6 +586,53 @@ def check_bars(
     return failures, measured
 
 
+@dataclass(frozen=True)
+class SecondFilterInputs:
+    """Every number the morning-scan score K reads, each from where it lives.
+
+    W (`hold_sessions`) is the ledger's `VELOCITY_HOLD_SESSIONS`; k and R are
+    `RiskConfig.min_stop_atr_multiple` and `max_portfolio_risk_pct` (percent);
+    G is today's gross ceiling from the drawdown ladder, or None with
+    `gross_ceiling_reason` when it could not be read.
+    """
+
+    hold_sessions: int
+    stop_atr_multiple: float
+    max_portfolio_risk_pct: float
+    gross_ceiling_x: float | None
+    gross_ceiling_reason: str | None = None
+
+
+def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
+    """Record-only score K for one name that passed the nightly filter.
+
+    ``K = min(G, R / (k a)) * (sqrt(2/pi) * (a / ATR_PER_SIGMA) * sqrt(W) - rt)``
+    with a = ATR(14)/price (`measured.atr_pct`) and rt = 2 x `measured.half_spread_bps`.
+    ``risk_cap_x`` (the R / (k a) term) and ``net_edge`` (the bracket) are always
+    recorded when measurable; K is None with a reason when any input is missing
+    -- never a guessed value. It orders, sizes and stops nothing.
+    """
+    from src.data.levels import ATR_PER_SIGMA, travel_over
+
+    atr_pct, half_bps = (measured or {}).get("atr_pct"), (measured or {}).get("half_spread_bps")
+    out: dict[str, Any] = {"k": None, "reason": None, "gross_ceiling_x": inputs.gross_ceiling_x}
+    if not isinstance(atr_pct, (int, float)) or not math.isfinite(atr_pct) or atr_pct <= 0:
+        out["reason"] = "atr_unmeasured"
+        return out
+    if not isinstance(half_bps, (int, float)) or not math.isfinite(half_bps):
+        out["reason"] = "spread_unmeasured"
+        return out
+    a = float(atr_pct) / 100.0
+    round_trip = 2 * float(half_bps) / 10_000.0
+    out["risk_cap_x"] = (float(inputs.max_portfolio_risk_pct) / 100.0) / (float(inputs.stop_atr_multiple) * a)
+    out["net_edge"] = math.sqrt(2 / math.pi) * travel_over(a, inputs.hold_sessions) / ATR_PER_SIGMA - round_trip
+    if inputs.gross_ceiling_x is None:
+        out["reason"] = inputs.gross_ceiling_reason or "gross_ceiling_unread"
+        return out
+    out["k"] = min(float(inputs.gross_ceiling_x), out["risk_cap_x"]) * out["net_edge"]
+    return out
+
+
 def check_liquidity_ratio(bars: list, profile, today: date | None = None) -> tuple[list[str], dict]:
     """S&P float-adjusted liquidity ratio (module docstring, "liquidity").
 

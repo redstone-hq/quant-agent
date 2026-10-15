@@ -418,32 +418,6 @@ def test_finalize_persists_pre_sell_qty_so_the_drain_can_reprotect():
 # ---------- parse_json must not drop a top-level array ----------
 
 
-def test_parse_json_keeps_a_prose_wrapped_top_level_array():
-    """tech_analyst returns an ARRAY of per-symbol analyses. Scoring lists 0
-    meant the candidate scan compared the array against its own elements and
-    returned the LAST one — silently discarding 24 of 25 symbols in a chunk
-    whenever the model wrapped its JSON in any prose."""
-    from src.agents.base import AgentResult
-
-    raw = (
-        "Here are the analyses:\n"
-        '[{"symbol": "AAPL", "rating": "buy"}, '
-        '{"symbol": "NVDA", "rating": "hold"}, '
-        '{"symbol": "MSFT", "rating": "sell"}]\n'
-    )
-    out = AgentResult(raw_text=raw, tokens_used=0, model="m").parse_json()
-    assert isinstance(out, list) and len(out) == 3
-    assert [x["symbol"] for x in out] == ["AAPL", "NVDA", "MSFT"]
-
-
-def test_parse_json_single_dict_response_still_wins():
-    from src.agents.base import AgentResult
-
-    raw = 'Result: {"decisions": [], "portfolio_view": "flat"}'
-    out = AgentResult(raw_text=raw, tokens_used=0, model="m").parse_json()
-    assert isinstance(out, dict) and out["portfolio_view"] == "flat"
-
-
 # ---------- indicator windows must fit in the configured lookback ----------
 
 

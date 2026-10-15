@@ -684,10 +684,18 @@ since; the old exams fed stale shapes and desk-recorded data.
   ran out of room (PR #412): reasoning effort "medium" = OpenRouter
   documented default; strict `json_schema`; same on the Google-direct route;
   free-form-map models like NewsIntelligenceReport go `strict=false` for
-  all; `$ref` sibling keywords stripped. **Exception, checked 2026-09-19:
-  `tech_analyst` gets NO response format on either route** — its answer is
-  a list, and it declares no `result_model`; see the 2026-09-19 entry in
-  `docs/INCIDENT_HISTORY.md` for what adding one would take.
+  all; `$ref` sibling keywords stripped. (The 2026-09-19 tech_analyst
+  exception is gone: it now sends the `TechAnalystAnswer` wrapper object.)
+- Answers are schema-locked, not text-repaired (2026-10-14). OpenRouter calls
+  carrying a schema also send `provider.require_parameters: true`, so only
+  an endpoint that honours it can serve them; a backup rung on a provider
+  that is sent no schema (anything but OpenRouter and Google) is skipped for
+  a seat with a `result_model`, as an absent attempt. Answers are read with
+  plain `json.loads` — fence stripping, prose unwrapping, quote repair,
+  fragment picking and wrong-key recovery were deleted. The tech seat turns a
+  non-JSON answer into a per-symbol refusal record, re-asked once.
+  NewsIntelligenceReport still goes `strict=false`: its two free-form maps
+  need an answer-shape change in the news seat and its prompt.
 - Benchmark could not run the live Google-direct route (PR #412 added the
   `google-direct:` prefix).
 - Parallel benchmark runs sharing one DB were frozen by the cost circuit
