@@ -224,9 +224,8 @@ def gross_exposure(positions, *, cash_park_symbol: str | None = None) -> float:
 #     since the owner mandate of 2026-09-17 it is the fixed
 #     `DESK_INVESTED_TARGET_PCT` below. Either way it is a capital-deployment
 #     target.
-#  2. The consequence the gap exists to fix is idle cash — PMFacts renders it
-#     as "the single largest P&L drag (idle cash in a rising market)" and
-#     routes it to the `cash_target` step. Leverage does not make a dollar
+#  2. The consequence the gap exists to fix is idle cash — PMFacts routes it
+#     to the `cash_target` step. Leverage does not make a dollar
 #     less idle: $20k in a 3x fund is $20k of cash put to work, not $60k.
 #  3. The signed measure has no honest comparison to a 0-100 target. A book
 #     fully deployed in a 3x inverse ETF reads -300%, i.e. "375pp under a 75%
