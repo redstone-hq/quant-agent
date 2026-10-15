@@ -21,7 +21,7 @@ TODAY = date(2026, 10, 9)
 TH = us.ScreenThresholds(
     min_price_usd=5.0,
     min_market_cap_usd=30_000_000,
-    max_half_spread_bps=40.0,
+    hold_sessions=10,
     max_atr_fraction=1.0 / 2.5,
     min_history_bars=210,
 )
