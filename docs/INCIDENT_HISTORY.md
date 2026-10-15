@@ -6982,6 +6982,12 @@ is therefore a **standing accepted limitation of the broker, not an open
 question**, and it should not be re-filed as one. Worst case on an overnight gap
 is the whole value of the sliver.
 
+**Superseded 2026-10-15.** Owner ruling 2026-10-15: whole shares only. The
+2026-09-02 acceptance above no longer stands; fractional entry sizing is off
+(`execution.fractional_enabled: false`), so new entries are whole shares. The
+remainders already held (XOM, PWR, COST, WMT on 2026-10-15) are still to be
+sold; until they are, they carry the same overnight gap described here.
+
 **What would catch the real failure next time.** The failure mode here was never
 the trading logic — it was the gap between "built and tested" and "running on
 the machine". The unit-drift report flags any service that exists in the repo

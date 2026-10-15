@@ -625,8 +625,9 @@ def _alert_owner_protection_failed(pipeline, spec: dict, protection, entry_order
                 "refused a stop for the exact filled quantity.\n"
                 f"Stop: {stop_price}\n"
                 f"Entry order: {entry_order_id}\n"
-                "The uncovered remainder is under one share. If this recurs, "
-                "turn `execution.fractional_enabled` off."
+                "The uncovered remainder is under one share. Owner ruling "
+                "2026-10-15: whole shares only — check that "
+                "`execution.fractional_enabled` is off."
             )
         from src import notifier as _notifier
 

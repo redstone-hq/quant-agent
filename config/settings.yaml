@@ -349,76 +349,27 @@ execution:
   # 39(a) holds what has already been ruled out (do not repeat it) and
   # what would settle it. It is a research question, not an owner call.
   rotation_ranked_margin_enabled: false
-  # Spec §11.1 (owner-ratified 2026-09-01). Exact position sizing: the share
-  # count the risk math produced is used as-is instead of being floored to a
-  # whole number. Whole-share rounding is a silent, constant tax — V wanted
-  # 6% of the book and got 3.84%.
+  # Owner ruling 2026-10-15: whole shares only.
   #
-  # ON by default. A symbol is still sized fractionally ONLY when Alpaca
-  # confirms `fractionable` for it; an unknown or failed lookup falls back to
-  # whole shares (fail closed, never fractional-by-assumption). Shorts are
-  # always whole-share — a borrowed share cannot be fractional.
+  # Exact (fractional) sizing is OFF. Every new entry is floored to whole
+  # shares; an entry that floors to zero is skipped and recorded `qty_zero`.
+  # This supersedes the 2026-09-02 acceptance of an unprotected overnight
+  # sub-share remainder (docs/INCIDENT_HISTORY.md keeps that history).
   #
-  # Set to false to turn exact sizing off without a code change.
+  # WHY. Alpaca will not carry a fractional order as GTC — "fractional orders
+  # must be DAY orders" (code 42210000, measured 2026-09-01 on the paper
+  # account) — and refuses a fractional TRAILING stop at every tif. So any
+  # sub-share remainder has NO stop from the close to the next open. On
+  # 2026-10-15 that was XOM .688, PWR .944, COST .254, WMT .948.
   #
-  # BROKER CAPABILITY, measured 2026-09-01 against the live paper account:
-  #     * a fractional GTC order is REFUSED — "fractional orders must be DAY
-  #       orders" (code 42210000). This fires before the quantity-
-  #       availability check, so it is a capability limit, not account state.
-  #     * a fractional TRAILING stop is REFUSED at every tif.
-  #     * ACCEPTED fractional: STOP/DAY, STOP_LIMIT/DAY, LIMIT/DAY.
-  #     * whole-share GTC stops are unaffected (control probe accepted).
+  # Positions already holding a sub-share remainder keep the hybrid cover
+  # until the remainder is sold: a GTC stop over floor(qty) plus a DAY stop
+  # over the remainder, re-placed by the first coverage sweep of each session
+  # (`_reconcile_stop_coverage`); `src/coverage_watchdog.py` alerts if no
+  # session ran. Shorts are always whole-share.
   #
-  # HYBRID STOP COVERAGE is how a fractional position is protected given
-  # that. A position of N.f shares carries TWO protective orders at the SAME
-  # stop price:
-  #     * a GTC stop over floor(N.f) — durable, survives 16:00 ET;
-  #     * a DAY stop over the sub-share remainder — lapses at the close BY
-  #       DESIGN and is re-placed by the first coverage sweep of the next
-  #       session (`_reconcile_stop_coverage`, hoisted to the very first
-  #       broker action of the morning run so the window at the open is as
-  #       short as this system can make it).
-  # Under one share there is no whole part, so it is a DAY stop only.
-  #
-  # THE ACCEPTED TRADE. The remainder is unprotected overnight. Owner ratified
-  # 2026-09-02: without fractional sizing a ~$9,800 account is simply excluded
-  # from the expensive names its own analysts keep picking, and being locked
-  # out is itself a cost — one that applies to live capital too, not just paper.
-  #
-  # "BOUNDED UNDER ONE SHARE" IS WRONG AND WAS CORRECTED BEFORE HE DECIDED.
-  # That holds only when a stock costs LESS than one position slot. When it
-  # costs more, the ENTIRE position is sub-one-share, so 100% of it lapses
-  # overnight rather than a sliver. Measured against the real universe:
-  #   worst single position  ~$1,536
-  #   worst whole book       ~$8,820 — the entire invested book at the ceiling
-  #   typical, >= 1 share    ~$90
-  # Six names already exceed one slot at 10 positions: SNDK, LLY, EQIX, GS,
-  # COST, MU — exactly the names fractional exists to reach. A gap fills at the
-  # open rather than at the stop, so realised exposure runs below that ceiling,
-  # but the ceiling is the honest number and it is what he accepted.
-  #
-  # The lever if this is revisited: size fractionally only at >= 1 share. That
-  # removes the 100% case and costs those six names. Owner declined that trade
-  # — do not reintroduce it silently.
-  #
-  # Exposure is REPORTED IN DOLLARS on the session alert rather than trusted.
-  #
-  # ALERTING. A lapsed overnight DAY stop is EXPECTED and does not alert —
-  # alerting nightly on a healthy system would destroy the credibility of the
-  # one alert that must never be ignored. A stop that cannot be placed or
-  # re-placed DURING MARKET HOURS alerts exactly as guard 2 always has, and a
-  # missing whole-share GTC leg alerts at any hour. See
-  # `_classify_coverage_gap` and `_reconcile_stop_coverage` in src/pipeline.py.
-  #
-  # THE PRECONDITION ABOVE IS NOW CHECKED. "Re-placed by the next session"
-  # assumes a next session. When the trading timers were paused (2026-09-03)
-  # the sweep stopped with them and ORCL's 0.3089-share remainder sat with
-  # no stop through six full sessions, unreported. `src/coverage_watchdog.py`
-  # (run from the daily 06:15 ET alert heartbeat, which fires whether or not
-  # the trading timers are on) alerts the owner when broker coverage is short
-  # of held AND no session ran during the last trading session — once per
-  # trading day while it holds. Read-only; it never places an order.
-  fractional_enabled: true
+  # Turning this back on needs a new owner ruling.
+  fractional_enabled: false
   fractional_share_decimals: 4
   # Live `trade_updates` websocket fill feed. ON since 2026-09-18.
   #
