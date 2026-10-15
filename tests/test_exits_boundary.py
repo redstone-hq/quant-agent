@@ -113,14 +113,6 @@ def test_second_lift_module_passes_the_boundary_check(module):
     assert verdict.passed, verdict.failures
 
 
-def test_trail_cooldown_reads_only_the_db_collaborator():
-    fresh = datetime.now(timezone.utc).isoformat()
-    tightened = _build(ExitRecords, db=_Db([{"action": "TRAIL_STOP", "timestamp": fresh}]))
-    assert tightened._trail_tightened_recently("AAPL") is True
-    quiet = _build(ExitRecords, db=_Db([]))
-    assert quiet._trail_tightened_recently("AAPL") is False
-
-
 def test_exit_review_approvals_record_only_the_unvetoed_symbols():
     record = MagicMock(name="record_exit_refusal")
     rec = _build(ExitRecords, record_exit_refusal=record)

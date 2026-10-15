@@ -102,7 +102,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `risk.trailing.RANGE_BREAKEVEN_R_MULTIPLE` = 1
 - `risk.trailing.RANGE_SECOND_RATCHET_TRIGGER_R` = 2
 - `risk.trailing.RANGE_SECOND_RATCHET_LOCK_R` = 1
-- `exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)` = 4
+- `exits.exit_records.ExitRecords._trail_tightened_recently(calendar_days)` = 4 (REMOVED 2026-10-15: no day-count lock; an AI tighten is applied whenever it clears the stock's own 14-day ATR noise band, and a refused one is recorded per symbol)
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Rotation margin and seat weights; settled by measured ranking-score noise and each seat's forward discriminating power on public data.
 

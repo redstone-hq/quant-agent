@@ -1,4 +1,4 @@
-"""The sell-side records the exit engine reads and writes: today's trims, filed target revisions, recent trail tightenings, exit-review approvals, and the event-risk section fetched for an exit review.
+"""The sell-side records the exit engine reads and writes: today's trims, filed target revisions, exit-review approvals, and the event-risk section fetched for an exit review.
 
 Lifted verbatim out of `ExitEngineMixin` (src/pipeline_exits.py) as a
 standalone class: every collaborator is an explicit keyword-only
@@ -8,7 +8,6 @@ and calls it, so every existing caller and patch target is unchanged.
 """
 
 import logging
-from datetime import timedelta
 from src.sentinel.guarded import record_guarded_pass
 
 #: Logs under `src.pipeline`, as the bodies did before the move;
@@ -175,60 +174,6 @@ class ExitRecords:
                 detail,
             )
         return payload
-
-    def _trail_tightened_recently(self, symbol: str, calendar_days: int = 4) -> bool:
-        """True when a non-canceled TRAIL_STOP for `symbol` landed within the
-        last `calendar_days` days (a 4-calendar-day window is ~2-4 trading
-        sessions depending on weekday: ~2 late in the week, ~4 from a
-        Monday).
-
-        RC1 forensics (2026-07-16): the reviewer's ≥1.02×old_stop min-bump
-        rule means every ACCEPTED trail tightens ≥2%; per-session trailing
-        marched stops into the daily-noise band in 3-4 sessions (GE was
-        ratcheted 325→350 in 8 sessions on one flag). A cooldown makes
-        tightening a considered, at-most-every-other-day act.
-        """
-        try:
-            rows = self.db.get_trades(symbol=symbol, limit=10)
-        except Exception as e:  # noqa: BLE001
-            record_guarded_pass(self.db, "exit_records.trail_tightened_recently", e)
-            logger.warning("trail cooldown query failed for %s: %s", symbol, e)
-            return False
-        from datetime import datetime as _dt, timedelta, timezone
-
-        from src.trading_calendar import utc_now
-
-        cutoff = utc_now() - timedelta(days=calendar_days)
-        for row in rows:
-            if (row.get("action") or "").upper() != "TRAIL_STOP":
-                continue
-            # NOTE (audit round 2): no fill_status filter here. A TRAIL_STOP
-            # row is only written AFTER the broker accepted the replace, so
-            # fill_status='canceled' means accepted-then-superseded (a later
-            # trail replaced this stop) — the tighten still happened and is
-            # still cooldown evidence. Skipping canceled rows silently
-            # disabled the cooldown for exactly the ratchet chains it exists
-            # to stop.
-            # Ex-div adjustments also write TRAIL_STOP rows, but they LOWER
-            # the stop (dividend-drop compensation) — counting them as a
-            # "tighten" would hand every dividend payer a spurious cooldown.
-            # Same idiom as the ex-div idempotence check.
-            if "ex-div" in (row.get("reasoning") or "").lower():
-                continue
-            ts = row.get("timestamp") or ""
-            try:
-                dt = (
-                    _dt.fromisoformat(ts.replace("Z", "+00:00"))
-                    if "T" in ts
-                    else _dt.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                )
-            except (TypeError, ValueError):
-                continue
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            if dt >= cutoff:
-                return True
-        return False
 
     def _exit_event_risk_block(self, symbols: list[str]) -> str:
         """The fetched Event Risk section for an EXIT review.
