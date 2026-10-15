@@ -143,7 +143,6 @@ def _sell_fractional_remainder(host, p, symbol: str, held: float) -> bool:
     """
     from decimal import Decimal
 
-    from src.execution.freeze_cancel import _is_stop_type, _norm
     from src.market_session import market_open_verdict
     from src.trading_calendar import in_regular_session
 
@@ -166,8 +165,15 @@ def _sell_fractional_remainder(host, p, symbol: str, held: float) -> bool:
         return False
     if ok is not True:
         return False
-    working = [o for o in orders or [] if _norm(getattr(o, "symbol", "")) == _norm(symbol)]
-    if any(not _is_stop_type(o) for o in working):
+    def _sym(value) -> str:
+        return str(value).strip().upper().replace("/", "")
+
+    def _is_stop(order) -> bool:
+        kind = getattr(order, "order_type", None) or getattr(order, "type", "")
+        return "stop" in str(getattr(kind, "value", kind)).lower()
+
+    working = [o for o in orders or [] if _sym(getattr(o, "symbol", "")) == _sym(symbol)]
+    if any(not _is_stop(o) for o in working):
         logger.info("fractional remainder %s %s left: an order is already working on it", symbol, frac)
         return False
     if symbol in {v.get("symbol") for v in (getattr(host, "_unsettled_exit_orders", None) or {}).values()}:

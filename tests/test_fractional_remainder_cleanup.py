@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.pipeline import TradingPipeline
+from src import pipeline_protection
 from src.protection.trim_amend import finalize_trim_amend
 from tests.fakes.holding_broker import OLD, HoldingBroker
 from tests.test_partial_sell_keeps_stop import _cancels, _desk, _finalizer, _sell, _sells, _trim
@@ -46,7 +46,7 @@ def _sweep(pipeline, *, market_open=True):
         patch("src.pipeline_protection.drain_owed_stop_levels"),
         patch("src.notifier.send_owner_alert"),
     ):
-        return TradingPipeline._reconcile_stop_coverage(pipeline)
+        return pipeline_protection.ProtectionMixin._reconcile_stop_coverage(pipeline)
 
 
 def test_flag_off_market_open_sells_exactly_the_remainder_with_the_reason():
