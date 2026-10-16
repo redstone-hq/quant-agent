@@ -45,7 +45,7 @@ def test_52_week_range_is_the_last_calendar_year_across_holiday_gaps():
     # 252-bar window would reach back more than a year.
     dates = _daily(date(2024, 1, 1), 320, skip_weekday=2)
     levels = [100.0] * len(dates)
-    levels[len(dates) - 300] = 150.0  # older than one year before the last bar
+    levels[len(dates) - 240] = 150.0  # older than one year before the last bar
     levels[len(dates) - 50] = 120.0  # inside the year
     levels[len(dates) - 40] = 80.0  # inside the year
     bars = [_bar(d, lv) for d, lv in zip(dates, levels)]
