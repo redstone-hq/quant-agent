@@ -309,19 +309,23 @@ class AnalystVerdict(BaseModel):
         return 0.0
 
 
-#: How a Technical rating maps onto `AnalystVerdict.magnitude`. The rating
-#: scale has exactly two directional rungs a side (buy / strong_buy), so this
-#: is an EQUAL-SPACING ordinal encoding of the desk's own scale. It is not a
-#: measured weight: `score_verdict` adds it to the independent conviction
-#: score, making the chosen spacing load-bearing. Item 90's settlement route
-#: is structural reformulation, not fitting these values to desk outcomes.
-RATING_MAGNITUDE: dict[str, float] = {
-    "strong_buy": 1.0,
-    "buy": 0.5,
-    "neutral": 0.0,
-    "sell": 0.5,
-    "strong_sell": 1.0,
-}
+#: The Technical rating scale in its own order, most bearish to most bullish.
+#: The rungs are an ORDINAL fact the seat states; no spacing between them is
+#: chosen or measured anywhere.
+RATING_SCALE: tuple[str, ...] = ("strong_sell", "sell", "neutral", "buy", "strong_buy")
+
+
+def rating_rung_strength(rating: str) -> float:
+    """How far a rating sits from the neutral rung, as a fraction of the way
+    to the scale's end -- read off the rung's position, not a chosen number.
+
+    It labels the rung on `AnalystVerdict.magnitude` and is used ONLY to
+    order candidates that tie on conviction (`src/verdicts.py`); it is never
+    added to a score (n06, 2026-10-16).
+    """
+    centre = len(RATING_SCALE) // 2
+    return abs(RATING_SCALE.index(rating) - centre) / centre
+
 
 #: `AnalystVerdict.magnitude` for a DIRECTIONAL verdict from a seat that
 #: states no independent strength of its own. It is `None` — the ABSENCE of
@@ -330,7 +334,7 @@ RATING_MAGNITUDE: dict[str, float] = {
 #:
 #: WHY THIS IS FLAT, 2026-09-13 (see `docs/INCIDENT_HISTORY.md`, retired
 #: item 31). `score_verdict`
-#: (`src/verdicts.py`) is `magnitude + conviction_score(conviction)` — TWO
+#: (`src/verdicts.py`) was `magnitude + conviction_score(conviction)` — TWO
 #: signals, weight 1 each. Three seats used to derive `magnitude` from the
 #: very field they also hand to `conviction`:
 #:
@@ -397,7 +401,7 @@ RATING_MAGNITUDE: dict[str, float] = {
 #: `SmartMoneyFinding.stance` are every one of them a SINGLE directional rung
 #: (bullish/bearish/neutral) with no graded vocabulary anywhere beside them —
 #: unlike Technical, whose `strong_buy`/`buy` rungs are a strength the seat
-#: already publishes and `RATING_MAGNITUDE` merely transcribes. Asking any of
+#: already publishes and `rating_rung_strength` merely transcribes. Asking any of
 #: the four to emit a 0..1 number would be asking it to invent boundaries no
 #: source, no measurement and no instrument supplies
 #: (`qamc-no-arbitrary-numbers-principle`), and it would be uncheckable by
@@ -743,7 +747,7 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
         that already CONCLUDES — rating, conviction, R/R, levels, `Invalid
         if`, one-line why — so this is a mapping, not new prompting.
 
-        direction / magnitude — `RATING_DIRECTION` / `RATING_MAGNITUDE`.
+        direction / magnitude — `RATING_DIRECTION` / `rating_rung_strength`.
         conviction            — verbatim.
         evidence              — the numbers the desk can check against a
                                 chart (entry, stop, target, R/R, the levels
@@ -846,7 +850,7 @@ class TechAnalysisResult(TechRereadFields, TechAnalystAnswerItem):
             seat="technical",
             symbol=self.symbol,
             direction=direction,
-            magnitude=RATING_MAGNITUDE[self.rating],
+            magnitude=rating_rung_strength(self.rating),
             conviction=self.conviction,
             evidence=evidence,
             invalidation=invalidation,

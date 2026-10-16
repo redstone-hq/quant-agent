@@ -13,10 +13,6 @@ TARGET_PATHS = {
 }
 
 EXPECTED_STATUS = {
-    "src.models.analysis.RATING_MAGNITUDE['buy']": "arbitrary",
-    "src.models.analysis.RATING_MAGNITUDE['strong_buy']": "arbitrary",
-    "src.models.analysis.RATING_MAGNITUDE['sell']": "derived",
-    "src.models.analysis.RATING_MAGNITUDE['strong_sell']": "derived",
     "src.data.insider_signal._WEIGHTS[INDETERMINATE]": "arbitrary",
     "src.data.insider_signal._WEIGHTS[OPPORTUNISTIC]": "not-trade-governing",
     "src.data.insider_signal.InsiderSignalClass.weight": "not-trade-governing",
@@ -45,7 +41,7 @@ def test_every_new_arbitrary_row_has_an_actionable_route_not_a_fourth_state() ->
     ledger = load_ledger()
     arbitrary = {site_id: ledger[site_id] for site_id, status in EXPECTED_STATUS.items() if status == "arbitrary"}
 
-    assert len(arbitrary) == 5
+    assert len(arbitrary) == 3
     for site_id, entry in arbitrary.items():
         assert "unsettled" not in entry, site_id
         assert settlement_route_problem(entry) is None, site_id

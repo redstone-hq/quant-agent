@@ -14,12 +14,23 @@ Core invariants:
   - Graceful degradation on every data source failing
 """
 
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from datetime import date
 
 from src.pipeline import TradingPipeline, _missed_ops_quality_metrics
 from tests.pipeline_factory import build_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _window_open_for_mechanics(monkeypatch):
+    """These tests exercise grouping mechanics with clock-relative rows; the
+    clean-record window itself is pinned in test_memory_windows_clean_record."""
+    for mod in ("blocked", "exits"):
+        m = f"src.prompt_facts.review.{mod}"
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_DATE", "2000-01-01", raising=False)
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_START_UTC", "2000-01-01T00:00:00", raising=False)
 
 
 def _mk_ohlcv(sym_close_pairs: list[tuple[str, float]], volume: float = 0):
@@ -809,7 +820,7 @@ def test_recent_missed_lessons_surfaces_themes_seen_2plus_days():
             },
         ]
     )
-    out = p._build_recent_missed_lessons(lookback_days=14)
+    out = p._build_recent_missed_lessons()
     assert "nuclear/power" in out
     assert "VST" in out and "OKLO" in out
     # EV appeared once → filtered out
@@ -848,12 +859,12 @@ def test_recent_missed_lessons_ignores_escape_hatch_categories():
             },
         ]
     )
-    assert p._build_recent_missed_lessons(lookback_days=14) == ""
+    assert p._build_recent_missed_lessons() == ""
 
 
 def test_recent_missed_lessons_empty_on_no_insights():
     p = _pipeline_with_insights_rows([])
-    assert p._build_recent_missed_lessons(lookback_days=14) == ""
+    assert p._build_recent_missed_lessons() == ""
 
 
 def test_recent_missed_lessons_malformed_json_gracefully_ignored():
@@ -863,7 +874,7 @@ def test_recent_missed_lessons_malformed_json_gracefully_ignored():
         ]
     )
     # No crash, just no output.
-    assert p._build_recent_missed_lessons(lookback_days=14) == ""
+    assert p._build_recent_missed_lessons() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -913,7 +924,7 @@ def test_recent_loss_pits_surfaces_causes_occurring_2plus_times():
             },
         ]
     )
-    out = p._build_recent_loss_pits(lookback_days=14)
+    out = p._build_recent_loss_pits()
     assert "greed_top_chasing × 2" in out
     assert "MU" in out and "NVDA" in out
     # Non-repeating causes filtered
@@ -958,7 +969,7 @@ def test_recent_loss_pits_shows_missed_warning_ref_for_macro_ignored():
             },
         ]
     )
-    out = p._build_recent_loss_pits(lookback_days=14)
+    out = p._build_recent_loss_pits()
     assert "macro_warning_ignored × 2" in out
     assert "spreads +80bps" in out
 
@@ -980,7 +991,7 @@ def test_recent_loss_pits_ignores_correct_and_premature_grades():
             },
         ]
     )
-    assert p._build_recent_loss_pits(lookback_days=14) == ""
+    assert p._build_recent_loss_pits() == ""
 
 
 # ---------------------------------------------------------------------------

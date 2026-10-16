@@ -581,17 +581,6 @@ def _evaluate_rotation_core(
             f"{len(held)} symbol(s) held but none of them appears in the "
             f"ranking, so there is no holding to compare against",
         )
-    if weakest_held.score <= 0:
-        # A relative margin against a non-positive score is not a
-        # meaningful comparison; a score this weak with no eligibility
-        # failure recorded is a state this module does not attempt to
-        # interpret further, rather than divide by (near) zero and guess.
-        return _refuse(
-            "held_score_non_positive",
-            f"{weakest_held.symbol} scores {weakest_held.score:.4f}; a "
-            f"relative margin against a non-positive score is not a "
-            f"meaningful comparison",
-        )
     # Owner decision 2026-10-15 (q07): the gap must EXCEED the desk's own
     # measured score noise; unmeasured noise means no swap.
     if noise_brake is None:
@@ -632,14 +621,6 @@ def _evaluate_rotation_core(
             f"comparable term-for-term",
         )
     shared_seats, held_shared, new_shared = shared
-    if held_shared <= 0:
-        # same non-positive-denominator refusal as above
-        return _refuse(
-            "shared_held_score_non_positive",
-            f"{weakest_held.symbol} scores {held_shared:.4f} over the "
-            f"shared seats ({', '.join(shared_seats)}); no relative margin "
-            f"is meaningful against that",
-        )
     if new_shared - held_shared <= noise_brake:
         return _refuse(
             "shared_composite_margin_not_cleared",
@@ -739,7 +720,7 @@ def _shared_seat_comparison(
 
     The arithmetic is `src/verdicts.py`'s own and is reproduced, not
     re-derived: a seat's contribution to `RankedCandidate.score` is
-    `magnitude + conviction_score` (every seat counts equally since n06,
+    `conviction_score` alone (every seat counts equally since n06,
     2026-10-15), which is exactly `score_verdict(verdict)`. Summing that over a
     subset of seats therefore yields the same composite restricted to that
     subset — a partial sum of the real score, not a second scoring scheme.

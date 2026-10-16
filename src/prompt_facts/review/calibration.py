@@ -9,6 +9,7 @@ import logging
 
 from src.risk.rules import peak_to_trough_pct
 from src.sentinel.counted import record_swallowed
+from src.storage.analytics.calibration import CLEAN_RECORD_DATE
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +174,15 @@ class ReviewCalibration:
             "bearish_trend_hit_rate_pct": _trend_rate(lambda s: s["predicted_bias"] == "bearish"),
         }
 
-    def _build_calibration_note(self, lookback_days: int = 45) -> str:
+    def _build_calibration_note(self, lookback_days: int | None = None) -> str:
         """Render PM's own hit rate + avg return on closed BUYs in the window.
 
         L4 calibration memory — the answer to 'has my conviction actually paid
         off recently?'. Without this PM keeps sizing confidence on today's
         alignment score alone, even if that score has been losing lately.
+
+        Window = the clean record (trades opened before 2026-10-12 13:30 UTC
+        are not evidence); there is no exit-age cut on top of it.
         """
         try:
             stats = self.db.compute_trade_calibration(lookback_days=lookback_days)
@@ -200,7 +204,7 @@ class ReviewCalibration:
         except TypeError:
             return ""
         lines = [
-            f"- Overall (last {stats.get('lookback_days', lookback_days)}d): "
+            f"- Overall (since the clean record began, {CLEAN_RECORD_DATE}): "
             f"{stats['n']} closed BUYs, win rate {stats['win_rate_pct']:.0f}%, "
             f"avg return {stats['avg_return_pct']:+.2f}%, avg hold {stats['avg_hold_days']:.1f}d"
         ]

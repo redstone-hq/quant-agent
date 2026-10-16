@@ -11,16 +11,17 @@ same reason as `src/nominations.py`. Which candidates are ELIGIBLE is not
 decided here; `PortfolioManagerAgent.candidate_eligibility` applies the
 desk's gates, and this module orders only what it is handed.
 
-**The score.** Two signals a verdict carries, both already on a 0..1 scale:
+**The score (n06, 2026-10-16).** One signal: `conviction_score` — the seat's
+declared conviction, low/medium/high placed at 0 / 0.5 / 1. Equal spacing: it
+is the same ordinal the `_CONVICTION_RANK` in `src/nominations.py` uses.
+`AnalystVerdict.magnitude` (Technical's rating rung; every other seat states
+none) is NOT added to the score: it used to be, which let Technical score up
+to 2.0 and every other seat 1.0, a double weight against the 25 Sep ruling
+that every seat counts the same, on a 0.5 spacing nobody measured. The rung
+now only BREAKS TIES between equal scores (strong over plain, in either
+direction), then `level_touches`, then `symbol`.
 
-  * `magnitude`        — how far the seat leans (`AnalystVerdict.magnitude`).
-  * `conviction_score` — the seat's declared conviction, low/medium/high
-                         placed at 0 / 0.5 / 1. Equal spacing: it is the same
-                         ordinal the `_CONVICTION_RANK` in `src/nominations.py`
-                         and `CONVICTION_SCORE` in the item-18 audit script
-                         already use, rescaled to share the magnitude's range.
-
-No min-max normalisation across the candidate set: both inputs are absolute,
+No min-max normalisation across the candidate set: the input is absolute,
 so a candidate's score does not move when a different peer joins the list —
 which is what makes the order reproducible from the verdicts alone.
 
@@ -39,7 +40,7 @@ affected. A per-seat ratio may come back only from this desk's own
 resolved calls, measured, not chosen.
 
 **2026-09-13 (retired item 31).** What the (since deleted) seat weight multiplied changed for
-four of the five seats. `score_verdict` is `magnitude + conviction`, and
+four of the five seats. `score_verdict` was `magnitude + conviction`, and
 news, macro and smart_money were each deriving `magnitude` from the very
 field they also reported as `conviction` — so those seats fed one signal in
 twice, at three different unsourced spacings, before that weight ever saw
@@ -74,9 +75,9 @@ fully AGREEING seat lower a candidate's rank, which contradicts this desk's
 own stated edge.
 
 **2026-09-04 audit (real-data fix #2).** Ties used to break on `symbol`
-alone. `score_verdict` only ever lands on {0.5, 1.0, 1.5, 2.0} when a single
-seat is live (magnitude in {0, 0.5, 1} in practice, conviction in
-{0, 0.5, 1}), so ties were the COMMON case, not the exception — one real
+alone. `score_verdict` only ever landed on {0.5, 1.0, 1.5, 2.0} when a single
+seat was live (magnitude in {0, 0.5, 1} in practice, conviction in
+{0, 0.5, 1}; since n06 it is conviction alone), so ties were the COMMON case, not the exception — one real
 production day had 9 of 12 eligible names tied, another 23 of 33 — and
 breaking on `symbol` gave every tied ticker earlier in the alphabet a real,
 systematic, permanent, undisclosed edge that had nothing to do with the
@@ -132,8 +133,9 @@ __all__ = [
 #: spacing — nothing measured justifies anything else.
 CONVICTION_SCORE: dict[str, float] = {"low": 0.0, "medium": 0.5, "high": 1.0}
 
-#: The two verdict fields the score reads, each at weight 1.0.
-RANKING_SIGNALS: tuple[str, ...] = ("magnitude", "conviction_score")
+#: The one verdict field the score reads. The rating rung (`magnitude`) only
+#: breaks ties; it is never summed in (n06).
+RANKING_SIGNALS: tuple[str, ...] = ("conviction_score",)
 
 
 def conviction_score(conviction: str) -> float:
@@ -141,17 +143,13 @@ def conviction_score(conviction: str) -> float:
 
 
 def score_verdict(verdict: AnalystVerdict) -> float:
-    """One verdict's composite: magnitude + conviction_score, weight 1 each.
+    """One verdict's score: its conviction_score, nothing else (n06).
 
-    A seat that states NO strength (`magnitude is None`, item 65) contributes
-    only its conviction — it is absent from the strength half rather than
-    present at zero. Numerically the same total as before 2026-09-26, by
-    construction: the term it used to add was `0.0`. The difference is that
-    the absence is now readable instead of inferred, here and on
-    `RankedCandidate.no_strength_seats`.
+    The Technical rating rung (`magnitude`) is deliberately NOT added: only
+    one seat has one, so adding it gave that seat double weight. It breaks
+    ties between equal scores instead -- see `rank_verdicts`.
     """
-    strength = 0.0 if verdict.magnitude is None else verdict.magnitude
-    return round(strength + conviction_score(verdict.conviction), 4)
+    return round(conviction_score(verdict.conviction), 4)
 
 
 def risk_reward_of(verdict: AnalystVerdict) -> float | None:
@@ -217,10 +215,8 @@ class RankedCandidate:
     #: indistinguishable downstream because neutral verdicts were dropped
     #: silently. See `rank_verdicts`.
     neutral_seats: list[str] = field(default_factory=list)
-    #: Of the seats that DID lean, the ones that stated a strength of their
-    #: own and therefore appear in `components["magnitude"]`. Item 65,
-    #: 2026-09-26: the strength term now names its own coverage instead of
-    #: implying every leaning seat contributed to it.
+    #: Of the seats that DID lean, the ones that stated a rating rung of
+    #: their own and therefore feed `rung_tiebreak`.
     strength_seats: list[str] = field(default_factory=list)
     #: The complement: seats that leaned but have no strength scale at all
     #: (news, macro, smart_money, earnings — see
@@ -228,6 +224,9 @@ class RankedCandidate:
     #: strength term, not present at zero, and they still contribute their
     #: conviction to `score` exactly as before.
     no_strength_seats: list[str] = field(default_factory=list)
+    #: Summed rating-rung strength (strong over plain). Orders candidates that
+    #: tie on `score`; never part of `score` itself (n06).
+    rung_tiebreak: float = 0.0
 
     @property
     def seats(self) -> list[str]:
@@ -358,29 +357,13 @@ def rank_verdicts(
         # SUM, not mean — see the docstring. Adding an agreeing seat adds a
         # non-negative term and can never reduce the total.
         #
-        # Item 65, 2026-09-26: the strength term sums ONLY over the seats
-        # that state a strength. Four of five seats state none
-        # (`magnitude is None`) and are simply not in this sum — where
-        # before they were in it at a literal 0.0. The total is identical
-        # (that is the point: no number changed, no candidate reorders) but
-        # `components["magnitude"]` no longer claims coverage it never had,
-        # and a placeholder can no longer be mistaken for a measurement by
-        # whatever reads this next.
-        # Every seat counts once, unweighted (n06, 2026-10-15): the score is
-        # read only by order and by gaps, so only a seat RATIO could carry
-        # information, and none has been measured.
+        # Every seat counts once, unweighted (n06, 2026-10-15), and the score
+        # is conviction alone (n06, 2026-10-16). The rating rung is summed
+        # only over the seats that state one and is a tiebreak, not a score.
         stated = [v for v in group if v.magnitude is not None]
-        magnitude = sum(v.magnitude for v in stated)
+        rung = sum(v.magnitude for v in stated)
         conviction = sum(conviction_score(v.conviction) for v in group)
         components = {"conviction_score": round(conviction, 4)}
-        # ABSENT, not zero, when no seat on this name has a strength scale —
-        # the same distinction `risk_reward_tiebreak` already makes below.
-        # A reader (and the PM's own prompt) can then tell "every seat that
-        # leaned here leans without a strength scale" from "the seats that
-        # do have one all read zero", which the old constant made
-        # indistinguishable.
-        if stated:
-            components["magnitude"] = round(magnitude, 4)
         # RECORDED ONLY since 2026-10-10 (owner ruling 9 Oct): never added
         # into `score` and no longer used to order candidates — the target
         # it is built on is not a sell rule and is unscored. Kept because
@@ -420,20 +403,17 @@ def rank_verdicts(
             RankedCandidate(
                 symbol=symbol,
                 direction=directions.pop(),
-                score=round(
-                    sum(
-                        v for k, v in components.items() if k not in ("risk_reward_tiebreak", "level_touches_tiebreak")
-                    ),
-                    4,
-                ),
+                score=components["conviction_score"],
                 verdicts=sorted(group, key=lambda v: v.seat),
                 components=components,
                 neutral_seats=sorted(neutral_by_symbol.get(symbol, {})),
                 strength_seats=sorted(v.seat for v in group if v.magnitude is not None),
                 no_strength_seats=sorted(v.seat for v in group if v.magnitude is None),
+                rung_tiebreak=round(rung, 4),
             )
         )
-    # Highest composite first; on a tie, highest summed `level_touches`
+    # Highest score first; on a tie, strongest summed rating rung (strong
+    # over plain, buy or sell side alike); then highest summed `level_touches`
     # next — real, already-measured chart structure (item 141,
     # 2026-09-20); `symbol` is the final, deterministic-but-arbitrary
     # stabiliser only reached once every real signal is equal.
@@ -446,6 +426,7 @@ def rank_verdicts(
     ranked.sort(
         key=lambda c: (
             -c.score,
+            -c.rung_tiebreak,
             -c.components.get("level_touches_tiebreak", 0.0),
             c.symbol,
         )

@@ -24,7 +24,7 @@ Mandate (verbatim intent):
 """
 
 from src.agents.portfolio_manager import PortfolioManagerAgent
-from src.models import RATING_MAGNITUDE, AnalystVerdict, VerdictEvidence
+from src.models import AnalystVerdict, rating_rung_strength, VerdictEvidence
 from src.verdicts import RankedCandidate
 from src.risk.rules import (
     OWN_BAR_REASON_PREFIX,
@@ -53,7 +53,7 @@ def _v(
     # fixture carries a real rung rather than a placeholder; a directional
     # verdict at a literal 0.0 is refused at construction now.
     if seat == "technical" and direction != "neutral":
-        magnitude = RATING_MAGNITUDE["buy"]
+        magnitude = rating_rung_strength("buy")
     else:
         magnitude = None
     return AnalystVerdict(
