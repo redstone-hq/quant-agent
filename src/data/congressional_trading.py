@@ -72,7 +72,7 @@ from typing import Literal
 import requests
 
 from src.data.smart_money import DEFAULT_USER_AGENT, SmartMoneySource, _symbol
-from src.data.smart_money_cluster import cluster_survivors
+from src.data.smart_money_cluster import cluster_survivors, cut_record
 from src.models import SmartMoneyObservation
 from src.util.time import et_now, et_today
 
@@ -455,6 +455,7 @@ class CongressionalTradingProvider:
         self.cluster_window_days = max(1, int(cluster_window_days))
         self.min_cluster_owners = max(2, int(min_cluster_owners))
         self.max_observations = max(1, int(max_observations))
+        self.last_cut_record: dict | None = None
         self.session = session or requests.Session()
         self._cache_lock = threading.Lock()
 
@@ -1108,14 +1109,18 @@ class CongressionalTradingProvider:
             cluster_window_days=self.cluster_window_days,
             min_cluster_owners=self.min_cluster_owners,
         )
-        ordered = sorted(
+        full_order = sorted(
             survivors.values(),
             key=lambda item: (
                 -(item.transaction_value_usd or 0),
                 item.disclosure_age_days,
                 item.actor,
             ),
-        )[: self.max_observations]
+        )
+        ordered = full_order[: self.max_observations]
+        self.last_cut_record = cut_record(
+            full_order, ordered, stream="congress", max_observations=self.max_observations
+        )
         errors: list[str] = []
         if stale_labels:
             errors.append("congressional_stale_cache:" + ",".join(stale_labels))
