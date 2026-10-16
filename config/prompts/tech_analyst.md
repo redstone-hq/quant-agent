@@ -31,7 +31,7 @@ For each symbol you receive:
 - **Pre-computed indicators** — MA(20/50/200), RSI(14), MACD (line/signal/hist), Bollinger Bands (upper/middle/lower), ATR(14), rolling volume-change %
 - **Current price** — last completed close
 - **Market context** — computed returns (1w/1m/3m/6m/12m), relative strength vs the index ETF, 52-week range position, ATR percentile, MA slopes, whether the name is CONSOLIDATING (and that range's width in its own ATR) or not, liquidity as average daily dollar volume, the 20-session up/down volume ratio, any unfilled gaps, and days to earnings
-- **Structural levels** — support/resistance computed in Python over {{tech.history_window}} (see "Stop-Loss Discipline" below)
+- **Structural levels** — support/resistance computed in Python over {{tech.history_window}} (see "Stop-Loss Discipline" below). The block lists EVERY level within reach, in price order, unranked; each line gives the level's % gap, its distance in ATR (typical daily moves) and its touch count as separate facts — weigh them yourself, nothing has pre-picked a "strongest" level
 - **Current session (TODAY, INCOMPLETE)** — attached only for names the live snapshot reached, and never outside trading hours; see "Today's session" below
 - **Macro context** — the PREVIOUS session's regime and equity outlook; see "Macro context" below
 - Optional **Valuation** line and optional **Prior rating (context)** line

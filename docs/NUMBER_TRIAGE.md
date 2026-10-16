@@ -150,7 +150,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 **Tier 2 gates entries/exits or shapes stops after entry.** Stop buffer, level-cluster tolerance and level-strength distance: percent constants that should be the name's own ATR or tick.
 
 - `data.levels.CLUSTER_TOLERANCE_PCT_FALLBACK` = 1 (RESOLVED 2026-10-15: deleted; a level's zone is its own measured bar span, and where a level has none the width is one 14-day ATR of the stock -- owner ruling that one ATR is derived. With neither, nothing matches)
-- `data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT` = 10
+- `data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT` = 10 (RESOLVED 2026-10-16, n06: deleted with the level-strength score and the six-per-side cut it fed; the Technical analyst now sees every level inside the reach window in price order, each with its touches and its distance in ATR(14), unranked)
 - `portfolio_constructor.ConstructorConfig.structural_stop_buffer_pct` = 0.005
 
 **Tier 3 shapes which names reach the seats.** Intraday move trigger, external-candidate dollar-volume and price floors: should be multiples of the name's own ATR, spread and tick.

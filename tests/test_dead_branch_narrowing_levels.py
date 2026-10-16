@@ -54,8 +54,10 @@ def test_level_finder_reach_measurements():
     assert windows == 1176
     # Re-measured 2026-10-15: swing points are a reversal of the stock's own
     # ATR(14), not a 5-bar window, so the finder sees more turns per window.
+    # 2026-10-16 (n06): the six-per-side cut is gone, so nine more 2-touch
+    # levels are reported (1429 -> 1438) and hor20 moves 204 -> 205.
     assert sorted(touches.items()) == [
-        (2, 1429),
+        (2, 1438),
         (3, 1135),
         (4, 829),
         (5, 516),
@@ -68,4 +70,4 @@ def test_level_finder_reach_measurements():
         (12, 2),
     ]
     assert changed["reach5"] == 13 and changed["hor250"] == 13
-    assert changed["hor20"] == 204 and changed["reach0.5"] == 686
+    assert changed["hor20"] == 205 and changed["reach0.5"] == 686

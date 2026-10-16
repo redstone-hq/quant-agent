@@ -41,7 +41,6 @@ src.data.context._W_1M
 src.data.insider_signal._BAND_HIGH
 src.data.insider_signal._BAND_LOW
 src.data.insider_signal._WEIGHTS[INDETERMINATE]
-src.data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
 src.models.analysis.RATING_MAGNITUDE['buy']
 src.models.analysis.RATING_MAGNITUDE['strong_buy']
