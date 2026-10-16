@@ -226,7 +226,7 @@ class MissedOpsSignals:
                         bucket.append(tag)
         return out
 
-    def _missed_ops_earnings_signal(self) -> dict[str, str]:
+    def _missed_ops_earnings_signal(self, session_earnings: list[dict] | None = None) -> dict[str, str]:
         """Most recent non-bearish earnings take per symbol from on-disk cache.
 
         Walks earnings_provider.manifest, skips abandoned entries, reads each
@@ -243,26 +243,35 @@ class MissedOpsSignals:
 
         from src.agents.portfolio_manager.evidence_prompting import earnings_stance_is_stale
 
-        # Currency is decided by the provider's own check (latest 10-Q/10-K
-        # only, outage fallback to the stored deadline) and the portfolio
-        # manager's `earnings_stance_is_stale` - the one rule, no age cutoff here.
+        # Currency is the one rule `earnings_stance_is_stale`. The session's
+        # already-fetched earnings list (`current_until` set from this
+        # session's SEC check) decides for the symbols it covers; any other
+        # symbol falls back to the stored manifest stamp (no network, no
+        # manifest write; an absent stamp is stale). No age cutoff here.
         # Sentiment comes from the STRUCTURED "Sentiment:" line - a naive
         # `"bearish" in head` substring dropped NEUTRAL analyses whose prose
         # merely mentioned the word ("not bearish", "bearish scenarios considered").
-        symbols = sorted({str(k).split("_")[0].upper() for k, e in manifest.items() if isinstance(e, dict)})
-        try:
-            reports = self.earnings_provider.check_and_fetch(symbols)
-        except Exception as exc:
-            record_swallowed("missed_ops.earnings_signal", exc, log=logger)
-            return {}
+        session_until: dict[str, str] = {}
+        for item in session_earnings or []:
+            if isinstance(item, dict) and item.get("symbol"):
+                session_until[str(item["symbol"]).strip().upper()] = str(item.get("current_until") or "")
+
+        best: dict[str, tuple[str, dict]] = {}  # symbol -> (filing_date, entry)
+        for key, entry in manifest.items():
+            if not isinstance(entry, dict) or entry.get("abandoned"):
+                continue
+            symbol = str(key).split("_")[0].upper()
+            fd = str(entry.get("filing_date") or "")
+            if symbol not in best or fd > best[symbol][0]:
+                best[symbol] = (fd, entry)
 
         out: dict[str, str] = {}
         today = et_today()
-        for report in reports or []:
-            symbol = str(report.symbol).upper()
-            if earnings_stance_is_stale(report.current_until, today):
+        for symbol, (_fd, entry) in best.items():
+            current_until = session_until[symbol] if symbol in session_until else entry.get("current_until")
+            if earnings_stance_is_stale(current_until, today):
                 continue
-            analysis_path = report.analysis_path
+            analysis_path = entry.get("analysis_path")
             if not analysis_path:
                 continue
             p = Path(analysis_path)
@@ -558,6 +567,7 @@ class MissedOpsSignals:
         top_movers_count: int = 15,
         current_position_symbols: set[str] | None = None,
         min_top_mover_dollar_volume_m: float = 5.0,
+        session_earnings: list[dict] | None = None,
     ) -> list:
         """Notable movers we did NOT own — input for evening's missed-op review.
 
@@ -632,7 +642,7 @@ class MissedOpsSignals:
         tech_map = self._missed_ops_tech_signal(lookback_days)
         news_map = self._missed_ops_news_signal(lookback_days)
         theme_map = self._missed_ops_theme_tags(lookback_days)
-        earnings_map = self._missed_ops_earnings_signal()
+        earnings_map = self._missed_ops_earnings_signal(session_earnings)
         macro_sector_map = self._missed_ops_macro_sector_map()
 
         snapshots: list = []
