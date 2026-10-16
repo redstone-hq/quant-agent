@@ -27,14 +27,11 @@ HOST_COLLABORATORS = {
     "broker": "broker",
     "market": "market",
     "_sweeper": "sweeper",
-    "_build_post_exit_reality": "build_post_exit_reality",
     "_EXIT_AUDIT_ACTIONS": "exit_audit_actions",
     "_log_conviction_outcome_for_operator": "log_conviction_outcome_for_operator",
 }
 
-#: Every review name the host exposes, delegated to the held part. `_build_post_exit_reality`
-#: is a COLLABORATOR of the grading part, so the part reads it off the host live; the host's
-#: own delegate for it goes straight to the exits part.
+#: Every review name the host exposes, delegated to the held part.
 DELEGATED = (
     "_review_grading",
     "_review_exits",
@@ -44,7 +41,6 @@ DELEGATED = (
     "_build_recent_sells_for_grading",
     "_build_recent_buys_for_grading",
     "_build_trade_grade_summary",
-    "_build_post_exit_reality",
     "_build_recent_missed_lessons",
     "_build_recent_loss_pits",
     "_build_recent_outlook_calibration",
@@ -61,14 +57,8 @@ def review_of(host) -> PromptFactsReview:
 
 
 def _delegate(name: str):
-    if name == "_build_post_exit_reality":
-
-        def shim(self, *args, **kwargs):
-            return review_of(self)._review_exits()._build_post_exit_reality(*args, **kwargs)
-    else:
-
-        def shim(self, *args, **kwargs):
-            return getattr(review_of(self), name)(*args, **kwargs)
+    def shim(self, *args, **kwargs):
+        return getattr(review_of(self), name)(*args, **kwargs)
 
     shim.__name__ = name
     shim.__qualname__ = f"hold_prompt_facts_review.<locals>.{name}"

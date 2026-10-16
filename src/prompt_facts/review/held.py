@@ -1,7 +1,7 @@
 """The trade-review seat as ONE standalone part: `PromptFactsReview`.
 
 Built alone from its collaborators only -- `PromptFactsReview(db=..., broker=..., market=...,
-sweeper=..., build_post_exit_reality=..., exit_audit_actions=...,
+sweeper=..., exit_audit_actions=...,
 log_conviction_outcome_for_operator=...)` -- and exercised with nothing behind it. The part
 knows NO host: it never reaches back into the pipeline for anything. The holder
 (`src/pipeline_prompt_facts_review.py`) rebuilds one per call from the seat's current
@@ -27,7 +27,6 @@ COLLABORATORS = (
     "broker",
     "market",
     "sweeper",
-    "build_post_exit_reality",
     "exit_audit_actions",
     "log_conviction_outcome_for_operator",
 )
@@ -36,9 +35,7 @@ COLLABORATORS = (
 class PromptFactsReview:
     """Trade-review prompt facts; every body lives on a part under src/prompt_facts/review/.
 
-    Each `_review_*` builder hands the part's collaborators to one family part. The grading
-    part is handed `build_post_exit_reality` (the seat's shim onto the exits part, or whatever
-    a test passed in), never a body it owns, so no recursion guard is needed."""
+    Each `_review_*` builder hands the part's collaborators to one family part."""
 
     def __init__(
         self,
@@ -47,7 +44,6 @@ class PromptFactsReview:
         broker=None,
         market=None,
         sweeper=None,
-        build_post_exit_reality=None,
         exit_audit_actions=None,
         log_conviction_outcome_for_operator=None,
     ) -> None:
@@ -55,7 +51,6 @@ class PromptFactsReview:
         self.broker = broker
         self.market = market
         self.sweeper = sweeper
-        self.build_post_exit_reality = build_post_exit_reality
         self.exit_audit_actions = exit_audit_actions
         self.log_conviction_outcome_for_operator = log_conviction_outcome_for_operator
 
@@ -65,7 +60,6 @@ class PromptFactsReview:
             broker=self.broker,
             market=self.market,
             sweeper=self.sweeper,
-            build_post_exit_reality=self.build_post_exit_reality,
         )
 
     def _review_exits(self) -> ReviewExits:

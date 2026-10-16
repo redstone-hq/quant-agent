@@ -97,13 +97,6 @@ def test_exits_part_reads_the_sweeper_live():
     assert part._sweeper() is None and calls == ["read"]
 
 
-def test_grading_part_is_handed_post_exit_reality_not_owning_it():
-    """`_build_trade_grade_summary` reads `_build_post_exit_reality`; the grading part never defines it."""
-    assert not hasattr(ReviewGrading, "_build_post_exit_reality") and hasattr(ReviewExits, "_build_post_exit_reality")
-    part = _build(ReviewGrading, build_post_exit_reality=lambda *a, **k: "HANDED IN")
-    assert part._build_post_exit_reality() == "HANDED IN"
-
-
 # --- The parent prompt-facts parts (src/prompt_facts/*.py): built and run with no pipeline behind them.
 
 from src.prompt_facts.decisions import PromptDecisions  # noqa: E402
@@ -192,7 +185,7 @@ def test_review_seat_is_constructible_with_no_host_at_all_and_passes_the_boundar
     part = PromptFactsReview()
     params = list(inspect.signature(PromptFactsReview).parameters.values())
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in params)
-    assert tuple(p.name for p in params) == COLLABORATORS and len(COLLABORATORS) == 7
+    assert tuple(p.name for p in params) == COLLABORATORS and len(COLLABORATORS) == 6
     assert "host" not in COLLABORATORS and not hasattr(part, "_host")
     assert all(getattr(part, name) is None for name in COLLABORATORS)  # bare: nothing raises
     source = inspect.getsource(PromptFactsReview)  # the class body never names a host or reaches one
@@ -212,13 +205,11 @@ def test_review_seat_runs_a_body_from_an_explicit_db_collaborator_and_nothing_el
 
 
 def test_review_seat_hands_each_family_part_exactly_the_collaborator_it_was_built_with():
-    """`build_post_exit_reality` reaches the grading part, `sweeper` and `exit_audit_actions` the
+    """`sweeper` and `exit_audit_actions` the
     exits part, the operator logger the calibration part -- as passed, with no host in between."""
     marks = {name: object() for name in COLLABORATORS}
-    marks["build_post_exit_reality"] = lambda *a, **k: "FROM THE COLLABORATOR"
     marks["sweeper"] = lambda: "SWEPT"
     part = PromptFactsReview(**marks)
-    assert part._review_grading()._build_post_exit_reality() == "FROM THE COLLABORATOR"
     assert part._review_grading().broker is marks["broker"] and part._review_grading().market is marks["market"]
     assert part._review_exits()._sweeper() == "SWEPT"
     assert part._review_exits()._EXIT_AUDIT_ACTIONS is marks["exit_audit_actions"]

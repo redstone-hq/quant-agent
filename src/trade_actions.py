@@ -100,8 +100,7 @@ def is_filled_trail_stop(row, action: str) -> bool:
     A TRAIL_STOP row is written fill_status='submitted' at placement and only
     flipped to 'filled' by _reconcile_fills when the broker reports a fill, so
     the status is what distinguishes "protection sitting there" from "the stop
-    sold our shares". Mirrors the same distinction in
-    pipeline._build_post_exit_reality. Legacy rows can carry a NULL
+    sold our shares". Legacy rows can carry a NULL
     fill_status; those only count when a real fill_qty was recorded, so a
     never-filled stop can't book a phantom exit at its stop price.
 

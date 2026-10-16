@@ -1,4 +1,4 @@
-"""src.prompt_facts.review.exits -- post-exit reality, the missed-lesson and loss-pit digests.
+"""src.prompt_facts.review.exits -- the missed-lesson and loss-pit digests.
 
 Bodies moved verbatim from src/pipeline_prompt_facts_review.py (`PromptFactsReviewMixin`),
 which keeps same-named thin shims built per call. Every collaborator is an explicit
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReviewExits:
-    """Post-exit reality, the missed-lesson and loss-pit digests; standalone, built from explicit collaborators."""
+    """The missed-lesson and loss-pit digests; standalone, built from explicit collaborators."""
 
     def __init__(
         self,
@@ -27,112 +27,6 @@ class ReviewExits:
         self.broker = broker
         self._sweeper = sweeper  # the host's callable, read per use (never snapshotted)
         self._EXIT_AUDIT_ACTIONS = exit_audit_actions
-
-    def _build_post_exit_reality(
-        self,
-        min_age_days: int = 2,
-        max_symbols: int = 12,  # prompt-size (context budget) bound on broker price calls, not a market claim
-    ) -> dict | None:
-        """What actually happened after our recent exits — from the tape.
-
-        For every realized exit in the window (SELL family + filled
-        TRAIL_STOPs) on/after the clean-record start (2026-10-12 13:30 UTC;
-        earlier trades are not evidence) and at least `min_age_days` old, compare the exit price to
-        the live price. Returns None when there's nothing to audit.
-
-        {"n": int, "n_higher_5pct": int, "avg_move_pct": float,
-         "worst": [{"symbol", "date", "move_pct"} × ≤3]}   # worst = ran most
-        """
-        from datetime import datetime as _dt, timedelta, timezone
-
-        from src.trading_calendar import utc_now
-
-        try:
-            # 120 = prompt-size / fetch bound, not a claim about the market.
-            rows = self.db.get_trades(limit=120)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("post_exit_reality: trades fetch failed: %s", e)
-            return None
-        now = utc_now()
-        window_start = _dt.fromisoformat(CLEAN_RECORD_START_UTC).replace(tzinfo=timezone.utc)
-        age_cutoff = now - timedelta(days=min_age_days)
-        sweeper = self._sweeper()
-        sweep_symbol = sweeper.symbol if sweeper is not None else None
-        exits: list[dict] = []
-        for row in rows:
-            action = (row.get("action") or "").upper()
-            # Belt on top of the SWEEP_* action exclusion: an emergency
-            # liquidation can exit the sweep vehicle under EMERGENCY_SELL —
-            # a ~0% T-bill "move" is noise in a decision-quality audit.
-            if sweep_symbol is not None and (row.get("symbol") or "") == sweep_symbol:
-                continue
-            is_exit = (
-                action in self._EXIT_AUDIT_ACTIONS
-                or action.startswith("PARTIAL_SELL")
-                or (action == "TRAIL_STOP" and (row.get("fill_status") or "") == "filled")
-            )
-            if not is_exit:
-                continue
-            if action != "TRAIL_STOP" and (row.get("fill_status") or "") not in (
-                "filled",
-                "submitted",
-            ):
-                continue
-            ts = row.get("timestamp") or ""
-            try:
-                dt = (
-                    _dt.fromisoformat(ts.replace("Z", "+00:00"))
-                    if "T" in ts
-                    else _dt.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                )
-            except (TypeError, ValueError):
-                continue
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            if not (window_start <= dt <= age_cutoff):
-                continue
-            exit_px = row.get("fill_price") or row.get("price")
-            if not (isinstance(exit_px, (int, float)) and exit_px > 0):
-                continue
-            exits.append(
-                {
-                    "symbol": row.get("symbol"),
-                    "date": ts[:10],
-                    "exit_px": float(exit_px),
-                }
-            )
-        if not exits:
-            return None
-        # Live prices — one broker call per distinct symbol, capped.
-        prices: dict[str, float] = {}
-        for sym in list(dict.fromkeys(e["symbol"] for e in exits))[:max_symbols]:
-            try:
-                px = self.broker.get_latest_price(sym)
-            except Exception:  # noqa: BLE001
-                px = None
-            if isinstance(px, (int, float)) and px > 0:
-                prices[sym] = float(px)
-        moves: list[dict] = []
-        for e in exits:
-            cur = prices.get(e["symbol"])
-            if cur is None:
-                continue
-            moves.append(
-                {
-                    "symbol": e["symbol"],
-                    "date": e["date"],
-                    "move_pct": round((cur - e["exit_px"]) / e["exit_px"] * 100, 1),
-                }
-            )
-        if not moves:
-            return None
-        moves.sort(key=lambda m: -m["move_pct"])
-        return {
-            "n": len(moves),
-            "n_higher_5pct": sum(1 for m in moves if m["move_pct"] >= 5.0),
-            "avg_move_pct": round(sum(m["move_pct"] for m in moves) / len(moves), 1),
-            "worst": moves[:3],
-        }
 
     def _build_recent_missed_lessons(self) -> str:
         """PM L3d memory: themes that evening flagged ≥ 2 times as missed.

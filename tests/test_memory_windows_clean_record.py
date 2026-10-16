@@ -99,34 +99,6 @@ def test_missed_lessons_drop_pre_clean_rows_and_show_dates():
     assert "flagged 2026-10-13 to 2026-10-20" in out
 
 
-class _ExitDb:
-    def get_trades(self, limit=120):
-        def row(day):
-            return {
-                "symbol": "ZZZ",
-                "action": "SELL",
-                "fill_status": "filled",
-                "price": 10.0,
-                "fill_price": 10.0,
-                "timestamp": f"{day}T14:00:00+00:00",
-            }
-
-        return [row(POST), row(PRE)]
-
-
-class _Broker:
-    def get_latest_price(self, sym):
-        return 11.0
-
-
-def test_post_exit_reality_ignores_pre_clean_exits(monkeypatch):
-    monkeypatch.setattr("src.trading_calendar.utc_now", lambda: datetime(2026, 11, 1, tzinfo=timezone.utc))
-    exits = ReviewExits(db=_ExitDb(), broker=_Broker(), sweeper=lambda: None, exit_audit_actions={"SELL"})
-    out = exits._build_post_exit_reality()
-    assert out["n"] == 1
-    assert [m["date"] for m in out["worst"]] == [POST]
-
-
 def _stamp_last_trade(db, ts):
     db.conn.execute("UPDATE trades SET timestamp = ? WHERE id = (SELECT MAX(id) FROM trades)", (ts,))
     db.conn.commit()

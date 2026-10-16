@@ -153,11 +153,11 @@ def test_measured_ledger_id_counts_for_the_two_modules() -> None:
         and len(ledger_ids_for_module("src.prompt_facts.missed_ops_signals", ledger)) == 6
         and len(ledger_ids_for_module("src.pipeline_prompt_facts_review", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.review.grading", ledger)) == 3
-        and len(ledger_ids_for_module("src.prompt_facts.review.exits", ledger)) == 2
+        and len(ledger_ids_for_module("src.prompt_facts.review.exits", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.review.calibration", ledger)) == 2
         and len(ledger_ids_for_module("src.prompt_facts.review.blocked", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.review.replay", ledger)) == 0
-    )  # 14 review ids split by fact family 2026-10-04; moved 2026-10-02; the parent's 5 ids moved with their bodies to decisions/watchlist/pm_facts 2026-10-04
+    )  # 14 review ids split by fact family 2026-10-04 (exits ids deleted 2026-10-16 with the post-exit reality block); moved 2026-10-02; the parent's 5 ids moved with their bodies to decisions/watchlist/pm_facts 2026-10-04
     # 2026-10-01, item 210 step 10: the 2 `ExecutionStage._run_session` ids moved
     # with the class into `src.stage_execution`; step 11 then moved 12 more into
     # `src.pipeline_sizing` and `src.pipeline_earnings_quality`; step 12 moved

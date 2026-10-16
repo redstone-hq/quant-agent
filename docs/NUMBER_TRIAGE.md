@@ -192,8 +192,6 @@ Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidat
 - `pipeline_prompt_facts.PromptFactsMixin._build_missed_opportunities_digest(top_movers_count)` = 15
 - `pipeline_prompt_facts.PromptFactsMixin._build_own_recent_decisions(limit)` = 3
 - `pipeline_prompt_facts.PromptFactsMixin._build_pm_recent_decisions(limit)` = 3
-- `pipeline_prompt_facts.PromptFactsMixin._build_post_exit_reality(max_symbols)` = 12
-- `pipeline_prompt_facts.PromptFactsMixin._build_post_exit_reality(min_age_days)` = 2
 - `pipeline_prompt_facts.PromptFactsMixin._build_recent_loss_pits(lookback_days)` = 14
 - `pipeline_prompt_facts.PromptFactsMixin._build_recent_missed_lessons(lookback_days)` = 14
 - `pipeline_prompt_facts.PromptFactsMixin._build_rm_recent_verdicts(limit)` = 5
