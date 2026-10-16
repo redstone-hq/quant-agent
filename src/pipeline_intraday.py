@@ -302,6 +302,26 @@ class IntradayScanBody:
                 move_pct=late_move,
                 detail=f"one paid call per check; only the top {_NAMES_PER_PAID_CALL} ranked movers are sent",
             )
+        # Record-only (checklist n06): one run-scope row per check saying which
+        # ranked movers were sent and which were left out, so the cut
+        # `_NAMES_PER_PAID_CALL` makes can be measured later. Governs nothing.
+        _record_pipeline_event(
+            self,
+            ctx,
+            None,
+            "opportunity",
+            "batch_selected",
+            "intraday_names_per_paid_call",
+            names_per_paid_call=_NAMES_PER_PAID_CALL,
+            sent=[
+                {"symbol": sym, "rank": rank, "move_pct": mv}
+                for rank, (sym, mv) in enumerate(candidates[:_NAMES_PER_PAID_CALL], start=1)
+            ],
+            not_sent=[
+                {"symbol": sym, "rank": rank, "move_pct": mv, "reason": "not_sent_weaker_rank"}
+                for rank, (sym, mv) in enumerate(candidates[_NAMES_PER_PAID_CALL:], start=_NAMES_PER_PAID_CALL + 1)
+            ],
+        )
         return self._intraday_scan_call(ctx, candidates[:_NAMES_PER_PAID_CALL], snapshots, include_holds=True)
 
     def _minutes_since_last_intraday_pm_call(self) -> float | None:
@@ -522,6 +542,17 @@ class IntradayScanBody:
                 )
             except Exception as e:  # noqa: BLE001
                 _site(self, "tech_agent_log", e)
+            # Record-only (n06): the settled cost of this check's one paid call.
+            _record_pipeline_event(
+                self,
+                ctx,
+                None,
+                "opportunity",
+                "batch_cost",
+                "intraday_names_per_paid_call",
+                names_in_call=len(analyses_map),
+                cost_usd=ta_result.cost_usd,
+            )
             for analysis in analyses:
                 _persist_evidence(
                     self.db,

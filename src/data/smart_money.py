@@ -30,6 +30,7 @@ from src.data.insider_signal import (
 )
 from src.data.smart_money_cluster import (
     MAX_CLUSTER_RESERVED_SLOTS,
+    cluster_reservation_census,
     cluster_survivors,
     insider_purchase_clusters,
     observation_key,
@@ -276,6 +277,8 @@ class SECForm4Provider:
         # size -- it exists only so the sale side of
         # `holdings_fraction_band` becomes readable at all.
         self.last_sale_census: dict | None = None
+        # n06: what the cluster reservation did on the last refresh. Record-only.
+        self.last_cluster_census: dict | None = None
         self.refresh_deadline_s = max(1.0, float(refresh_deadline_s))
         self.watched_drain_deadline_s = max(1.0, float(watched_drain_deadline_s))
         self.max_filings_per_refresh = max(1, int(max_filings_per_refresh))
@@ -1780,6 +1783,13 @@ class SECForm4Provider:
         final = reserve_cluster_symbols(
             ordered,
             set(clusters),
+            max_observations=self.max_observations,
+            max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
+        )
+        self.last_cluster_census = cluster_reservation_census(
+            ordered,
+            final,
+            clusters,
             max_observations=self.max_observations,
             max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
         )

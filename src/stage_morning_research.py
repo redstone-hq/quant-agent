@@ -36,6 +36,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     seat_acceptance_kwargs,
     select_nominations,
 )
+from src.data.smart_money_cluster import find_cluster_census
 from src.nomination_evidence import persist_nomination_summary
 from src.stage_risk import _persist_dropped_reasons  # noqa: F401  moved with RiskStage
 from src.sentinel.morning_guarded import record_morning_fault
@@ -714,6 +715,16 @@ class MorningResearchStage:
                     kind="insider_sale_census",
                     scope="run",
                     evidence_json=_sm_json.dumps(_sale_census),
+                )
+            _cluster_census = find_cluster_census(self.smart_money_provider)
+            if _cluster_census:
+                _persist_evidence(
+                    self.db,
+                    run_id=ctx.run_id,
+                    agent_name="smart_money_analyst",
+                    kind="insider_cluster_census",
+                    scope="run",
+                    evidence_json=_sm_json.dumps(_cluster_census),
                 )
             _persist_evidence(
                 self.db,

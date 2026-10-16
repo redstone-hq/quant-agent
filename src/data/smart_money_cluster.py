@@ -236,3 +236,51 @@ def insider_purchase_clusters(
             filing_age_days=max(0, (today - disclosed).days),
         )
     return latest
+
+
+def cluster_reservation_census(
+    ordered: list[SmartMoneyObservation],
+    final: list[SmartMoneyObservation],
+    clusters: Iterable[str],
+    *,
+    max_observations: int,
+    max_reserved_slots: int,
+) -> dict:
+    """Record-only: what ``MAX_CLUSTER_RESERVED_SLOTS`` did on one refresh.
+
+    ``found`` distinct clustered symbols; ``already_kept`` made the plain
+    top-``max_observations`` cut on their own; ``reserved`` got in only
+    through a reserved slot; ``cut`` stayed out. Governs nothing -- read by no
+    gate, rank or size -- so the bound can later be judged from data.
+    """
+    found = sorted(set(clusters))
+    natural = {item.symbol for item in ordered[:max_observations]}
+    kept = {item.symbol for item in final}
+    reserved = [s for s in found if s not in natural and s in kept]
+    cut = [s for s in found if s not in kept]
+    return {
+        "clusters_found": len(found),
+        "already_kept": len([s for s in found if s in natural]),
+        "reserved": len(reserved),
+        "cut": len(cut),
+        "reserved_symbols": reserved,
+        "cut_symbols": cut,
+        "max_reserved_slots": max_reserved_slots,
+        "max_observations": max_observations,
+    }
+
+
+def find_cluster_census(provider: object) -> dict | None:
+    """The SEC provider's last cluster census, however the provider is wrapped
+    (duck-typed, same probe shape as the sale census). None when none exists."""
+    candidates: list[object] = [provider]
+    nested = getattr(provider, "providers", None)
+    if isinstance(nested, (list, tuple)):
+        candidates.extend(nested)
+    if hasattr(provider, "__dict__"):
+        candidates.extend(vars(provider).values())
+    for candidate in candidates:
+        census = getattr(candidate, "last_cluster_census", None)
+        if isinstance(census, dict):
+            return census
+    return None
