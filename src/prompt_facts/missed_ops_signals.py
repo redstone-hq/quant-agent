@@ -9,6 +9,7 @@ no stop. Any prompt text these helpers emit is byte-identical to the pre-move te
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 import re
 import json as _json
@@ -17,12 +18,21 @@ from src.pipeline_prompt_facts_pure import (
     _valuation_signal_from,
 )
 from src.risk.metrics import unrealized_pnl_pct
-from src.trading_calendar import et_today
+from src.trading_calendar import et_today, session_date_key, to_et
 from src.sentinel.counted import record_swallowed
 
 #: The moved code logged under `src.pipeline` before the move and still does;
 #: binding the name rather than `__name__` keeps log records byte-identical.
 logger = logging.getLogger("src.pipeline")
+
+
+def _et_instant(ts) -> datetime | None:
+    """A stored timestamp as an aware ET datetime (naive = UTC, as SQLite
+    writes it), or None when missing or unparseable."""
+    try:
+        return to_et(datetime.fromisoformat(str(ts).strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 class MissedOpsSignals:
@@ -318,58 +328,85 @@ class MissedOpsSignals:
 
     def _thesis_tech_trajectory_map(
         self,
-        lookback_days: int,
+        opens: dict,
     ) -> dict[str, list[str]]:
-        """For each symbol, extract chronological tech ratings from the last
-        `lookback_days` of tech_analyst logs. Returns {sym: ["buy","hold",
-        "buy","strong_buy"]} newest-first. Uses the same shape-normalizer
-        as the missed_ops digest so bare-list / dict-wrapped / symbol-keyed
-        shapes all work. Empty dict on failure."""
-        from src.evolution.quarterly_digest import _tech_analyses_from_data
+        """Per held symbol, ONE tech rating per ET session since the position
+        opened -- the session's LAST rating -- as "YYYY-MM-DD: rating", newest
+        session first. `opens` maps symbol -> the ET instant its position
+        opened (see `_thesis_position_open`).
 
+        A tech row counts only when its OWN timestamp is at or after that
+        symbol's open. The read is bounded by the earliest open, not by a row
+        count: the tech seat writes many rows a session, so a fixed row cap
+        returned only today's intraday runs. Uses the same shape-normalizer
+        as the missed_ops digest. Empty dict on failure."""
+        from src.evolution.quarterly_digest import _tech_analyses_from_data
+        from src.storage.analytics.agent_log_reads import count_recent_agent_outputs
+
+        if not opens:
+            return {}
+        since_key = session_date_key(min(opens.values()))
         try:
+            # Rows on or after the earliest open's ET session = all rows minus
+            # those before it -- the same ET-midnight predicate both ways.
+            total = count_recent_agent_outputs(conn=self.db.conn, lock=self.db._lock, agent_name="tech_analyst")
+            older = count_recent_agent_outputs(
+                conn=self.db.conn, lock=self.db._lock, agent_name="tech_analyst", before_date=since_key
+            )
             rows = self.db.get_recent_agent_outputs(
                 agent_name="tech_analyst",
-                limit=lookback_days,
+                limit=max(0, total - older),
                 before_date=None,
             )
         except Exception as exc:
             record_swallowed("missed_ops.thesis_tech_trajectory", exc, log=logger)
             return {}
         by_sym: dict[str, list[str]] = {}
-        for row in rows:
+        seen: set[tuple[str, str]] = set()
+        for row in rows:  # newest first, so a session's first hit is its last rating
+            at = _et_instant(row.get("timestamp"))
+            if at is None:
+                continue
+            session = session_date_key(at)
             data = self._parse_logged_agent_response(row)
             if data is None:
                 continue
             for a in _tech_analyses_from_data(data):
                 sym = (a.get("symbol") or "").upper()
                 rating = a.get("rating")
-                if sym and rating:
-                    by_sym.setdefault(sym, []).append(str(rating))
+                if not sym or not rating or sym not in opens or at < opens[sym]:
+                    continue
+                if (sym, session) in seen:
+                    continue
+                seen.add((sym, session))
+                by_sym.setdefault(sym, []).append(f"{session}: {rating}")
         return by_sym
 
     def _thesis_news_events_map(
         self,
-        lookback_days: int,
+        opens: dict,
     ) -> dict[str, list[dict]]:
-        """Per-symbol news events over the lookback window. Returns
-        {sym: [{event, conviction, date}, ...]} newest-first.
+        """Per held symbol, news events dated on or after the ET session its
+        position opened. Returns {sym: [{event, conviction, date}, ...]}
+        newest-first. `opens` maps symbol -> the ET instant its position
+        opened (see `_thesis_position_open`).
 
-        Walks dated full_report.json files. Every state_change with the
-        symbol in affected_symbols is collected. Wider than the 5-day
-        window _missed_ops_news_signal uses because the thesis health
-        review needs to see the full 8-week arc, not just recent days.
+        Walks the dated full_report.json files from today back to the
+        earliest open's session; a state_change naming the symbol in
+        affected_symbols is kept when the report's date is not before that
+        symbol's open session.
         """
         import json as _json
         from datetime import timedelta
         from pathlib import Path
 
         news_dir = getattr(self.news_store, "data_dir", None)
-        if news_dir is None:
+        if news_dir is None or not opens:
             return {}
+        open_day = {sym: at.date() for sym, at in opens.items()}
         out: dict[str, list[dict]] = {}
         today = et_today()
-        for days_ago in range(lookback_days + 1):
+        for days_ago in range((today - min(open_day.values())).days + 1):
             day = today - timedelta(days=days_ago)
             report_path = Path(news_dir) / str(day) / "full_report.json"
             if not report_path.exists():
@@ -386,7 +423,7 @@ class MissedOpsSignals:
                 conviction = (ch.get("conviction") or "").lower()
                 for sym in affected:
                     sym_u = str(sym).upper()
-                    if not sym_u:
+                    if sym_u not in open_day or day < open_day[sym_u]:
                         continue
                     out.setdefault(sym_u, []).append(
                         {
@@ -397,20 +434,36 @@ class MissedOpsSignals:
                     )
         return out
 
+    def _thesis_position_open(self, p) -> dict | None:
+        """The row that OPENED held position `p` -- its first filled opening
+        row on the current position_id -- so a top-up neither resets the
+        holding age nor moves the review window. Same lookup the
+        morning/midday facts use (`_position_open_row`); a legacy row with no
+        position_id fails closed onto the newest opening row."""
+        from src.prompt_facts.open_row import _position_open_row
+
+        opening = "SHORT" if (p.qty or 0) < 0 else "BUY"
+        try:
+            newest = self.db.get_symbol_last_buy(p.symbol, action=opening)
+        except Exception:
+            newest = None
+        return _position_open_row(self.db, newest, p.symbol, opening) if newest else None
+
     def _build_thesis_health_context(
         self,
         positions,
-        lookback_weeks: int = 8,
     ) -> dict[str, dict]:
         """Per-position fundamental-evolution snapshot for the evening
         thesis_health_review step.
 
-        For each held symbol, gather:
+        Every window starts at the POSITION'S OPEN (its first opening row on
+        the current position_id), so a top-up never makes a held trade look
+        new. For each held symbol, gather:
           - Entry context (date, price, days_held, sessions_held,
             original thesis text) — `sessions_held` is the weekend/holiday-aware
             trading-session count the reviewer reads for pace (item 165)
-          - Tech rating trajectory (last 4 ratings as a list)
-          - News mentions count + 2 latest headlines (8-week window)
+          - Tech rating trajectory (one rating per session since the open)
+          - News mentions count + 2 latest headlines since the open
           - Most recent earnings sentiment + key_thesis
           - Current macro sector stance
           - Valuation snapshot (trailing PE / forward PE / P/S / signal)
@@ -423,16 +476,20 @@ class MissedOpsSignals:
 
         Returns {symbol: dict}. Empty dict when there are no positions.
         Exceptions during data fetch degrade gracefully — a missing
-        field is None or [], the helper does not raise.
+        field is None or [], the helper does not raise. A position whose
+        open cannot be found gets no tech/news window (unknown, not guessed).
         """
         if not positions:
             return {}
 
-        from datetime import timedelta
-
-        lookback_days = lookback_weeks * 7
-        tech_map_multi = self._thesis_tech_trajectory_map(lookback_days)
-        news_events_map = self._thesis_news_events_map(lookback_days)
+        open_rows = {p.symbol: self._thesis_position_open(p) for p in positions}
+        opens = {}
+        for sym, row in open_rows.items():
+            at = _et_instant((row or {}).get("timestamp"))
+            if at is not None:
+                opens[sym] = at
+        tech_map_multi = self._thesis_tech_trajectory_map(opens)
+        news_events_map = self._thesis_news_events_map(opens)
         earnings_map = self._missed_ops_earnings_signal()
         macro_map = self._missed_ops_macro_sector_map()
 
@@ -453,33 +510,25 @@ class MissedOpsSignals:
             # prompt reads for pace, computed with the SAME helper the
             # morning/midday facts path uses (`broker.trading_sessions_held`,
             # backed by Alpaca's real market calendar) — no parallel method.
+            # Counted from the position's OPEN, never the newest top-up.
             sessions_held: int | None = None
-            try:
-                buy_row = self.db.get_symbol_last_buy(sym)
-            except Exception:
-                buy_row = None
-            if buy_row:
-                ts = (buy_row.get("timestamp") or "")[:10]
-                if ts:
-                    entry_date = ts
+            open_row = open_rows.get(sym)
+            if open_row:
+                if sym in opens:
+                    entry_d = opens[sym].date()
+                    entry_date = entry_d.isoformat()
+                    days_held = max(0, (et_today() - entry_d).days)
                     try:
-                        from datetime import date as _d
-
-                        entry_d = _d.fromisoformat(ts)
-                        days_held = max(0, (et_today() - entry_d).days)
                         sessions_held = self.broker.trading_sessions_held(
                             entry_d,
                             et_today(),
                         )
-                    except (ValueError, TypeError):
-                        days_held = None
-                        sessions_held = None
                     except Exception:
                         # Calendar/broker hiccup: degrade this one field to
                         # None rather than dropping the whole thesis-health
                         # row, matching the graceful-degradation contract above.
                         sessions_held = None
-                entry_reasoning = (buy_row.get("reasoning") or "")[:300]
+                entry_reasoning = (open_row.get("reasoning") or "")[:300]
 
             # P&L% — the one definition (`src.risk.metrics.unrealized_pnl_pct`),
             # which returns None when genuinely unknowable. The `cost > 0`
@@ -489,12 +538,14 @@ class MissedOpsSignals:
             _pnl_pct = unrealized_pnl_pct(p)
             pnl_pct = None if _pnl_pct is None else round(_pnl_pct, 2)
 
-            # Tech trajectory — last 4 ratings for this symbol
-            tech_trajectory = tech_map_multi.get(sym, [])[:4]
+            # Tech trajectory — one rating per session since the open, all of
+            # them. No open found → None ("unknown"), never an empty history.
+            open_known = sym in opens
+            tech_trajectory = tech_map_multi.get(sym, []) if open_known else None
 
-            # News — total count in window + latest 2 headlines
-            news_events = news_events_map.get(sym, [])
-            news_count = len(news_events)
+            # News — total count since the open + latest 2 headlines
+            news_events = news_events_map.get(sym, []) if open_known else []
+            news_count = len(news_events) if open_known else None
             latest_news_headlines = [e["event"] for e in news_events[:2]]
 
             # Sector stance
@@ -550,7 +601,7 @@ class MissedOpsSignals:
                 "pnl_pct": pnl_pct,
                 "sector": sector,
                 "tech_trajectory": tech_trajectory,
-                "news_count_8w": news_count,
+                "news_count_since_open": news_count,
                 "latest_news_headlines": latest_news_headlines,
                 "recent_earnings_signal": earnings_map.get(sym),
                 "earnings_deep_dive": deep_dive,

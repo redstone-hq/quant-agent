@@ -195,7 +195,7 @@ Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidat
 - `pipeline_prompt_facts.PromptFactsMixin._build_recent_loss_pits(lookback_days)` = 14
 - `pipeline_prompt_facts.PromptFactsMixin._build_recent_missed_lessons(lookback_days)` = 14
 - `pipeline_prompt_facts.PromptFactsMixin._build_rm_recent_verdicts(limit)` = 5
-- `pipeline_prompt_facts.PromptFactsMixin._build_thesis_health_context(lookback_weeks)` = 8
+- ~~`pipeline_prompt_facts.PromptFactsMixin._build_thesis_health_context(lookback_weeks)` = 8~~ -- deleted 2026-10-16: every window now starts at the position's open (its first opening row on the position_id), so no lookback number is left
 
 ## The 158 sites the unscoped-number guard grandfathers (measured 2026-10-05)
 

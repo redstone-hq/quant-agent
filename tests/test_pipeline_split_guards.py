@@ -150,7 +150,8 @@ def test_measured_ledger_id_counts_for_the_two_modules() -> None:
         and len(ledger_ids_for_module("src.prompt_facts.decisions", ledger)) == 3
         and len(ledger_ids_for_module("src.prompt_facts.watchlist", ledger)) == 1
         and len(ledger_ids_for_module("src.prompt_facts.pm_facts", ledger)) == 1
-        and len(ledger_ids_for_module("src.prompt_facts.missed_ops_signals", ledger)) == 6
+        and len(ledger_ids_for_module("src.prompt_facts.missed_ops_signals", ledger))
+        == 5  # 2026-10-16: thesis-health lookback_weeks id deleted with the number -- removed, not moved
         and len(ledger_ids_for_module("src.pipeline_prompt_facts_review", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.review.grading", ledger)) == 3
         and len(ledger_ids_for_module("src.prompt_facts.review.exits", ledger)) == 0

@@ -490,7 +490,7 @@ def test_thesis_health_context_includes_earnings_deep_dive(tmp_path):
         sector="Technology",
     )
     with patch("src.execution.broker._get_sector", return_value="Technology"):
-        out = p._build_thesis_health_context([aapl], lookback_weeks=8)
+        out = p._build_thesis_health_context([aapl])
 
     assert "AAPL" in out
     deep = out["AAPL"].get("earnings_deep_dive")
@@ -535,7 +535,7 @@ def test_thesis_health_context_deep_dive_none_when_no_analysis(tmp_path):
         sector="Technology",
     )
     with patch("src.execution.broker._get_sector", return_value="Technology"):
-        out = p._build_thesis_health_context([pos], lookback_weeks=8)
+        out = p._build_thesis_health_context([pos])
 
     assert out["XYZ"]["earnings_deep_dive"] is None
 
@@ -581,7 +581,7 @@ def test_thesis_health_context_deep_dive_exception_does_not_raise(tmp_path):
         sector="Technology",
     )
     with patch("src.execution.broker._get_sector", return_value="Technology"):
-        out = p._build_thesis_health_context([pos], lookback_weeks=8)
+        out = p._build_thesis_health_context([pos])
 
     assert out["XYZ"]["earnings_deep_dive"] is None
 
@@ -648,7 +648,7 @@ def test_thesis_health_context_holding_time_is_in_trading_sessions(tmp_path):
         patch("src.prompt_facts.missed_ops_signals.et_today", return_value=mon),
         patch("src.execution.broker._get_sector", return_value="Technology"),
     ):
-        out = p._build_thesis_health_context([aapl], lookback_weeks=8)
+        out = p._build_thesis_health_context([aapl])
 
     row = out["AAPL"]
     # The holding-time figure the reviewer reads for pace is in SESSIONS:
@@ -685,7 +685,7 @@ def test_evening_prompt_renders_holding_time_in_sessions_not_calendar_days():
             "pnl_pct": 5.3,
             "sector": "Technology",
             "tech_trajectory": ["buy"],
-            "news_count_8w": 0,
+            "news_count_since_open": 0,
             "latest_news_headlines": [],
             "recent_earnings_signal": None,
             "macro_sector_stance": "bullish",
@@ -738,7 +738,7 @@ def test_evening_prompt_renders_earnings_deep_dive_section():
             "pnl_pct": 5.3,
             "sector": "Technology",
             "tech_trajectory": ["buy"],
-            "news_count_8w": 0,
+            "news_count_since_open": 0,
             "latest_news_headlines": [],
             "recent_earnings_signal": None,
             "macro_sector_stance": "bullish",
@@ -805,7 +805,7 @@ def test_evening_prompt_no_deep_dive_section_when_none():
             "pnl_pct": 10.0,
             "sector": "Technology",
             "tech_trajectory": ["hold"],
-            "news_count_8w": 0,
+            "news_count_since_open": 0,
             "latest_news_headlines": [],
             "recent_earnings_signal": None,
             "macro_sector_stance": "neutral",
@@ -852,7 +852,7 @@ def test_evening_prompt_deep_dive_skips_empty_optional_steps():
             "pnl_pct": 5.3,
             "sector": "Technology",
             "tech_trajectory": ["buy"],
-            "news_count_8w": 0,
+            "news_count_since_open": 0,
             "latest_news_headlines": [],
             "recent_earnings_signal": None,
             "macro_sector_stance": "bullish",

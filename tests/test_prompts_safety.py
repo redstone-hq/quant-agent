@@ -66,7 +66,7 @@ _UNTRUSTED_INPUT_PROMPTS = (
 _UNSOURCED_TOKEN_PROMPTS = (
     "earnings_analyst.md",  # not_in_filing / truncated / ambiguous
     "macro_analyst.md",  # stale_<indicator>
-    "evening_analyst.md",  # no_8w_tech / no_valuation / no_deep_dive
+    "evening_analyst.md",  # no_tech_since_open / no_valuation / no_deep_dive
     "news_analyst.md",  # headline_imprecise (vague figures in headlines)
     "portfolio_manager.md",  # no_rm_history / no_calibration / no_drawdown_data
 )
