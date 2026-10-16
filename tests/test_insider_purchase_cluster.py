@@ -241,6 +241,23 @@ def _provider_row(
     )
 
 
+def _seed_history(provider, rows):
+    """Give each insider-stock pair a trade in each of 3 preceding years, 6 months off the row's month."""
+    entries = []
+    for row in rows:
+        month = (row.transaction_date.month + 5) % 12 + 1
+        for n in (1, 2, 3):
+            entries.append(
+                {
+                    "actor_cik": row.actor_cik,
+                    "symbol": row.symbol,
+                    "direction": "buy",
+                    "transaction_date": date(row.transaction_date.year - n, month, 1).isoformat(),
+                }
+            )
+    provider._record_history(entries)
+
+
 def test_fetch_stamps_the_cluster_on_universe_rows_and_leaves_others_alone(tmp_path):
     provider = SECForm4Provider(data_dir=str(tmp_path))
     rows = [
@@ -249,6 +266,7 @@ def test_fetch_stamps_the_cluster_on_universe_rows_and_leaves_others_alone(tmp_p
         _provider_row(symbol="XYZ", owner="3", value=300_000, accession="0000000003-26-000001"),
         _provider_row(symbol="XYZ", owner="4", value=300_000, accession="0000000004-26-000001"),
     ]
+    _seed_history(provider, rows)
     provider.stores.observations_path.write_text(json.dumps([row.model_dump(mode="json") for row in rows]))
     got, error = provider.fetch(["NVDA"])
     assert error is None
@@ -425,6 +443,7 @@ def test_a_cluster_rescued_by_the_retention_rule_can_still_be_truncated_before_t
             disclosure_date=today,
         )
     )
+    _seed_history(provider, rows)
     provider.stores.observations_path.write_text(json.dumps([row.model_dump(mode="json") for row in rows]))
     got, error = provider.fetch(["CORE"])
     assert error is None
@@ -474,27 +493,19 @@ def test_a_cluster_rescued_by_the_retention_rule_can_still_be_truncated_before_t
 # --------------------------------------------------------------------------
 
 
-def test_an_established_recurring_monthly_buyer_is_excluded_from_the_cluster():
-    """Two insiders each with four prior monthly purchases of the same small
-    dollar amount (an ESPP-shaped pattern) buy again, same day, same symbol.
-    `classify_transaction`'s recurring-cadence rule should label both
-    ROUTINE off their own trade history, and `insider_purchase_clusters`
-    must then find no cluster -- the exclusion this feature depends on to
-    avoid an ESPP false positive.
-    """
+def test_an_established_calendar_routine_buyer_is_excluded_from_the_cluster():
+    """Two insiders who each bought this stock in the same month of each of the
+    3 preceding years buy again, same day. The Cohen/Malloy/Pomorski rule labels
+    both ROUTINE and `insider_purchase_clusters` must then find no cluster."""
     from src.data.insider_signal import InsiderHistory, InsiderPriorTrade, classify_transaction
 
     today = date(2026, 9, 19)
     history = InsiderHistory(
         {
-            ("espp-1", "TSM"): [
-                InsiderPriorTrade(transaction_date=today - timedelta(days=d), direction="buy")
-                for d in (120, 90, 60, 30)
-            ],
-            ("espp-2", "TSM"): [
-                InsiderPriorTrade(transaction_date=today - timedelta(days=d), direction="buy")
-                for d in (121, 91, 61, 31)
-            ],
+            (owner, "TSM"): [
+                InsiderPriorTrade(transaction_date=date(today.year - n, 9, 5), direction="buy") for n in (1, 2, 3)
+            ]
+            for owner in ("espp-1", "espp-2")
         }
     )
     newest = [
@@ -503,7 +514,7 @@ def test_an_established_recurring_monthly_buyer_is_excluded_from_the_cluster():
     ]
     verdicts = [classify_transaction(row, history) for row in newest]
     assert [v.label for v in verdicts] == ["routine", "routine"]
-    assert all(v.reason == "recurring_cadence" for v in verdicts)
+    assert all(v.reason == "calendar_routine" for v in verdicts)
 
     stamped = [row.model_copy(update={"signal_class": v.label}) for row, v in zip(newest, verdicts)]
     clusters = insider_purchase_clusters(stamped, universe={"TSM"}, today=today)
@@ -515,7 +526,7 @@ def test_a_brand_new_participants_first_purchase_has_no_history_to_classify_rout
     this PR, and already stated in docs/INCIDENT_HISTORY.md): a purchase
     cannot be recognised as part of a recurring pattern before any pattern
     exists. An insider's first-ever recorded purchase, with no prior trades
-    in the history index, is classified opportunistic even if it happens to
+    in the history index, is classified indeterminate (insufficient history) even if it happens to
     be the start of a routine programme -- this is inherent to a
     history-based classifier, not something last-mile-fixable by widening a
     threshold, and is left open on the board rather than fixed here.
@@ -525,7 +536,7 @@ def test_a_brand_new_participants_first_purchase_has_no_history_to_classify_rout
     today = date(2026, 9, 19)
     first_ever = _buy(owner="new-participant", symbol="TSM", day=today, value=4_000)
     verdict = classify_transaction(first_ever, InsiderHistory({}))
-    assert verdict.label == "opportunistic"
+    assert (verdict.label, verdict.reason) == ("indeterminate", "insufficient_history")
 
 
 # --------------------------------------------------------------------------
@@ -596,6 +607,7 @@ def test_a_cluster_survives_cross_symbol_crowd_out_by_unrelated_higher_dollar_bu
             disclosure_date=today,
         )
     )
+    _seed_history(provider, rows)
     provider.stores.observations_path.write_text(json.dumps([row.model_dump(mode="json") for row in rows]))
     symbols = ["CLUSTERED"] + [f"CROWD{i}" for i in range(45)]
     got, error = provider.fetch(symbols)

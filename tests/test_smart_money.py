@@ -799,11 +799,10 @@ def test_large_sale_does_not_rank_as_a_bullish_buy_of_equal_size():
 
 def test_bullish_buy_value_term_is_unchanged_by_the_direction_channel():
     """Existing unambiguous signals (buys, +1) keep the exact ranking
-    contribution they had before the sign channel existed: -(value*weight)."""
+    contribution: -value."""
     buy = _insider(direction="buy", value=750_000)
-    assert buy.signal_weight == 1.0
     # index 5 is the value-weighted term in _transaction_rank's tuple.
-    assert SmartMoneyAnalystAgent._transaction_rank(buy)[5] == -(750_000 * 1.0)
+    assert SmartMoneyAnalystAgent._transaction_rank(buy)[5] == -750_000
     # The sale's contribution to that same term is neutralised to 0.
     sell = _insider(direction="sell", value=750_000)
     assert SmartMoneyAnalystAgent._transaction_rank(sell)[5] == 0

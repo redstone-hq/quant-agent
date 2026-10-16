@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.data.insider_signal import (
+    signal_class_sort_key,
     InsiderHistory,
     InsiderPriorTrade,
     InsiderSignalThresholds,
@@ -236,10 +237,6 @@ class SECForm4Provider:
         # `config.smart_money.insider_*`, so a settings.yaml edit reaches
         # the classifier without a code change.
         insider_calendar_routine_years: int = 3,
-        insider_min_cadence_trades: int = 3,
-        insider_cadence_min_mean_gap_days: float = 20.0,
-        insider_cadence_max_mean_gap_days: float = 120.0,
-        insider_cadence_max_gap_dispersion: float = 0.25,
         insider_history_retention_days: int = _DEFAULT_HISTORY_RETENTION_DAYS,
     ):
         self.data_dir = Path(data_dir)
@@ -281,10 +278,6 @@ class SECForm4Provider:
         self.history_retention_days = max(1, int(insider_history_retention_days))
         self._signal_thresholds = InsiderSignalThresholds(
             calendar_routine_years=max(1, int(insider_calendar_routine_years)),
-            min_cadence_trades=max(2, int(insider_min_cadence_trades)),
-            cadence_min_mean_gap_days=max(0.0, float(insider_cadence_min_mean_gap_days)),
-            cadence_max_mean_gap_days=max(0.0, float(insider_cadence_max_mean_gap_days)),
-            cadence_max_gap_dispersion=max(0.0, float(insider_cadence_max_gap_dispersion)),
         )
 
     def _load_history(self) -> InsiderHistory:
@@ -1680,7 +1673,6 @@ class SECForm4Provider:
                     "signal_class": verdict.label,
                     "signal_class_reason": verdict.reason,
                     "signal_class_detail": verdict.detail,
-                    "signal_weight": verdict.weight,
                     "holdings_fraction": fraction,
                     "no_prior_holding": no_prior,
                 }
@@ -1764,7 +1756,8 @@ class SECForm4Provider:
                 # Routine rows stay visible (the operator still sees them and
                 # their reason) but sort last, so they are the first cut when
                 # ``max_observations`` binds and a real signal is competing.
-                -item.signal_weight,
+                # Class order only: opportunistic, indeterminate, routine.
+                signal_class_sort_key(item.signal_class),
                 -(item.transaction_value_usd or 0),
                 -(item.accepted_at.timestamp() if item.accepted_at else 0),
             ),

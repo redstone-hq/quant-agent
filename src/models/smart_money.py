@@ -81,7 +81,6 @@ class SmartMoneyObservation(LLMOutputModel):
     signal_class: Literal["", "opportunistic", "routine", "indeterminate"] = ""
     signal_class_reason: str = ""
     signal_class_detail: str = ""
-    signal_weight: float = Field(default=1.0, ge=0.0, le=1.0)
     # Trade size relative to what the insider already held, reconstructed from
     # the Form 4 fields the desk already parses (`shares` and
     # `post_transaction_shares`) — see
@@ -152,12 +151,11 @@ class SmartMoneyObservation(LLMOutputModel):
     def signal_direction(self) -> int:
         """Sign of this row's directional view: +1 bullish, -1 bearish, 0 none.
 
-        ``signal_weight`` is a single "how much attention" scalar in [0, 1] and
-        CANNOT carry a sign, so on its own a large insider SALE and a large
+        The class rank CANNOT carry a sign, so on its own a large insider SALE and a large
         insider BUY of the same dollar value rank and size identically (board
         item 63). This derived channel supplies the missing sign so the
         deterministic ranking in ``src/agents/smart_money_analyst.py`` can
-        multiply ``value * signal_weight`` by it and never let a contra signal
+        multiply ``value`` by it and never let a contra signal
         rank or size as if it were bullish. It is computed from ``direction``,
         never stored -- nothing to keep that code cannot recompute.
 
@@ -257,7 +255,7 @@ class SmartMoneyFinding(LLMOutputModel):
     # cached or live, and `deterministic_eligibility` below recomputes both
     # eligibility booleans from the source rows. So the seat was spending its
     # output budget re-typing a 45-field internal row (accession_number,
-    # transaction_row, signal_weight, freshness, admission_eligible,
+    # transaction_row, freshness, admission_eligible,
     # transient_admitted, in_core_universe, lag_days, ...) at least once per
     # finding, plus a sha256 it cannot know, and 100% of it was discarded
     # before the object was constructed. Nothing validates the echo against

@@ -126,28 +126,12 @@ class SmartMoneyConfig(BaseModel):
     #
     # A routine insider trades the same issuer in the same calendar month in
     # each of this many consecutive preceding years. This is Cohen/Malloy/
-    # Pomorski's own definition, so 3 is the literature's number, not a
+    # Pomorski's own definition (NBER w16454 Table A3; footnote 9: 1 to 5 years
+    # tested with similar results, 3 is the main specification), not a
     # guess — but it is still exposed here rather than hardcoded, since a
     # future re-derivation against QAMC's own filing history may want a
     # different value.
     insider_calendar_routine_years: int = Field(default=3, ge=1, le=10)
-    # Fallback cadence test for insiders who lack the full calendar-year
-    # history above (the common case on a fresh cache — see the 2026-08-28
-    # measurement note in `docs/WORK.md`, where zero of 2,188 filings matched
-    # the calendar rule because the history index was brand new). Needs at
-    # least this many prior same-direction trades before the gap statistics
-    # are trusted.
-    insider_min_cadence_trades: int = Field(default=3, ge=2, le=20)
-    # Mean gap between trades, in days, that reads as a scheduled programme
-    # rather than a one-off. 20-120 days admits a monthly-to-quarterly
-    # cadence; narrower or wider than that is either noise (too frequent to
-    # be a real event) or too sparse to call a pattern.
-    insider_cadence_min_mean_gap_days: float = Field(default=20.0, gt=0)
-    insider_cadence_max_mean_gap_days: float = Field(default=120.0, gt=0)
-    # Coefficient of variation (population stdev / mean) of the trade gaps.
-    # 0.25 admits a monthly or quarterly programme that drifts by a few days;
-    # it rejects lumpy, irregularly-spaced discretionary trading.
-    insider_cadence_max_gap_dispersion: float = Field(default=0.25, gt=0, le=2.0)
     # REMOVED 2026-09-13: `insider_min_material_sell_fraction`. It relabelled
     # a sale below some fraction of the insider's holding as ROUTINE, weight
     # 0.0 — dropping it out of the seat's ranking entirely. Its 0.05 default
@@ -234,14 +218,7 @@ class SmartMoneyConfig(BaseModel):
     congress_lookback_days: int = Field(default=180, ge=1, le=365)
 
     @model_validator(mode="after")
-    def _insider_cadence_window_is_well_formed(self):
-        if self.insider_cadence_min_mean_gap_days >= self.insider_cadence_max_mean_gap_days:
-            raise ValueError(
-                "smart_money.insider_cadence_min_mean_gap_days must be less "
-                "than insider_cadence_max_mean_gap_days; got "
-                f"{self.insider_cadence_min_mean_gap_days} >= "
-                f"{self.insider_cadence_max_mean_gap_days}"
-            )
+    def _insider_history_covers_routine_years(self):
         required_days = self.insider_calendar_routine_years * 366
         if self.insider_history_retention_days < required_days:
             raise ValueError(

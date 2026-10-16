@@ -161,7 +161,7 @@ class SmartMoneyAnalystAgent(BaseAgent):
             # if it were a bullish buy of the same dollar value, so a symbol
             # whose only large trades are sales cannot outrank one with genuine
             # buying, and a routine buy still cannot outrank an opportunistic one.
-            -sum((row.transaction_value_usd or 0) * row.signal_weight * row.signal_direction for row in observations),
+            -sum((row.transaction_value_usd or 0) * row.signal_direction for row in observations),
             -len({row.actor_cik or row.actor for row in observations}),
             min(row.disclosure_age_days for row in observations),
             symbol,
@@ -177,7 +177,7 @@ class SmartMoneyAnalystAgent(BaseAgent):
             -_FRESHNESS_RANK[observation.freshness],
             # Direction-signed (board item 63): a contra/bearish row scores 0,
             # not a positive that would rank it alongside a bullish buy.
-            -(observation.transaction_value_usd or 0) * observation.signal_weight * observation.signal_direction,
+            -(observation.transaction_value_usd or 0) * observation.signal_direction,
             observation.disclosure_age_days,
             -observation.transaction_date.toordinal(),
             observation.actor_cik or observation.actor,
