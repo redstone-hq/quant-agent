@@ -29,10 +29,6 @@
    "cluster_window_days": 2,
    "min_cluster_owners": 2,
    "insider_calendar_routine_years": 3,
-   "insider_min_cadence_trades": 3,
-   "insider_cadence_min_mean_gap_days": 20,
-   "insider_cadence_max_mean_gap_days": 120,
-   "insider_cadence_max_gap_dispersion": 0.25,
    "insider_history_retention_days": 1830
   },
   "deviations_from_production": [
