@@ -2419,7 +2419,10 @@ numbers:
       gate or exit a trade.
   - id: src.risk.constants.STARTER_POSITION_RISK_PCT
     value: 0.5
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-08-27'
+    ruling_summary: "Owner ruled on 2026-08-27 that 0.5% of equity at risk is the minimum per trade, and on 2026-10-12 that it filters small-trade churn; below it the desk does not trade."
+    ruling_record: docs/OUTCOME.md, section 'Risk envelope (owner-ratified 2026-08-27)', row 'Min risk per trade' (owner ruling 2026-10-12 quoted there); commit 75c02335 authored by the owner
     site: src/risk/constants.py
     prior_source: >-
       Owner-ratified risk-envelope row, 2026-08-27 (commit 75c02335).
@@ -2443,46 +2446,6 @@ numbers:
       RSG. docs/INCIDENT_HISTORY.md (the passage that begins He was right) attributes that shrinking to the 1.5
       reward:risk starter cap, not to this 0.5% floor - two different numbers
       in one sentence.
-    open_question: >-
-      Does this floor bind anything at all? The VALUE is owner-ratified
-      appetite and is not for re-deriving. What is unknown is whether the
-      seat ever asks for less than it, which nothing observed until board
-      item 223 built the recording. Answerable as: across the recorded
-      sub-floor requests, does the seat ever emit a positive risk below the
-      floor, and under what circumstances. NOT answerable by asking this
-      desk's own closed trades what floor would have paid best -- that is
-      fitting a number to the desk's own record, which docs/OUTCOME.md
-      bars outright. DELETE outcome: if the seat never asks below it across
-      a stated run of sessions, the floor is inert and goes, rather than
-      being re-picked at some other level.
-    cost_while_unanswered: >-
-      The floor decides which ideas are tradeable at all. Set too high, sound
-      ideas the seat would size small are never emitted and the desk never
-      learns what they would have returned; set too low, the book fills with
-      token positions paying full cost for an immaterial payoff. Neither
-      failure is visible today because, until board item 223, nothing
-      recorded a portfolio-manager target that sat under the floor.
-    settles_by:
-      kind: recording
-      state: built
-      where: src/storage/trades/ledger.py
-      writes:
-        - trade_refusals.requested_risk_pct
-      records: >-
-        Board item 223, 2026-10-01. Every portfolio-manager target whose
-        requested risk is positive and below the floor in force: the symbol,
-        the risk asked for (`trade_refusals.requested_risk_pct`), the floor
-        it sat under (`threshold`), and what the desk then did with it
-        (`stage`, always `observed_not_refused` here -- the target is shipped
-        unchanged, because a deterministic sub-floor refusal was ruled
-        out on the risk route 2026-10-01, on the adversary's measurement). Written from `PortfolioConstructor._plan_risk_targets`.
-      closes_when: >-
-        Rows accumulate and the trades they correspond to close: if sub-floor
-        targets do occur and their realised net returns after costs are
-        indistinguishable from zero, the floor becomes measured rather than
-        ratified. If after a year of sessions no row has ever been written,
-        the floor governs nothing the seat ever asks for, and the row leaves
-        `arbitrary` by reformulation rather than by derivation.
   - id: src.risk.alignment_exit.SMA_LADDER[20]
     value: 50
     status: not-trade-governing
