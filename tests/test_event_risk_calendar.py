@@ -205,6 +205,10 @@ def test_risk_manager_input_says_unknown_when_the_earnings_lookup_returns_nothin
     assert "Earnings proximity is UNKNOWN for: NVDA" in message
     # The one reading it must NOT be able to take this as reassurance.
     assert "does NOT mean no report is due" in message
+    # Owner rule: earnings never resize or block a trade, so an unknown date
+    # must not invite a veto either.
+    assert "veto" not in message.split("Earnings proximity is UNKNOWN", 1)[1].split("\n", 1)[0]
+    assert "Earnings never resize or block a trade" in message
 
 
 def test_risk_manager_input_says_unknown_when_the_earnings_lookup_raises():
