@@ -564,23 +564,18 @@ class EntrySymbolRejection(SymbolRejection):
     when that event matches one fetched onto the run context inside the
     horizon.
 
-    `category` is REQUIRED with no default: an entry without one fails
-    validation and the verdict fails closed as a whole, exactly as an entry
-    naming no symbol does (see `RiskManagerAgent._DECISION_FIELDS`).
+    A missing `category` does NOT fail the verdict: one forgotten label must
+    not stop every trade on the run (a whole-verdict failure stopped the desk
+    trading on 2026-10-15). `RiskStage` applies an uncategorised block — the
+    seat keeps its veto — and records it, so the gap is visible. An
+    `event_risk` entry with no `event` names nothing fetched, so `RiskStage`
+    refuses it like any other unverified event block.
     """
 
-    category: RiskReasonCategory
+    category: RiskReasonCategory | None = None
     event: str | None = None
 
     @field_validator("category", mode="before")
     @classmethod
     def _lower_category(cls, v):
         return v.strip().lower() if isinstance(v, str) else v
-
-    @model_validator(mode="after")
-    def _event_named_for_event_risk(self):
-        if self.category == "event_risk" and not (self.event or "").strip():
-            raise ValueError(
-                "an event_risk rejection must name the fetched macro release or FOMC meeting it relies on in `event`"
-            )
-        return self

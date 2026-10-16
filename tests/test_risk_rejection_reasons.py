@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
-from pydantic import ValidationError
 
 from src.data.event_calendar.macro_types import MacroEvent
 from src.models import RiskVerdict, TradeDecision
@@ -98,11 +96,30 @@ def test_concentration_block_is_applied():
     assert survivors == ["ZZZ"]
 
 
-def test_an_entry_without_category_fails_validation():
-    with pytest.raises(ValidationError):
-        _verdict([{"symbol": "ZZZ", "reason": "too risky"}])
+def test_an_entry_without_category_is_applied_and_recorded():
+    survivors, events = _run([{"symbol": "ZZZ", "reason": "too risky"}], category="other")
+    assert survivors == ["YYY"]
+    assert any(e[0] == "ZZZ" and e[2] == "refusal_uncategorised" for e in events)
 
 
-def test_an_event_risk_entry_without_event_fails_validation():
-    with pytest.raises(ValidationError):
-        _verdict([{"symbol": "ZZZ", "reason": "macro", "category": "event_risk"}])
+def test_an_event_risk_entry_without_event_is_refused():
+    survivors, events = _run([{"symbol": "ZZZ", "reason": "macro", "category": "event_risk"}])
+    assert survivors == ["ZZZ", "YYY"]
+    assert any(e[0] == "ZZZ" and e[2] == "event_refusal_ignored" for e in events)
+
+
+def test_event_risk_block_with_a_reworded_label_on_a_fetched_date_is_applied():
+    when = et_today() + timedelta(days=2)
+    cpi = MacroEvent(release_id=10, label="CPI", why="inflation print", event_date=when, days_away=2)
+    survivors, _ = _run(
+        [
+            {
+                "symbol": "ZZZ",
+                "reason": "rate-sensitive name into the inflation print",
+                "category": "event_risk",
+                "event": f"Consumer Price Index {when.isoformat()}",
+            }
+        ],
+        macro_events=[cpi],
+    )
+    assert survivors == ["YYY"]

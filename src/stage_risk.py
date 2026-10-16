@@ -75,10 +75,10 @@ def _fetched_event_matches(event_text: str, ctx: RunContext, horizon_days: int) 
     """True when `event_text` names a macro release or FOMC meeting that was
     actually FETCHED onto this run's context and lands inside the horizon.
 
-    A name matches only on BOTH halves the Event Risk block printed for it —
-    its ISO date AND its label (a macro release's `label`, or the word FOMC) —
-    so an earnings date that happens to share a calendar day with a release
-    cannot pass as that release. Nothing fetched (resume lane, failed sweep)
+    A name matches on the fetched event's ISO date (any day of an FOMC
+    meeting). The label is not required: a reworded label ("Consumer Price
+    Index" for "CPI") must not void a block on a real release — the seat keeps
+    its veto. Nothing fetched (resume lane, failed sweep)
     means nothing can match: an event the desk never fetched cannot justify
     blocking a trade.
     """
@@ -91,13 +91,10 @@ def _fetched_event_matches(event_text: str, ctx: RunContext, horizon_days: int) 
     horizon_end = today + timedelta(days=max(0, int(horizon_days)))
     for ev in ctx.macro_events or []:
         when = getattr(ev, "event_date", None)
-        label = (getattr(ev, "label", "") or "").casefold()
-        if when is None or not label or not today <= when <= horizon_end:
+        if when is None or not today <= when <= horizon_end:
             continue
-        if when.isoformat() in text and label in text:
+        if when.isoformat() in text:
             return True
-    if "fomc" not in text:
-        return False
     for meeting in ctx.fomc_meetings or []:
         if meeting.end_date < today or not meeting.intersects(today, horizon_end):
             continue
@@ -128,6 +125,22 @@ def _refuse_unverified_event_blocks(pipeline, ctx: RunContext, verdict) -> dict[
     for rejection in verdict.rejected_symbols:
         category = getattr(rejection, "category", None)
         event = getattr(rejection, "event", None)
+        if category is None:
+            logger.warning(
+                "Risk manager blocked %s without a per-entry category — block APPLIED "
+                "(the seat keeps its veto) and recorded. Reason given: %s",
+                rejection.symbol,
+                rejection.reason,
+            )
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                rejection.symbol,
+                "risk",
+                "refusal_uncategorised",
+                rejection.reason,
+                gate="risk_manager_category_missing",
+            )
         if category == "event_risk" and not _fetched_event_matches(event or "", ctx, horizon_days):
             logger.warning(
                 "Risk manager blocked %s as event_risk naming %r, which matches no fetched macro "

@@ -548,17 +548,35 @@ def test_an_empty_verdict_behaves_exactly_as_before():
 # ---------------------------------------------------------------------------
 
 
-def test_a_single_bare_object_is_normalized_into_a_refusal():
+def test_bare_symbol_string_is_normalized_into_a_refusal():
     """Dropping a malformed refusal is fail-OPEN — the refused name would
-    trade. A single object that still names a symbol and its category is
-    wrapped into the list instead."""
+    trade. Anything that still names a symbol is normalized instead."""
     verdict = RiskVerdict(
         approved=True,
         reasoning_chain=_rc(),
         reasoning="r",
-        rejected_symbols={"symbol": "xle", "reason": "R/R below floor", "category": "rr_fail"},
+        rejected_symbols=["xle"],
     )
-    assert verdict.rejections_by_symbol() == {"XLE": "R/R below floor"}
+    assert list(verdict.rejections_by_symbol()) == ["XLE"]
+    assert verdict.rejected_symbols[0].reason  # a stated absence, never empty
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        {"XLE": "R/R below floor"},  # mapping shorthand
+        {"symbol": "XLE", "reason": "R/R below floor"},  # a single bare object
+        "XLE",  # a bare string
+    ),
+)
+def test_container_shorthands_still_refuse_the_symbol(raw):
+    verdict = RiskVerdict(
+        approved=True,
+        reasoning_chain=_rc(),
+        reasoning="r",
+        rejected_symbols=raw,
+    )
+    assert "XLE" in verdict.rejections_by_symbol()
 
 
 @pytest.mark.parametrize(
@@ -567,13 +585,6 @@ def test_a_single_bare_object_is_normalized_into_a_refusal():
         [{"reason": "no symbol named"}],
         [{"symbol": ""}],
         7,
-        # Owner ruling 2026-10-16: every refusal names its own category. A
-        # shorthand that cannot carry one fails the verdict closed rather
-        # than refusing on an unknown cause.
-        ["xle"],
-        "XLE",
-        {"XLE": "R/R below floor"},
-        [{"symbol": "XLE", "reason": "no category"}],
     ),
 )
 def test_a_refusal_naming_no_symbol_fails_the_verdict_closed(raw):
