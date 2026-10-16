@@ -16,6 +16,7 @@ def _tables():
                 "ACCESSION_NUMBER": ["A1", "A2", "A3"],
                 "DOCUMENT_TYPE": ["4", "4", "3"],
                 "ISSUERTRADINGSYMBOL": ["brk.b", "XYZ", "XYZ"],
+                "FILING_DATE": [d, d, d],
             }
         ),
         "REPORTINGOWNER": pd.DataFrame(
@@ -79,3 +80,10 @@ def test_discover_zip_urls_reads_both_paths():
     )
     assert list(bf.discover_zip_urls(html)) == ["2023q1", "2026q2"]
     assert "datastandardsinnovation" in bf.discover_zip_urls(html)["2026q2"]
+
+
+def test_trade_dated_after_its_filing_is_dropped():
+    t = _tables()
+    t["NONDERIV_TRANS"]["TRANS_DATE"] = ["01-JAN-2028"] + [t["NONDERIV_TRANS"]["TRANS_DATE"][1]] * 4
+    rows = bf.rows_from_form345(t)
+    assert [(r["actor_cik"], r["symbol"]) for r in rows] == [("456", "XYZ")]

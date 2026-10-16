@@ -56,7 +56,7 @@ def rows_from_form345(tables: dict[str, pd.DataFrame]) -> list[dict]:
     sub = sub[sub["DOCUMENT_TYPE"].astype(str).str.startswith("4")]
     trans = tables["NONDERIV_TRANS"]
     owners = tables["REPORTINGOWNER"].drop_duplicates("ACCESSION_NUMBER", keep="first")
-    merged = trans.merge(sub[["ACCESSION_NUMBER", "ISSUERTRADINGSYMBOL"]], on="ACCESSION_NUMBER").merge(
+    merged = trans.merge(sub[["ACCESSION_NUMBER", "ISSUERTRADINGSYMBOL", "FILING_DATE"]], on="ACCESSION_NUMBER").merge(
         owners[["ACCESSION_NUMBER", "RPTOWNERCIK"]], on="ACCESSION_NUMBER"
     )
     code = merged["TRANS_CODE"].astype(str).str.upper()
@@ -67,6 +67,10 @@ def rows_from_form345(tables: dict[str, pd.DataFrame]) -> list[dict]:
     merged["code"] = code[keep]
     merged["day"] = pd.to_datetime(merged["TRANS_DATE"], format="%d-%b-%Y", errors="coerce")
     merged["cik"] = pd.to_numeric(merged["RPTOWNERCIK"], errors="coerce")
+    filed = pd.to_datetime(merged["FILING_DATE"], format="%d-%b-%Y", errors="coerce")
+    # A trade cannot postdate the filing that reports it; SEC's data sets carry
+    # a few typo'd years (2027, 2028) that would otherwise enter the index.
+    merged = merged[merged["day"] <= filed]
     merged = merged.dropna(subset=["day", "cik", "ISSUERTRADINGSYMBOL"])
     out = pd.DataFrame(
         {
