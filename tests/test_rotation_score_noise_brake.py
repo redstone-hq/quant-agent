@@ -46,7 +46,7 @@ def _run(new, held, brake):
 
 
 def test_gap_equal_to_measured_noise_does_not_swap_and_larger_does():
-    new, held = _cand("NEW", 1.0, "medium"), _cand("OLD", 0.75)
+    new, held = _cand("NEW", 1.0, "high"), _cand("OLD", 0.75, "medium")
     gap = new.score - held.score
     equal = _run(new, held, gap)
     assert equal.opportunity is None
@@ -58,7 +58,7 @@ def test_gap_equal_to_measured_noise_does_not_swap_and_larger_does():
 
 
 def test_unmeasured_noise_refuses_with_a_recorded_reason():
-    outcome = _run(_cand("NEW", 1.0, "high"), _cand("OLD", 0.1), None)
+    outcome = _run(_cand("NEW", 1.0, "high"), _cand("OLD", 0.1, "medium"), None)
     assert outcome.opportunity is None
     row = outcome.refusal.event_kwargs()
     assert row["reason"] == "score_noise_unmeasured"
@@ -71,7 +71,7 @@ def test_prompt_shows_the_measured_value():
     from src.agents.portfolio_manager import PortfolioManagerAgent
 
     kwargs = dict(
-        ranked=[_cand("NEW", 1.0, "high"), _cand("HELD", 0.75)],
+        ranked=[_cand("NEW", 1.0, "high"), _cand("HELD", 0.75, "medium")],
         blocked={},
         held_symbols={"HELD"},
         existing_risk_pct={"HELD": 24.9},

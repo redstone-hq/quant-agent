@@ -85,7 +85,7 @@ def test_three_agreeing_lower_rated_seats_now_outrank_one_technical_read():
             _v("news", "CCC", "bullish", "medium"),
         ]
     )
-    assert [(c.symbol, c.score) for c in ranked] == [("CCC", 2.5), ("AAA", 2.0)]
+    assert [(c.symbol, c.score) for c in ranked] == [("CCC", 2.5), ("AAA", 1.0)]
 
 
 def test_the_evidence_key_names_the_score_basis():

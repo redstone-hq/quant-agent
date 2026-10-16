@@ -739,7 +739,7 @@ def _shared_seat_comparison(
 
     The arithmetic is `src/verdicts.py`'s own and is reproduced, not
     re-derived: a seat's contribution to `RankedCandidate.score` is
-    `magnitude + conviction_score` (every seat counts equally since n06,
+    `conviction_score` alone (every seat counts equally since n06,
     2026-10-15), which is exactly `score_verdict(verdict)`. Summing that over a
     subset of seats therefore yields the same composite restricted to that
     subset — a partial sum of the real score, not a second scoring scheme.

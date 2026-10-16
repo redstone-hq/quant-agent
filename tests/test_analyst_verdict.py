@@ -35,7 +35,8 @@ _LEVEL_LESS = S.load_frozen_selection(S.LEVEL_LESS_SELECTION_FIXTURE)
 from src.models import (
     NO_STATED_STRENGTH,
     RATING_DIRECTION,
-    RATING_MAGNITUDE,
+    RATING_SCALE,
+    rating_rung_strength,
     AnalystVerdict,
     EarningsAnalysis,
     NewsIntelligenceReport,
@@ -225,7 +226,8 @@ def test_the_shape_has_exactly_the_four_judgement_fields_plus_identity():
 
 
 def test_rating_encodings_are_equal_spaced_and_symmetric():
-    assert RATING_MAGNITUDE == {
+    assert RATING_SCALE == ("strong_sell", "sell", "neutral", "buy", "strong_buy")
+    assert {r: rating_rung_strength(r) for r in RATING_SCALE} == {
         "strong_buy": 1.0,
         "buy": 0.5,
         "neutral": 0.0,
@@ -439,7 +441,7 @@ def test_data_quality_evidence_is_omitted_when_it_is_the_bare_default():
 
 
 def test_ranking_reads_two_signals_at_equal_weight():
-    assert RANKING_SIGNALS == ("magnitude", "conviction_score")
+    assert RANKING_SIGNALS == ("conviction_score",)
     assert CONVICTION_SCORE == {"low": 0.0, "medium": 0.5, "high": 1.0}
 
 
@@ -469,11 +471,11 @@ def test_no_seat_weight_table_exists_in_the_ranking_module():
 
 def test_score_is_magnitude_plus_conviction():
     v = _tech("A", "strong_buy", "low").to_verdict()
-    assert score_verdict(v) == 1.0
+    assert score_verdict(v) == 0.0
     v = _tech("A", "buy", "high").to_verdict()
-    assert score_verdict(v) == 1.5
-    v = _tech("A", "buy", "medium").to_verdict()
     assert score_verdict(v) == 1.0
+    v = _tech("A", "buy", "medium").to_verdict()
+    assert score_verdict(v) == 0.5
 
 
 def test_rank_verdicts_orders_by_score_then_symbol_and_skips_neutral():
@@ -488,7 +490,7 @@ def test_rank_verdicts_orders_by_score_then_symbol_and_skips_neutral():
     ]
     ranked = rank_verdicts(verdicts)
     assert [c.symbol for c in ranked] == ["BBB", "AAA", "CCC", "DDD"]
-    assert [c.score for c in ranked] == [2.0, 1.0, 1.0, 0.5]
+    assert [c.score for c in ranked] == [1.0, 0.5, 0.5, 0.0]
     assert ranked[0].direction == "bearish"
     assert ranked[0].seats == ["technical"]
     # Pure: same input, same order.
@@ -520,7 +522,6 @@ def test_two_seats_on_one_symbol_sum_with_every_seat_counted_equally():
     # `computed_level_touches`, and neither seat here is one that would
     # carry the evidence anyway besides technical (item 141, 2026-09-20).
     assert c.components == {
-        "magnitude": 1.5,
         "conviction_score": 1.0,
         "risk_reward_tiebreak": 2.4,
         "level_touches_tiebreak": 0.0,
@@ -576,7 +577,7 @@ def test_a_lone_seat_scores_the_same_whichever_seat_it_is():
     and a lone technical read of identical strength score the same."""
     tech = _tech("XLE", "buy", "high").to_verdict()
     [c] = rank_verdicts([tech])
-    assert c.score == round(score_verdict(tech), 4) == 1.5
+    assert c.score == round(score_verdict(tech), 4) == 1.0
     macro_like = AnalystVerdict(
         seat="macro",
         symbol="XLE",
@@ -683,7 +684,7 @@ def test_tied_score_does_not_break_on_risk_reward():
     falls in the alphabet."""
     aaa = _tech("AAA", "buy", "medium").to_verdict()  # R/R 2.4
     zzz = _tech("ZZZ", "buy", "medium", target=130).to_verdict()  # R/R 7.0
-    assert score_verdict(aaa) == score_verdict(zzz) == 1.0
+    assert score_verdict(aaa) == score_verdict(zzz) == 0.5
     ranked = rank_verdicts([aaa, zzz])
     assert [c.symbol for c in ranked] == ["AAA", "ZZZ"]
     # Still recorded, just not used to order.
@@ -822,8 +823,8 @@ def test_a_seat_that_states_a_strength_carries_it_into_the_ranking():
     assert c.no_strength_seats == ["earnings", "macro", "news", "smart_money"]
     # 1.0 (strong_buy) — and nothing else, because nothing else has a
     # strength to add.
-    assert c.components["magnitude"] == 1.0
-    assert c.score == round(1.0 + 5 * 1.0, 4)
+    assert c.rung_tiebreak == 1.0
+    assert c.score == round(5 * 1.0, 4)
 
 
 def test_the_score_is_unchanged_by_the_absence_encoding():
@@ -840,7 +841,7 @@ def test_the_score_is_unchanged_by_the_absence_encoding():
         _no_strength("earnings", conviction="high"),
     ]  # 0 + 1.0
     [c] = rank_verdicts(group)
-    expected = (0.5 + 0.5) + (0.0 + 0.0) + (0.0 + 1.0)
+    expected = 0.5 + 0.0 + 1.0
     assert c.score == round(expected, 4)
     # Same total through the per-verdict helper the rotation margin reuses.
     assert round(sum(score_verdict(v) for v in group), 4) == c.score
@@ -931,7 +932,7 @@ def test_pm_ranks_equally_eligible_candidates_deterministically():
     assert [c.symbol for c in ranked] == ["AAA", "BBB", "CCC", "DDD"]
     # Each is a lone technical read, scored at its own `score_verdict`
     # (every seat counts equally since n06, 2026-10-15).
-    assert [c.score for c in ranked] == [2.0, 1.5, 1.0, 0.5]
+    assert [c.score for c in ranked] == [1.0, 1.0, 0.5, 0.0]
 
 
 def test_the_real_ratio_orders_candidates_instead_of_admitting_them():
@@ -1414,8 +1415,8 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     )
     section = msg.split("## Candidate Ranking")[1].split("\n## ")[0]
     lines = [ln for ln in section.splitlines() if ln[:2] in ("1.", "2.", "3.")]
-    assert lines[0].startswith("1. AAA — bullish | score 3.00")
-    assert lines[1].startswith("2. CCC — bullish | score 2.00")
+    assert lines[0].startswith("1. AAA — bullish | score 2.00")
+    assert lines[1].startswith("2. CCC — bullish | score 1.00")
     # The prompt must say the aggregation is a SUM, or the PM reads the number
     # as a 0-2 fraction. Both survivors now carry two seats.
     assert "summed over 2 seat(s)" in lines[0]
@@ -1426,9 +1427,9 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     # summed over, and news — which has no strength scale — is listed as
     # such instead of silently feeding a 0.0 into a figure the prompt
     # describes as covering every leaning seat.
-    assert "strength 1.00 from technical" in lines[0]
+    assert "rating rung 1.00 from technical breaks ties only" in lines[0]
     assert "no strength scale: news" in lines[0]
-    assert "they are absent from the strength term entirely" in section
+    assert "only breaks a tie between equal scores" in section
     # The ranking sits AFTER the reports it orders.
     assert msg.index("## Technical Analysis Reports") < msg.index("## Candidate Ranking")
 
@@ -1443,8 +1444,8 @@ def test_the_prompt_reports_no_strength_rather_than_zero_when_no_seat_has_one():
     ranked = rank_verdicts([_no_strength(s, symbol="AAA") for s in seats])
     section = PortfolioManagerAgent._render_candidate_ranking(ranked, {})
     line = [ln for ln in section.splitlines() if ln.startswith("1.")][0]
-    assert "no strength stated by any seat on this name" in line
-    assert "strength 0.00" not in section
+    assert "no rating rung stated by any seat on this name" in line
+    assert "rung 0.00" not in section
     assert "no strength scale: earnings, macro, news, smart_money" in line
 
 

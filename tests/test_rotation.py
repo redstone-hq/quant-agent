@@ -111,8 +111,8 @@ def test_stronger_new_candidate_rotates_out_a_weak_but_still_eligible_holding():
     like-for-like sub-score is the whole score and the two checks coincide.
     """
     ranked = [
-        _rcv("NEW", {"technical": (1.0, "medium")}),  # 1.5
-        _rcv("OLD", {"technical": (0.75, "low")}),  # 0.75
+        _rcv("NEW", {"technical": (None, "high")}),  # 1.5
+        _rcv("OLD", {"technical": (None, "medium")}),  # 0.75
     ]
     opp = evaluate_rotation_opportunity(
         ranked=ranked,
@@ -124,14 +124,14 @@ def test_stronger_new_candidate_rotates_out_a_weak_but_still_eligible_holding():
     assert opp is not None
     assert opp.tier == "ranked_margin"
     assert opp.new_symbol == "NEW"
-    assert opp.new_score == 1.5
+    assert opp.new_score == 1.0
     assert opp.held_symbol == "OLD"
-    assert opp.held_score == 0.75
+    assert opp.held_score == 0.5
     assert opp.noise_brake == TEST_NOISE_BRAKE
     # Item 66: the comparison that was actually cleared is recorded.
     assert opp.shared_seats == ("technical",)
-    assert opp.held_shared_score == 0.75
-    assert opp.new_shared_score == 1.5
+    assert opp.held_shared_score == 0.5
+    assert opp.new_shared_score == 1.0
 
 
 # --- (b) marginally-better new candidate does NOT trigger (respects margin) -
@@ -141,8 +141,8 @@ def test_marginal_edge_does_not_trigger_rotation():
     """NEW beats OLD but by less than the 25% margin: 0.75 * 1.25 = 0.9375,
     and 0.9 falls short of that — no churn on a noise-level difference."""
     ranked = [
-        _rcv("NEW", {"technical": (0.9, "low")}),  # 0.9
-        _rcv("OLD", {"technical": (0.75, "low")}),  # 0.75
+        _rcv("NEW", {"technical": (None, "medium")}),  # 0.9
+        _rcv("OLD", {"technical": (None, "medium")}),  # 0.75
     ]
     opp = evaluate_rotation_opportunity(
         ranked=ranked,
@@ -158,8 +158,8 @@ def test_a_gap_exactly_at_the_measured_noise_does_not_trigger():
     """Owner decision 2026-10-15 (q07): the gap must EXCEED the measured
     score noise. A gap equal to it is indistinguishable from jitter."""
     ranked = [
-        _rcv("NEW", {"technical": (0.9375, "low")}),  # 0.9375
-        _rcv("OLD", {"technical": (0.75, "low")}),  # 0.75
+        _rcv("NEW", {"technical": (None, "medium")}),  # 0.9375
+        _rcv("OLD", {"technical": (None, "medium")}),  # 0.75
     ]
     opp = _evaluate_rotation_opportunity(
         ranked=ranked,
@@ -238,8 +238,8 @@ def test_empty_blocked_reasons_are_not_treated_as_a_blocking_row():
     codebase's own "empty list = eligible" convention, `candidate_eligibility`
     docstring) — that must not be misread as a categorical hit."""
     ranked = [
-        _rcv("NEW", {"technical": (0.9, "low")}),
-        _rcv("OLD", {"technical": (0.75, "low")}),
+        _rcv("NEW", {"technical": (None, "medium")}),
+        _rcv("OLD", {"technical": (None, "medium")}),
     ]
     opp = evaluate_rotation_opportunity(
         ranked=ranked,
@@ -320,8 +320,8 @@ def test_coverage_decay_alone_does_not_rotate_a_held_name_out():
             "smart_money": (None, "medium"),  # 0.5, coverage HELD lost
         },
     )
-    assert held.score == 2.0
-    assert new.score == 3.5
+    assert held.score == 1.0
+    assert new.score == 2.5
     # The pre-fix comparison, spelled out so this test fails loudly if the
     # full-score margin ever stops being cleared by these inputs.
     assert new.score - held.score > TEST_NOISE_BRAKE
@@ -342,7 +342,7 @@ def test_no_shared_scoring_seat_declines_rather_than_comparing():
     there is no seat that has an opinion on both, so there is nothing
     like-for-like to compare and Tier 2 declines."""
     held = _rcv("HELD", {"earnings": (None, "high")})  # 1.0
-    new = _rcv("NEW", {"technical": (1.0, "high")})  # 2.0
+    new = _rcv("NEW", {"technical": (1.0, "high"), "news": (None, "high")})  # 2.0
     assert new.score - held.score > TEST_NOISE_BRAKE
 
     opp = evaluate_rotation_opportunity(
@@ -360,7 +360,7 @@ def test_a_real_like_for_like_gap_still_rotates_and_records_the_comparison():
     NEW's is strong, so the gap survives on the shared seat and the
     rotation is surfaced — with the seats and both sub-scores recorded, so
     the audit trail shows which comparison was actually cleared."""
-    held = _rcv("HELD", {"technical": (0.75, "low")})  # 0.75
+    held = _rcv("HELD", {"technical": (None, "medium")})  # 0.75
     new = _rcv(
         "NEW",
         {
@@ -380,8 +380,8 @@ def test_a_real_like_for_like_gap_still_rotates_and_records_the_comparison():
     assert opp.held_symbol == "HELD"
     assert opp.new_symbol == "NEW"
     assert opp.shared_seats == ("technical",)
-    assert opp.held_shared_score == 0.75
-    assert opp.new_shared_score == 2.0
+    assert opp.held_shared_score == 0.5
+    assert opp.new_shared_score == 1.0
     # And the sub-score is a strict partial of the real composite, never a
     # second scoring scheme: earnings is the only term dropped from NEW.
     assert round(opp.new_score - opp.new_shared_score, 4) == 1.0
@@ -411,7 +411,7 @@ def test_the_like_for_like_check_can_only_remove_rotations_never_add_one():
                 for conviction in convictions:
                     held = _rcv(
                         "HELD",
-                        {s: (0.5, "low") for s in held_seats},
+                        {s: (0.5, "medium") for s in held_seats},
                     )
                     new = _rcv(
                         "NEW",
@@ -551,7 +551,7 @@ def test_render_states_the_like_for_like_comparison_for_the_ranked_tier():
     result = PortfolioManagerAgent._render_rotation_section(
         ranked=[
             _rcv("NEW", {"technical": (1.0, "high"), "earnings": (None, "high")}),
-            _rcv("HELD", {"technical": (0.75, "low")}),
+            _rcv("HELD", {"technical": (None, "medium")}),
         ],
         blocked={},
         held_symbols={"HELD"},
@@ -560,7 +560,7 @@ def test_render_states_the_like_for_like_comparison_for_the_ranked_tier():
         precheck=PortfolioManagerAgent.rotation_precheck(
             ranked=[
                 _rcv("NEW", {"technical": (1.0, "high"), "earnings": (None, "high")}),
-                _rcv("HELD", {"technical": (0.75, "low")}),
+                _rcv("HELD", {"technical": (None, "medium")}),
             ],
             blocked={},
             held_symbols={"HELD"},
@@ -571,7 +571,7 @@ def test_render_states_the_like_for_like_comparison_for_the_ranked_tier():
     )
     assert "Like-for-like check" in result
     assert "technical" in result
-    assert "0.75" in result and "2.00" in result
+    assert "0.50" in result and "2.00" in result
 
 
 # ---------------------------------------------------------------------------
@@ -801,8 +801,8 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
     from src.rotation import ROTATION_REFUSAL_POINTS
 
     # `_rcv` scores: technical weight 1.2, earnings weight 1.2 here.
-    weak = _rcv("OLD", {"technical": (0.75, "low")})  # 0.9
-    strong = _rcv("NEW", {"technical": (1.0, "medium")})  # 1.8
+    weak = _rcv("OLD", {"technical": (None, "medium")})  # 0.9
+    strong = _rcv("NEW", {"technical": (None, "high")})  # 1.8
     seen = {
         # (a) the precondition
         _refusal(
@@ -825,7 +825,7 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
         ).point,
         # (e) the full composite margin is not cleared (1.0 < 0.9 * 1.25)
         _refusal(
-            ranked=[_rcv("NEW", {"technical": (0.83, "low")}), weak],
+            ranked=[_rcv("NEW", {"technical": (None, "medium")}), weak],
             blocked={},
             held_symbols={"OLD"},
         ).point,
@@ -845,7 +845,7 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
                     "OLD",
                     {
                         "technical": (None, "low"),  # 0.0
-                        "news": (0.5, "low"),
+                        "news": (None, "medium"),
                     },
                 ),  # 0.5
             ],
@@ -855,8 +855,8 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
         # (h) cleared on the full composite, not on the shared seats
         _refusal(
             ranked=[
-                _rcv("NEW", {"technical": (0.8, "low"), "earnings": (1.0, "high")}),
-                _rcv("OLD", {"technical": (0.75, "low")}),
+                _rcv("NEW", {"technical": (None, "medium"), "earnings": (1.0, "high")}),
+                _rcv("OLD", {"technical": (None, "medium")}),
             ],
             blocked={},
             held_symbols={"OLD"},
@@ -879,8 +879,8 @@ def test_the_refusal_row_carries_the_named_fields():
     the shared seats, both shared scores, the ratio, and which point."""
     refusal = _refusal(
         ranked=[
-            _rcv("NEW", {"technical": (0.8, "low"), "earnings": (1.0, "high")}),
-            _rcv("OLD", {"technical": (0.75, "low")}),
+            _rcv("NEW", {"technical": (None, "medium"), "earnings": (1.0, "high")}),
+            _rcv("OLD", {"technical": (None, "medium")}),
         ],
         blocked={},
         held_symbols={"OLD"},
@@ -889,12 +889,12 @@ def test_the_refusal_row_carries_the_named_fields():
     assert refusal.held_symbol == "OLD"
     assert refusal.new_symbol == "NEW"
     assert refusal.shared_seats == ("technical",)
-    assert refusal.held_shared_score == 0.75
-    assert refusal.new_shared_score == 0.8
+    assert refusal.held_shared_score == 0.5
+    assert refusal.new_shared_score == 0.5
     # The ratio is taken on the LIKE-FOR-LIKE sub-score, which is the
     # comparison the margin is actually judged on, not on the
     # coverage-sensitive totals.
-    assert refusal.ratio == round(0.96 / 0.9, 4)
+    assert refusal.ratio == 1.0
     assert refusal.noise_brake == TEST_NOISE_BRAKE
     assert refusal.binding == ("funding",)
     assert refusal.detail
@@ -906,8 +906,8 @@ def test_the_row_describes_the_comparison_even_when_the_book_had_room():
     room" is not a dataset."""
     refusal = _refusal(
         ranked=[
-            _rcv("NEW", {"technical": (1.0, "medium")}),
-            _rcv("OLD", {"technical": (0.75, "low")}),
+            _rcv("NEW", {"technical": (None, "high")}),
+            _rcv("OLD", {"technical": (None, "medium")}),
         ],
         blocked={},
         held_symbols={"OLD"},

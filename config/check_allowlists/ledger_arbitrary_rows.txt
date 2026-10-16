@@ -37,8 +37,6 @@ src.data.context._CONSOLIDATION_WINDOW
 src.data.context._SLOPE_LOOKBACK
 src.data.insider_signal._WEIGHTS[INDETERMINATE]
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
-src.models.analysis.RATING_MAGNITUDE['buy']
-src.models.analysis.RATING_MAGNITUDE['strong_buy']
 src.pipeline_intraday._NAMES_PER_PAID_CALL
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)
 src.prompt_facts.decisions.PromptDecisions._build_pm_recent_decisions(limit)
