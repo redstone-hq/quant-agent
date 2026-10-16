@@ -996,9 +996,6 @@ smart_money:
   cluster_window_days: 2
   min_cluster_owners: 2
   max_external_candidates: 3
-  min_external_price_usd: 5
-  min_external_avg_dollar_volume_usd: 10000000
-  min_external_history_days: 20
   # Routine-versus-opportunistic Form 4 classification
   # (src/data/insider_signal.py). See src/config/__init__.py::SmartMoneyConfig for
   # the evidence basis behind each default.

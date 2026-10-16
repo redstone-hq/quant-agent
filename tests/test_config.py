@@ -259,8 +259,6 @@ def test_smart_money_sec_limits_fail_closed():
     with pytest.raises(ValidationError):
         SmartMoneyConfig(requests_per_second=10.1)
     with pytest.raises(ValidationError):
-        SmartMoneyConfig(min_external_price_usd=0.5)
-    with pytest.raises(ValidationError):
         SmartMoneyConfig(max_external_candidates=0)
 
 

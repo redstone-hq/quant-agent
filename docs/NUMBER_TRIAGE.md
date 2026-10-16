@@ -4,10 +4,10 @@ Sorts every ledger row the guard marks `arbitrary` into one of four piles. It ad
 
 ## What was measured
 
-- The ledger holds 335 rows [measured: `config/number_ledger.yaml`]; 132 are `arbitrary` -- the prior 133-of-336 figure is current less the retired one-month row [measured].
-- 131 of the 132 `arbitrary` rows have an empty `source:` field; the justification text sits in `note` and `settles_by` instead [measured].
+- The ledger holds 537 rows [measured: `config/number_ledger.yaml`, 2026-10-16]; 63 are `arbitrary` (66 before the external-name liquidity floors and the 20-bar window were deleted, 2026-10-16) [measured].
+- All 63 `arbitrary` rows have an empty `source:` field; the justification text sits in `note` and `settles_by` instead [measured].
 - No row in any other status has both `source` and `note` empty [measured].
-- All 132 carry a settlement route (guard-enforced); 4 are routed to recordings already built [measured].
+- All 63 carry a settlement route (guard-enforced) [measured]; the count routed to already-built recordings was not re-measured.
 
 ## Pile counts
 
@@ -125,7 +125,6 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `config.SmartMoneyConfig.max_external_candidates` = 3
 - `config.SmartMoneyConfig.max_observations` = 40
 - `config.SmartMoneyConfig.min_cluster_owners` = 2
-- `config.SmartMoneyConfig.min_external_history_days` = 20
 - `data.levels.PIVOT_WINDOW` = 5
 - `data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS` = 5
 - `data.smart_money_cluster.MIN_PURCHASE_CLUSTER_INSIDERS` = 2
@@ -155,8 +154,6 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 3 shapes which names reach the seats.** Intraday move trigger, external-candidate dollar-volume and price floors: should be multiples of the name's own ATR, spread and tick.
 
-- `config.SmartMoneyConfig.min_external_avg_dollar_volume_usd` = 10000000
-- `config.SmartMoneyConfig.min_external_price_usd` = 5
 
 ## OWNER APPETITE (10)
 
@@ -258,7 +255,6 @@ not bare literals. So "give it a name" is a no-op remedy here; the only real rem
 - `src.models.news._NEWS_CONVICTION_RANK['high']`
 - `src.models.news._NEWS_CONVICTION_RANK['medium']`
 - `src.models.portfolio.RISK_NARRATIVE_MISMATCH_TOLERANCE_PCT`
-- `src.quantities.AVG_DOLLAR_VOLUME_WINDOW`
 - `src.retired_mechanisms.MIN_NEEDLE`
 - `src.silence_watchdog.DEFAULT_SILENT_WINDOW_THRESHOLD`
 - `src.silence_watchdog.LOOKBACK_DAYS`

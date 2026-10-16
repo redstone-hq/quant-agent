@@ -1729,111 +1729,6 @@ numbers:
       coincidence persists at two or three distinct insiders, the admission
       threshold moves UP, and that would be a new number above this floor, not
       a correction to it. No value changed.
-  - id: src.config.SmartMoneyConfig.min_external_avg_dollar_volume_usd
-    value: 10000000
-    status: arbitrary
-    site: src/config/smart_money.py
-    note: >-
-      The insider-signal admission screen: 2 owners, a $5 minimum price,
-      $10M average daily dollar volume, 20 days of history. The $100k/$250k
-      dollar floors that used to sit here were deleted (board item 52,
-      resolved 2026-09-25: no study supports single-transaction dollar size
-      as an insider-buy predictor). The $10M and 20-day floors were recorded
-      on 2026-09-01 as screening the WRONG THING, under a redesign that was
-      agreed and never built. All round numbers, none measured.
-    open_question: >-
-      What dollar volume does this account need to enter and exit a position
-      without its own order moving the price?
-    cost_while_unanswered: >-
-      A liquidity floor set by round number rather than by this account's own
-      order sizes.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
-        routing pass, which specifies each recording field by name
-      records: >-
-        for every external candidate this screen admits or rejects: its quoted
-        spread, tick size, average dollar volume, length of available price
-        history, the reject reason where it was rejected, and the stop
-        distance this desk's own rules would have placed on it, so tradability
-        is recorded rather than presumed.
-      closes_when: >-
-        the record shows the price, liquidity and history levels at which stop
-        placement stops being reliable for the order sizes this account
-        actually places, so each floor is read off tradability instead of
-        chosen; a floor that rejects nothing untradable is removed rather than
-        re-derived.
-  - id: src.config.SmartMoneyConfig.min_external_history_days
-    value: 20
-    status: arbitrary
-    site: src/config/smart_money.py
-    note: >-
-      The insider-signal admission screen: 2 owners, a $5 minimum price,
-      $10M average daily dollar volume, 20 days of history. The $100k/$250k
-      dollar floors that used to sit here were deleted (board item 52,
-      resolved 2026-09-25: no study supports single-transaction dollar size
-      as an insider-buy predictor). The $10M and 20-day floors were recorded
-      on 2026-09-01 as screening the WRONG THING, under a redesign that was
-      agreed and never built. All round numbers, none measured.
-    open_question: >-
-      How much price history does the technical read need before its
-      indicators mean anything?
-    cost_while_unanswered: >-
-      A young listing is either analysed blind or excluded when it had enough
-      history.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
-        routing pass, which specifies each recording field by name
-      records: >-
-        for every external candidate this screen admits or rejects: its quoted
-        spread, tick size, average dollar volume, length of available price
-        history, the reject reason where it was rejected, and the stop
-        distance this desk's own rules would have placed on it, so tradability
-        is recorded rather than presumed.
-      closes_when: >-
-        the record shows the price, liquidity and history levels at which stop
-        placement stops being reliable for the order sizes this account
-        actually places, so each floor is read off tradability instead of
-        chosen; a floor that rejects nothing untradable is removed rather than
-        re-derived.
-  - id: src.config.SmartMoneyConfig.min_external_price_usd
-    value: 5
-    status: sourced
-    site: src/config/smart_money.py
-    source: >-
-      17 CFR 240.3a51-1(d), the SEC's definition of "penny stock": a security
-      is a penny stock unless, among the listed exclusions, it has a price of
-      $5.00 or more.
-      https://www.ecfr.gov/current/title-17/chapter-II/part-240/section-240.3a51-1
-      $5.00 is the boundary of the penny-stock regime and of the Rule
-      15g-2..15g-9 disclosure, suitability and confirmation requirements that
-      attach to transactions in one. It is fixed by the Commission, not by
-      this desk.
-    note: >-
-      2026-10-02, item 90 follow-up pass. The admission screen for an EXTERNAL
-      nomination -- a name the desk does not already follow -- rejects a quote
-      below $5. Re-read as an UNDENIABLE regulatory boundary rather than a
-      round price: $5.00 is the one externally fixed price line in US equities,
-      and the screen's effect is to keep the penny-stock regime out of the
-      nominating universe entirely. The value is not a point chosen on a
-      distribution, so nothing here is fitted and nothing is ratified into
-      place. WHAT THIS DOES NOT SETTLE, said explicitly because the row's
-      previous open question was a different question: it does NOT establish
-      the price below which spread and tick granularity make this desk's STOP
-      PLACEMENT unreliable. That is a property of the instrument's quote, not
-      of the Commission's threshold; it governs stop geometry, not external
-      admission, and it stays open on the stop rows
-      (`src.config.RiskConfig.absolute_min_stop_atr_multiple` and
-      the no-ATR structural stop, which since 2026-10-15 sits at the level's own zone extreme),
-      where the stop distance it would bound is actually computed. The desk may
-      still want a HIGHER external floor than $5 for that reason; this entry
-      sources the floor that is here, and says plainly that a tick-and-spread
-      measurement could raise it. No value changed.
   - id: src.config.SmartMoneyConfig.refresh_deadline_s
     value: 180
     status: arbitrary
@@ -2161,7 +2056,7 @@ numbers:
       (src/risk/exit_guard.py), so admitting a young name whose `ma_200` is
       None does not ship an unevaluable exit -- the board's hard prerequisite,
       verified already present on main. The two neighbouring history counts
-      (`min_external_history_days` 20, src/universe_screen.py's ~210) are
+      (a deleted 20-day external-history floor, and src/universe_screen.py's ~210) were
       SEPARATE gates in their own modules and out of this item's scope.
   - id: src.execution.stop_records._ALPACA_TICK_AT_OR_ABOVE_DOLLAR
     value: 0.01
@@ -8348,30 +8243,6 @@ numbers:
     note: >-
       The fund's stated leverage objective, which the desk does not choose. Used as the signed exposure
       multiplier for net directional exposure and the bearish-fund test. 1.0 is the absence of leverage. NOT CONFIRMED this session: the VanEck page did not return text to the fetch used, so the unlevered status rests on SMH being a plain index fund, not on a quoted objective.
-  - id: src.quantities.AVG_DOLLAR_VOLUME_WINDOW
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-12 liquidity-window paragraph)
-      records: across the universe the desk could trade, on public daily bars, the rank correlation between average
-        dollar volume over windows of 10, 20 and 60 sessions and the cost of trading the symbol over the following
-        sessions, measured as the quoted half-spread and the daily price impact per dollar traded; never off this
-        desk's own fills
-      closes_when: the window is set to the shortest one that ranks symbols as well as the longer ones, or the number
-        is recorded as insensitive; it is DELETED as a tuned number if every window ranks symbols the same way
-    value: 20
-    status: arbitrary
-    site: src/quantities.py
-    note: >-
-      Sessions averaged for the liquidity admission measure (average dollar volume). The source comment says only
-      that three call sites previously disagreed (20, 20, 21) and this unifies them on the name, config key and log
-      lines that already said 20; that is consistency, not a derivation. 20 sessions is the conventional month, not
-      a measurement. It decides which symbols pass the liquidity gate.
-    open_question: >-
-      Over how many sessions does average dollar volume best predict what it costs to trade a symbol, measured on market data for the tradable universe?
-    cost_while_unanswered: >-
-      Too short and one volume spike admits an illiquid symbol; too long and a symbol whose liquidity just fell
-      keeps passing.
   - id: src.config.IntradayScanConfig.pm_min_interval_minutes
     value: 60.0
     status: owner-ruled

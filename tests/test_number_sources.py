@@ -225,7 +225,7 @@ def test_the_deployed_value_is_checked_and_not_only_the_code_default() -> None:
     assert deployed["src.config.RiskConfig.max_position_risk_pct"] == 5.0
     ledger = load_ledger()
     routed = [k for k in deployed if k in ledger]
-    assert len(routed) >= 50, f"only {len(routed)} sites routed; the mapping broke"
+    assert len(routed) >= 48, f"only {len(routed)} sites routed; the mapping broke"
     for site_id in routed:
         assert abs(deployed[site_id] - float(ledger[site_id]["value"])) < 1e-12, site_id
 
