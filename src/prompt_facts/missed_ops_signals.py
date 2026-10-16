@@ -440,7 +440,7 @@ class MissedOpsSignals:
         holding age nor moves the review window. Same lookup the
         morning/midday facts use (`_position_open_row`); a legacy row with no
         position_id fails closed onto the newest opening row."""
-        from src.pipeline_prompt_facts import _position_open_row
+        from src.prompt_facts.open_row import _position_open_row
 
         opening = "SHORT" if (p.qty or 0) < 0 else "BUY"
         try:
