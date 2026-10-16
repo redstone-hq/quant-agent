@@ -388,6 +388,8 @@ numbers:
       much to trade. A wrong value degrades data availability, which is a
       separate failure the seats already see as missing evidence.
   - id: src.pipeline_intraday._NAMES_PER_PAID_CALL
+    recording_2026_10_16: >-
+      each intraday check now records the movers sent to the paid call and those left out, with their ranks, plus the call's settled cost (batch_selected and batch_cost rows, built 2026-10-16); review this cap once enough checks accumulate.
     value: 5
     status: arbitrary
     site: src/pipeline_intraday.py
@@ -2028,6 +2030,8 @@ numbers:
       scan runs; it decides what counts as a bad PRINT, not what counts as a
       trade.
   - id: src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
+    recording_2026_10_16: >-
+      each insider refresh now records clusters found, kept, reserved and cut (insider_cluster_census rows, built 2026-10-16); review this cap once enough refreshes accumulate.
     value: 5
     status: arbitrary
     settles_by:
