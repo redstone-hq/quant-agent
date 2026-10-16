@@ -538,12 +538,14 @@ class MissedOpsSignals:
             _pnl_pct = unrealized_pnl_pct(p)
             pnl_pct = None if _pnl_pct is None else round(_pnl_pct, 2)
 
-            # Tech trajectory — the last 4 sessions' ratings since the open
-            tech_trajectory = tech_map_multi.get(sym, [])[:4]
+            # Tech trajectory — one rating per session since the open, all of
+            # them. No open found → None ("unknown"), never an empty history.
+            open_known = sym in opens
+            tech_trajectory = tech_map_multi.get(sym, []) if open_known else None
 
             # News — total count since the open + latest 2 headlines
-            news_events = news_events_map.get(sym, [])
-            news_count = len(news_events)
+            news_events = news_events_map.get(sym, []) if open_known else []
+            news_count = len(news_events) if open_known else None
             latest_news_headlines = [e["event"] for e in news_events[:2]]
 
             # Sector stance

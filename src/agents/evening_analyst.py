@@ -107,15 +107,21 @@ def _fmt_thesis_health(context: dict) -> str:
             held_str = "holding time n/a"
         entry_reason = (c.get("entry_reasoning") or "(no thesis captured)")[:220]
 
-        tech = c.get("tech_trajectory") or []
-        tech_str = " → ".join(tech) if tech else "no tech history in window"
+        tech = c.get("tech_trajectory")
+        if tech is None:
+            tech_str = "unknown (position open not found)"
+        else:
+            tech_str = " → ".join(tech) if tech else "no tech history in window"
 
         news_count = c.get("news_count_since_open", 0)
+        open_unknown = news_count is None
         news_hls = c.get("latest_news_headlines") or []
         if news_hls:
             news_str = f'{news_count} events; latest: "{news_hls[0]}"'
             if len(news_hls) > 1:
                 news_str += f'; prior: "{news_hls[1]}"'
+        elif open_unknown:
+            news_str = "unknown (position open not found)"
         else:
             news_str = f"{news_count} news events since the position opened (no headlines captured)"
 

@@ -110,3 +110,22 @@ def test_news_before_the_open_is_excluded(pipe, tmp_path):
     ctx = _ctx(pipe)
     assert ctx["news_count_since_open"] == 1
     assert ctx["latest_news_headlines"] == ["post-open headline"]
+
+
+def test_all_sessions_since_the_open_are_shown_not_a_fixed_four(pipe):
+    for n in range(2, 9):
+        _tech(pipe, f"{_day(n)} 15:00:00", "buy")
+    assert len(_ctx(pipe)["tech_trajectory"]) == 7
+
+
+def test_unknown_open_is_reported_unknown_not_zero(pipe):
+    from src.agents.evening_analyst import _fmt_thesis_health
+
+    pos = Position(
+        symbol="ZZZU", qty=5, avg_entry=10.0, current_price=11.0, market_value=55, unrealized_pnl=5, sector=""
+    )
+    ctx = pipe._build_thesis_health_context([pos])["ZZZU"]
+    assert ctx["tech_trajectory"] is None and ctx["news_count_since_open"] is None
+    rendered = _fmt_thesis_health({"ZZZU": ctx})
+    assert "unknown (position open not found)" in rendered
+    assert "0 news events" not in rendered

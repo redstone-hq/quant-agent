@@ -1913,8 +1913,8 @@ def test_build_thesis_health_context_tolerates_missing_data(tmp_path):
     assert "NEW" in out
     ctx = out["NEW"]
     assert ctx["entry_date"] is None  # no BUY row
-    assert ctx["tech_trajectory"] == []
-    assert ctx["news_count_since_open"] == 0
+    assert ctx["tech_trajectory"] is None  # open unknown → unknown, never an empty history
+    assert ctx["news_count_since_open"] is None
     assert ctx["valuation"]["signal"] == "no_data"
 
 
