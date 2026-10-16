@@ -153,6 +153,7 @@ Analyze this filing and respond with JSON. Cite specific numbers from the text a
                             "is_new": True,
                             "form_type": report.form_type,
                             "filing_date": report.filing_date,
+                            "current_until": report.current_until,
                             # Pointer for the PM's short verdict (item 18): the
                             # full 8-field extraction is still on disk at this
                             # path, retrievable for audit — see
@@ -184,6 +185,7 @@ Analyze this filing and respond with JSON. Cite specific numbers from the text a
                             "is_new": False,
                             "form_type": report.form_type,
                             "filing_date": report.filing_date,
+                            "current_until": report.current_until,
                             "analysis_path": report.analysis_path,
                             # No fresh XBRL fetch on the cached-read path (see
                             # EarningsReport.xbrl_facts docstring) — {} reads as

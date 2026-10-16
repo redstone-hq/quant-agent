@@ -435,6 +435,13 @@ rather than theoretical: when a symbol has no filing inside the provider's
 bound at all** and re-served whatever was on disk (the store prunes at 1000
 days).
 
+**Superseded 2026-10-16:** the 90-day age below was a made-up number and is
+deleted. A stance now counts only while its filing is the company's latest
+10-Q/10-K in the SEC submissions list fetched that session, and only until the
+next report's latest legal filing date (period of report + one quarter, + 90
+days + 15-day Rule 12b-25 extension for a 10-K, else + 45 + 5): see
+`earnings_stance_is_stale` and `periodic_report_current_until`. History follows.
+
 `PortfolioManagerAgent.stale_evidence_sources` now gates an earnings stance
 out of the tally past `EARNINGS_STANCE_MAX_AGE_DAYS` (90). **90 is not a new
 number**: `config/prompts/earnings_analyst.md` already caps the seat's own

@@ -35,7 +35,6 @@ from src.risk.constants import (
 from src.risk.budget import allocate_risk_budget
 from src.risk.metrics import unrealized_pnl_pct
 from src.risk.rules import (
-    EARNINGS_STANCE_MAX_AGE_DAYS,
     _gross_multiplier,
     book_exposure as _book_exposure,
     own_bar_block_reason,
@@ -218,7 +217,7 @@ class PortfolioManagerAgent(
             if stale_here:
                 notes.append(
                     f"{', '.join(stale_here)} stance NOT counted either way "
-                    f"— filing older than {EARNINGS_STANCE_MAX_AGE_DAYS}d"
+                    "— filing superseded or past the next report's deadline"
                 )
             broadcast_here = sorted(s for s in (broadcast or ()) if s in sources)
             if broadcast_here:
@@ -742,7 +741,7 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
                 # reads the view from.
                 if "earnings" in stale_sources.get(str(sym).strip().upper(), frozenset()):
                     source_note += (
-                        f" [STALE >{EARNINGS_STANCE_MAX_AGE_DAYS}d — context only; "
+                        " [STALE: superseded or past next report's deadline — context only; "
                         "does NOT count toward the agreement score]"
                     )
 

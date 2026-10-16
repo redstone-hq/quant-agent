@@ -2,8 +2,8 @@
 
 Which evidence seats point with or against a proposed direction, and the
 refusal rule on the net score. The signed score itself (`signed_source_score`),
-`SEAT_WEIGHT` and `EARNINGS_STANCE_MAX_AGE_DAYS` stay in `src/risk/rules.py`:
-the number ledger pins them there by module id.
+`SEAT_WEIGHT` stays in `src/risk/rules.py`:
+the number ledger pins it there by module id.
 
 Bodies moved VERBATIM from `src/risk/rules.py` (AST-identical to the
 originals; `tests/test_risk_rules_parts_boundary.py` is the witness that this
@@ -111,8 +111,9 @@ def count_aligned_sources(
     itself.
 
     `ignored_sources` names the seats whose stance for THIS symbol is too
-    stale to earn size — currently only `earnings`, gated at
-    `EARNINGS_STANCE_MAX_AGE_DAYS` by
+    stale to earn size — currently only `earnings`, no longer current
+    (superseded by a newer periodic report, or past the next report's
+    statutory deadline) by
     `PortfolioManagerAgent.stale_evidence_sources`. It is a REMOVAL from the
     tally, never an addition, so it can only ever lower a ceiling. A stale
     stance stays in the registry (it is still real coverage, and the PM may

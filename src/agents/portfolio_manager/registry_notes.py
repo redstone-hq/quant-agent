@@ -3,8 +3,6 @@ the agent's briefing builder, wording unchanged)."""
 
 from __future__ import annotations
 
-from src.risk.rules import EARNINGS_STANCE_MAX_AGE_DAYS
-
 
 def stale_registry_note(stale_sources, evidence_registry) -> str:
     """The STALE note, or "" when it would list no symbol."""
@@ -14,7 +12,8 @@ def stale_registry_note(stale_sources, evidence_registry) -> str:
     note = (
         "\n\nSTALE (still real coverage, still citable as provenance, "
         "but NOT counted toward the agreement score below — the "
-        f"filing is more than {EARNINGS_STANCE_MAX_AGE_DAYS} days old):\n"
+        "filing is no longer the company's latest periodic report, or the "
+        "next report's legal filing deadline has passed):\n"
         + "\n".join(
             f"- {symbol}: {', '.join(sorted(sources))}"
             for symbol, sources in sorted(stale_sources.items())

@@ -68,6 +68,7 @@ class EarningsAnalysesLoadSession:
                         "queued": True,
                         "form_type": r.form_type,
                         "filing_date": r.filing_date,
+                        "current_until": r.current_until,
                     }
                 )
 

@@ -80,7 +80,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `config.EventRiskConfig.horizon_days` = 10
 - `config.RiskConfig.max_target_horizon_sessions` = 60
 - `portfolio_constructor.ConstructorConfig.max_sector_pct` = 75
-- `risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS` = 90
+- ~~`risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS` = 90~~ -- DELETED 2026-10-16: a stance is current while its filing is the latest 10-Q/10-K and the next report's statutory deadline (10-K/10-Q General Instructions, Rule 12b-25) has not passed.
 - `pipeline_risk_gate.RiskGate._has_actionable_signal_fn:factor[0]` = 0.5
 
 **Tier 2 gates entries/exits or shapes stops after entry.** Cash reserve and deployment band; settled by recorded assumed-vs-debited cash and by the measured round-trip cost of trading the gap.

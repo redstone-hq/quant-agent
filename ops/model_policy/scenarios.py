@@ -734,6 +734,15 @@ def load_frozen_selection(path: Path) -> SimpleNamespace:
     if not path.exists():
         raise RuntimeError(f"selection fixture missing: {path}")
     raw = json.loads(path.read_text())
+    # The recording predates `current_until` (2026-10-16), which the earnings
+    # provider now stamps from the SEC submissions list at decision time. Every
+    # recorded stance is a Q2-2026 report (filed 2026-07-23..08-28) that was the
+    # company's latest on the recorded day; the earliest legal deadline of any
+    # of their NEXT reports is the calendar-Q3 10-Q: 2026-09-30 + 45 days
+    # (Form 10-Q Gen. Instr. A.1) + 5 days (17 CFR 240.12b-25(b)) = 2026-11-19.
+    # Using that lower bound is the conservative reading, not a widened one.
+    for entry in raw.get("earnings_analyses") or []:
+        entry.setdefault("current_until", "2026-11-19")
     return SimpleNamespace(
         raw=raw,
         analyses=[TechAnalysisResult.model_validate(r) for r in raw["analyses"]],

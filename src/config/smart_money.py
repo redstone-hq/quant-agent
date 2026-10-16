@@ -59,7 +59,8 @@ class SmartMoneyConfig(BaseModel):
     # ~1/4 of an insider purchase's eventual abnormal return realizes in
     # the first 5 days and ~1/2 is still unrealized after a full month;
     # real M&A run-ups start MONTHS before the announcement. 90 was an
-    # intermediate step, matching `EARNINGS_STANCE_MAX_AGE_DAYS`.)
+    # intermediate step, matching the old earnings-stance 90-day age, since
+    # replaced by the latest-periodic-report rule.)
     #
     # Neither real infra cost binds at 365: NETWORK cost is already
     # bounded elsewhere — `refresh()` is accession-keyed and resumable, a

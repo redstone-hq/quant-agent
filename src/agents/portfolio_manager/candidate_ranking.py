@@ -376,13 +376,14 @@ class CandidateRanking:
                 # when BOTH sides are present, which silently let an
                 # unverified symbol through when the wrapper's was blank.
                 continue
-            # §9.4 freshness, the same rule the tally uses: a stance with no,
-            # or an over-age, filing date is dropped HERE, before any rule
-            # reads it — buys and judgement sales alike.
-            from src.agents.portfolio_manager.evidence_prompting import earnings_filing_is_stale
+            # §9.4 currency, the same rule the tally uses: a stance whose
+            # filing is no longer the latest periodic report (or whose
+            # currency is unknown) is dropped HERE, before any rule reads
+            # it — buys and judgement sales alike.
+            from src.agents.portfolio_manager.evidence_prompting import earnings_stance_is_stale
 
-            if earnings_filing_is_stale(
-                str(item.get("filing_date") or raw.get("filing_date") or "").strip(),
+            if earnings_stance_is_stale(
+                str(item.get("current_until") or "").strip(),
                 asof,  # the caller's decided day; the PM's own call passes none, so today (ET)
             ):
                 logger.info("Phase 13: earnings stance for %s is stale — not a view", wrapper_symbol)

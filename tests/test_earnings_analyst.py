@@ -365,7 +365,8 @@ def test_xbrl_facts_gets_prepended_to_extracted_text(tmp_path, monkeypatch):
     believing it's exercising the mock."""
     from src.data.earnings import EarningsDataProvider, FilingInfo
 
-    provider = EarningsDataProvider(data_dir=str(tmp_path))
+    # Download window wide enough that the fixed 2026-04-30 filing is still downloaded.
+    provider = EarningsDataProvider(data_dir=str(tmp_path), lookback_days=10_000)
     monkeypatch.setattr(provider.sec, "cik_for", lambda ticker: "789019")
     monkeypatch.setattr(
         provider.sec,

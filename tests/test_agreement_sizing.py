@@ -489,22 +489,25 @@ from datetime import date, timedelta  # noqa: E402
 from unittest.mock import patch  # noqa: E402
 
 from src.agents.portfolio_manager import PortfolioManagerAgent  # noqa: E402
-from src.risk.rules import (  # noqa: E402
-    EARNINGS_STANCE_MAX_AGE_DAYS,
-    count_opposing_sources,
-)
+from src.risk.rules import count_opposing_sources  # noqa: E402
 
 _ASOF = date(2026, 9, 1)
+_FIXTURE_WINDOW = 90  # illustrative only: filing date to the next report's deadline
 
 
 def _earnings(symbol: str, sentiment: str, *, age_days: int, is_new: bool = False, asof: date = _ASOF) -> dict:
     """One entry in the `earnings_analyses` list, in the shape the pipeline
-    actually hands the PM (`run_earnings_preprocess` / `analyze_reports`)."""
+    actually hands the PM (`run_earnings_preprocess` / `analyze_reports`).
+
+    Fixture: the next report's statutory deadline (`current_until`, set by
+    the provider from the SEC list) falls `_FIXTURE_WINDOW` days after this
+    filing, so `age_days` past that window means the stance is stale."""
     filing_date = (asof - timedelta(days=age_days)).isoformat()
     return {
         "symbol": symbol,
         "form_type": "10-Q",
         "filing_date": filing_date,
+        "current_until": (asof - timedelta(days=age_days - _FIXTURE_WINDOW)).isoformat(),
         "is_new": is_new,
         "analysis": {
             "symbol": symbol,
@@ -519,16 +522,9 @@ def _earnings(symbol: str, sentiment: str, *, age_days: int, is_new: bool = Fals
 # --------------------------------------------------------------------------
 
 
-def test_freshness_threshold_reuses_the_earnings_seat_s_own_90_days():
-    """Not a number invented here: the earnings prompt already caps its own
-    conviction at `low` past 90 days, and `_missed_ops_earnings_signal`
-    already refuses anything older than 90 days as recent evidence."""
-    assert EARNINGS_STANCE_MAX_AGE_DAYS == 90
-
-
 def test_stance_exactly_at_the_threshold_is_still_fresh():
-    """90 days old is NOT stale — the gate fires strictly past the
-    threshold, so the boundary day is paid for like any other."""
+    """On the next report's deadline day the stance is NOT stale — the gate
+    fires strictly after it, so the boundary day is paid for like any other."""
     stale = PortfolioManagerAgent.stale_evidence_sources(
         earnings_analyses=[_earnings("NVDA", "bullish", age_days=90)],
         asof=_ASOF,
@@ -544,12 +540,10 @@ def test_stance_one_day_past_the_threshold_is_stale():
     assert stale == {"NVDA": frozenset({"earnings"})}
 
 
-def test_a_filing_with_no_date_is_treated_as_stale():
-    """An unknowable age is not evidence of freshness. Same call
-    `_missed_ops_earnings_signal` already makes on an unparseable date."""
+def test_a_stance_with_no_currency_date_is_treated_as_stale():
+    """An unknowable currency is not evidence of one."""
     entry = _earnings("NVDA", "bullish", age_days=1)
-    entry["filing_date"] = ""
-    entry["analysis"].pop("filing_date")
+    entry.pop("current_until")
     stale = PortfolioManagerAgent.stale_evidence_sources(
         earnings_analyses=[entry],
         asof=_ASOF,
@@ -1020,7 +1014,7 @@ def test_a_gated_stance_is_not_shown_to_the_pm_as_corroborating():
     # registry block, and the earnings section must ALL say the same thing —
     # each is asserted separately because each is written separately.
     assert "- NVDA: 1 aligned / 0 opposed = net +1 if long" in msg
-    assert "earnings stance NOT counted either way — filing older than 90d" in msg
+    assert "earnings stance NOT counted either way — filing superseded or past the next report's deadline" in msg
     assert "STALE (still real coverage, still citable as provenance" in msg
     assert "does NOT count toward the agreement score" in msg
 
