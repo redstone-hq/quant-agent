@@ -170,6 +170,9 @@ _STATUS_LABELS: dict[str, str] = {
     "intraday_scan_no_opportunity": "no movers worth looking at",
     "digest_only": "only partly completed",
     "skipped": "skipped",
+    # Intra safety / tick trail: another desk session held the account, so
+    # this run made no broker changes and the next tick retries.
+    "deferred": "skipped this time: another desk session was already running this work, and the next check retries",
     "scheduler_exited": "the scheduler stopped",
     "unknown": "outcome not recorded",
 }
