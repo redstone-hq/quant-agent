@@ -45,7 +45,9 @@ Rules:
   names. Joint owners in one accession are one filing event.
 - `signal_class` is a deterministic Python verdict, already computed. It is
   `opportunistic` (a discretionary decision), `routine` (a mechanical or
-  scheduled transaction) or `indeterminate`. Routine transactions carry **no
+  scheduled transaction) or `indeterminate` (the insider lacks the 3 preceding
+  calendar years of trades in that stock the published rule needs, so it is
+  neither routine nor opportunistic). Routine transactions carry **no
   predictive power** — weigh a symbol on its opportunistic rows and treat
   routine ones as background. `signal_class_reason` and `signal_class_detail`
   give the exact rule that decided it; quote that reason when a trade is being

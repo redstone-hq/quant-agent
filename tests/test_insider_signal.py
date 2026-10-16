@@ -22,6 +22,7 @@ from src.data.insider_signal import (
 )
 from src.data.smart_money import SECForm4Provider
 from src.models import SmartMoneyObservation
+from src.trading_calendar import et_today
 
 ET = ZoneInfo("America/New_York")
 
@@ -74,6 +75,11 @@ def _row(
     )
 
 
+def _established(owner="1", symbol="NVDA"):
+    """Three preceding calendar years of trades, none in August: classifiable, not routine."""
+    return _history(owner=owner, symbol=symbol, days=[date(2025, 1, 9), date(2024, 1, 9), date(2023, 1, 9)])
+
+
 def _history(owner="1", symbol="NVDA", direction="buy", days=()):
     return InsiderHistory(
         {(owner, symbol): [InsiderPriorTrade(transaction_date=day, direction=direction) for day in days]}
@@ -84,16 +90,15 @@ def _history(owner="1", symbol="NVDA", direction="buy", days=()):
 
 
 def test_discretionary_officer_purchase_is_opportunistic():
-    verdict = classify_transaction(_row(), InsiderHistory())
+    verdict = classify_transaction(_row(), _established())
 
     assert verdict.label == "opportunistic"
     assert verdict.reason == "opportunistic_purchase"
-    assert verdict.weight == 1.0
     assert "$100,000" in verdict.detail
 
 
 def test_purchase_by_owner_with_no_inside_role_is_still_opportunistic_but_flagged():
-    verdict = classify_transaction(_row(roles=("other",)), InsiderHistory())
+    verdict = classify_transaction(_row(roles=("other",)), _established())
 
     assert verdict.label == "opportunistic"
     assert "no officer, director or 10% role" in verdict.detail
@@ -102,7 +107,7 @@ def test_purchase_by_owner_with_no_inside_role_is_still_opportunistic_but_flagge
 def test_sale_large_relative_to_the_holding_is_opportunistic():
     verdict = classify_transaction(
         _row(direction="sell", shares=40_000.0, post_shares=10_000.0),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "opportunistic"
@@ -122,7 +127,6 @@ def test_same_calendar_month_for_three_years_is_routine():
 
     assert verdict.label == "routine"
     assert verdict.reason == "calendar_routine"
-    assert verdict.weight == 0.0
     assert "August" in verdict.detail
 
 
@@ -133,7 +137,8 @@ def test_two_years_of_same_month_history_is_not_yet_routine():
         _history(days=[date(2025, 8, 14), date(2024, 8, 3)]),
     )
 
-    assert verdict.label == "opportunistic"
+    assert verdict.label == "indeterminate"
+    assert verdict.reason == "insufficient_history"
 
 
 def test_a_gap_year_breaks_the_consecutive_streak():
@@ -150,10 +155,11 @@ def test_a_gap_year_breaks_the_consecutive_streak():
         ),
     )
 
-    assert verdict.label == "opportunistic"
+    assert verdict.label == "indeterminate"
+    assert verdict.reason == "insufficient_history"
 
 
-def test_history_in_the_other_direction_does_not_make_a_purchase_routine():
+def test_history_in_the_other_direction_counts_because_the_paper_does_not_split_by_direction():
     verdict = classify_transaction(
         _row(direction="buy", transaction_date=date(2026, 8, 20)),
         _history(
@@ -166,45 +172,7 @@ def test_history_in_the_other_direction_does_not_make_a_purchase_routine():
         ),
     )
 
-    assert verdict.label == "opportunistic"
-
-
-def test_evenly_spaced_recurring_programme_is_routine():
-    verdict = classify_transaction(
-        _row(direction="sell", shares=40_000.0, post_shares=10_000.0, transaction_date=date(2026, 8, 20)),
-        _history(
-            direction="sell",
-            days=[
-                date(2026, 5, 20),
-                date(2026, 2, 20),
-                date(2025, 11, 20),
-                date(2025, 8, 20),
-            ],
-        ),
-    )
-
     assert verdict.label == "routine"
-    assert verdict.reason == "recurring_cadence"
-    assert "scheduled programme" in verdict.detail
-
-
-def test_lumpy_discretionary_history_is_not_a_cadence():
-    """Boundary: same trade count, irregular spacing, so no routine label."""
-    verdict = classify_transaction(
-        _row(direction="sell", shares=40_000.0, post_shares=10_000.0, transaction_date=date(2026, 8, 20)),
-        _history(
-            direction="sell",
-            days=[
-                date(2026, 8, 1),
-                date(2026, 7, 28),
-                date(2025, 12, 3),
-                date(2025, 3, 9),
-            ],
-        ),
-    )
-
-    assert verdict.label == "opportunistic"
-    assert verdict.reason == "discretionary_sale"
 
 
 def test_a_small_proportional_sale_is_not_discarded_as_routine():
@@ -214,12 +182,11 @@ def test_a_small_proportional_sale_is_not_discarded_as_routine():
     ratio is reported as descriptive context and nothing is discarded."""
     verdict = classify_transaction(
         _row(direction="sell", shares=1_000.0, post_shares=99_000.0),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "opportunistic"
     assert verdict.reason == "discretionary_sale"
-    assert verdict.weight == 1.0
     assert "1.0%" in verdict.detail
 
 
@@ -231,7 +198,7 @@ def test_a_small_planned_sale_is_no_longer_demoted_by_the_10b5_1_flag():
     reported in the detail text for the seat to weigh."""
     verdict = classify_transaction(
         _row(direction="sell", shares=1_000.0, post_shares=99_000.0, is_10b5_1=True),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "opportunistic"
@@ -253,20 +220,18 @@ def test_a_small_planned_sale_is_no_longer_demoted_by_the_10b5_1_flag():
 # is a contract guard for that last case, not a live filter on real SEC
 # codes. Each of the three is pinned below with a hard literal.
 def test_code_empty_is_routine_via_the_contract_guard():
-    verdict = classify_transaction(_row(code="", direction="buy"), InsiderHistory())
+    verdict = classify_transaction(_row(code="", direction="buy"), _established())
     assert verdict.label == "routine"
     assert verdict.reason == "non_open_market_code"
-    assert verdict.weight == 0.0
 
 
 def test_code_p_open_market_purchase_is_opportunistic():
     """Pinned separately from ``test_discretionary_officer_purchase_is_
     opportunistic`` so every code in the reference list above has its own
     literal-asserted test, P included."""
-    verdict = classify_transaction(_row(code="P", direction="buy"), InsiderHistory())
+    verdict = classify_transaction(_row(code="P", direction="buy"), _established())
     assert verdict.label == "opportunistic"
     assert verdict.reason == "opportunistic_purchase"
-    assert verdict.weight == 1.0
 
 
 def test_code_s_open_market_sale_is_opportunistic_when_material():
@@ -274,15 +239,14 @@ def test_code_s_open_market_sale_is_opportunistic_when_material():
     opportunistic`` for the same reason — code S gets its own literal test."""
     verdict = classify_transaction(
         _row(code="S", direction="sell", shares=40_000.0, post_shares=10_000.0),
-        InsiderHistory(),
+        _established(),
     )
     assert verdict.label == "opportunistic"
     assert verdict.reason == "discretionary_sale"
-    assert verdict.weight == 1.0
 
 
 def test_zero_price_transaction_is_routine():
-    verdict = classify_transaction(_row(price=0.0), InsiderHistory())
+    verdict = classify_transaction(_row(price=0.0), _established())
 
     assert verdict.label == "routine"
     assert verdict.reason == "zero_price_transaction"
@@ -301,7 +265,7 @@ def test_large_10b5_1_sale_is_not_demoted_for_being_planned():
     """
     verdict = classify_transaction(
         _row(direction="sell", shares=40_000.0, post_shares=10_000.0, is_10b5_1=True),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "opportunistic"
@@ -310,7 +274,7 @@ def test_large_10b5_1_sale_is_not_demoted_for_being_planned():
 
 
 def test_10b5_1_purchase_is_not_routine():
-    verdict = classify_transaction(_row(is_10b5_1=True), InsiderHistory())
+    verdict = classify_transaction(_row(is_10b5_1=True), _established())
 
     assert verdict.label == "opportunistic"
 
@@ -325,32 +289,30 @@ def test_no_sell_fraction_anywhere_changes_the_label():
     whole point: the ranking no longer silently deletes one of them."""
     tiny = classify_transaction(
         _row(direction="sell", shares=100.0, post_shares=99_900.0),
-        InsiderHistory(),
+        _established(),
     )
     huge = classify_transaction(
         _row(direction="sell", shares=99_000.0, post_shares=1_000.0),
-        InsiderHistory(),
+        _established(),
     )
 
     assert tiny.label == huge.label == "opportunistic"
     assert tiny.reason == huge.reason == "discretionary_sale"
-    assert tiny.weight == huge.weight == 1.0
     assert tiny.detail != huge.detail
 
 
 def test_missing_post_transaction_holding_is_indeterminate_not_routine():
     verdict = classify_transaction(
         _row(direction="sell", post_shares=None),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "indeterminate"
     assert verdict.reason == "unknown_holding"
-    assert verdict.weight == 0.5
 
 
 def test_missing_amounts_are_indeterminate():
-    verdict = classify_transaction(_row(shares=None, price=None), InsiderHistory())
+    verdict = classify_transaction(_row(shares=None, price=None), _established())
 
     assert verdict.label == "indeterminate"
     assert verdict.reason == "incomplete_amounts"
@@ -359,7 +321,7 @@ def test_missing_amounts_are_indeterminate():
 def test_congressional_stream_is_out_of_scope():
     verdict = classify_transaction(
         _row(stream="congressional", code=""),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "indeterminate"
@@ -389,6 +351,23 @@ def _provider(tmp_path, **kwargs):
     return SECForm4Provider(data_dir=str(tmp_path), **kwargs)
 
 
+def _seed_established(provider, owner, symbol, direction="buy"):
+    """Trades in each of the 3 preceding calendar years, six months off today's month."""
+    today = et_today()
+    month = (today.month + 5) % 12 + 1
+    provider._record_history(
+        [
+            {
+                "actor_cik": owner,
+                "symbol": symbol,
+                "direction": direction,
+                "transaction_date": date(today.year - n, month, 1).isoformat(),
+            }
+            for n in (1, 2, 3)
+        ]
+    )
+
+
 def test_routine_purchase_never_becomes_admission_eligible(tmp_path):
     today = date.today()
     provider = _provider(tmp_path)
@@ -416,6 +395,7 @@ def test_routine_purchase_never_becomes_admission_eligible(tmp_path):
 
 def test_opportunistic_purchase_still_gets_admission(tmp_path):
     provider = _provider(tmp_path)
+    _seed_established(provider, "1", "ABCD")
     _cached(provider, [_row(symbol="ABCD", transaction_date=date.today())])
 
     observations, _ = provider.fetch(["NVDA"])
@@ -464,6 +444,7 @@ def test_routine_rows_sort_behind_opportunistic_ones(tmp_path):
             for n in (1, 2, 3)
         ]
     )
+    _seed_established(provider, "2", "NVDA")
     _cached(
         provider,
         [
@@ -574,6 +555,7 @@ def test_indeterminate_filing_is_kept_by_fetch_not_dropped(tmp_path):
         post_shares=None,
         transaction_date=date.today(),
     )
+    _seed_established(provider, "1", "NVDA", "sell")
     _cached(provider, [unclassifiable])
 
     observations, error = provider.fetch(["NVDA"])
@@ -582,7 +564,6 @@ def test_indeterminate_filing_is_kept_by_fetch_not_dropped(tmp_path):
     assert len(observations) == 1  # kept, not dropped
     assert observations[0].signal_class == "indeterminate"
     assert observations[0].signal_class_reason == "unknown_holding"
-    assert observations[0].signal_weight == 0.5
 
 
 def test_indeterminate_filing_from_missing_amounts_is_not_downgraded_to_routine():
@@ -607,11 +588,10 @@ def test_indeterminate_filing_from_missing_amounts_is_not_downgraded_to_routine(
     silently zeroes this row's weight or reason before the materiality gate
     even gets a chance to run.
     """
-    verdict = classify_transaction(_row(shares=None, price=None), InsiderHistory())
+    verdict = classify_transaction(_row(shares=None, price=None), _established())
 
     assert verdict.label == "indeterminate"
     assert verdict.reason == "incomplete_amounts"
-    assert verdict.weight == 0.5
 
 
 # --- configurable thresholds: no hardcoded constants -----------------------
@@ -642,7 +622,7 @@ def test_custom_calendar_routine_years_changes_the_verdict():
     row = _row(transaction_date=date(2026, 8, 20))
 
     default_verdict = classify_transaction(row, history)
-    assert default_verdict.label == "opportunistic"
+    assert default_verdict.label == "indeterminate"
 
     lenient_verdict = classify_transaction(
         row,
@@ -666,11 +646,11 @@ def test_a_proportionally_tiny_sale_survives_the_provider_end_to_end(tmp_path):
         post_shares=97_000.0,
         transaction_date=date.today(),
     )
+    _seed_established(provider, "1", "NVDA", "sell")
     _cached(provider, [row])
     observations, _ = provider.fetch(["NVDA"])
 
     assert [obs.signal_class for obs in observations] == ["opportunistic"]
-    assert [obs.signal_weight for obs in observations] == [1.0]
     assert [obs.holdings_fraction for obs in observations] and observations[0].holdings_fraction < 0.1
 
 
@@ -723,7 +703,7 @@ def test_missing_post_transaction_shares_reports_no_band_at_all():
 def test_purchase_detail_names_the_added_fraction_for_the_seat():
     verdict = classify_transaction(
         _row(direction="buy", shares=20_000.0, post_shares=100_000.0),
-        InsiderHistory(),
+        _established(),
     )
 
     assert verdict.label == "opportunistic"
@@ -768,3 +748,36 @@ def test_the_ratio_never_admits_or_rejects_a_row(tmp_path):
     ratios = {obs.accession_number: obs.holdings_fraction for obs in observations}
     assert ratios["0000000001-26-000101"] == 1_000.0 / 999_000.0
     assert ratios["0000000001-26-000102"] == 2.0
+
+
+# --- Cohen, Malloy & Pomorski (2012) Table A3, per-trade rule ---------------
+
+
+def test_cmp_routine_same_month_in_each_of_three_preceding_years():
+    verdict = classify_transaction(
+        _row(symbol="ZZZA", transaction_date=date(2026, 3, 10)),
+        _history(symbol="ZZZA", days=[date(2025, 3, 2), date(2024, 3, 20), date(2023, 3, 5)]),
+    )
+    assert (verdict.label, verdict.reason) == ("routine", "calendar_routine")
+
+
+def test_cmp_opportunistic_traded_each_year_but_different_months():
+    verdict = classify_transaction(
+        _row(symbol="ZZZB", transaction_date=date(2026, 3, 10)),
+        _history(symbol="ZZZB", days=[date(2025, 3, 2), date(2024, 9, 20), date(2023, 3, 5)]),
+    )
+    assert verdict.label == "opportunistic"
+
+
+def test_cmp_gap_year_is_indeterminate_insufficient_history():
+    verdict = classify_transaction(
+        _row(symbol="ZZZC", transaction_date=date(2026, 3, 10)),
+        _history(symbol="ZZZC", days=[date(2025, 3, 2), date(2023, 3, 5), date(2022, 3, 9)]),
+    )
+    assert (verdict.label, verdict.reason) == ("indeterminate", "insufficient_history")
+    assert verdict.label != "opportunistic"
+
+
+def test_cmp_no_history_at_all_is_indeterminate_not_opportunistic():
+    verdict = classify_transaction(_row(symbol="ZZZD"), InsiderHistory())
+    assert (verdict.label, verdict.reason) == ("indeterminate", "insufficient_history")

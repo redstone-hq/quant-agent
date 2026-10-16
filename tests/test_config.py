@@ -281,10 +281,6 @@ def test_smart_money_insider_thresholds_default_to_pre_config_values():
 
     config = SmartMoneyConfig()
     assert config.insider_calendar_routine_years == 3
-    assert config.insider_min_cadence_trades == 3
-    assert config.insider_cadence_min_mean_gap_days == 20.0
-    assert config.insider_cadence_max_mean_gap_days == 120.0
-    assert config.insider_cadence_max_gap_dispersion == 0.25
     assert config.insider_history_retention_days == 5 * 366
 
 
@@ -295,25 +291,10 @@ def test_smart_money_insider_thresholds_are_operator_overridable():
 
     config = SmartMoneyConfig(
         insider_calendar_routine_years=2,
-        insider_min_cadence_trades=4,
-        insider_cadence_min_mean_gap_days=25.0,
-        insider_cadence_max_mean_gap_days=100.0,
-        insider_cadence_max_gap_dispersion=0.15,
         insider_history_retention_days=1000,
     )
     assert config.insider_calendar_routine_years == 2
     assert config.insider_history_retention_days == 1000
-
-
-def test_smart_money_insider_cadence_window_must_be_well_formed():
-    from pydantic import ValidationError
-    from src.config import SmartMoneyConfig
-
-    with pytest.raises(ValidationError):
-        SmartMoneyConfig(
-            insider_cadence_min_mean_gap_days=120.0,
-            insider_cadence_max_mean_gap_days=20.0,
-        )
 
 
 def test_smart_money_insider_history_retention_must_cover_the_calendar_years():

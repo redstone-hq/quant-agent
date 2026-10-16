@@ -22,10 +22,6 @@ src.config.NominationConfig.max_per_seat_per_run
 src.config.RiskConfig.max_target_horizon_sessions
 src.config.SmartMoneyConfig.cluster_window_days
 src.config.SmartMoneyConfig.congress_lookback_days
-src.config.SmartMoneyConfig.insider_cadence_max_gap_dispersion
-src.config.SmartMoneyConfig.insider_cadence_max_mean_gap_days
-src.config.SmartMoneyConfig.insider_cadence_min_mean_gap_days
-src.config.SmartMoneyConfig.insider_min_cadence_trades
 src.config.SmartMoneyConfig.lookback_days
 src.config.SmartMoneyConfig.max_external_candidates
 src.config.SmartMoneyConfig.max_filings_per_refresh
@@ -33,7 +29,6 @@ src.config.SmartMoneyConfig.max_observations
 src.config.SmartMoneyConfig.refresh_deadline_s
 src.data.context._CONSOLIDATION_WINDOW
 src.data.context._SLOPE_LOOKBACK
-src.data.insider_signal._WEIGHTS[INDETERMINATE]
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
 src.pipeline_intraday._NAMES_PER_PAID_CALL
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)

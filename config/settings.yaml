@@ -1000,10 +1000,6 @@ smart_money:
   # (src/data/insider_signal.py). See src/config/__init__.py::SmartMoneyConfig for
   # the evidence basis behind each default.
   insider_calendar_routine_years: 3
-  insider_min_cadence_trades: 3
-  insider_cadence_min_mean_gap_days: 20
-  insider_cadence_max_mean_gap_days: 120
-  insider_cadence_max_gap_dispersion: 0.25
   # insider_min_material_sell_fraction REMOVED 2026-09-13 — it was a cutoff no
   # published source measures, and it discarded a band Scott & Xu find
   # significantly positive. The ratio is reported, not gated. See src/config/__init__.py.

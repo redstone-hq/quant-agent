@@ -41,8 +41,16 @@ taken from ``RESEARCH_FINDINGS.md`` rather than from intuition:
 
 The classifier is pure Python, deterministic, and makes no model call.
 
-Every numeric threshold below (calendar-routine years, cadence window) is an
-operator-tunable setting, not a fixed number in this
+The rule is the per-trade version in Cohen, Malloy & Pomorski (2012), NBER
+w16454 Table A3 (p.11). An insider-stock pair is classifiable only when the
+insider traded that stock at least once in each of the 3 preceding calendar
+years (footnote 9: the paper tested 1 to 5 years with similar results; 3 is
+its own main specification). A classifiable trade is routine when the insider
+also traded that stock in the same calendar month in each of those years,
+otherwise opportunistic. Direction is not split: the paper says "a trade".
+A pair without that history is indeterminate ("insufficient history").
+
+The one number (calendar-routine years) is an operator-tunable setting, not a fixed number in this
 file — the owner rejects hardcoded thresholds on sight, and a threshold able
 to change classification output is exactly the kind of number that belongs
 in config. Defaults live on `SmartMoneyConfig` in `src/config.py` (fields
@@ -58,16 +66,25 @@ module used before 2026-08-28 — so unconfigured behaviour is unchanged.
 
 from __future__ import annotations
 
-import statistics
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 
 OPPORTUNISTIC = "opportunistic"
 ROUTINE = "routine"
 INDETERMINATE = "indeterminate"
 
-_WEIGHTS = {OPPORTUNISTIC: 1.0, INDETERMINATE: 0.5, ROUTINE: 0.0}
+# Sort order only, best first. Cohen, Malloy & Pomorski (2012) give no weight to
+# a trade they could not classify, so there is no numeric weight: opportunistic,
+# then indeterminate, then routine. Mirrors the analyst's _SIGNAL_CLASS_RANK
+# (src/data must not import src/agents).
+SIGNAL_CLASS_ORDER = (OPPORTUNISTIC, INDETERMINATE, ROUTINE)
+
+
+def signal_class_sort_key(label: str) -> int:
+    """Position in SIGNAL_CLASS_ORDER; an unlabelled row sorts as indeterminate."""
+    return SIGNAL_CLASS_ORDER.index(label if label in SIGNAL_CLASS_ORDER else INDETERMINATE)
+
 
 # Roles that carry published signal. CFO purchases beat CEO purchases; a
 # reporting owner with no officer/director/10% standing is a weaker source.
@@ -88,10 +105,6 @@ class InsiderSignalThresholds:
     """
 
     calendar_routine_years: int = 3
-    min_cadence_trades: int = 3
-    cadence_min_mean_gap_days: float = 20.0
-    cadence_max_mean_gap_days: float = 120.0
-    cadence_max_gap_dispersion: float = 0.25
 
 
 _DEFAULT_THRESHOLDS = InsiderSignalThresholds()
@@ -139,14 +152,14 @@ class InsiderHistory:
         actor_cik: str,
         symbol: str,
         *,
-        direction: str,
+        direction: str | None = None,
         before: date,
     ) -> list[InsiderPriorTrade]:
         key = (str(actor_cik or "").strip(), str(symbol or "").strip().upper())
         return [
             trade
             for trade in self._trades.get(key, ())
-            if trade.direction == direction and trade.transaction_date < before
+            if (direction is None or trade.direction == direction) and trade.transaction_date < before
         ]
 
     @classmethod
@@ -175,11 +188,10 @@ class InsiderSignalClass:
     label: str
     reason: str
     detail: str
-    weight: float = field(default=1.0)
 
     @classmethod
     def of(cls, label: str, reason: str, detail: str) -> "InsiderSignalClass":
-        return cls(label=label, reason=reason, detail=detail, weight=_WEIGHTS[label])
+        return cls(label=label, reason=reason, detail=detail)
 
 
 def _sell_fraction(shares: float | None, post_shares: float | None) -> float | None:
@@ -251,38 +263,18 @@ def _has_inside_role(roles) -> bool:
     return False
 
 
-def _calendar_routine_years(
+def _history_verdict(
     prior: Sequence[InsiderPriorTrade],
     transaction_date: date,
-    thresholds: InsiderSignalThresholds,
-) -> int:
-    """Consecutive preceding years with a trade in the same calendar month."""
-    months = {(trade.transaction_date.year, trade.transaction_date.month) for trade in prior}
-    streak = 0
-    for offset in range(1, thresholds.calendar_routine_years + 1):
-        if (transaction_date.year - offset, transaction_date.month) not in months:
-            break
-        streak += 1
-    return streak
-
-
-def _cadence_gap_stats(
-    prior: Sequence[InsiderPriorTrade],
-    transaction_date: date,
-    thresholds: InsiderSignalThresholds,
-) -> tuple[float, float] | None:
-    """Mean gap and coefficient of variation across the trade series."""
-    dates = sorted({trade.transaction_date for trade in prior} | {transaction_date})
-    if len(dates) < thresholds.min_cadence_trades + 1:
+    years: int,
+) -> bool | None:
+    """CMP 2012 Table A3: None = not classifiable, True = routine, False = opportunistic."""
+    seen = {(trade.transaction_date.year, trade.transaction_date.month) for trade in prior}
+    seen_years = {year for year, _ in seen}
+    offsets = range(1, years + 1)
+    if any(transaction_date.year - offset not in seen_years for offset in offsets):
         return None
-    gaps = [float((later - earlier).days) for earlier, later in zip(dates, dates[1:]) if (later - earlier).days > 0]
-    if len(gaps) < thresholds.min_cadence_trades:
-        return None
-    mean_gap = statistics.fmean(gaps)
-    if mean_gap <= 0:
-        return None
-    dispersion = statistics.pstdev(gaps) / mean_gap
-    return mean_gap, dispersion
+    return all((transaction_date.year - offset, transaction_date.month) in seen for offset in offsets)
 
 
 def classify_transaction(
@@ -339,37 +331,30 @@ def classify_transaction(
     symbol = str(getattr(observation, "symbol", "") or "").strip().upper()
     prior: list[InsiderPriorTrade] = []
     if history and isinstance(transaction_date, date) and actor_cik and symbol:
-        prior = history.prior_trades(
-            actor_cik,
-            symbol,
-            direction=direction,
-            before=transaction_date,
-        )
+        # Both directions: the paper's rule is on "a trade", not a buy or a sale.
+        prior = history.prior_trades(actor_cik, symbol, before=transaction_date)
 
-    if prior and isinstance(transaction_date, date):
-        streak = _calendar_routine_years(prior, transaction_date, thresholds)
-        if streak >= thresholds.calendar_routine_years:
-            return InsiderSignalClass.of(
-                ROUTINE,
-                "calendar_routine",
-                f"Same insider traded {symbol} in {transaction_date:%B} in each "
-                f"of the {streak} preceding years — a routine trader under "
-                "Cohen/Malloy/Pomorski, which carries no predictive power.",
-            )
-        stats = _cadence_gap_stats(prior, transaction_date, thresholds)
-        if stats is not None:
-            mean_gap, dispersion = stats
-            if (
-                thresholds.cadence_min_mean_gap_days <= mean_gap <= thresholds.cadence_max_mean_gap_days
-                and dispersion <= thresholds.cadence_max_gap_dispersion
-            ):
-                return InsiderSignalClass.of(
-                    ROUTINE,
-                    "recurring_cadence",
-                    f"{len(prior) + 1} {direction} transactions spaced every "
-                    f"~{mean_gap:.0f} days with {dispersion:.0%} variation — a "
-                    "scheduled programme, not a discretionary decision.",
-                )
+    routine = (
+        _history_verdict(prior, transaction_date, thresholds.calendar_routine_years)
+        if isinstance(transaction_date, date)
+        else None
+    )
+    years = thresholds.calendar_routine_years
+    if routine is None:
+        return InsiderSignalClass.of(
+            INDETERMINATE,
+            "insufficient_history",
+            f"Fewer than {years} preceding calendar years of this insider's trades in {symbol or 'this stock'}; "
+            "Cohen/Malloy/Pomorski (2012) cannot classify the trade as routine or opportunistic.",
+        )
+    if routine:
+        return InsiderSignalClass.of(
+            ROUTINE,
+            "calendar_routine",
+            f"Same insider traded {symbol} in {transaction_date:%B} in each "
+            f"of the {years} preceding years — a routine trader under "
+            "Cohen/Malloy/Pomorski, which carries no predictive power.",
+        )
 
     is_10b5_1 = getattr(observation, "is_10b5_1", None)
     if direction == "sell":
@@ -387,14 +372,15 @@ def classify_transaction(
             if is_10b5_1
             else ""
         )
-        # No cutoff. The sale survived both Cohen/Malloy/Pomorski routine
-        # tests, so it is discretionary in the only sense this taxonomy
+        # No cutoff. The sale has the full history and is not in the same
+        # calendar month each year (Cohen/Malloy/Pomorski), so it is discretionary in the only sense this taxonomy
         # defines. The raw per-row holding ratio is descriptive context; it
         # carries no Scott/Xu return inference because the units differ.
         return InsiderSignalClass.of(
             OPPORTUNISTIC,
             "discretionary_sale",
-            f"Discretionary sale of {fraction:.1%} of the insider's holding, matching no routine pattern.{planned}",
+            f"Discretionary sale of {fraction:.1%} of the insider's holding, not in the same "
+            f"calendar month as in each of the {years} preceding years.{planned}",
         )
 
     role_note = (
@@ -415,5 +401,6 @@ def classify_transaction(
     return InsiderSignalClass.of(
         OPPORTUNISTIC,
         "opportunistic_purchase",
-        f"Discretionary open-market purchase of ${value:,.0f} matching no routine pattern.{size_note}{role_note}",
+        f"Discretionary open-market purchase of ${value:,.0f} not in the same calendar month "
+        f"as in each of the {years} preceding years.{size_note}{role_note}",
     )

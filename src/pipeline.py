@@ -485,10 +485,6 @@ class TradingPipeline(
             cluster_window_days=config.smart_money.cluster_window_days,
             min_cluster_owners=config.smart_money.min_cluster_owners,
             insider_calendar_routine_years=config.smart_money.insider_calendar_routine_years,
-            insider_min_cadence_trades=config.smart_money.insider_min_cadence_trades,
-            insider_cadence_min_mean_gap_days=config.smart_money.insider_cadence_min_mean_gap_days,
-            insider_cadence_max_mean_gap_days=config.smart_money.insider_cadence_max_mean_gap_days,
-            insider_cadence_max_gap_dispersion=config.smart_money.insider_cadence_max_gap_dispersion,
             insider_history_retention_days=config.smart_money.insider_history_retention_days,
         )
         # Congress (House + Senate) trading-disclosure cross-check, switched
