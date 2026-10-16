@@ -239,36 +239,30 @@ class MissedOpsSignals:
             manifest = getattr(self.earnings_provider, "manifest", {}) or {}
         except Exception:
             return {}
-        from datetime import date as _date
         from pathlib import Path
 
-        # audit round 2, three fixes:
-        # (a) newest filing PER SYMBOL — the old loop wrote raw manifest
-        #     order, so an older 10-K could shadow this quarter's 10-Q;
-        # (b) 90-day recency using the manifest's own filing_date — a stale
-        #     analysis from months ago is not "recent earnings evidence";
-        # (c) sentiment from the STRUCTURED "Sentiment:" line — the naive
-        #     `"bearish" in head` substring dropped NEUTRAL analyses whose
-        #     prose merely mentioned the word ("not bearish", "bearish
-        #     scenarios considered").
-        best: dict[str, tuple[str, dict]] = {}  # symbol -> (filing_date, entry)
-        for key, entry in manifest.items():
-            if not isinstance(entry, dict) or entry.get("abandoned"):
-                continue
-            symbol = str(key).split("_")[0].upper()
-            fd = str(entry.get("filing_date") or "")
-            if symbol not in best or fd > best[symbol][0]:
-                best[symbol] = (fd, entry)
+        from src.agents.portfolio_manager.evidence_prompting import earnings_stance_is_stale
+
+        # Currency is decided by the provider's own check (latest 10-Q/10-K
+        # only, outage fallback to the stored deadline) and the portfolio
+        # manager's `earnings_stance_is_stale` - the one rule, no age cutoff here.
+        # Sentiment comes from the STRUCTURED "Sentiment:" line - a naive
+        # `"bearish" in head` substring dropped NEUTRAL analyses whose prose
+        # merely mentioned the word ("not bearish", "bearish scenarios considered").
+        symbols = sorted({str(k).split("_")[0].upper() for k, e in manifest.items() if isinstance(e, dict)})
+        try:
+            reports = self.earnings_provider.check_and_fetch(symbols)
+        except Exception as exc:
+            record_swallowed("missed_ops.earnings_signal", exc, log=logger)
+            return {}
 
         out: dict[str, str] = {}
         today = et_today()
-        for symbol, (fd, entry) in best.items():
-            try:
-                if not fd or (today - _date.fromisoformat(fd)).days > 90:
-                    continue
-            except ValueError:
-                continue  # unparseable date = unknowable age = stale
-            analysis_path = entry.get("analysis_path")
+        for report in reports or []:
+            symbol = str(report.symbol).upper()
+            if earnings_stance_is_stale(report.current_until, today):
+                continue
+            analysis_path = report.analysis_path
             if not analysis_path:
                 continue
             p = Path(analysis_path)
