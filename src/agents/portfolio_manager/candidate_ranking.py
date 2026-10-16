@@ -617,19 +617,15 @@ class CandidateRanking:
             "evidence ≥ 1; not refused by the order constructor's own "
             "preview). They are ORDERED by the SUM across "
             "every seat that reported a direction on the name, of that "
-            "seat's stated strength plus its stated conviction — technical "
-            "and earnings weighted 1.2x, news at 1.0x baseline, smart_money "
-            "and macro at 0.8x, a research-informed prior (2026-09-03), not "
-            "a measurement of THIS desk's own analysts. A SUM, so more "
+            "seat's stated conviction — every seat counts the same. "
+            "A SUM, so more "
             "agreeing seats always score higher: breadth is the point, and "
             "an agreeing seat can never pull a name down. Only technical "
-            "states a strength of its own (its rating rungs); the other four "
-            "seats HAVE no strength scale, so they are absent from the "
-            "strength term entirely — they are not a strength of zero, and "
-            "each row below names which seats the strength figure covers. "
-            "Those seats contribute their weighted conviction and nothing "
-            "else. The score is therefore NOT capped at 2.0 and "
-            "not comparable across sessions with different coverage. "
+            "states a rating rung (strong over plain); it is NOT added to "
+            "the score and only breaks a tie between equal scores. The "
+            "other four seats have no rating rung at all — absent, not "
+            "zero. The score is not comparable across sessions with "
+            "different coverage. "
             "This is the tiebreak among equally eligible names: to take a "
             "lower-ranked name over a higher one, say what the ranking does "
             "not see. It is not a size, and it does not waive any rule "
@@ -645,24 +641,19 @@ class CandidateRanking:
                 # rows contradicted each other on this name" is invisible
                 # here and reads exactly like "macro never covered it".
                 no_lean = f" | no lean from: {', '.join(c.neutral_seats)}" if c.neutral_seats else ""
-                # Item 65, 2026-09-26. The strength half is reported with
-                # the seats it is actually summed over, and is reported as
-                # ABSENT — not as 0.00 — when no seat on this name has a
-                # strength scale at all. Before this, four rungless seats
-                # each fed a literal 0.0 into a figure labelled "summed over
-                # N seats", so a name covered by four agreeing non-technical
-                # seats read here as "strength 0.00", which is what a name
-                # whose seats all measured no lean would also read as.
+                # n06, 2026-10-16: the rating rung is NOT part of the score any
+                # more; it only breaks ties, and the prompt says so. Reported
+                # as ABSENT when no seat on this name states a rung.
                 if c.strength_seats:
-                    strength = f"strength {c.components['magnitude']:.2f} from {'/'.join(c.strength_seats)}"
+                    strength = f"rating rung {c.rung_tiebreak:.2f} from {'/'.join(c.strength_seats)} breaks ties only"
                 else:
-                    strength = "no strength stated by any seat on this name"
+                    strength = "no rating rung stated by any seat on this name"
                 no_strength = f" | no strength scale: {', '.join(c.no_strength_seats)}" if c.no_strength_seats else ""
                 lines.append(
                     f"{i}. {c.symbol} — {c.direction} | score {c.score:.2f} "
-                    f"({strength} + conviction "
+                    f"(conviction "
                     f"{c.components['conviction_score']:.2f} summed over "
-                    f"{len(c.verdicts)} seat(s)) | seats: {seats} "
+                    f"{len(c.verdicts)} seat(s); {strength}) | seats: {seats} "
                     f"({convictions}){no_strength}{no_lean} | invalid if "
                     f"— {invalidation}"
                 )

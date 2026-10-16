@@ -113,7 +113,7 @@ class StockNewsItem(LLMOutputModel):
 #: Judgment call (flagged for review, Phase 13 §13.3 posture — start equal,
 #: adjust only on out-of-sample proof): a `StockNewsItem` carries no numeric
 #: field at all, only a three-rung conviction, so unlike
-#: `RATING_MAGNITUDE` (which has a true neutral rung at 0.0 to anchor
+#: `rating_rung_strength` (which has a true neutral rung at 0.0 to anchor
 #: against) there is nothing to equally space AROUND. Spacing the three
 #: rungs equally across (0, 1] — never landing on 0.0, which the
 #: `AnalystVerdict` validator reserves for a real neutral read — keeps "low

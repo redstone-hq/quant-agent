@@ -35,7 +35,7 @@ SCOPED_PATHS: tuple[str, ...] = (
     "src/evidence_gate.py",
     "src/verdicts.py",
     "src/data/correlation.py",
-    # Rating magnitudes feed verdict ranking, insider weights order the
+    # Rating rungs only break verdict-ranking ties (n06), insider weights order the
     # smart-money evidence, and market-context windows shape evidence shown to
     # the Technical seat. Their numeric definitions therefore sit on the same
     # verdict-to-order path as the consumers already in scope.

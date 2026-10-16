@@ -140,11 +140,9 @@ ROTATION_REFUSAL_POINTS: tuple[str, ...] = (
     "book_not_constrained",
     "no_new_candidates",
     "no_ranked_holdings",
-    "held_score_non_positive",
     "score_noise_unmeasured",
     "full_composite_margin_not_cleared",
     "no_shared_scoring_seat",
-    "shared_held_score_non_positive",
     "shared_composite_margin_not_cleared",
 )
 
