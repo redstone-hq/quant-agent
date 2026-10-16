@@ -39,7 +39,6 @@ src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_thesis_health_context(lookback_weeks)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(min_age_days)
-src.risk.constants.STARTER_POSITION_RISK_PCT
 src.risk.gross_ladder.GROSS_LADDER[0][0]
 src.risk.gross_ladder.GROSS_LADDER[0][1]
 src.risk.gross_ladder.GROSS_LADDER[1][0]

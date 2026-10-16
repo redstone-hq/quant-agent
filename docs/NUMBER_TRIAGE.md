@@ -66,7 +66,7 @@ Measured 2026-10-01: the built recording is still EMPTY (entry ATR on 3 of 84 tr
 **Tier 1 sizes positions or prices/places live orders.** Minimum and starter risk floor; a built recording counts every order the floor refuses, which settles whether the floor ever binds.
 
 - `portfolio_constructor.ConstructorConfig.min_risk_pct` = 0.5
-- `risk.constants.STARTER_POSITION_RISK_PCT` = 0.5
+- ~~`risk.constants.STARTER_POSITION_RISK_PCT` = 0.5~~ -- OWNER-RULED 2026-10-16 ledger pass: the owner set 0.5% on 2026-08-27 and reaffirmed it 2026-10-12 (docs/OUTCOME.md).
 
 Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusals` holds 14 rows, all reward-to-risk refusals from the parity gate, and `requested_risk_pct` is null on every one [measured]. On the 41 entries with a recorded request, 0 asked for less than 0.5%; 8 asked for 0.5-1.0% (minimum allocated 0.5%), 15 for 1-2%, 18 for 2-3% [measured]. The floor has never refused anything and the seat's lowest request equals the floor, so the number currently governs nothing; the route's one-year clock for reformulation is the right close and is running. Survives, unexercised.
 
