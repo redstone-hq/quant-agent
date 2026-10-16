@@ -379,7 +379,8 @@ def classify_transaction(
         return InsiderSignalClass.of(
             OPPORTUNISTIC,
             "discretionary_sale",
-            f"Discretionary sale of {fraction:.1%} of the insider's holding, not in the same calendar month as in each of the {years} preceding years.{planned}",
+            f"Discretionary sale of {fraction:.1%} of the insider's holding, not in the same "
+            f"calendar month as in each of the {years} preceding years.{planned}",
         )
 
     role_note = (
@@ -400,5 +401,6 @@ def classify_transaction(
     return InsiderSignalClass.of(
         OPPORTUNISTIC,
         "opportunistic_purchase",
-        f"Discretionary open-market purchase of ${value:,.0f} not in the same calendar month as in each of the {years} preceding years.{size_note}{role_note}",
+        f"Discretionary open-market purchase of ${value:,.0f} not in the same calendar month "
+        f"as in each of the {years} preceding years.{size_note}{role_note}",
     )

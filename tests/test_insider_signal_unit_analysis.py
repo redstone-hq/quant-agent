@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from src.data.insider_signal import InsiderHistory, classify_transaction
+from src.data.insider_signal import InsiderHistory, InsiderPriorTrade, classify_transaction
 from src.models import SmartMoneyObservation
 
 
@@ -12,6 +12,7 @@ def _row(direction: str, shares: float, post_shares: float) -> SmartMoneyObserva
         symbol="NVDA",
         stream="insider",
         actor="Owner 1",
+        actor_cik="1",
         actor_roles=["officer", "Chief Financial Officer"],
         direction=direction,
         transaction_date=transaction_date,
@@ -30,11 +31,17 @@ def _row(direction: str, shares: float, post_shares: float) -> SmartMoneyObserva
     )
 
 
+def _established() -> InsiderHistory:
+    """A trade in each of the 3 preceding calendar years, none in August: classifiable."""
+    trades = [InsiderPriorTrade(transaction_date=date(year, 1, 9), direction="buy") for year in (2023, 2024, 2025)]
+    return InsiderHistory({("1", "NVDA"): trades})
+
+
 def test_per_filing_detail_does_not_borrow_aggregate_study_outcomes():
     """One Form 4 row is not Scott/Xu's six-month stock-wide aggregate."""
 
     def detail_for(direction: str, shares: float, post: float) -> str:
-        return classify_transaction(_row(direction, shares, post), InsiderHistory()).detail
+        return classify_transaction(_row(direction, shares, post), _established()).detail
 
     details = [
         detail_for("sell", 9_999.0, 90_001.0),

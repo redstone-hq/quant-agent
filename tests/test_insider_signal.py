@@ -22,6 +22,7 @@ from src.data.insider_signal import (
 )
 from src.data.smart_money import SECForm4Provider
 from src.models import SmartMoneyObservation
+from src.trading_calendar import et_today
 
 ET = ZoneInfo("America/New_York")
 
@@ -172,10 +173,6 @@ def test_history_in_the_other_direction_counts_because_the_paper_does_not_split_
     )
 
     assert verdict.label == "routine"
-
-
-
-
 
 
 def test_a_small_proportional_sale_is_not_discarded_as_routine():
@@ -356,7 +353,7 @@ def _provider(tmp_path, **kwargs):
 
 def _seed_established(provider, owner, symbol, direction="buy"):
     """Trades in each of the 3 preceding calendar years, six months off today's month."""
-    today = date.today()
+    today = et_today()
     month = (today.month + 5) % 12 + 1
     provider._record_history(
         [
