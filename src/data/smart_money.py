@@ -569,9 +569,7 @@ class SECForm4Provider:
         if not isinstance(stored_days, dict):
             stored_days = {}
         completed: dict[str, dict] = {
-            d: rec
-            for d, rec in stored_days.items()
-            if d in window_days and d < today_iso and isinstance(rec, dict)
+            d: rec for d, rec in stored_days.items() if d in window_days and d < today_iso and isinstance(rec, dict)
         }
         day_candidates: dict[str, set[str]] = {}
         skipped_days: set[str] = set()
