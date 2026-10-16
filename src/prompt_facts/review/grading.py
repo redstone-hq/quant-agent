@@ -23,13 +23,11 @@ class ReviewGrading:
         broker=None,
         market=None,
         sweeper=None,
-        build_post_exit_reality=None,
     ) -> None:
         self.db = db
         self.broker = broker
         self.market = market
         self._sweeper = sweeper  # the host's callable, read per use (never snapshotted)
-        self._build_post_exit_reality = build_post_exit_reality  # owned by ReviewExits; the host's shim is handed in
 
     def _build_recent_sells_for_grading(
         self,
@@ -59,7 +57,7 @@ class ReviewGrading:
         # never a reviewer decision — historical rows still carry the label.
         # Belt (audit round 2): the vehicle also exits under EMERGENCY_SELL
         # when the breaker liquidates everything — filter by SYMBOL here,
-        # mirroring _build_post_exit_reality, so parking churn never reaches
+        # so parking churn never reaches
         # the grading loop under any action name.
         sweeper = self._sweeper()
         sweep_symbol = sweeper.symbol if sweeper is not None else None
@@ -256,26 +254,13 @@ class ReviewGrading:
             "repeat_wrong_symbols": [],
         }
 
-        def _with_reality(base: dict) -> dict:
-            # The deterministic post-exit block must ride along even when
-            # nightly grades are absent/corrupt — it's tape-derived, not
-            # grade-derived, and it's the part the grader can't sugar-coat.
-            # `max_symbols` and `min_age_days` are deliberately omitted here:
-            # their live defaults remain 12 symbols and 2 days, respectively.
-            try:
-                base["post_exit_reality"] = self._build_post_exit_reality()
-            except Exception as e:  # noqa: BLE001
-                logger.warning("post_exit_reality failed (summary degrades): %s", e)
-                base["post_exit_reality"] = None
-            return base
-
         try:
             rows = self.db.get_recent_insights(limit=lookback_days + 5)
         except Exception as e:
             logger.warning("trade_grade_summary: insights fetch failed: %s", e)
-            return _with_reality(empty)
+            return empty
         if not rows:
-            return _with_reality(empty)
+            return empty
 
         sell_counts = {"correct": 0, "premature": 0, "wrong": 0}
         buy_counts = {"correct": 0, "premature": 0, "wrong": 0}
@@ -362,9 +347,4 @@ class ReviewGrading:
             "repeat_premature_symbols": sorted(s for s, c in sell_premature_by_symbol.items() if c >= 2),
             "repeat_wrong_symbols": sorted(s for s, c in sell_wrong_by_symbol.items() if c >= 2),
         }
-        # RC4 (2026-07-16): deterministic post-exit reality. The LLM grader
-        # scored 32/33 recent sells "correct" at t+1..t+3 while the tape
-        # showed 28/53 exits ≥5% higher within 20 days — self-assessment
-        # cannot be the only input to the patience tilt. These numbers come
-        # from trades × live prices, no LLM in the loop.
-        return _with_reality(summary)
+        return summary

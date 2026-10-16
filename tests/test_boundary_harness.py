@@ -152,7 +152,5 @@ def test_pipeline_holds_the_review_part_and_inherits_no_review_mixin():
     assert isinstance(first, PromptFactsReview) and first is not second  # rebuilt per call, never cached
     assert not hasattr(first, "_host") and "_prompt_facts_review" not in vars(pipe)
     assert all(getattr(TradingPipeline, name)._held_delegate == name for name in DELEGATED)
-    pipe._build_post_exit_reality = lambda *a, **k: "SWAPPED ON THE SEAT"
-    assert pipe._review_grading()._build_post_exit_reality() == "SWAPPED ON THE SEAT"
     pipe.db = object()
     assert pipe._review_blocked().db is pipe.db  # the next call is built from the seat's current db

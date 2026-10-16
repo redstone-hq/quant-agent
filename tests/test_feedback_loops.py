@@ -8,8 +8,9 @@ The self-grading loop was structurally self-exculpatory:
   - Misses were grouped by `theme_if_any` — LLM free text that never repeats
     verbatim — so symbol-level recurrence could not surface.
   - Sell grades were scored at t+1..t+3 by the LLM (97% "correct" while the
-    tape showed 53% of exits ≥5% higher within 20 days). A deterministic
-    post-exit reality block now rides along with the grade summary.
+    tape showed 53% of exits ≥5% higher within 20 days). The deterministic
+    post-exit reality block that answered it was deleted 2026-10-16: it fed
+    the desk's own past exits back as an instruction (rule 3.14).
 """
 
 import pytest
@@ -138,46 +139,19 @@ def _trade(symbol: str, action: str, price: float, days_ago: int, fill_status: s
     }
 
 
-def test_post_exit_reality_measures_the_tape():
-    pipeline = _mk_pipeline()
-    pipeline.db.get_trades.return_value = [
-        _trade("LLY", "SELL", 1000.0, days_ago=5),
-        _trade("VST", "TRAIL_STOP", 150.0, days_ago=7),
-        _trade("KO", "REDUCE", 100.0, days_ago=4),
-    ]
-    pipeline.broker.get_latest_price.side_effect = lambda s: {"LLY": 1120.0, "VST": 150.0, "KO": 95.0}[s]
-    r = pipeline._build_post_exit_reality()
-    assert r["n"] == 3
-    assert r["n_higher_5pct"] == 1  # only LLY (+12%)
-    assert r["worst"][0]["symbol"] == "LLY"
-    assert r["worst"][0]["move_pct"] == 12.0
-
-
-def test_post_exit_reality_excludes_sweep_and_fresh_exits():
-    pipeline = _mk_pipeline()
-    pipeline.db.get_trades.return_value = [
-        _trade("SGOV", "SWEEP_SELL", 100.6, days_ago=5),  # parking churn
-        _trade("NVDA", "SELL", 900.0, days_ago=0),  # too fresh (<2d)
-        _trade("GE", "TRAIL_STOP", 350.0, days_ago=5, fill_status="submitted"),  # trail not FILLED
-    ]
-    pipeline.broker.get_latest_price.return_value = 999.0
-    assert pipeline._build_post_exit_reality() is None
-
-
-def test_trade_grade_summary_carries_reality_block():
+def test_trade_grade_summary_has_no_post_exit_reality_block():
     pipeline = _mk_pipeline()
     pipeline.db.get_recent_insights.return_value = []
-    pipeline.db.get_trades.return_value = [_trade("LLY", "SELL", 1000.0, days_ago=5)]
+    pipeline.db.get_trades.return_value = [_trade("ZZZA", "SELL", 1000.0, days_ago=5)]
     pipeline.broker.get_latest_price.return_value = 1100.0
-    summary = pipeline._build_trade_grade_summary()
-    assert summary["post_exit_reality"]["n"] == 1
-    assert summary["post_exit_reality"]["avg_move_pct"] == 10.0
+    assert "post_exit_reality" not in pipeline._build_trade_grade_summary()
+    assert not hasattr(pipeline, "_build_post_exit_reality")
 
 
-# ---------- reviewer prompt renders the reality section ----------
+# ---------- reviewer prompt no longer carries the post-exit reality section ----------
 
 
-def test_reviewer_prompt_renders_post_exit_reality():
+def test_reviewer_prompt_has_no_post_exit_reality_section():
     from src.agents.position_reviewer import PositionReviewerAgent
     from unittest.mock import patch
 
@@ -208,7 +182,8 @@ def test_reviewer_prompt_renders_post_exit_reality():
             },
         },
     )
-    assert "Post-exit reality check" in msg
-    assert "LLY" in msg and "+12.4%" in msg
-    # ≥50% of exits ran → the hard-trigger escalation line must render
-    assert "tape says your exits fire too early" in msg
+    # Deleted 2026-10-16: feeding the desk's own past exit outcomes back as an
+    # instruction is fitting to its record (REBUILD_SPECIFICATION rule 3.14).
+    assert "Post-exit reality" not in msg
+    assert "tape says your exits fire too early" not in msg
+    assert "must name a hard trigger" not in msg
