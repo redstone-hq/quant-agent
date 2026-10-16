@@ -20,6 +20,16 @@ from tests.pipeline_factory import build_pipeline
 from tests.sector_run_helper import prun, tech_buy_analyses as _tech_buy_analyses  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _window_open_for_mechanics(monkeypatch):
+    """These tests exercise grouping mechanics with clock-relative rows; the
+    clean-record window itself is pinned in test_memory_windows_clean_record."""
+    for mod in ("blocked", "exits"):
+        m = f"src.prompt_facts.review.{mod}"
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_DATE", "2000-01-01", raising=False)
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_START_UTC", "2000-01-01T00:00:00", raising=False)
+
+
 def _pos(symbol="NVDA"):
     return Position(
         symbol=symbol,
@@ -463,8 +473,8 @@ def test_pm_memory_builders_warn_on_corrupt_json(caplog):
     pipeline.db.get_recent_agent_outputs.return_value = [corrupt_agent_row]
 
     with caplog.at_level(logging.WARNING, logger="src.pipeline"):
-        pipeline._build_recent_missed_lessons(lookback_days=14)
-        pipeline._build_recent_loss_pits(lookback_days=14)
+        pipeline._build_recent_missed_lessons()
+        pipeline._build_recent_loss_pits()
         pipeline._build_rm_recent_verdicts(limit=5)
         pipeline._build_pm_recent_decisions(limit=3)
 

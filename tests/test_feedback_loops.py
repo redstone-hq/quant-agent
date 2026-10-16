@@ -12,11 +12,22 @@ The self-grading loop was structurally self-exculpatory:
     post-exit reality block now rides along with the grade summary.
 """
 
+import pytest
 import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from tests.pipeline_factory import build_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _window_open_for_mechanics(monkeypatch):
+    """These tests exercise grouping mechanics with clock-relative rows; the
+    clean-record window itself is pinned in test_memory_windows_clean_record."""
+    for mod in ("blocked", "exits"):
+        m = f"src.prompt_facts.review.{mod}"
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_DATE", "2000-01-01", raising=False)
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_START_UTC", "2000-01-01T00:00:00", raising=False)
 
 
 def _mk_pipeline():

@@ -8,8 +8,20 @@ from becoming wallpaper, the verbatim reason rendering, and the empty case.
 
 import json
 
+import pytest
+
 from src.storage.db import Database
 from tests.pipeline_factory import build_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _window_open_for_mechanics(monkeypatch):
+    """These tests exercise grouping mechanics with clock-relative rows; the
+    clean-record window itself is pinned in test_memory_windows_clean_record."""
+    for mod in ("blocked", "exits"):
+        m = f"src.prompt_facts.review.{mod}"
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_DATE", "2000-01-01", raising=False)
+        monkeypatch.setattr(f"{m}.CLEAN_RECORD_START_UTC", "2000-01-01T00:00:00", raising=False)
 
 
 def _pipeline(tmp_path, name="t.db"):
@@ -255,11 +267,10 @@ def test_legacy_target_weight_pct_still_sizes_a_proposal(tmp_path):
 
 
 def test_threshold_needs_three_proposals_and_zero_fills(tmp_path):
-    """Two blocks is noise; three is a pattern. One fill clears the name.
+    """Every never-filled name shows, with its n. One fill clears the name.
 
-    MUTATION CHECK: changing `min_proposals` to 2, or dropping the
-    zero-fills condition, makes this test fail — see the assertions on TWICE
-    and MIXED below.
+    MUTATION CHECK: dropping the zero-fills condition makes this test fail
+    (MIXED below).
     """
     pipeline, db = _pipeline(tmp_path)
     # THRICE: 3 proposals, 0 fills → surfaces.
@@ -274,21 +285,9 @@ def test_threshold_needs_three_proposals_and_zero_fills(tmp_path):
     _trade(db, "rm0", "d-mixed-0", "MIXED", "filled", days_ago=5)
 
     out = pipeline._build_blocked_proposals()
-    assert "- THRICE: proposed 3×" in out
-    assert "- TWICE:" not in out
+    assert "- THRICE: n=3" in out
+    assert "- TWICE: n=2" in out  # no count cut: shown, with n visible
     assert "- MIXED:" not in out
-
-
-def test_window_excludes_proposals_older_than_lookback(tmp_path):
-    """A repeat pattern that ended a month ago is history, not a live block."""
-    pipeline, db = _pipeline(tmp_path)
-    for i, day in enumerate((40, 39, 38)):
-        _target(db, f"r{i}", f"d-old-{i}", "STALE", days_ago=day)
-
-    out = pipeline._build_blocked_proposals(lookback_days=21)
-    assert out == ""  # nothing in the window at all
-    wide = pipeline._build_blocked_proposals(lookback_days=60)
-    assert "- STALE: proposed 3×" in wide
 
 
 # --- the reasons --------------------------------------------------------
@@ -309,7 +308,7 @@ def test_execution_skip_reason_is_rendered_verbatim(tmp_path):
 
     out = pipeline._build_blocked_proposals()
     assert (
-        "- PATH: proposed 3× across 3 sessions, filled 0 — most recent first: insufficient_cash, geometry_rr, qty_zero"
+        "- PATH: n=3 across 3 sessions, filled 0 — most recent first: insufficient_cash, geometry_rr, qty_zero"
     ) in out
 
 
@@ -377,7 +376,7 @@ def test_rm_zeroing_one_symbol_blocks_only_that_symbol(tmp_path):
         )
 
     out = pipeline._build_blocked_proposals()
-    assert "- NVDA: proposed 3×" in out
+    assert "- NVDA: n=3" in out
     assert "rm_zeroed, rm_zeroed, rm_zeroed" in out
     assert "- XOM:" not in out
 
@@ -406,13 +405,13 @@ def test_constructor_dropped_symbol_is_not_blamed_for_a_rm_veto(tmp_path):
     _proposed_order(db, "r1", "d1", "SURVIVOR", days_ago=3)
     _verdict(db, "r1", "d1", approved=False, category="rr_fail", days_ago=3)
 
-    out = pipeline._build_blocked_proposals(min_proposals=1)
-    assert "- SURVIVOR: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
-    assert "DROPPED1: proposed 1× across 1 sessions, filled 0 — most recent first: no_order_built" in out
-    assert "DROPPED2: proposed 1× across 1 sessions, filled 0 — most recent first: no_order_built" in out
+    out = pipeline._build_blocked_proposals()
+    assert "- SURVIVOR: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
+    assert "DROPPED1: n=1 across 1 sessions, filled 0 — most recent first: no_order_built" in out
+    assert "DROPPED2: n=1 across 1 sessions, filled 0 — most recent first: no_order_built" in out
     # Neither dropped symbol carries the Risk Manager's reason.
-    assert "DROPPED1: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
-    assert "DROPPED2: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
+    assert "DROPPED1: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
+    assert "DROPPED2: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
 
 
 def test_a_data_fault_reaches_the_pm_digest_as_a_fault_not_a_drop(tmp_path):
@@ -445,9 +444,9 @@ def test_a_data_fault_reaches_the_pm_digest_as_a_fault_not_a_drop(tmp_path):
     )
     db.conn.commit()
 
-    out = pipeline._build_blocked_proposals(min_proposals=1)
+    out = pipeline._build_blocked_proposals()
 
-    assert "A: proposed 1× across 1 sessions, filled 0 — most recent first: data_fault:price_history_unusable" in out
+    assert "A: n=1 across 1 sessions, filled 0 — most recent first: data_fault:price_history_unusable" in out
     assert "constructor_dropped" not in out
     assert "no_order_built" not in out
 
@@ -481,15 +480,15 @@ def test_constructor_dropped_symbol_gets_its_own_reason_not_no_order_built(tmp_p
     _proposed_order(db, "r1", "d1", "C", days_ago=2)
     _verdict(db, "r1", "d1", approved=False, category="rr_fail", days_ago=2)
 
-    out = pipeline._build_blocked_proposals(min_proposals=1)
+    out = pipeline._build_blocked_proposals()
 
-    assert "A: proposed 1× across 1 sessions, filled 0 — most recent first: constructor_dropped" in out
-    assert "B: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
-    assert "C: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
+    assert "A: n=1 across 1 sessions, filled 0 — most recent first: constructor_dropped" in out
+    assert "B: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
+    assert "C: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected:rr_fail" in out
     # A must not be blamed on the Risk Manager, and must not fall into the
     # unexplained generic bucket either.
-    assert "A: proposed 1× across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
-    assert "A: proposed 1× across 1 sessions, filled 0 — most recent first: no_order_built" not in out
+    assert "A: n=1 across 1 sessions, filled 0 — most recent first: rm_rejected" not in out
+    assert "A: n=1 across 1 sessions, filled 0 — most recent first: no_order_built" not in out
 
 
 def test_unfilled_order_status_is_rendered_verbatim(tmp_path):
@@ -521,9 +520,9 @@ def test_absent_downstream_rows_are_named_as_absences(tmp_path):
         _verdict(db, f"rb{i}", f"db{i}", approved=True, category="clean", days_ago=day)
 
     out = pipeline._build_blocked_proposals()
-    assert "- NOORD: proposed 3×" in out
+    assert "- NOORD: n=3" in out
     assert "no_order_built, no_order_built, no_order_built" in out
-    assert "- NOPLACE: proposed 3×" in out
+    assert "- NOPLACE: n=3" in out
     assert "order_not_placed, order_not_placed, order_not_placed" in out
 
 
@@ -598,8 +597,7 @@ def test_no_repeat_offenders_renders_an_explicit_none(tmp_path):
     out = pipeline._build_blocked_proposals()
     assert out  # not blank
     assert "Conversion: 2 of 2 proposals reached a fill (100%)" in out
-    assert "Repeat blocked names: none" in out
-    assert "no symbol was proposed 3+ times without a fill" in out
+    assert "Never-filled names: none" in out
     assert "\n- " not in out  # no per-symbol lines
 
 
@@ -648,7 +646,7 @@ def test_corrupt_evidence_json_is_skipped_not_fatal(tmp_path, caplog):
 
     with caplog.at_level("WARNING"):
         out = pipeline._build_blocked_proposals()
-    assert "- NVDA: proposed 3×" in out
+    assert "- NVDA: n=3" in out
     assert "JUNK" not in out
     assert any("blocked_proposals" in r.message for r in caplog.records)
 
@@ -674,12 +672,12 @@ def test_section_states_it_bars_nothing(tmp_path):
                 "last 21 days.\n"
                 "Top blocks: rm_rejected:rr_fail × 5.\n"
                 "Repeat blocked names (3+ proposals, 0 fills):\n"
-                "- NVDA: proposed 7× across 7 sessions, filled 0 — most "
+                "- NVDA: n=7 across 7 sessions, filled 0 — most "
                 "recent first: rm_rejected:rr_fail, no_order_built, qty_zero"
             ),
         )
         assert "## Proposal Conversion" in msg
-        assert "NVDA: proposed 7×" in msg
+        assert "NVDA: n=7" in msg
         assert "none of these symbols is barred" in msg
 
 
