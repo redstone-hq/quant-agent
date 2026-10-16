@@ -64,7 +64,7 @@ UNMEASURED = ScoreNoiseBrake(value=None, pairs=0, observations=0)
 
 #: How `RankedCandidate.score` is computed. Bump it whenever the score's
 #: arithmetic changes, so scores from two bases never pair.
-SCORE_BASIS = "equal_seats"
+SCORE_BASIS = "conviction_only"
 
 
 def evidence_key(candidate) -> str:

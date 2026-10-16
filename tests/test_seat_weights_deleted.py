@@ -91,7 +91,7 @@ def test_three_agreeing_lower_rated_seats_now_outrank_one_technical_read():
 def test_the_evidence_key_names_the_score_basis():
     [c] = rank_verdicts([_v("technical", "AAA", "bullish", "high", magnitude=1.0)])
     key = json.loads(evidence_key(c))
-    assert key["score_basis"] == SCORE_BASIS == "equal_seats"
+    assert key["score_basis"] == SCORE_BASIS == "conviction_only"
 
 
 def test_an_old_basis_key_never_pairs_with_a_new_one():

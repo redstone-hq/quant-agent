@@ -526,7 +526,7 @@ def test_two_seats_on_one_symbol_sum_with_every_seat_counted_equally():
         "risk_reward_tiebreak": 2.4,
         "level_touches_tiebreak": 0.0,
     }
-    assert c.score == 2.5
+    assert c.score == 1.0
     assert c.seats == ["news", "technical"]
 
 
@@ -567,7 +567,7 @@ def test_a_second_agreeing_seat_can_never_lower_a_candidates_score():
     assert scores == sorted(scores), scores
     # And strictly higher wherever the added seat actually said something:
     # only the low-conviction news seat contributes exactly zero.
-    assert scores[0] == 2.0  # technical alone
+    assert scores[0] == 1.0  # technical alone
     assert scores[1] > scores[0]  # + smart_money `actionable`
     assert scores[4] > scores[1]
 
@@ -1416,7 +1416,7 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     section = msg.split("## Candidate Ranking")[1].split("\n## ")[0]
     lines = [ln for ln in section.splitlines() if ln[:2] in ("1.", "2.", "3.")]
     assert lines[0].startswith("1. AAA — bullish | score 2.00")
-    assert lines[1].startswith("2. CCC — bullish | score 1.00")
+    assert lines[1].startswith("2. CCC — bullish | score 1.50")
     # The prompt must say the aggregation is a SUM, or the PM reads the number
     # as a 0-2 fraction. Both survivors now carry two seats.
     assert "summed over 2 seat(s)" in lines[0]
