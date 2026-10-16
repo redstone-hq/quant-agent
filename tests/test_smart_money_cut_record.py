@@ -54,7 +54,7 @@ def test_over_cap_lists_exactly_cut_rows_with_classes():
     rec = cut_record(ordered, final, stream="insider", max_observations=CAP)
     assert [r["symbol"] for r in rec["cut"]] == [f"ZZ{i:03d}" for i in range(40, 45)]
     assert rec["rows_cut"] == 5 and rec["by_class"] == {"other": 5}
-    assert all(r["symbol_kept"] is False and r["stream"] == "insider" for r in rec["cut"])
+    assert all(r["symbol_kept"] is False and r["stream"] == "insider" and r["rows_cut"] == 1 for r in rec["cut"])
     assert rec["symbols_fully_cut"] == [f"ZZ{i:03d}" for i in range(40, 45)]
 
 
@@ -69,8 +69,17 @@ def test_classes_and_symbol_kept_flag():
     assert by_sym["ZZ000"]["symbol_kept"] is True and by_sym["ZZ000"]["direction"] == "sell"
     assert by_sym["ZZ000"]["class"] == "other"
     assert by_sym["ZZA"]["class"] == "admission-qualifying" and by_sym["ZZA"]["symbol_kept"] is False
-    assert by_sym["ZZB"]["class"] == "core-universe" and by_sym["ZZB"]["value_usd"] == 3.0
+    assert by_sym["ZZB"]["class"] == "core-universe" and by_sym["ZZB"]["value_usd_sum"] == 3.0
     assert rec["by_class"] == {"other": 1, "admission-qualifying": 1, "core-universe": 1}
+
+
+def test_cut_is_grouped_per_symbol_direction_class():
+    ordered = _rows(40) + [_row("ZZX", 10.0), _row("ZZX", 20.0), _row("ZZX", 5.0, direction="sell")]
+    rec = cut_record(ordered, ordered[:CAP], stream="insider", max_observations=CAP)
+    assert rec["rows_cut"] == 3 and len(rec["cut"]) == 2
+    buy = next(r for r in rec["cut"] if r["direction"] == "buy")
+    assert buy["rows_cut"] == 2 and buy["value_usd_sum"] == 30.0
+    assert rec["symbols_fully_cut"] == ["ZZX"]
 
 
 def test_reserved_row_is_not_reported_cut():
