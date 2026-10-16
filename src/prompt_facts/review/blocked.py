@@ -7,13 +7,9 @@ keyword-only constructor argument, so this builds and runs with no pipeline behi
 
 import logging
 
-from src.trading_calendar import et_today
+from src.storage.analytics.calibration import CLEAN_RECORD_DATE, CLEAN_RECORD_START_UTC
 
 logger = logging.getLogger(__name__)
-
-
-#: `cut_bite` site name for this builder's two count cuts.
-CUT_SITE = "prompt_facts.review.blocked._build_blocked_proposals"
 
 
 class ReviewBlocked:
@@ -26,45 +22,15 @@ class ReviewBlocked:
     ) -> None:
         self.db = db
 
-    def _record_cut_bite(self, *, run_id, unfilled, repeats) -> None:
-        """Record what the count cut here removed, for THIS session.
-
-        `min_proposals` cuts the never-filled symbols down to the repeat
-        offenders; every offender is printed. The edge is counted here, where
-        the cut happens. The seat's verdict
-        is NOT guessed here -- it is formed later in this same session and is
-        joined to this row by `run_id` when the observation is read back.
-        """
-        from datetime import date
-
-        from src.storage.analytics.cut_bite import record_cut_bite
-
-        shown = repeats
-        oldest_age: float | None = None
-        stamps = [ts for _, rows in shown for ts, _ in rows if ts]
-        if stamps:
-            try:
-                oldest = date.fromisoformat(min(stamps)[:10])
-                oldest_age = float((et_today() - oldest).days)
-            except (TypeError, ValueError):
-                oldest_age = None
-        record_cut_bite(
-            db=self.db,
-            run_id=run_id,
-            site=CUT_SITE,
-            cuts={
-                "min_proposals": {"before": len(unfilled), "survived": len(repeats)},
-            },
-            oldest_surviving_age_days=oldest_age,
-        )
-
     def _build_blocked_proposals(
         self,
-        lookback_days: int = 21,
-        min_proposals: int = 3,
         run_id: str | None = None,
     ) -> str:
-        """PM memory: names it keeps asking for and never gets, and why.
+        """PM memory: names it proposed and never got filled, and why.
+
+        Window = the clean record (2026-10-12 13:30 UTC onward; earlier
+        trades are not evidence). `run_id` is accepted for the caller's
+        signature and unused: no count cut remains to record.
 
         Every other per-symbol memory PM reads (loss pits, missed lessons,
         position history, R-multiples) is keyed on a POSITION, so a symbol
@@ -115,10 +81,9 @@ class ReviewBlocked:
         section for a missing one.
         """
         import json as _json
-        from datetime import timedelta
 
         try:
-            since = (et_today() - timedelta(days=lookback_days)).isoformat()
+            since = CLEAN_RECORD_START_UTC.replace("T", " ")
             raw = self.db.get_proposal_funnel_rows(since)
         except Exception as e:
             logger.warning("blocked_proposals: DB fetch failed: %s", e)
@@ -317,38 +282,34 @@ class ReviewBlocked:
         top = sorted(block_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
         lines = [
             f"Conversion: {converted} of {total} proposals reached a fill "
-            f"({pct:.0f}%) in the last {lookback_days} days.",
+            f"({pct:.0f}%) since the clean record began ({CLEAN_RECORD_DATE}).",
         ]
         if top:
             lines.append("Top blocks: " + ", ".join(f"{reason} × {n}" for reason, n in top) + ".")
 
-        # The pool the `min_proposals` count-cut chooses FROM: every symbol
-        # this window saw proposed and never filled. A symbol with a fill was
-        # never a candidate for the repeat list at any count, so including it
-        # would overstate what the cut removed.
+        # Every symbol proposed and never filled is shown, however few times:
+        # n is printed with the first/last proposal date so one proposal reads
+        # as n=1, not as a pattern.
         unfilled = [(sym, rows) for sym, rows in by_symbol.items() if all(reason is not None for _, reason in rows)]
-        repeats = [(sym, rows) for sym, rows in unfilled if len(rows) >= min_proposals]
-        # Sorted before the record so the rows the record calls "surviving"
-        # are exactly the rows the prompt goes on to render.
-        repeats.sort(key=lambda item: (-len(item[1]), item[0]))
-        self._record_cut_bite(
-            run_id=run_id,
-            unfilled=unfilled,
-            repeats=repeats,
-        )
-        if not repeats:
-            lines.append(
-                f"Repeat blocked names: none — no symbol was proposed "
-                f"{min_proposals}+ times without a fill in this window."
-            )
+        unfilled.sort(key=lambda item: (-len(item[1]), item[0]))
+        if not unfilled:
+            lines.append("Never-filled names: none — every proposed symbol reached a fill.")
             return "\n".join(lines)
 
-        lines.append(f"Repeat blocked names ({min_proposals}+ proposals, 0 fills):")
-        for sym, rows in repeats:
+        lines.append("Never-filled names (0 fills; n = number of proposals):")
+        for sym, rows in unfilled:
             rows = sorted(rows, key=lambda r: r[0], reverse=True)  # newest first
-            sessions = len({ts[:10] for ts, _ in rows if ts})
-            recent = ", ".join(str(reason) for _, reason in rows[:3])
+            dates = sorted(ts[:10] for ts, _ in rows if ts)
+            span = ""
+            if dates:
+                span = (
+                    f" (proposed first {dates[0]}, last {dates[-1]})"
+                    if dates[0] != dates[-1]
+                    else f" (proposed {dates[0]})"
+                )
+            sessions = len(set(dates))
+            recent = ", ".join(str(reason) for _, reason in rows[:3])  # prompt-size bound, not a market claim
             lines.append(
-                f"- {sym}: proposed {len(rows)}× across {sessions} sessions, filled 0 — most recent first: {recent}"
+                f"- {sym}: n={len(rows)} across {sessions} sessions, filled 0 — most recent first: {recent}{span}"
             )
         return "\n".join(lines)

@@ -99,7 +99,7 @@ def _opened_before_clean_record(open_ts) -> bool:
 _LONG_EXIT_ACTIONS = ("EMERGENCY_SELL", "FORCE_DELEVER", "REDUCE", "TAKE_PROFIT", "STOP_OUT", "RECONCILED_EXIT")
 
 
-def conviction_positions(rows, lookback_days: int) -> list[dict]:
+def conviction_positions(rows, lookback_days: int | None) -> list[dict]:
     """Group executed trade rows (chronological) into whole POSITIONS.
 
     RULE (one, written here): a position's conviction is the conviction on
@@ -165,7 +165,7 @@ def conviction_positions(rows, lookback_days: int) -> list[dict]:
             open_dt = datetime.fromisoformat(pos["open_ts"].replace(" ", "T"))
             close_dt = datetime.fromisoformat(row["timestamp"].replace(" ", "T"))
             hold_days = max(0, (close_dt - open_dt).days)
-            if (utc_now().replace(tzinfo=None) - close_dt).days > lookback_days:
+            if lookback_days is not None and (utc_now().replace(tzinfo=None) - close_dt).days > lookback_days:
                 continue
         except (ValueError, TypeError, AttributeError):
             hold_days = 0
@@ -623,7 +623,7 @@ class TradeAnalytics:
             "trades": [dict(r) for r in trades],
         }
 
-    def compute_trade_calibration(self, lookback_days: int = 45) -> dict:
+    def compute_trade_calibration(self, lookback_days: int | None = 45) -> dict:
         """Win rate + avg realized return on round-trips that closed in the
         window — BOTH long (BUY→sell-family) and short (SHORT→cover-family).
 
@@ -652,6 +652,9 @@ class TradeAnalytics:
         explicit conviction column in trades. Also bucketed by side
         (`by_side.long` / `by_side.short`) so a mixed book's long and short
         edges can be read separately as well as combined.
+
+        `lookback_days=None` applies no exit-age cut: the clean-record start
+        (below) is then the only window.
 
         Returns:
             {"n": int, "win_rate_pct": float, "avg_return_pct": float,
@@ -820,7 +823,7 @@ class TradeAnalytics:
                         sell_age_days = (utc_now().replace(tzinfo=None) - sell_dt).days
                     except (TypeError, ValueError, UnboundLocalError):
                         sell_age_days = 0
-                    if sell_age_days > lookback_days:
+                    if lookback_days is not None and sell_age_days > lookback_days:
                         lot["qty"] -= closed_qty
                         remaining -= closed_qty
                         if lot["qty"] <= 1e-9:
@@ -870,7 +873,7 @@ class TradeAnalytics:
                         cover_age_days = (utc_now().replace(tzinfo=None) - cover_dt).days
                     except (TypeError, ValueError, UnboundLocalError):
                         cover_age_days = 0
-                    if cover_age_days > lookback_days:
+                    if lookback_days is not None and cover_age_days > lookback_days:
                         lot["qty"] -= closed_qty
                         remaining -= closed_qty
                         if lot["qty"] <= 1e-9:

@@ -46,13 +46,8 @@ src.prompt_facts.decisions.PromptDecisions._build_rm_recent_verdicts(limit)
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(min_top_mover_dollar_volume_m)
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(top_movers_count)
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_thesis_health_context(lookback_weeks)
-src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(lookback_days)
-src.prompt_facts.review.blocked.ReviewBlocked._build_blocked_proposals(min_proposals)
-src.prompt_facts.review.calibration.ReviewCalibration._build_calibration_note(lookback_days)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(min_age_days)
-src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)
-src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)
 src.quantities.AVG_DOLLAR_VOLUME_WINDOW
 src.risk.constants.STARTER_POSITION_RISK_PCT
 src.risk.gross_ladder.GROSS_LADDER[0][0]

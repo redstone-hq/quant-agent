@@ -263,9 +263,7 @@ class ReviewGrading:
             # `max_symbols` and `min_age_days` are deliberately omitted here:
             # their live defaults remain 12 symbols and 2 days, respectively.
             try:
-                base["post_exit_reality"] = self._build_post_exit_reality(
-                    lookback_days=max(lookback_days, 14),
-                )
+                base["post_exit_reality"] = self._build_post_exit_reality()
             except Exception as e:  # noqa: BLE001
                 logger.warning("post_exit_reality failed (summary degrades): %s", e)
                 base["post_exit_reality"] = None

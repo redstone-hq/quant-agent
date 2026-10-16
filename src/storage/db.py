@@ -2214,7 +2214,7 @@ class Database:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().get_proposal_funnel_rows(since_ts)
 
-    def compute_trade_calibration(self, lookback_days: int = 45) -> dict:
+    def compute_trade_calibration(self, lookback_days: int | None = 45) -> dict:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
         return self._analytics().compute_trade_calibration(lookback_days)
 

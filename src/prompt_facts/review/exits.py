@@ -7,8 +7,14 @@ keyword-only constructor argument, so this builds and runs with no pipeline behi
 
 import logging
 
+from src.storage.analytics.calibration import CLEAN_RECORD_DATE, CLEAN_RECORD_START_UTC
 
 logger = logging.getLogger(__name__)
+
+
+#: Rows of `insights` fetched before the clean-record date filter. A fetch /
+#: prompt-size (context budget) ceiling, not a claim about the market.
+_INSIGHT_FETCH_MAX = 120
 
 
 class ReviewExits:
@@ -29,14 +35,14 @@ class ReviewExits:
 
     def _build_post_exit_reality(
         self,
-        lookback_days: int = 14,
         min_age_days: int = 2,
-        max_symbols: int = 12,
+        max_symbols: int = 12,  # prompt-size (context budget) bound on broker price calls, not a market claim
     ) -> dict | None:
         """What actually happened after our recent exits — from the tape.
 
         For every realized exit in the window (SELL family + filled
-        TRAIL_STOPs) at least `min_age_days` old, compare the exit price to
+        TRAIL_STOPs) on/after the clean-record start (2026-10-12 13:30 UTC;
+        earlier trades are not evidence) and at least `min_age_days` old, compare the exit price to
         the live price. Returns None when there's nothing to audit.
 
         {"n": int, "n_higher_5pct": int, "avg_move_pct": float,
@@ -47,12 +53,13 @@ class ReviewExits:
         from src.trading_calendar import utc_now
 
         try:
+            # 120 = prompt-size / fetch bound, not a claim about the market.
             rows = self.db.get_trades(limit=120)
         except Exception as e:  # noqa: BLE001
             logger.warning("post_exit_reality: trades fetch failed: %s", e)
             return None
         now = utc_now()
-        window_start = now - timedelta(days=lookback_days)
+        window_start = _dt.fromisoformat(CLEAN_RECORD_START_UTC).replace(tzinfo=timezone.utc)
         age_cutoff = now - timedelta(days=min_age_days)
         sweeper = self._sweeper()
         sweep_symbol = sweeper.symbol if sweeper is not None else None
@@ -132,10 +139,11 @@ class ReviewExits:
             "worst": moves[:3],
         }
 
-    def _build_recent_missed_lessons(self, lookback_days: int = 14) -> str:
+    def _build_recent_missed_lessons(self) -> str:
         """PM L3d memory: themes that evening flagged ≥ 2 times as missed.
 
-        Reads `insights.missed_opportunities_json` for the last N days, skips
+        Reads `insights.missed_opportunities_json` for rows dated on/after the
+        clean-record start (earlier rows are not evidence), skips
         the two "not-really-a-miss" categories (noise_rally, risk_disciplined),
         groups by `theme_if_any` (falling back to `symbol` when no theme
         tagged), keeps themes seen on 2+ distinct dates. Output is prose
@@ -149,7 +157,7 @@ class ReviewExits:
         import json as _json
 
         try:
-            rows = self.db.get_recent_insights(limit=lookback_days + 5)
+            rows = self.db.get_recent_insights(limit=_INSIGHT_FETCH_MAX)
         except Exception as e:
             logger.warning("recent_missed_lessons: insights fetch failed: %s", e)
             return ""
@@ -169,8 +177,10 @@ class ReviewExits:
         theme_dates: dict[str, set[str]] = {}
         theme_symbols: dict[str, list[str]] = {}
         theme_lessons: dict[str, str] = {}  # most recent lesson text per theme
-        for row in rows[:lookback_days]:
+        for row in rows:
             row_date = row.get("date") or ""
+            if row_date[:10] < CLEAN_RECORD_DATE:
+                continue
             raw = row.get("missed_opportunities_json")
             if not raw:
                 continue
@@ -260,16 +270,19 @@ class ReviewExits:
             sym_tally = ", ".join(f"{s}×{syms.count(s)}" if syms.count(s) > 1 else s for s in uniq[:6])
             lesson = theme_lessons.get(key, "")
             label = key[4:] if key.startswith("sym:") else key
-            line = f"- {label}: {n_days} days (symbols: {sym_tally})"
+            seen = sorted(d[:10] for d in theme_dates[key] if d)
+            span = f", flagged {seen[0]}" + (f" to {seen[-1]}" if seen[-1] != seen[0] else "") if seen else ""
+            line = f"- {label}: {n_days} days (symbols: {sym_tally}{span})"
             if lesson:
                 line += f' — latest lesson: "{lesson}"'
             lines.append(line)
         return "\n".join(lines)
 
-    def _build_recent_loss_pits(self, lookback_days: int = 14) -> str:
+    def _build_recent_loss_pits(self) -> str:
         """PM L3f memory: repeat failure modes from losing BUYs.
 
-        Reads `insights.buy_grades_json` for the last N days, pulls entries
+        Reads `insights.buy_grades_json` for rows dated on/after the
+        clean-record start (earlier rows are not evidence), pulls entries
         with `grade="wrong"` and a non-null `loss_root_cause`, groups by
         cause, keeps causes occurring ≥ 2 times. Output is prose PM renders
         directly — lets it see "greed_top_chasing × 3 over 14 days"
@@ -281,7 +294,7 @@ class ReviewExits:
         import json as _json
 
         try:
-            rows = self.db.get_recent_insights(limit=lookback_days + 5)
+            rows = self.db.get_recent_insights(limit=_INSIGHT_FETCH_MAX)
         except Exception as e:
             logger.warning("recent_loss_pits: insights fetch failed: %s", e)
             return ""
@@ -290,7 +303,11 @@ class ReviewExits:
         cause_symbols: dict[str, list[str]] = {}
         cause_move: dict[str, list[float]] = {}
         cause_refs: dict[str, list[str]] = {}
-        for row in rows[:lookback_days]:
+        cause_dates: dict[str, list[str]] = {}
+        for row in rows:
+            row_date = (row.get("date") or "")[:10]
+            if row_date < CLEAN_RECORD_DATE:
+                continue
             raw = row.get("buy_grades_json")
             if not raw:
                 continue
@@ -320,6 +337,7 @@ class ReviewExits:
                 ref = (g.get("missed_warning_ref") or "").strip()
                 if sym:
                     cause_symbols.setdefault(cause, []).append(sym)
+                    cause_dates.setdefault(cause, []).append(row_date)
                 if isinstance(move, (int, float)):
                     cause_move.setdefault(cause, []).append(float(move))
                 if ref:
@@ -333,9 +351,12 @@ class ReviewExits:
             syms = cause_symbols[cause]
             moves = cause_move.get(cause, [])
             detail_bits: list[str] = []
+            dates = cause_dates.get(cause, [])
             for i, s in enumerate(syms[:4]):
                 m = moves[i] if i < len(moves) else None
-                detail_bits.append(f"{s} ({m:+.1f}%)" if m is not None else s)
+                d = dates[i] if i < len(dates) else ""
+                bits = ", ".join(b for b in (d, f"{m:+.1f}%" if m is not None else "") if b)
+                detail_bits.append(f"{s} ({bits})" if bits else s)
             line = f"- {cause} × {n}: {', '.join(detail_bits)}"
             refs = cause_refs.get(cause, [])
             if refs and cause == "macro_warning_ignored":
