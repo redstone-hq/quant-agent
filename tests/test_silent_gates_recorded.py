@@ -233,7 +233,7 @@ def test_approved_false_drops_named_entry_and_records_the_ignored_veto():
         approved=False,
         reasoning_chain=_rc(),
         reason_category="correlation_risk",
-        rejected_symbols=[{"symbol": "XLE", "reason": "XLE-specific reason"}],
+        rejected_symbols=[{"symbol": "XLE", "reason": "XLE-specific reason", "category": "other"}],
         reasoning="the book is one energy cluster",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -596,7 +596,7 @@ def test_the_exits_let_through_beside_a_veto_are_recorded_too():
     verdict = RiskVerdict(
         approved=True,
         reasoning_chain=_rc(),
-        rejected_symbols=[{"symbol": "AAA", "reason": "invalidation not confirmed"}],
+        rejected_symbols=[{"symbol": "AAA", "reason": "invalidation not confirmed", "category": "other"}],
         reasoning="BBB may exit",
     )
     pipeline = _exit_pipeline(verdict)

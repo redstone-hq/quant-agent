@@ -94,7 +94,7 @@ def test_per_name_reject_lets_that_exit_proceed_with_its_own_objection():
         _verdict(
             True,
             "BBB may exit",
-            rejected=[{"symbol": "AAA", "reason": "invalidation not confirmed"}],
+            rejected=[{"symbol": "AAA", "reason": "invalidation not confirmed", "category": "other"}],
         )
     )
     vetoed, _ = pipeline._risk_review_exits(
