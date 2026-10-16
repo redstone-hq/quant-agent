@@ -23,7 +23,12 @@ def _bars(end: date, holidays: set[date]) -> list[OHLCV]:
 
 def _expected_ratio(bars: list[OHLCV], start: date) -> float:
     df = pd.DataFrame(
-        {"d": [b.date for b in bars], "o": [b.open for b in bars], "c": [b.close for b in bars], "v": [b.volume for b in bars]}
+        {
+            "d": [b.date for b in bars],
+            "o": [b.open for b in bars],
+            "c": [b.close for b in bars],
+            "v": [b.volume for b in bars],
+        }
     )
     w = df[df.d >= start]
     return round(w.v[w.c > w.o].sum() / w.v[w.c < w.o].sum(), 2)
