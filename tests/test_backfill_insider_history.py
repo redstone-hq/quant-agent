@@ -7,9 +7,11 @@ import pandas as pd
 from scripts import backfill_insider_history as bf
 from src.data.smart_money import SECForm4Provider
 
+_DAY = date(2026, 10, 1)
+
 
 def _tables():
-    d = date.today().strftime("%d-%b-%Y").upper()
+    d = _DAY.strftime("%d-%b-%Y").upper()
     return {
         "SUBMISSION": pd.DataFrame(
             {
@@ -41,7 +43,7 @@ def _expected(tmp_path: Path, rows):
 
 def test_mapped_records_equal_record_history(tmp_path):
     rows = bf.rows_from_form345(_tables())
-    iso = date.today().isoformat()
+    iso = _DAY.isoformat()
     # first owner only, P/A and S/D only, form 4 only, dotted symbol normalised
     assert sorted((r["actor_cik"], r["symbol"], r["direction"]) for r in rows) == [
         ("123", "BRK-B", "buy"),
@@ -78,8 +80,8 @@ def test_discover_zip_urls_reads_both_paths():
         '<a href="/files/structureddata/data/insider-transactions-data-sets/2023q1_form345.zip">x</a>'
         '<a href="/files/datastandardsinnovation/data/insider-transactions-data-sets/2026q2_form345.zip">x</a>'
     )
-    assert list(bf.discover_zip_urls(html)) == ["2023q1", "2026q2"]
-    assert "datastandardsinnovation" in bf.discover_zip_urls(html)["2026q2"]
+    assert list(bf.discover_zip_urls(html, first_year=2023)) == ["2023q1", "2026q2"]
+    assert "datastandardsinnovation" in bf.discover_zip_urls(html, first_year=2023)["2026q2"]
 
 
 def test_trade_dated_after_its_filing_is_dropped():

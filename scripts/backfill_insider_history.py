@@ -20,9 +20,9 @@ import io
 import re
 import sys
 import tempfile
-import time
 import zipfile
 from collections import defaultdict
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -31,18 +31,23 @@ import requests
 from src.config.smart_money import SmartMoneyConfig
 from src.data.smart_money import SECForm4Provider
 from src.data.smart_money_stores import atomic_json, load_json
+from src.trading_calendar import et_today
 
 PAGE_URL = "https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets"
 SITE = "https://www.sec.gov"
 # Same User-Agent the desk's live SEC fetch uses (config.smart_money.user_agent).
 USER_AGENT = SmartMoneyConfig().user_agent
-MIN_INTERVAL_S = 0.2  # 5 req/s, half of SEC's 10/s limit
-FIRST_YEAR = 2023
 _ZIP_RE = re.compile(r'href="([^"]*?/((\d{4})q([1-4])_form345\.zip))"')
 
 
-def discover_zip_urls(page_html: str, first_year: int = FIRST_YEAR) -> dict[str, str]:
+def first_kept_year() -> int:
+    """Oldest year the provider's own retention keeps; older quarters would be pruned on merge."""
+    return (et_today() - timedelta(days=SmartMoneyConfig().insider_history_retention_days)).year
+
+
+def discover_zip_urls(page_html: str, first_year: int | None = None) -> dict[str, str]:
     """Map ``YYYYqN`` to its absolute URL, read from the SEC page (never guessed)."""
+    first_year = first_kept_year() if first_year is None else first_year
     found: dict[str, str] = {}
     for href, _name, year, quarter in _ZIP_RE.findall(page_html):
         if int(year) >= first_year:
@@ -139,7 +144,8 @@ def download_all(session: requests.Session) -> list[dict]:
     page.raise_for_status()
     rows: list[dict] = []
     for label, url in discover_zip_urls(page.text).items():
-        time.sleep(MIN_INTERVAL_S)
+        # Sequential multi-megabyte downloads, one at a time: far under SEC's
+        # fair-access rate, so no pacing sleep is needed.
         resp = session.get(url, headers=headers, timeout=300)
         resp.raise_for_status()
         got = read_zip(resp.content)
