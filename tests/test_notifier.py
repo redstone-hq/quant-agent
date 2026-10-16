@@ -2975,3 +2975,11 @@ def test_the_global_mute_records_every_message_it_drops(tmp_path, monkeypatch):
     assert "AAA" in text
     assert "AAA" in (detail or "")
     assert timestamp
+
+
+def test_deferred_status_has_plain_wording():
+    from src.notifier.sections import humanize_status
+
+    msg = humanize_status("deferred")
+    assert "no plain wording" not in msg
+    assert "another desk session" in msg
