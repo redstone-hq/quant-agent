@@ -163,19 +163,15 @@ MAX_SALE_CENSUS_ROWS = 200
 
 
 def _sale_census(parsed: list["SmartMoneyObservation"]) -> dict:
-    """Count and sample the SALE rows a fetch parsed, by holdings band.
+    """Count and sample the SALE rows a fetch parsed, with each row's exact holdings ratio.
 
     The forward return is NOT computed here and cannot be: it is forward.
     Each sampled row carries the reference price and transaction date a
     later pass needs to join one on. Until that join exists the recording
-    answers only "how many sales, in which band" -- which is already more
+    answers only "how many sales, at what holdings ratio" -- which is already more
     than the desk has ever held.
     """
     sales = [item for item in parsed if item.direction == "sell"]
-    bands: dict[str, int] = {}
-    for item in sales:
-        key = str(item.holdings_fraction_band or "unknown")
-        bands[key] = bands.get(key, 0) + 1
     ordered = sorted(
         sales,
         key=lambda item: (item.accepted_at.timestamp() if item.accepted_at else 0.0,),
@@ -185,14 +181,12 @@ def _sale_census(parsed: list["SmartMoneyObservation"]) -> dict:
         "parsed_rows": len(parsed),
         "sale_rows": len(sales),
         "buy_rows": sum(1 for item in parsed if item.direction == "buy"),
-        "band_counts": bands,
         "forward_return_joined": False,
         "rows": [
             {
                 "symbol": item.symbol,
                 "transaction_date": item.transaction_date.isoformat(),
                 "holdings_fraction": item.holdings_fraction,
-                "holdings_fraction_band": item.holdings_fraction_band,
                 "reference_price": item.price_per_share,
                 "actor_cik": item.actor_cik,
                 "accession_number": item.accession_number,
@@ -275,7 +269,7 @@ class SECForm4Provider:
         # evidence held 828 observation rows, every one of them a buy. This
         # census governs NOTHING -- it is read by no gate, no rank and no
         # size -- it exists only so the sale side of
-        # `holdings_fraction_band` becomes readable at all.
+        # the exact holdings ratio of sales becomes readable at all.
         self.last_sale_census: dict | None = None
         # n06: what the cluster reservation did on the last refresh. Record-only.
         self.last_cluster_census: dict | None = None
@@ -1680,7 +1674,7 @@ class SECForm4Provider:
             if item.stream != "insider" or item.disclosure_age_days > self.lookback_days:
                 continue
             verdict = classify_transaction(item, history, self._signal_thresholds)
-            fraction, band = holdings_fraction(item)
+            fraction, no_prior = holdings_fraction(item)
             item = item.model_copy(
                 update={
                     "signal_class": verdict.label,
@@ -1688,7 +1682,7 @@ class SECForm4Provider:
                     "signal_class_detail": verdict.detail,
                     "signal_weight": verdict.weight,
                     "holdings_fraction": fraction,
-                    "holdings_fraction_band": band,
+                    "no_prior_holding": no_prior,
                 }
             )
             age_days = max(0, (et_today() - item.disclosure_date).days)

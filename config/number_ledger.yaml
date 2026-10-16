@@ -8399,70 +8399,6 @@ numbers:
     note: >-
       Dataclass default not used by the production constructor:
       InsiderSignalClass.of always supplies the value from _WEIGHTS.
-  - id: src.data.insider_signal._BAND_LOW
-    value: 0.1
-    site: src/data/insider_signal.py
-    status: arbitrary
-    note: >-
-      Legacy lower bucket edge for one Form 4 row's transaction-to-holding
-      ratio. The digit was copied from Scott and Xu, but their study aggregates
-      net trades and holdings across insiders for a stock over six months. That
-      is not this per-filing quantity, so the source does not justify applying
-      the boundary here. The label reaches the Smart Money prompt even though
-      no deterministic gate reads it.
-    open_question: >-
-      Can the per-filing prompt carry the exact continuous ratio without an
-      unsupported lower bucket label?
-    cost_while_unanswered: >-
-      The analyst can give categorical meaning to a per-filing ratio because of
-      a boundary borrowed from a different aggregate unit of analysis.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        each present Form 4 row's transaction shares, reconstructed
-        pre-transaction holding, exact continuous ratio, and every downstream
-        prompt field that consumes the legacy bucket, with no forward return or
-        trade outcome
-      closes_when: >-
-        the per-row prompt carries the exact ratio without fixed bucket labels
-        and this literal is removed, without consulting any later return or
-        trade outcome
-  - id: src.data.insider_signal._BAND_HIGH
-    value: 0.5
-    site: src/data/insider_signal.py
-    status: arbitrary
-    note: >-
-      Legacy upper bucket edge for one Form 4 row's transaction-to-holding
-      ratio. The digit was copied from Scott and Xu, but their study aggregates
-      net trades and holdings across insiders for a stock over six months. That
-      is not this per-filing quantity, so the source does not justify applying
-      the boundary here. The label reaches the Smart Money prompt even though
-      no deterministic gate reads it.
-    open_question: >-
-      Can the per-filing prompt carry the exact continuous ratio without an
-      unsupported upper bucket label?
-    cost_while_unanswered: >-
-      The analyst can give categorical meaning to a per-filing ratio because of
-      a boundary borrowed from a different aggregate unit of analysis.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        each present Form 4 row's transaction shares, reconstructed
-        pre-transaction holding, exact continuous ratio, and every downstream
-        prompt field that consumes the legacy bucket, with no forward return or
-        trade outcome
-      closes_when: >-
-        the per-row prompt carries the exact ratio without fixed bucket labels
-        and this literal is removed, without consulting any later return or
-        trade outcome
   - id: src.data.insider_signal.InsiderSignalThresholds.cadence_max_gap_dispersion
     value: 0.25
     site: src/data/insider_signal.py
@@ -8534,32 +8470,6 @@ numbers:
       closes_when: >-
         the return is computed from the last completed session at or before the
         named calendar boundary and this fixed session count is removed
-  - id: src.data.context._W_12M
-    value: 252
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Completed-session count used to label a return as twelve months. It is
-      twelve times the approximate monthly count, not a calendar observation.
-    open_question: >-
-      Can the named twelve-month return be anchored to an actual calendar
-      boundary and completed sessions rather than a multiplied approximation?
-    cost_while_unanswered: >-
-      The Technical seat receives a horizon label whose elapsed calendar time
-      varies with holidays, leap years and exceptional exchange closures.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        for each present analysis date, the actual completed session selected
-        at the named calendar boundary and the elapsed calendar duration, with
-        no later return or trade outcome
-      closes_when: >-
-        the return is computed from the last completed session at or before the
-        named calendar boundary and this fixed session count is removed
   - id: src.data.context._SLOPE_LOOKBACK
     value: 10
     site: src/data/context.py
@@ -8568,6 +8478,8 @@ numbers:
       Sessions over which each moving-average slope is called rising or
       falling. The resulting direction enters the Technical prompt and the
       same count extends the screen's minimum-history requirement.
+      Provisional: nothing on the instrument gives this window yet; tying it to
+      the owner's hold intent would be a relabel (adversary 2026-10-16).
     open_question: >-
       What current-instrument window makes moving-average direction stable
       enough to report without imposing the same flat duration on every name?
@@ -8595,7 +8507,9 @@ numbers:
     note: >-
       Minimum sessions admitted as a consolidation. It currently equals the
       ATR period in source, but equal values do not establish that volatility
-      estimation and base duration are the same market quantity.
+      estimation and base duration are the same market quantity. The
+      range/breakout flag drives backtest stops and reward:risk, so it cannot
+      be dropped as text-only (adversary 2026-10-16).
     open_question: >-
       How can the start of the current base be read from the instrument's own
       price structure without imposing a flat minimum duration?
@@ -8616,34 +8530,6 @@ numbers:
         consolidation duration is read from the current instrument's detected
         structure and the fixed minimum is removed, or the field is removed if
         no structure-defined start can be stated
-  - id: src.data.context._MAX_GAPS_REPORTED
-    value: 3
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Rendering cap on unfilled gaps shown to the Technical seat, nearest
-      first. It is not a deterministic trade gate, but it changes evidence the
-      seat receives and therefore can change a verdict.
-    open_question: >-
-      How many unfilled gaps can be omitted before the missing level changes a
-      Technical answer, within the prompt's measured evidence budget?
-    cost_while_unanswered: >-
-      A material older gap can be hidden from the analyst while a less useful
-      nearer gap consumes the fixed allowance.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        controlled replays of an identical cached market context with the full
-        gap list and each successively truncated rendering, including prompt
-        token count and any change in extracted Technical facts or verdict
-      closes_when: >-
-        the cap is derived arithmetically from an explicit prompt-token budget,
-        removed when the full list fits, or replaced by a rendering proven
-        invariant in controlled replay without consulting trade outcomes
   - id: scripts.trend_alignment.analysis.FWD
     value: 14
     status: not-trade-governing

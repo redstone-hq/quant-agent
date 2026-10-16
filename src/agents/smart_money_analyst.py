@@ -326,10 +326,9 @@ class SmartMoneyAnalystAgent(BaseAgent):
                     "disclosure_date_estimated": row.disclosure_date_estimated,
                     "transaction_value_usd": row.transaction_value_usd,
                     "post_transaction_shares": row.post_transaction_shares,
-                    # Exact insider-holding ratio: uncited descriptive context,
-                    # never a gate; item 90 owns the legacy bucket edges.
+                    # Exact insider-holding ratio: descriptive context, never a gate.
                     "holdings_fraction": row.holdings_fraction,
-                    "holdings_fraction_band": row.holdings_fraction_band,
+                    "no_prior_holding": row.no_prior_holding,
                     "ownership_nature": row.ownership_nature,
                     "is_10b5_1": row.is_10b5_1,
                     "signal_class": row.signal_class,
@@ -457,7 +456,7 @@ class SmartMoneyAnalystAgent(BaseAgent):
             # Deterministic from `shares` and `post_transaction_shares`, and
             # it is part of what the seat is asked to weigh.
             "holdings_fraction",
-            "holdings_fraction_band",
+            "no_prior_holding",
         )
         rows = []
         for observation in observations:

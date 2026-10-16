@@ -86,14 +86,12 @@ class SmartMoneyObservation(LLMOutputModel):
     # the Form 4 fields the desk already parses (`shares` and
     # `post_transaction_shares`) — see
     # `src/data/insider_signal.py::holdings_fraction`. Reported for buys and
-    # sells alike and never used as an admission cutoff. The legacy bands are
-    # unsourced descriptive buckets for this per-filing unit; only the exact
-    # ratio comes from the row. `None`/`""` when the filing does not carry
-    # enough to compute one, and `no_prior_holding` for a purchase by an insider
-    # who held nothing beforehand (no ratio exists — that is a distinct fact,
-    # not a missing one).
+    # sells alike and never used as an admission cutoff. Only the exact ratio
+    # is shown; `None` when the filing does not carry enough to compute one,
+    # and `no_prior_holding` True for a purchase by an insider who held
+    # nothing beforehand (no ratio exists — a distinct fact, not a missing one).
     holdings_fraction: float | None = Field(default=None, ge=0.0)
-    holdings_fraction_band: Literal["", "under_10pct", "10_to_50pct", "over_50pct", "no_prior_holding"] = ""
+    no_prior_holding: bool = False
     economic_role: Literal["actionable", "confirmatory", "contradictory", "historical"]
     # Populated only for stream="congressional" (src/data/congressional_trading.py).
     # Two independent free sources (kadoa-org/congress-trading-monitor,
@@ -171,8 +169,8 @@ class SmartMoneyObservation(LLMOutputModel):
         also NOT signed bearish here: one Form 4 row does not establish a
         directional view, and no published signed scoring scheme defines a
         -1-vs-0 boundary for that per-filing quantity (board item 63). The
-        legacy ``holdings_fraction_band`` edges are explicitly unsourced for
-        this unit under item 90 and may not be fitted to desk outcomes. The
+        exact holdings ratio is descriptive only and may not be fitted to
+        desk outcomes. The
         desk is long-only on smart-money admission (a row is admission-eligible
         only when ``direction == "buy"``), so neutralising a sale to 0 -- rather
         than guessing a bearish magnitude -- is the safe minimal structure fix:
