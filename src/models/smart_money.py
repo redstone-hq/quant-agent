@@ -180,7 +180,7 @@ class SmartMoneyObservation(LLMOutputModel):
 
 #: `SmartMoneyFinding.economic_role` -> `AnalystVerdict.conviction`. NEW
 #: JUDGMENT, not a restatement (the finding carries no confidence field to
-#: read off). The ordering is not invented here: `_ROLE_RANK` in
+#: read off). The ordering is not invented here: `_ROLE_TIERS` in
 #: `src/agents/smart_money_analyst.py` already ranks these four labels
 #: actionable(3) > confirmatory(2) > contradictory(1) > historical(0) to
 #: decide which fact the seat surfaces first, and the seat's own prompt

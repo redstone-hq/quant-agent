@@ -96,22 +96,29 @@ _MAX_CONTEXT_TEXT_CHARS = 96
 _MAX_REASON_TEXT_CHARS = 220
 _MAX_ACTOR_ROLES = 8
 
-_ROLE_RANK = {
-    "actionable": 3,
-    "confirmatory": 2,
-    "contradictory": 1,
-    "historical": 0,
-}
-_FRESHNESS_RANK = {"fresh": 2, "delayed": 1, "stale": 0}
+# Orderings are stated as tiers, best first; a tier holding several keys is a
+# tie. Anything not listed (e.g. "historical", "stale", "routine") sorts last.
+_ROLE_TIERS = (
+    frozenset({"actionable"}),
+    frozenset({"confirmatory"}),
+    frozenset({"contradictory"}),
+)
+_FRESHNESS_TIERS = (
+    frozenset({"fresh"}),
+    frozenset({"delayed"}),
+)
 # Routine transactions carry no predictive power (docs/RESEARCH_FINDINGS.md
 # section 1). They are still presented — the operator must be able to see what
 # was discounted and why — but they lose every ranking contest.
-_SIGNAL_CLASS_RANK = {
-    "opportunistic": 2,
-    "": 1,
-    "indeterminate": 1,
-    "routine": 0,
-}
+_SIGNAL_CLASS_TIERS = (
+    frozenset({"opportunistic"}),
+    frozenset({"", "indeterminate"}),
+)
+
+
+def _tier_position(tiers: tuple[frozenset[str], ...], key: str) -> int:
+    """Index of the tier holding ``key``; unlisted keys sort after every tier."""
+    return next((index for index, tier in enumerate(tiers) if key in tier), len(tiers))
 
 
 class SmartMoneyAnalystAgent(BaseAgent):
@@ -153,9 +160,9 @@ class SmartMoneyAnalystAgent(BaseAgent):
             -int(any(row.transient_admitted for row in observations)),
             -int(any(row.transient_admission_eligible for row in observations)),
             -int(any(row.admission_eligible for row in observations)),
-            -max(_ROLE_RANK[row.economic_role] for row in observations),
-            -max(_SIGNAL_CLASS_RANK[row.signal_class] for row in observations),
-            -max(_FRESHNESS_RANK[row.freshness] for row in observations),
+            min(_tier_position(_ROLE_TIERS, row.economic_role) for row in observations),
+            min(_tier_position(_SIGNAL_CLASS_TIERS, row.signal_class) for row in observations),
+            min(_tier_position(_FRESHNESS_TIERS, row.freshness) for row in observations),
             # Value is weighted by class AND signed by direction (board
             # item 63): a bearish/contra row contributes 0, never a positive as
             # if it were a bullish buy of the same dollar value, so a symbol
@@ -172,9 +179,9 @@ class SmartMoneyAnalystAgent(BaseAgent):
         return (
             -int(observation.transient_admission_eligible),
             -int(observation.admission_eligible),
-            -_ROLE_RANK[observation.economic_role],
-            -_SIGNAL_CLASS_RANK[observation.signal_class],
-            -_FRESHNESS_RANK[observation.freshness],
+            _tier_position(_ROLE_TIERS, observation.economic_role),
+            _tier_position(_SIGNAL_CLASS_TIERS, observation.signal_class),
+            _tier_position(_FRESHNESS_TIERS, observation.freshness),
             # Direction-signed (board item 63): a contra/bearish row scores 0,
             # not a positive that would rank it alongside a bullish buy.
             -(observation.transaction_value_usd or 0) * observation.signal_direction,

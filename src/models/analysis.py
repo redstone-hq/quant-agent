@@ -360,7 +360,7 @@ def rating_rung_strength(rating: str) -> float:
 #: the reader: macro's `regime_shift`/`shift_reason` still reach the verdict
 #: as evidence and invalidation, and smart_money's `economic_role` still sets
 #: conviction via `_SMART_MONEY_ROLE_CONVICTION`, whose ordering is a
-#: restatement of the pre-existing `_ROLE_RANK`, not a new judgment.
+#: restatement of the pre-existing `_ROLE_TIERS`, not a new judgment.
 #:
 #: AND WHY IT IS NOT 0.5 — corrected 2026-09-13, same day, on
 #: adversarial review before merge. The first version of this deletion set the

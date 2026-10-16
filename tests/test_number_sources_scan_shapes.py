@@ -58,9 +58,9 @@ def test_named_dictionary_keys_keep_distinct_number_identities() -> None:
     readable insider-class constants; the scanner owns resolving their sites.
     """
     ids = {site.site_id for site in collect_sites()}
-    assert "src.agents.smart_money_analyst._SIGNAL_CLASS_RANK['opportunistic']" in ids
-    assert "src.agents.smart_money_analyst._SIGNAL_CLASS_RANK['indeterminate']" in ids
-    assert "src.agents.smart_money_analyst._SIGNAL_CLASS_RANK[?]" not in ids
+    assert "src.risk.size_override._RANK['close']" in ids
+    assert "src.risk.size_override._RANK['multiplier']" in ids
+    assert "src.risk.size_override._RANK[?]" not in ids
 
 
 def test_destructured_module_constants_keep_distinct_number_identities(tmp_path) -> None:
