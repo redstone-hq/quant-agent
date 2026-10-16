@@ -2056,7 +2056,7 @@ numbers:
       (src/risk/exit_guard.py), so admitting a young name whose `ma_200` is
       None does not ship an unevaluable exit -- the board's hard prerequisite,
       verified already present on main. The two neighbouring history counts
-      (the deleted `min_external_history_days` 20, and src/universe_screen.py's ~210) were
+      (a deleted 20-day external-history floor, and src/universe_screen.py's ~210) were
       SEPARATE gates in their own modules and out of this item's scope.
   - id: src.execution.stop_records._ALPACA_TICK_AT_OR_ABOVE_DOLLAR
     value: 0.01
