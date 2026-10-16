@@ -856,6 +856,9 @@ class IntradayMixin:
         """The IntradaySafety part, wired to this host live; bodies in src/intraday/safety.py."""
         return IntradaySafety(
             db=getattr(self, "db", None),
+            broker=getattr(self, "broker", None),
+            attach_pnl=getattr(self, "_attach_pnl", None),
+            record_account_snapshot=getattr(self, "_record_account_snapshot", None),
             is_trading_day=getattr(self, "_is_trading_day", None),
             kill_switch_halt_result=getattr(self, "_kill_switch_halt_result", None),
             blocking_owner_session=getattr(self, "_blocking_owner_session", None),

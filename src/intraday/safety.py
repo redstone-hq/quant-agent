@@ -31,6 +31,9 @@ class IntradaySafety:
         self,
         *,
         db=None,
+        broker=None,
+        attach_pnl=None,
+        record_account_snapshot=None,
         is_trading_day=None,
         kill_switch_halt_result=None,
         blocking_owner_session=None,
@@ -46,6 +49,9 @@ class IntradaySafety:
         state=None,
     ) -> None:
         self.db = db
+        self.broker = broker
+        self._attach_pnl = attach_pnl
+        self._record_account_snapshot = record_account_snapshot
         self._is_trading_day = is_trading_day
         self._kill_switch_halt_result = kill_switch_halt_result
         self._blocking_owner_session = blocking_owner_session
@@ -98,6 +104,27 @@ class IntradaySafety:
         never spend, and activating one would put empty rows into the very
         ``llm_budget_sessions`` measurement item 177 reads.
         """
+        result = self._run_intra_safety_body()
+        # Same P&L plumbing the paid tick and midday use: the figures come from
+        # this run's own account read (or carry a reason code when none happened).
+        if self._attach_pnl is not None:
+            self._attach_pnl(result)
+        return result
+
+    def _read_account_for_pnl(self) -> None:
+        """Read the account once so the P&L block has real figures (fail-soft)."""
+        if self._state is not None:
+            self._state.set("_last_account_snapshot", None)
+        if self.broker is None or self._record_account_snapshot is None:
+            return
+        try:
+            account = self.broker.get_account()
+            total_value = account["portfolio_value"]
+            self._record_account_snapshot(total_value, account.get("last_equity", total_value))
+        except Exception as exc:  # noqa: BLE001 — a P&L read must never cost the safety pass
+            logger.warning("Intra safety: account read for P&L failed (non-fatal): %s", exc)
+
+    def _run_intra_safety_body(self) -> dict:
         ctx = RunContext.start("intra_safety")
         run_id = ctx.run_id
         logger.info("=== Intra safety preamble (free): %s ===", run_id)
@@ -112,6 +139,7 @@ class IntradaySafety:
 
         coverage_gaps, preamble_deferred = self._run_intra_safety_preamble(run_id)
         self._intra_preamble_deferred = preamble_deferred
+        self._read_account_for_pnl()
         return {
             "status": "deferred" if preamble_deferred else "ok",
             "run_id": run_id,
