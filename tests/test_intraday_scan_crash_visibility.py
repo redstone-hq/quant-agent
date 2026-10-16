@@ -97,6 +97,7 @@ def _pipeline(*, enabled=True, universe=("AAPL",), other_session_rows=None):
             db_path=str(Path(tempfile.mkdtemp()) / "t.db"),
         ),
         intraday_scan=IntradayScanConfig(enabled=enabled),
+        event_risk=SimpleNamespace(horizon_days=10),
     )
     p.broker.get_account.return_value = {
         "cash": 10_000.0,

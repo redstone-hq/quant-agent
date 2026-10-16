@@ -33,3 +33,6 @@ src/stage_execution
 src/stage_risk
 src/storage/event_journal.py
 src/storage/target_revisions.py
+src/data/event_calendar/fomc_provider.py
+src/data/event_calendar/macro_provider.py
+src/data/event_calendar/upcoming.py
