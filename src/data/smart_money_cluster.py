@@ -44,11 +44,14 @@ research cluster.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import date
 from typing import Callable, Iterable
 
 from src.models import InsiderPurchaseCluster, SmartMoneyObservation
+
+logger = logging.getLogger(__name__)
 
 #: A cluster is a purchase "on the same day as another insider purchase at the
 #: same company" (Alldredge & Blank 2019, abstract) — the insider plus at
@@ -270,6 +273,74 @@ def cluster_reservation_census(
     }
 
 
+def _cut_class(item: SmartMoneyObservation) -> str:
+    """The sort class a row ranked under (mirrors the insider sort's leading keys)."""
+    if item.transient_admission_eligible:
+        return "admission-qualifying"
+    if item.in_core_universe:
+        return "core-universe"
+    return "other"
+
+
+def cut_record(
+    ordered: list[SmartMoneyObservation],
+    final: list[SmartMoneyObservation],
+    *,
+    stream: str,
+    max_observations: int,
+) -> dict:
+    """Record-only: every row ``max_observations`` dropped on one refresh.
+
+    ``cut`` has one entry per (symbol, direction, sort class) with rows_cut,
+    value_usd_sum and whether the symbol had ANY row kept; ``by_class`` counts
+    them. Empty when nothing was cut. Governs nothing -- read by no gate, rank
+    or size. Emits one structured log line per refresh.
+    """
+    kept_keys = {observation_key(item) for item in final}
+    kept_symbols = {item.symbol for item in final}
+    cut_rows = [item for item in ordered if observation_key(item) not in kept_keys]
+    groups: dict[tuple, dict] = {}
+    by_class: dict[str, int] = {}
+    for item in cut_rows:
+        cls = _cut_class(item)
+        by_class[cls] = by_class.get(cls, 0) + 1
+        entry = groups.setdefault(
+            (item.symbol, item.direction, cls),
+            {
+                "symbol": item.symbol,
+                "stream": stream,
+                "direction": item.direction,
+                "class": cls,
+                "rows_cut": 0,
+                "value_usd_sum": 0.0,
+                "symbol_kept": item.symbol in kept_symbols,
+            },
+        )
+        entry["rows_cut"] += 1
+        entry["value_usd_sum"] += item.transaction_value_usd or 0
+    cut = sorted(groups.values(), key=lambda e: (e["symbol"], e["direction"], e["class"]))
+    record = {
+        "stream": stream,
+        "max_observations": max_observations,
+        "rows_in": len(ordered),
+        "rows_kept": len(final),
+        "rows_cut": len(cut_rows),
+        "by_class": by_class,
+        "symbols_fully_cut": sorted({r["symbol"] for r in cut if not r["symbol_kept"]}),
+        "cut": cut,
+    }
+    logger.info(
+        "smart_money_cut_record stream=%s in=%d kept=%d cut=%d by_class=%s fully_cut_symbols=%d",
+        stream,
+        len(ordered),
+        len(final),
+        len(cut_rows),
+        by_class,
+        len(record["symbols_fully_cut"]),
+    )
+    return record
+
+
 def find_cluster_census(provider: object) -> dict | None:
     """The SEC provider's last cluster census, however the provider is wrapped
     (duck-typed, same probe shape as the sale census). None when none exists."""
@@ -279,8 +350,16 @@ def find_cluster_census(provider: object) -> dict | None:
         candidates.extend(nested)
     if hasattr(provider, "__dict__"):
         candidates.extend(vars(provider).values())
+    census: dict | None = None
+    cut_records: dict[str, dict] = {}
     for candidate in candidates:
-        census = getattr(candidate, "last_cluster_census", None)
-        if isinstance(census, dict):
-            return census
-    return None
+        found = getattr(candidate, "last_cluster_census", None)
+        if census is None and isinstance(found, dict):
+            census = found
+        record = getattr(candidate, "last_cut_record", None)
+        if isinstance(record, dict) and record.get("stream"):
+            cut_records.setdefault(record["stream"], record)
+    if cut_records:
+        # Persisted with the existing cluster-census evidence row (one per run).
+        census = {**(census or {}), "cut_records": cut_records}
+    return census

@@ -33,6 +33,7 @@ from src.data.smart_money_cluster import (
     MAX_CLUSTER_RESERVED_SLOTS,
     cluster_reservation_census,
     cluster_survivors,
+    cut_record,
     insider_purchase_clusters,
     observation_key,
     reserve_cluster_symbols,
@@ -270,6 +271,7 @@ class SECForm4Provider:
         self.last_sale_census: dict | None = None
         # n06: what the cluster reservation did on the last refresh. Record-only.
         self.last_cluster_census: dict | None = None
+        self.last_cut_record: dict | None = None
         self.refresh_deadline_s = max(1.0, float(refresh_deadline_s))
         self.watched_drain_deadline_s = max(1.0, float(watched_drain_deadline_s))
         self.max_filings_per_refresh = max(1, int(max_filings_per_refresh))
@@ -1843,6 +1845,7 @@ class SECForm4Provider:
             max_observations=self.max_observations,
             max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
         )
+        self.last_cut_record = cut_record(ordered, final, stream="insider", max_observations=self.max_observations)
         self.last_sale_census = _sale_census(parsed)
         error = f"cache_partial_error:{invalid}_invalid_rows" if invalid else None
         return final, error
