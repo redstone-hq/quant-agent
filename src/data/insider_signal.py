@@ -76,7 +76,7 @@ INDETERMINATE = "indeterminate"
 
 # Sort order only, best first. Cohen, Malloy & Pomorski (2012) give no weight to
 # a trade they could not classify, so there is no numeric weight: opportunistic,
-# then indeterminate, then routine. Mirrors the analyst's _SIGNAL_CLASS_RANK
+# then indeterminate, then routine. Mirrors the analyst's _SIGNAL_CLASS_TIERS
 # (src/data must not import src/agents).
 SIGNAL_CLASS_ORDER = (OPPORTUNISTIC, INDETERMINATE, ROUTINE)
 
