@@ -314,13 +314,18 @@ class EarningsDataProvider:
 
         An earnings stance is current only while its filing is the company's
         latest 10-Q/10-K in the submissions list fetched now; an analysis of
-        any older report is superseded and is never served. With no list (SEC
-        fetch failed) or no periodic report at all, nothing is served — an
-        unknowable currency is not evidence of a current one.
+        any older report is superseded and is never served. A ticker absent
+        from SEC's map, or a company with no periodic report, gets None.
+
+        SEC outage (the ticker map or the submissions list cannot be fetched):
+        serve the analysis the last good fetch recorded as current, with its
+        stored `current_until`, unless that deadline has passed today. An
+        outage must not erase a stance — dropping a dissenting one can lift a
+        refusal and let a trade through.
         """
-        cik = self.sec.cik_for(symbol)
+        cik, outage = self._lookup_cik(symbol)
         if not cik:
-            return None
+            return self._stored_current_analysis(symbol, outage=outage)
 
         filings = self.sec.recent_filings(cik, symbol)
         if not filings:
@@ -406,6 +411,15 @@ class EarningsDataProvider:
             xbrl_facts=xbrl_comparable_values(xbrl_raw),
             current_until=current_until,
         )
+
+    def _lookup_cik(self, symbol: str) -> tuple[str | None, bool]:
+        """(CIK, outage): (None, True) when SEC's ticker map could not be
+        fetched; (None, False) when it was and the ticker is not in it."""
+        try:
+            return self.sec.cik_for(symbol), False
+        except Exception as e:
+            record_swallowed("data.earnings.ticker_map", e, log=logger, symbol=symbol)
+            return None, True
 
     def _record_currency(self, symbol: str, latest: FilingInfo, current_until: str) -> None:
         """Persist, from a good SEC fetch, which filing is current and until

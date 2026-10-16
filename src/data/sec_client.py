@@ -81,8 +81,14 @@ def periodic_report_current_until(report_date: str, fiscal_year_end: str) -> dat
     gap = abs((fy_end - next_end).days)
     before, after = (pd.Timestamp(next_end) - step).date(), (pd.Timestamp(next_end) + step).date()
     is_10k = gap < abs((fy_end - before).days) and gap < abs((fy_end - after).days)
-    days = TEN_K_DUE_DAYS + TEN_K_EXTENSION_DAYS if is_10k else TEN_Q_DUE_DAYS + TEN_Q_EXTENSION_DAYS
-    return _SEC_BUSINESS_DAY.rollforward(pd.Timestamp(next_end + timedelta(days=days))).date()
+    due_days, extension_days = (
+        (TEN_K_DUE_DAYS, TEN_K_EXTENSION_DAYS) if is_10k else (TEN_Q_DUE_DAYS, TEN_Q_EXTENSION_DAYS)
+    )
+    # Rule 0-3 first fixes the prescribed due date (weekend/holiday -> next
+    # business day); the 12b-25 extension runs in calendar days from THAT
+    # date, and its own last day is rolled again.
+    due = _SEC_BUSINESS_DAY.rollforward(pd.Timestamp(next_end + timedelta(days=due_days)))
+    return _SEC_BUSINESS_DAY.rollforward(due + timedelta(days=extension_days)).date()
 
 
 @dataclass
@@ -204,20 +210,21 @@ class SecClient:
         raise RuntimeError(f"SEC fetch failed for {url} without exception")
 
     def cik_for(self, ticker: str) -> str | None:
-        """Look up CIK number for a ticker symbol."""
+        """Look up CIK number for a ticker symbol.
+
+        None = the map was fetched and the ticker is not in it. A failed
+        fetch RAISES and is not cached (the next call retries): an outage is
+        "unknown", which the caller must not mistake for "no such company".
+        """
         if self._ticker_to_cik is None:
-            try:
-                data = json.loads(self.get(SEC_TICKERS_URL))
-                self._ticker_to_cik = {}
-                for entry in data.values():
-                    t = entry.get("ticker", "").upper()
-                    cik = str(entry.get("cik_str", ""))
-                    if t and cik:
-                        self._ticker_to_cik[t] = cik
-            except Exception as e:
-                record_swallowed("data.sec_client.ticker_map", e, log=logger)
-                logger.warning("Failed to fetch SEC ticker map: %s", e)
-                self._ticker_to_cik = {}
+            data = json.loads(self.get(SEC_TICKERS_URL))
+            ticker_to_cik = {}
+            for entry in data.values():
+                t = entry.get("ticker", "").upper()
+                cik = str(entry.get("cik_str", ""))
+                if t and cik:
+                    ticker_to_cik[t] = cik
+            self._ticker_to_cik = ticker_to_cik
         return self._ticker_to_cik.get(ticker.upper())
 
     def recent_filings(self, cik: str, ticker: str) -> list[FilingInfo] | None:

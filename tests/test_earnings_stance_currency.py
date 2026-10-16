@@ -206,11 +206,58 @@ def test_sec_outage_past_the_stored_deadline_drops_the_stance(tmp_path):
 
 
 def test_backstop_steps_month_end_to_month_end():
-    """Sep 30 + one quarter is Dec 31 (not Dec 30); Feb 28 -> May 31."""
-    assert periodic_report_current_until("2026-09-30", "0630") == date(2026, 12, 31) + timedelta(days=50)
-    assert periodic_report_current_until("2026-02-28", "1130") == date(2026, 5, 31) + timedelta(days=50)
+    """Sep 30 2025 + one quarter is Dec 31 (not Dec 30). Due +45 = Sat 14 Feb
+    2026 -> Tue 17 Feb (Presidents Day Mon 16, Rule 0-3); +5 (12b-25) = Sun
+    22 Feb -> Mon 23 Feb. Stepping to Dec 30 would give Wed 18 Feb."""
+    assert periodic_report_current_until("2025-09-30", "0630") == date(2026, 2, 23)
 
 
 def test_backstop_deadline_on_a_weekend_rolls_to_the_next_business_day():
     """17 CFR 240.0-3: Jun 26 + 50 days is Sat 15 Aug 2026 -> Mon 17 Aug."""
     assert periodic_report_current_until("2026-03-26", "1231") == date(2026, 8, 17)
+
+
+def test_ticker_map_outage_keeps_a_stored_in_deadline_bearish_stance(tmp_path):
+    """SEC's ticker->CIK map failing is an outage, not "no such company"."""
+    today = et_today()
+    filed = today - timedelta(days=20)
+    period = filed - timedelta(days=30)
+    filings = [{"form": "10-Q", "filed": filed, "period": period}]
+    provider = _provider(tmp_path, filings, fiscal_year_end=_fye_after(period))
+    _analysed(provider, "10-Q", filed)
+    assert not _stale(provider.check_and_fetch([SYM]), today, "bearish")  # good fetch records currency
+
+    def map_down(_ticker):
+        raise URLError("SEC ticker map unreachable")
+
+    provider.sec.cik_for = map_down
+    reports = provider.check_and_fetch([SYM])
+    assert [r.filing_date for r in reports] == [filed.isoformat()]
+    assert not _stale(reports, today, "bearish")
+
+
+def test_ticker_map_fetch_failure_is_not_cached_as_an_empty_map():
+    calls = []
+
+    def opener(req, timeout):
+        calls.append(req)
+        raise URLError("down")
+
+    sec = build_sec_client(
+        opener=opener, request=Request, http_error=HTTPError, url_error=URLError, sleep=lambda _s: None
+    )
+    for _ in range(2):
+        try:
+            sec.cik_for("ZZZE")
+        except Exception:
+            pass
+        else:
+            raise AssertionError("a failed ticker-map fetch must raise, not read as an unknown ticker")
+    assert sec._ticker_to_cik is None
+
+
+def test_rule_0_3_rolls_the_due_date_before_the_12b25_extension():
+    """Q ends Wed 24 Jun 2026: due +45 = Sat 8 Aug -> Mon 10 Aug (Rule 0-3);
+    +5 days (12b-25) = Sat 15 Aug -> Mon 17 Aug. Adding 50 then rolling
+    once would give Thu 13 Aug."""
+    assert periodic_report_current_until("2026-03-24", "1231") == date(2026, 8, 17)
