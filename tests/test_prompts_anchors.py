@@ -284,13 +284,6 @@ _HARD_ANCHORS = (
         "pipeline._build_recent_outlook_calibration) so it stops "
         "mis-learning a low next-day rate into 'default neutral'",
     ),
-    (
-        "portfolio_manager.md",
-        "Momentum-leader starter sleeve",
-        "P5: small (≤5%) starter in repeatedly-missed confirmed-uptrend "
-        "leaders, subordinate to all hard caps — stops the book "
-        "perpetually missing the trend's leaders",
-    ),
     # ---- 2026-06-07 CoT-logic optimizations (#1 independence, #2 pre-mortem) ----
     (
         "portfolio_manager.md",
