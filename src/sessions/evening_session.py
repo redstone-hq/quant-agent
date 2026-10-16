@@ -354,6 +354,7 @@ class EveningSession:
                 move_threshold_pct=8.0,
                 top_n=15,
                 current_position_symbols=held_set,
+                session_earnings=evening_earnings,
             )
         except Exception as e:
             record_evening_pass(self, "missed_ops_digest", e)
