@@ -10,6 +10,10 @@ one entry in `no_reads`. A `no_reads` entry means you read the symbol and the
 evidence supports no call; it is never treated as a verdict. A symbol left out
 of both lists is re-asked and, if still unanswered, recorded as missing.
 
+Each entry is a fixed-shape record: the fields above and nothing else. No text
+outside the JSON, no extra fields, no essays: `summary` and `why_now` are one
+short sentence each, `reason` on a no-read is one short phrase.
+
 `thesis_invalid_if` is the condition that would prove THIS finding wrong,
 in your own words, written now. One condition, not two: do not join clauses
 with "or". Make it something the desk can actually check against data it holds

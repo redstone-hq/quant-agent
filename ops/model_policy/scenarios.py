@@ -1706,9 +1706,25 @@ def _smart_money_invoke(agent):
     agent.synthesis_cache_path = (
         Path(tempfile.mkdtemp(prefix="seat-exam-synthesis-")) / "synthesis_cache.json"
     )
-    findings, _result, error, gaps = agent.analyze_with_gaps(observations)
+    # Capture every raw reply so coverage is graded from what the model
+    # actually returned, not from the agent's own gap bookkeeping.
+    replies: list = []
+    real_run = agent.run
+
+    def run(**kwargs):
+        result = real_run(**kwargs)
+        replies.append(result.parse_json())
+        return result
+
+    agent.run = run
+    findings, _result, error, _gaps = agent.analyze_with_gaps(observations)
+    no_read_symbols = {
+        str(row.get("symbol", "")).upper()
+        for reply in replies if isinstance(reply, dict)
+        for row in (reply.get("no_reads") or []) if isinstance(row, dict)
+    }
     return SimpleNamespace(
-        findings=findings, error=error, gaps=gaps,
+        findings=findings, error=error, no_read_symbols=no_read_symbols,
         presented=tuple(agent._presented_symbols(observations)),
     )
 
@@ -1729,17 +1745,14 @@ def _smart_money_grade(output) -> list[Check]:
         f"at src/agents/smart_money_analyst.py:434) or names a symbol that was "
         f"not presented or already answered (:449)",
     ))
-    # The prompt requires one answer per presented symbol (a finding or an
-    # explicit no-read); the seat re-asks once and returns what is still
-    # unanswered as gaps.
-    unanswered = sorted(
-        gap["symbol"] for gap in (getattr(output, "gaps", None) or [])
-        if gap.get("after_reask") != "answered"
-    )
+    # Symbols SENT vs symbols ANSWERED (a validated finding or a no-read in
+    # a raw reply), computed here -- never from the agent's own gap list.
+    answered = {f.symbol.upper() for f in findings} | set(getattr(output, "no_read_symbols", ()) or ())
+    unanswered = sorted(set(output.presented) - answered)
     checks.append(Check(
         "covers_every_presented_symbol", 0.30, not unanswered,
         f"{len(findings)} finding(s) of {len(output.presented)} presented; "
-        f"unanswered after the one re-ask: {unanswered}",
+        f"sent but unanswered: {unanswered}",
     ))
     return checks
 

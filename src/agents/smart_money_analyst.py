@@ -569,32 +569,71 @@ class SmartMoneyAnalystAgent(BaseAgent):
                 answered.add(symbol)
         return answered
 
-    def _answer(
+    def _accepted_no_reads(self, raw_no_reads, presented: set[str], found: set[str], anomaly) -> set[str]:
+        """No-reads for presented symbols that have no finding; the rest are anomalies."""
+        no_reads: set[str] = set()
+        for raw in raw_no_reads if isinstance(raw_no_reads, list) else []:
+            symbol = str(raw.get("symbol", "")).upper() if isinstance(raw, dict) else ""
+            if symbol not in presented:
+                anomaly(symbol, "not_sent")
+            elif symbol in found:
+                anomaly(symbol, "finding_and_no_read")
+            else:
+                no_reads |= self._parse_no_reads([raw], {symbol})
+        return no_reads
+
+    def _parse_reply(
         self,
-        parsed,
+        parsed: dict,
         observations: list[SmartMoneyObservation],
         evidence_hash: str,
         presented: set[str],
-    ) -> tuple[list[SmartMoneyFinding], set[str], dict[str, str]]:
-        """Parse one reply; return findings, no-read symbols and the gaps.
+        reply_pass: str,
+    ) -> tuple[list[SmartMoneyFinding], set[str], dict[str, str], list[dict]]:
+        """Parse one reply into findings, no-read symbols, gaps and anomalies.
 
         A gap is a presented symbol with neither a valid finding nor a
-        no-read: "rejected" when the reply named it but it failed validation,
-        "missing" when the reply never named it.
+        no-read: "rejected" when the reply named it but it failed validation
+        (including two contradictory stances for one symbol), "missing" when
+        the reply never named it. An anomaly is anything else wrong with the
+        reply -- a duplicate, a symbol that was never sent -- recorded per
+        symbol so it is durable, not just a log line.
         """
-        raw_findings = parsed.get("findings") if isinstance(parsed, dict) else None
+        raw_findings = parsed.get("findings")
         raw_findings = raw_findings if isinstance(raw_findings, list) else []
-        findings, _invalid = self._parse_findings(raw_findings, observations, evidence_hash, presented)
+        anomalies: list[dict] = []
+
+        def anomaly(symbol: str, reason: str) -> None:
+            anomalies.append({"kind": "reply_anomaly", "symbol": symbol, "reason": reason, "pass": reply_pass})
+
+        by_symbol: dict[str, list[dict]] = {}
+        for raw in raw_findings:
+            if not isinstance(raw, dict):
+                anomaly("", "malformed_entry")
+                continue
+            symbol = str(raw.get("symbol", "")).upper()
+            if symbol not in presented:
+                anomaly(symbol, "not_sent")
+                continue
+            by_symbol.setdefault(symbol, []).append(raw)
+        findings: list[SmartMoneyFinding] = []
+        for symbol, entries in by_symbol.items():
+            if len(entries) > 1:
+                stances = {str(entry.get("stance", "")).lower() for entry in entries}
+                if len(stances) > 1:
+                    anomaly(symbol, "contradictory_duplicate")
+                    continue
+                anomaly(symbol, "duplicate")
+            accepted, _invalid = self._parse_findings(entries[:1], observations, evidence_hash, {symbol})
+            findings.extend(accepted)
         found = {finding.symbol.upper() for finding in findings}
-        no_reads = self._parse_no_reads(parsed.get("no_reads") if isinstance(parsed, dict) else None, presented)
-        no_reads -= found
-        named = {str(raw.get("symbol", "")).upper() for raw in raw_findings if isinstance(raw, dict)}
+        no_reads = self._accepted_no_reads(parsed.get("no_reads"), presented, found, anomaly)
         gaps = {
-            symbol: ("rejected" if symbol in named else "missing")
+            symbol: ("rejected" if symbol in by_symbol else "missing")
             for symbol in presented
             if symbol not in found and symbol not in no_reads
         }
-        return findings, no_reads, gaps
+        return findings, no_reads, gaps, anomalies
 
     @staticmethod
     def _combined_result(first: AgentResult, second: AgentResult) -> AgentResult:
@@ -616,28 +655,8 @@ class SmartMoneyAnalystAgent(BaseAgent):
             truncated=first.truncated or second.truncated,
         )
 
-    def analyze(
-        self, observations: list[SmartMoneyObservation]
-    ) -> tuple[list[SmartMoneyFinding], AgentResult | None, str | None]:
-        findings, result, error, _gaps = self.analyze_with_gaps(observations)
-        return findings, result, error
-
-    def analyze_with_gaps(
-        self, observations: list[SmartMoneyObservation]
-    ) -> tuple[list[SmartMoneyFinding], AgentResult | None, str | None, list[dict]]:
-        """Answer every presented symbol once; return the unanswered ones.
-
-        Each gap is {"symbol", "first_pass", "after_reask"} so the stage can
-        record it per symbol. Symbols left unanswered by the first reply are
-        re-asked ONCE, in one follow-up request carrying only those symbols;
-        anything still unanswered is returned as a gap, never dropped.
-        """
-        if not observations:
-            return [], None, None, []
-        evidence_hash = self._evidence_hash(observations)
-        presented_symbols = self._presented_symbols(observations)
-        presented = set(presented_symbols)
-        cache_key = self._synthesis_cache_key(evidence_hash, presented_symbols)
+    def _cached_answer(self, observations, evidence_hash: str, presented: set[str], cache_key: str):
+        """A complete cached synthesis for this exact presentation, or None."""
         cached = self._load_cache().get(cache_key)
         if isinstance(cached, dict) and isinstance(cached.get("findings"), list):
             findings, invalid = self._parse_findings(
@@ -673,46 +692,107 @@ class SmartMoneyAnalystAgent(BaseAgent):
                     None,
                     [],
                 )
-        result = self.run(observations=observations)
-        parsed = result.parse_json()
-        if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
-            gaps = [
-                {"symbol": symbol, "first_pass": "missing", "after_reask": "not_reasked"}
-                for symbol in presented_symbols
-            ]
-            return [], result, "analysis_parse_error", gaps
-        findings, no_reads, first_gaps = self._answer(parsed, observations, evidence_hash, presented)
+        return None
+
+    def _reask_once(self, result, observations, evidence_hash, first_gaps, findings, no_reads, anomalies):
+        """One follow-up request for only the unanswered symbols.
+
+        Extends findings, no_reads and anomalies in place; returns the
+        combined result and the gaps still open after it."""
         final_gaps = dict(first_gaps)
-        if first_gaps:
-            reask = [row for row in observations if row.symbol.upper() in first_gaps]
-            logger.warning(
-                "Smart-money reply left %d symbol(s) unanswered; re-asking once: %s",
-                len(first_gaps),
-                sorted(first_gaps),
-            )
+        reask = [row for row in observations if row.symbol.upper() in first_gaps]
+        logger.warning(
+            "Smart-money reply left %d symbol(s) unanswered; re-asking once: %s",
+            len(first_gaps),
+            sorted(first_gaps),
+        )
+        try:
             second = self.run(observations=reask)
+        except Exception as exc:  # noqa: BLE001 - the first pass is kept
+            # A failed re-ask (cost circuit suspended, provider down) must
+            # not discard what the first reply already answered.
+            if not (findings or no_reads):
+                raise
+            logger.warning("Smart-money re-ask failed; keeping the first pass: %s", exc)
+            final_gaps = {symbol: f"reask_failed:{type(exc).__name__}" for symbol in first_gaps}
+        else:
             result = self._combined_result(result, second)
             second_parsed = second.parse_json()
-            if isinstance(second_parsed, dict):
-                more, more_no_reads, final_gaps = self._answer(
-                    second_parsed, observations, evidence_hash, set(first_gaps)
+            if isinstance(second_parsed, dict) and isinstance(second_parsed.get("findings"), list):
+                more, more_no_reads, final_gaps, more_anomalies = self._parse_reply(
+                    second_parsed, observations, evidence_hash, set(first_gaps), "reask"
                 )
                 findings.extend(more)
                 no_reads |= more_no_reads
-        gaps = [
+                anomalies.extend(more_anomalies)
+            else:
+                final_gaps = {symbol: "unparseable" for symbol in first_gaps}
+        return result, final_gaps
+
+    def analyze(
+        self, observations: list[SmartMoneyObservation]
+    ) -> tuple[list[SmartMoneyFinding], AgentResult | None, str | None]:
+        findings, result, error, _gaps = self.analyze_with_gaps(observations)
+        return findings, result, error
+
+    def analyze_with_gaps(
+        self, observations: list[SmartMoneyObservation]
+    ) -> tuple[list[SmartMoneyFinding], AgentResult | None, str | None, list[dict]]:
+        """Answer every presented symbol once; return the unanswered ones.
+
+        Each gap is {"symbol", "first_pass", "after_reask"} so the stage can
+        record it per symbol. Symbols left unanswered by the first reply are
+        re-asked ONCE, in one follow-up request carrying only those symbols;
+        anything still unanswered is returned as a gap, never dropped.
+        """
+        if not observations:
+            return [], None, None, []
+        evidence_hash = self._evidence_hash(observations)
+        presented_symbols = self._presented_symbols(observations)
+        presented = set(presented_symbols)
+        cache_key = self._synthesis_cache_key(evidence_hash, presented_symbols)
+        hit = self._cached_answer(observations, evidence_hash, presented, cache_key)
+        if hit is not None:
+            return hit
+        result = self.run(observations=observations)
+        findings: list[SmartMoneyFinding] = []
+        no_reads: set[str] = set()
+        anomalies: list[dict] = []
+        parsed = result.parse_json()
+        if isinstance(parsed, dict) and isinstance(parsed.get("findings"), list):
+            findings, no_reads, first_gaps, anomalies = self._parse_reply(
+                parsed, observations, evidence_hash, presented, "first"
+            )
+        else:
+            # The parse contract (AgentResult.parse_json): text that is not
+            # JSON -- including a reply cut off at the token cap -- is a failed
+            # answer that is re-asked, never repaired and never written off.
+            first_gaps = {symbol: "unparseable" for symbol in presented_symbols}
+        final_gaps = dict(first_gaps)
+        if first_gaps:
+            result, final_gaps = self._reask_once(
+                result, observations, evidence_hash, first_gaps, findings, no_reads, anomalies
+            )
+        records = [
             {
+                "kind": "unanswered_symbol",
                 "symbol": symbol,
                 "first_pass": first_gaps[symbol],
                 "after_reask": final_gaps.get(symbol, "answered"),
             }
             for symbol in presented_symbols
             if symbol in first_gaps
-        ]
+        ] + anomalies
         if final_gaps:
             for symbol in sorted(final_gaps):
                 logger.warning("Smart-money symbol unanswered after re-ask: %s (%s)", symbol, final_gaps[symbol])
-            error = "analysis_partial_schema_error" if findings or no_reads else "analysis_schema_error"
-            return findings, result, error, gaps
+            if findings or no_reads:
+                # Answered symbols stand; each unanswered one is carried by its
+                # own unanswered_symbol row, not by failing the whole seat.
+                return findings, result, None, records
+            reasons = set(final_gaps.values())
+            error = "analysis_parse_error" if reasons == {"unparseable"} else "analysis_schema_error"
+            return findings, result, error, records
         # Cache only a complete, fully validated synthesis. Source facts are
         # reattached from current observations on every cache hit.
         compact = {
@@ -729,4 +809,4 @@ class SmartMoneyAnalystAgent(BaseAgent):
             "no_reads": [{"symbol": symbol} for symbol in sorted(no_reads)],
         }
         self._save_cache({**self._load_cache(), cache_key: compact})
-        return findings, result, None, gaps
+        return findings, result, None, records

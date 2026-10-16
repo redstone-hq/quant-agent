@@ -780,19 +780,21 @@ class MorningResearchStage:
                 elif not provider_error:
                     data_status["smart_money"] = "ok"
             # Every presented symbol must be answered (a finding or an explicit
-            # no-read). One row per symbol the first reply left unanswered,
-            # with the outcome of the single re-ask, so a symbol is never
-            # dropped without a trace. A no-read is not a finding: it is
-            # never written as `finding` evidence and never reaches ranking.
-            for gap in sm_gaps or []:
+            # no-read). One `unanswered_symbol` row per symbol the first reply
+            # left unanswered, with the outcome of the single re-ask, and one
+            # `reply_anomaly` row per duplicate, contradictory or never-sent
+            # symbol in a reply. These rows carry a partial answer; the seat
+            # is failed only when no symbol was answered. A no-read is not a
+            # finding: never written as `finding` evidence, never ranked.
+            for record in sm_gaps or []:
                 _persist_evidence(
                     self.db,
                     run_id=ctx.run_id,
                     agent_name="smart_money_analyst",
-                    kind="unanswered_symbol",
+                    kind=record.get("kind", "unanswered_symbol"),
                     scope="research",
-                    symbol=gap["symbol"],
-                    evidence_json=_sm_json.dumps(gap, sort_keys=True),
+                    symbol=record.get("symbol") or None,
+                    evidence_json=_sm_json.dumps(record, sort_keys=True),
                 )
             for finding in findings:
                 symbol = finding.symbol.upper()
