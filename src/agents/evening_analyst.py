@@ -73,7 +73,7 @@ def _fmt_earnings_for_evening(earnings_analyses: list[dict]) -> str:
 
 
 def _fmt_thesis_health(context: dict) -> str:
-    """Render per-position 8-week fundamentals evolution for the LLM's
+    """Render per-position fundamentals evolution since the position opened for the LLM's
     thesis_health_review reasoning step. One block per symbol.
 
     Empty context → friendly note so the LLM doesn't fabricate a
@@ -110,14 +110,14 @@ def _fmt_thesis_health(context: dict) -> str:
         tech = c.get("tech_trajectory") or []
         tech_str = " → ".join(tech) if tech else "no tech history in window"
 
-        news_count = c.get("news_count_8w", 0)
+        news_count = c.get("news_count_since_open", 0)
         news_hls = c.get("latest_news_headlines") or []
         if news_hls:
             news_str = f'{news_count} events; latest: "{news_hls[0]}"'
             if len(news_hls) > 1:
                 news_str += f'; prior: "{news_hls[1]}"'
         else:
-            news_str = f"{news_count} news events in 8w (no headlines captured)"
+            news_str = f"{news_count} news events since the position opened (no headlines captured)"
 
         earnings = c.get("recent_earnings_signal")
         earnings_str = earnings[:140] if earnings else "no recent earnings analysis"
@@ -176,7 +176,7 @@ def _fmt_thesis_health(context: dict) -> str:
             f"### {sym} (entry ${entry_px:.2f} → ${cur_px:.2f} {pnl_str}, {held_str}, sector {c.get('sector') or '?'})\n"
             f"  Entry thesis: {entry_reason}\n"
             f"  Tech trajectory (newest → oldest): {tech_str}\n"
-            f"  News (8w): {news_str}\n"
+            f"  News (since open): {news_str}\n"
             f"  Earnings: {earnings_str}\n"
             f"  Macro sector stance: {macro}\n"
             f"  Valuation: {val_str}{deep_section}"
@@ -343,7 +343,7 @@ class EveningAnalystAgent(BaseAgent):
         # Phase-1 evening-upgrade: Python-computed notable movers we didn't own.
         # LLM classifies each into miss_category + writes a lesson.
         missed_ops_snapshots: list = kwargs.get("missed_ops_snapshots") or []
-        # Value-lens upgrade (2026-04): per-position 8-week fundamentals
+        # Value-lens upgrade (2026-04): per-position fundamentals since the position opened
         # evolution. LLM uses this in the thesis_health_review step to
         # judge whether each holding's thesis is strengthening / intact /
         # weakening / broken — the missing medium-long-term reflection step.

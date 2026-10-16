@@ -599,7 +599,7 @@ class MissedOpsSignals:
                 "pnl_pct": pnl_pct,
                 "sector": sector,
                 "tech_trajectory": tech_trajectory,
-                "news_count_8w": news_count,
+                "news_count_since_open": news_count,
                 "latest_news_headlines": latest_news_headlines,
                 "recent_earnings_signal": earnings_map.get(sym),
                 "earnings_deep_dive": deep_dive,

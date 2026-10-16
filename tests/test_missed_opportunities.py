@@ -1873,7 +1873,7 @@ def test_build_thesis_health_context_assembles_per_symbol(tmp_path):
     assert ctx["days_held"] >= 19 and ctx["days_held"] <= 22
     assert "AI capex thesis" in ctx["entry_reasoning"]
     assert ctx["tech_trajectory"] == [f"{et_today() - timedelta(days=1)}: strong_buy"]
-    assert ctx["news_count_8w"] >= 1
+    assert ctx["news_count_since_open"] >= 1
     assert any("AI capex" in h for h in ctx["latest_news_headlines"])
     assert ctx["macro_sector_stance"] == "bullish"
     assert ctx["valuation"]["forward_pe"] == 38.5
@@ -1914,7 +1914,7 @@ def test_build_thesis_health_context_tolerates_missing_data(tmp_path):
     ctx = out["NEW"]
     assert ctx["entry_date"] is None  # no BUY row
     assert ctx["tech_trajectory"] == []
-    assert ctx["news_count_8w"] == 0
+    assert ctx["news_count_since_open"] == 0
     assert ctx["valuation"]["signal"] == "no_data"
 
 
@@ -1942,7 +1942,7 @@ def test_evening_prompt_renders_thesis_health_section():
             "pnl_pct": 7.1,
             "sector": "Technology",
             "tech_trajectory": ["strong_buy", "buy", "buy", "hold"],
-            "news_count_8w": 3,
+            "news_count_since_open": 3,
             "latest_news_headlines": ["AI capex Q1 raised"],
             "recent_earnings_signal": "bullish conviction high — revenue +45%",
             "macro_sector_stance": "bullish",

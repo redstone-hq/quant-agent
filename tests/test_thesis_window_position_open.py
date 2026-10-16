@@ -108,5 +108,5 @@ def test_news_before_the_open_is_excluded(pipe, tmp_path):
     _news(tmp_path / "news", _day(12), "pre-open headline")
     _news(tmp_path / "news", _day(4), "post-open headline")
     ctx = _ctx(pipe)
-    assert ctx["news_count_8w"] == 1
+    assert ctx["news_count_since_open"] == 1
     assert ctx["latest_news_headlines"] == ["post-open headline"]
