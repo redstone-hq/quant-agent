@@ -40,7 +40,7 @@ from src.models import (
     ReasoningChain,
     RiskReasoningChain,
     RiskVerdict,
-    SymbolRejection,
+    EntrySymbolRejection,
     TradeDecision,
 )
 from src.pipeline_context import RunContext
@@ -187,7 +187,7 @@ def test_refusing_xle_no_longer_kills_chpx():
         approved=True,
         reasoning_chain=_rc(),
         reason_category="rr_fail",
-        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR}],
+        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
         reasoning=f"XLE refused on R/R. CHPX stands on its own at {CHPX_RR}.",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -207,7 +207,7 @@ def test_the_refused_symbol_carries_its_own_reason_not_the_runs():
         approved=True,
         reasoning_chain=_rc(),
         reason_category="rr_fail",
-        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR}],
+        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
         reasoning="run-level narrative that is NOT the per-symbol reason",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -238,8 +238,8 @@ def test_every_leg_refused_individually_still_ends_the_run():
         reasoning_chain=_rc(),
         reason_category="rr_fail",
         rejected_symbols=[
-            {"symbol": "XLE", "reason": XLE_RR},
-            {"symbol": "CHPX", "reason": "stop sits inside the daily range"},
+            {"symbol": "XLE", "reason": XLE_RR, "category": "other"},
+            {"symbol": "CHPX", "reason": "stop sits inside the daily range", "category": "other"},
         ],
         reasoning="both refused, separately",
     )
@@ -259,7 +259,7 @@ def test_refusal_naming_a_symbol_outside_the_plan_is_a_noop():
         approved=True,
         reasoning_chain=_rc(),
         reason_category="rr_fail",
-        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR}],
+        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
         reasoning="XLE is not in this plan",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -323,7 +323,7 @@ def test_approved_false_no_longer_rejects_the_batch():
         approved=False,
         reasoning_chain=_rc(),
         reason_category="correlation_risk",
-        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR}],
+        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
         reasoning="uneasy about the book, dropping XLE",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -394,8 +394,8 @@ def test_a_proposed_protective_sell_is_never_dropped_by_the_seat():
         approved=False,
         reasoning_chain=_rc(),
         rejected_symbols=[
-            {"symbol": "XLE", "reason": XLE_RR},
-            {"symbol": "HELD", "reason": "seat wrongly tries to cancel the exit"},
+            {"symbol": "XLE", "reason": XLE_RR, "category": "other"},
+            {"symbol": "HELD", "reason": "seat wrongly tries to cancel the exit", "category": "other"},
         ],
         reasoning="drop XLE; also (wrongly) tries to cancel the HELD exit",
     )
@@ -420,7 +420,7 @@ def test_a_proposed_cover_is_never_dropped_by_the_seat():
     verdict = RiskVerdict(
         approved=False,
         reasoning_chain=_rc(),
-        rejected_symbols=[{"symbol": "SHRT", "reason": "seat tries to cancel the cover"}],
+        rejected_symbols=[{"symbol": "SHRT", "reason": "seat tries to cancel the cover", "category": "other"}],
         reasoning="tries to cancel the cover",
     )
     pipeline = _stage_pipeline(verdict=verdict, decisions=decisions)
@@ -453,8 +453,8 @@ def test_correlation_cluster_is_handled_by_dropping_the_named_names():
         reasoning_chain=_rc(),
         reason_category="correlation_risk",
         rejected_symbols=[
-            {"symbol": "XLE", "reason": "energy cluster leg 1"},
-            {"symbol": "CHPX", "reason": "energy cluster leg 2"},
+            {"symbol": "XLE", "reason": "energy cluster leg 1", "category": "other"},
+            {"symbol": "CHPX", "reason": "energy cluster leg 2", "category": "other"},
         ],
         reasoning="thin the energy cluster; AAPL is unrelated",
     )
@@ -511,7 +511,7 @@ def test_scale_all_buys_does_not_resize_the_survivors():
         approved=True,
         reasoning_chain=_rc(),
         reason_category="rr_fail",
-        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR}],
+        rejected_symbols=[{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
         scale_all_buys=0.5,
         reasoning="XLE refused; scale flagged, advisory only",
     )
@@ -607,8 +607,8 @@ def test_rejections_by_symbol_keeps_the_first_reason_per_name():
         reasoning_chain=_rc(),
         reasoning="r",
         rejected_symbols=[
-            SymbolRejection(symbol="XLE", reason="first"),
-            SymbolRejection(symbol="xle", reason="second"),
+            EntrySymbolRejection(symbol="XLE", reason="first", category="other"),
+            EntrySymbolRejection(symbol="xle", reason="second", category="other"),
         ],
     )
     assert verdict.rejections_by_symbol() == {"XLE": "first"}
@@ -627,7 +627,7 @@ _BASE_VERDICT = {
         "event_risk": "No fetched date inside the window for either.",
     },
     "modifications": [],
-    "rejected_symbols": [{"symbol": "XLE", "reason": XLE_RR}],
+    "rejected_symbols": [{"symbol": "XLE", "reason": XLE_RR, "category": "other"}],
     "scale_all_buys": 1.0,
     "reason_category": "rr_fail",
     "reasoning": "XLE refused; CHPX proceeds.",
@@ -695,7 +695,7 @@ def test_repair_that_drops_the_refusal_fails_closed():
 
 def test_repair_that_adds_a_refusal_fails_closed():
     tampered = _complete(_BASE_VERDICT)
-    tampered["rejected_symbols"].append({"symbol": "CHPX", "reason": "changed my mind"})
+    tampered["rejected_symbols"].append({"symbol": "CHPX", "reason": "changed my mind", "category": "other"})
     agent = _rm()
     verdict, _ = _run_review(agent, json.dumps(_BASE_VERDICT), json.dumps(tampered))
     assert verdict is None
@@ -806,7 +806,7 @@ def test_a_per_symbol_refusal_is_advisory_on_that_exit():
     verdict = RiskVerdict(
         approved=True,
         reasoning_chain=_rc(),
-        rejected_symbols=[{"symbol": "AAA", "reason": "invalidation not confirmed"}],
+        rejected_symbols=[{"symbol": "AAA", "reason": "invalidation not confirmed", "category": "other"}],
         reasoning="BBB may exit",
     )
     pipeline = _exit_pipeline(verdict)

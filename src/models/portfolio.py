@@ -468,6 +468,26 @@ def _normalize_rejected_symbols_field(values):
     return values
 
 
+#: The one label a risk verdict carries, shared by both verdict shapes AND by
+#: each entry-risk refusal (`EntrySymbolRejection.category`). Defined here,
+#: not in `risk_verdicts`, because that module imports this one; it is
+#: re-exported from there unchanged so every existing import keeps working.
+#: `portfolio_manager` reads this field's recent history to self-calibrate,
+#: and a category it does not know is a silently dropped signal.
+RiskReasonCategory = Literal[
+    "clean",  # approved untouched, no mods
+    "oversized",  # sizing too aggressive vs conviction
+    "rr_fail",  # legacy label: a range BUY cut/refused with reward:risk as a named factor (no universal floor since 2026-09-11; never applies to a breakout)
+    "concentration",  # sector / single-name too heavy
+    "correlation_risk",  # theme/factor clustering flagged
+    "event_risk",  # FOMC / macro release volatility (never earnings: owner ruling, earnings never resize or block)
+    "macro_misalign",  # plan direction contradicts the macro read (legacy: exposure vs a macro target, removed 2026-09-17)
+    "data_degraded",  # multiple upstream sources failed
+    "signal_fidelity",  # PM contradicts TechAnalyst without explanation
+    "other",  # doesn't fit the above
+]
+
+
 class SymbolRejection(LLMOutputModel):
     """One symbol refused on its own merits, without touching the rest of
     the plan. The per-TRADE lane of the risk verdict.
@@ -527,3 +547,35 @@ class SymbolRejection(LLMOutputModel):
     @classmethod
     def _normalize(cls, v: str) -> str:
         return _normalize_symbol(v)
+
+
+class EntrySymbolRejection(SymbolRejection):
+    """One entry-risk refusal carrying its OWN category (owner ruling
+    2026-10-16: the risk seat keeps its power to block a buy it judges risky;
+    earnings never resize or block a trade).
+
+    Why per entry. `RiskVerdict.reason_category` is ONE label for the whole
+    verdict, and a bare `{symbol, reason}` entry is free text — so on
+    2026-10-15 17:17 UTC a buy blocked on an earnings date ~3 sessions away,
+    tagged `event_risk` at verdict level, was indistinguishable in code from a
+    legitimate block. Each entry now names its category from the same closed
+    set, and an `event_risk` entry must name the fetched macro release or FOMC
+    meeting it relies on in `event`; `RiskStage` applies such an entry only
+    when that event matches one fetched onto the run context inside the
+    horizon.
+
+    A missing `category` does NOT fail the verdict: one forgotten label must
+    not stop every trade on the run (a whole-verdict failure stopped the desk
+    trading on 2026-10-15). `RiskStage` applies an uncategorised block — the
+    seat keeps its veto — and records it, so the gap is visible. An
+    `event_risk` entry with no `event` names nothing fetched, so `RiskStage`
+    refuses it like any other unverified event block.
+    """
+
+    category: RiskReasonCategory | None = None
+    event: str | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _lower_category(cls, v):
+        return v.strip().lower() if isinstance(v, str) else v

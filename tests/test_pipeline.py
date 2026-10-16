@@ -932,7 +932,7 @@ def test_pipeline_risk_rejected(
         RiskVerdict(
             approved=False,
             modifications=[],
-            rejected_symbols=[{"symbol": "SPY", "reason": "thesis fails on the primary data"}],
+            rejected_symbols=[{"symbol": "SPY", "reason": "thesis fails on the primary data", "category": "other"}],
             reason_category="signal_fidelity",
             reasoning="SPY refused on its own merits",
             reasoning_chain=_risk_rc(),

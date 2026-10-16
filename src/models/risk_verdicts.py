@@ -1,24 +1,12 @@
-from typing import Literal
 from pydantic import Field, model_validator
 from src.models.base import LLMOutputModel, _normalize_enum_case_fields
-from src.models.portfolio import RiskModification, SymbolRejection, _normalize_rejected_symbols_field
-
-#: The one label a risk verdict carries, shared by both verdict shapes.
-#: Extracted so the exit-path verdict cannot drift a category out of step with
-#: the morning one — `portfolio_manager` reads this field's recent history to
-#: self-calibrate and a category it does not know is a silently dropped signal.
-RiskReasonCategory = Literal[
-    "clean",  # approved untouched, no mods
-    "oversized",  # sizing too aggressive vs conviction
-    "rr_fail",  # legacy label: a range BUY cut/refused with reward:risk as a named factor (no universal floor since 2026-09-11; never applies to a breakout)
-    "concentration",  # sector / single-name too heavy
-    "correlation_risk",  # theme/factor clustering flagged
-    "event_risk",  # pre-earnings / FOMC / macro event volatility
-    "macro_misalign",  # plan direction contradicts the macro read (legacy: exposure vs a macro target, removed 2026-09-17)
-    "data_degraded",  # multiple upstream sources failed
-    "signal_fidelity",  # PM contradicts TechAnalyst without explanation
-    "other",  # doesn't fit the above
-]
+from src.models.portfolio import (  # noqa: F401  RiskReasonCategory re-exported
+    EntrySymbolRejection,
+    RiskModification,
+    RiskReasonCategory,
+    SymbolRejection,
+    _normalize_rejected_symbols_field,
+)
 
 
 class _PerSymbolRejections:
@@ -165,8 +153,9 @@ class RiskVerdict(_PerSymbolRejections, LLMOutputModel):
     #
     # Default-empty by design — every historical verdict, and every verdict
     # from a model that never emits the field, replays with byte-identical
-    # behaviour.
-    rejected_symbols: list[SymbolRejection] = []
+    # behaviour. Each entry carries its own `category` (and `event` when
+    # event_risk) — see `EntrySymbolRejection`.
+    rejected_symbols: list[EntrySymbolRejection] = []
     # Portfolio-level size control. Multiplies every BUY/SHORT decision's
     # allocation_pct after per-symbol modifications are applied. 1.0 = no change;
     # 0.5 = half all buys; 0.0 shrinks the entire new-entry side to zero (no new

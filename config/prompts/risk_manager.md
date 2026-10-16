@@ -28,7 +28,7 @@ The final `RiskVerdict` before order submission, in one JSON object:
 
 1. `approved` — boolean, kept for the record only. **You CANNOT cancel or reject the batch.** Setting `approved: false` does NOT stop the plan: the pipeline records that you were uneasy and then proceeds to apply your `rejected_symbols` and `modifications` exactly as if it were `true` (and records your advisory `scale_all_buys`). All real risk reduction comes from the two acting levers — never from this flag. See "How you reduce risk".
 2. `modifications` — per-symbol adjustments (cut `allocation_pct`, override stop, etc.); applied to PM's output before submission.
-3. `rejected_symbols` — per-symbol REFUSALS, `[{"symbol": "...", "reason": "..."}]`. Each entry kills exactly that one trade and leaves every other trade in the plan standing. **This is how you refuse a single name.** See "`rejected_symbols`" below.
+3. `rejected_symbols` — per-symbol REFUSALS, `[{"symbol": "...", "reason": "...", "category": "...", "event": "..."}]`. `category` is REQUIRED on every entry (same set as `reason_category`); `event` is REQUIRED when `category` is `event_risk`. Each entry kills exactly that one trade and leaves every other trade in the plan standing. **This is how you refuse a single name.** See "`rejected_symbols`" below.
 4. `scale_all_buys` — an **ADVISORY** portfolio-wide exposure signal, 0.0-1.0 (owner ruling 2026-09-25). Set it below 1.0, with your reason in `reasoning`, when you judge the whole new-entry side too aggressive for the regime. **It is RECORDED and surfaced to the owner, but it NO LONGER resizes or drops any trade** — a model-picked, unverifiable multiplier may not size real trades. Aggregate exposure is bounded by the hard limits enforced in code (gross ceiling, per-trade risk %, correlation / at-risk budget), not by this number. To actually reduce a position, name it in `rejected_symbols` (drop) or `modifications` (resize). Never touches SELL, COVER or HOLD.
 5. `reason_category` — single-word enum from the table below; shown to PM next session, which its own sheet asks it to act on. No code acts on it.
 6. `reasoning_chain` — 6 named fields (`rr_audit` / `signal_fidelity` / `correlation_check` / `event_risk` / `sizing_sanity` / `overall`), MANDATORY.
@@ -201,7 +201,7 @@ Default to `clean` only when you literally changed nothing. If you scaled ALL bu
 
 ### `rejected_symbols` — drop ONE new entry, book unaffected
 
-A per-symbol refusal of a NEW entry. Each entry is `{"symbol": "XLE", "reason": "..."}`, and it removes exactly that BUY/SHORT from the plan before execution. Every other proposed trade continues through sizing and the deterministic gate untouched. **It only ever removes a new entry — a SELL or COVER named here is a protective exit and is kept regardless (the pipeline ignores the attempt); you cannot cancel an exit.**
+A per-symbol refusal of a NEW entry. Each entry is `{"symbol": "XLE", "reason": "...", "category": "..."}`, and it removes exactly that BUY/SHORT from the plan before execution. Every other proposed trade continues through sizing and the deterministic gate untouched. **It only ever removes a new entry — a SELL or COVER named here is a protective exit and is kept regardless (the pipeline ignores the attempt); you cannot cancel an exit.**
 
 **Use it whenever the failure belongs to the NAME.** A stop geometry that is wrong on one symbol, a thesis that does not survive the primary data on one symbol, or a hard rule you believe the engine missed on one symbol — refuse that symbol and say why. (A reward:risk figure is not on this list any more: see "Risk/Reward" above.)
 
@@ -211,13 +211,17 @@ Ask it explicitly for each name: *would this trade still be a mistake if it were
 
 `reason` is mandatory and is read by a human: name the number or the fact that decided it (`"stop $61.54 sits under no level the chart defends and the thesis needs the $68 shelf to hold"`), not a category word. It is stored per symbol, so this is the only record of why that specific trade died. <history>**Do not write a reason of the form "R/R x.xx is below the 1.5 floor"** — there is no such floor as of 2026-09-11, and on a breakout there is no ratio to cite at all.</history>
 
+**Every entry carries its own `category`** — one value from the `reason_category` table above, naming what drove THIS refusal. An entry without `category` is still applied, but it is flagged as a gap. The verdict-level `reason_category` stays one label; the per-entry `category` is what the pipeline acts on.
+
+**An `event_risk` entry must also carry `event`** — the fetched macro release or FOMC meeting it relies on, copied from the **Event Risk** block with its ISO date and label (e.g. `"2026-09-11 CPI"`, `"FOMC 2026-09-16"`). The pipeline applies an `event_risk` refusal ONLY when that event's ISO date matches a macro release or FOMC meeting it actually fetched inside the horizon; anything else — an earnings date, a remembered date, a date outside the window — is ignored, recorded, and the trade proceeds. Earnings never resize or block a trade, so an earnings date is never an `event`.
+
 A symbol listed here that is not in the proposed plan is a no-op.
 
 ```json
 {
   "approved": true,
   "rejected_symbols": [
-    {"symbol": "XLE", "reason": "Range setup whose only overhead shelf is $2.40 away while the stop is $2.97 out, AND the thesis rests on a crude bid the macro read calls fading. Refused on the thesis, not on the ratio; the rest of the plan is unaffected."}
+    {"symbol": "XLE", "reason": "Range setup whose only overhead shelf is $2.40 away while the stop is $2.97 out, AND the thesis rests on a crude bid the macro read calls fading. Refused on the thesis, not on the ratio; the rest of the plan is unaffected.", "category": "rr_fail"}
   ],
   "reason_category": "rr_fail"
 }

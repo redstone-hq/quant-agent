@@ -77,6 +77,7 @@ from src.models.portfolio import (
     RiskModification,
     _normalize_rejected_symbols_field,
     SymbolRejection,
+    EntrySymbolRejection,
 )
 from src.models.risk_verdicts import (
     RiskReasonCategory,

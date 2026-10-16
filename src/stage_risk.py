@@ -71,6 +71,101 @@ if TYPE_CHECKING:
     from src.pipeline import TradingPipeline
 
 
+def _fetched_event_matches(event_text: str, ctx: RunContext, horizon_days: int) -> bool:
+    """True when `event_text` names a macro release or FOMC meeting that was
+    actually FETCHED onto this run's context and lands inside the horizon.
+
+    A name matches on the fetched event's ISO date (any day of an FOMC
+    meeting). The label is not required: a reworded label ("Consumer Price
+    Index" for "CPI") must not void a block on a real release — the seat keeps
+    its veto. Nothing fetched (resume lane, failed sweep)
+    means nothing can match: an event the desk never fetched cannot justify
+    blocking a trade.
+    """
+    from datetime import timedelta
+
+    from src.trading_calendar import et_today
+
+    text = (event_text or "").casefold()
+    today = et_today()
+    horizon_end = today + timedelta(days=max(0, int(horizon_days)))
+    for ev in ctx.macro_events or []:
+        when = getattr(ev, "event_date", None)
+        if when is None or not today <= when <= horizon_end:
+            continue
+        if when.isoformat() in text:
+            return True
+    for meeting in ctx.fomc_meetings or []:
+        if meeting.end_date < today or not meeting.intersects(today, horizon_end):
+            continue
+        days = (meeting.end_date - meeting.start_date).days
+        if any((meeting.start_date + timedelta(days=i)).isoformat() in text for i in range(days + 1)):
+            return True
+    return False
+
+
+def _refuse_unverified_event_blocks(pipeline, ctx: RunContext, verdict) -> dict[str, str]:
+    """`{SYMBOL: reason}` for the verdict's per-symbol refusals that may be
+    APPLIED, first entry winning on a duplicated symbol (the same contract as
+    `rejections_by_symbol`).
+
+    Owner rulings: the risk seat KEEPS its power to block a buy it judges
+    risky (2026-10-16), and earnings never resize or block a trade. An
+    `event_risk` entry is therefore applied only when its named `event`
+    matches a fetched macro release / FOMC meeting inside the horizon; any
+    other is refused — logged at warning and recorded durably, the same
+    mechanism as the protective-exit guard — and the trade proceeds. Measured
+    breach this closes: 2026-10-15 17:17 UTC, a buy blocked on an earnings
+    date ~3 sessions away under `event_risk`. Every other category is applied
+    as before.
+    """
+    event_cfg = getattr(getattr(pipeline, "config", None), "event_risk", None)
+    horizon_days = getattr(event_cfg, "horizon_days", 10)
+    out: dict[str, str] = {}
+    for rejection in verdict.rejected_symbols:
+        category = getattr(rejection, "category", None)
+        event = getattr(rejection, "event", None)
+        if category is None:
+            logger.warning(
+                "Risk manager blocked %s without a per-entry category — block APPLIED "
+                "(the seat keeps its veto) and recorded. Reason given: %s",
+                rejection.symbol,
+                rejection.reason,
+            )
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                rejection.symbol,
+                "risk",
+                "refusal_uncategorised",
+                rejection.reason,
+                gate="risk_manager_category_missing",
+            )
+        if category == "event_risk" and not _fetched_event_matches(event or "", ctx, horizon_days):
+            logger.warning(
+                "Risk manager blocked %s as event_risk naming %r, which matches no fetched macro "
+                "release or FOMC meeting inside the %s-day horizon — refusal IGNORED, trade "
+                "proceeds (earnings never block a trade). Reason given: %s",
+                rejection.symbol,
+                event,
+                horizon_days,
+                rejection.reason,
+            )
+            _record_pipeline_event(
+                pipeline,
+                ctx,
+                rejection.symbol,
+                "risk",
+                "event_refusal_ignored",
+                rejection.reason,
+                gate="risk_manager_event_unverified",
+                event=event,
+            )
+            continue
+        out.setdefault(rejection.symbol, rejection.reason)
+    return out
+
+
 class RiskStage:
     """Hard filter → earnings cap → correlation → RM review → mods → re-filter.
 
@@ -793,7 +888,7 @@ class RiskStage:
         # schema had, so a single sub-floor R/R took the whole plan with it —
         # run-64290730 (2026-09-01) refused the morning citing XLE alone and
         # killed CHPX, a passing trade in a different sector, with it.
-        rejections = verdict.rejections_by_symbol()
+        rejections = _refuse_unverified_event_blocks(pipeline, ctx, verdict)
         refused_decisions: list = []
         protected_exit_symbols: list[str] = []
         if rejections:
