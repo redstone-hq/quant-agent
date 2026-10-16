@@ -1768,7 +1768,7 @@ def test_build_thesis_health_context_empty_for_no_positions():
     from src.pipeline import TradingPipeline
 
     p = build_pipeline()
-    out = p._build_thesis_health_context(positions=[], lookback_weeks=8)
+    out = p._build_thesis_health_context(positions=[])
     assert out == {}
 
 
@@ -1866,13 +1866,13 @@ def test_build_thesis_health_context_assembles_per_symbol(tmp_path):
         sector="Technology",
     )
     with patch("src.execution.broker._get_sector", return_value="Technology"):
-        out = p._build_thesis_health_context([nvda], lookback_weeks=8)
+        out = p._build_thesis_health_context([nvda])
     assert "NVDA" in out
     ctx = out["NVDA"]
     assert ctx["symbol"] == "NVDA"
     assert ctx["days_held"] >= 19 and ctx["days_held"] <= 22
     assert "AI capex thesis" in ctx["entry_reasoning"]
-    assert ctx["tech_trajectory"] == ["strong_buy"]
+    assert ctx["tech_trajectory"] == [f"{et_today() - timedelta(days=1)}: strong_buy"]
     assert ctx["news_count_8w"] >= 1
     assert any("AI capex" in h for h in ctx["latest_news_headlines"])
     assert ctx["macro_sector_stance"] == "bullish"
@@ -1909,7 +1909,7 @@ def test_build_thesis_health_context_tolerates_missing_data(tmp_path):
         sector="Technology",
     )
     with patch("src.execution.broker._get_sector", return_value="Technology"):
-        out = p._build_thesis_health_context([pos], lookback_weeks=8)
+        out = p._build_thesis_health_context([pos])
     assert "NEW" in out
     ctx = out["NEW"]
     assert ctx["entry_date"] is None  # no BUY row
