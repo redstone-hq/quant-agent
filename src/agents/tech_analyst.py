@@ -513,6 +513,9 @@ class TechAnalystAgent(BaseAgent):
                 resistances,
                 last_close if isinstance(last_close, (int, float)) else 0.0,
                 live_price=live_price,
+                # n06: each level's distance in ATR(14), the same ATR shown
+                # on the Indicators line, beside its touches — no ranking.
+                atr=getattr(indicators, "atr_14", None),
             )
             context_text = format_context_block(
                 compute_market_context(

@@ -877,7 +877,7 @@ numbers:
       --config-b against a copy differing only in max_target_horizon_sessions.
     site: src/config/__init__.py
     narrowed: >-
-      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this cap changed [measured]: 60 to 250 changed the output in 11 windows (0.9%), 60 to 20 in 150 (12.8%). The cap is consulted by the level finder, the target derivation, admission and the touch-probability log, so it is a live cap whose UPPER side barely binds on this data; the harness feeds the constant, not a per-analysis stated horizon. Re-measured 2026-10-15 after swing points became an ATR(14) reversal instead of a 5-bar window [measured]: 60 to 250 changes 13 windows (1.1%), 60 to 20 changes 204 (17.3%). Pinned by tests/test_dead_branch_narrowing_levels.py.
+      NARROWED 2026-10-04 (LIVE, not dead; value NOT settled). Ran the live level finder over 1176 fixture windows with only this cap changed [measured]: 60 to 250 changed the output in 11 windows (0.9%), 60 to 20 in 150 (12.8%). The cap is consulted by the level finder, the target derivation, admission and the touch-probability log, so it is a live cap whose UPPER side barely binds on this data; the harness feeds the constant, not a per-analysis stated horizon. Re-measured 2026-10-15 after swing points became an ATR(14) reversal instead of a 5-bar window [measured]: 60 to 250 changes 13 windows (1.1%), 60 to 20 changes 205 (17.4%; 204 before the 2026-10-16 six-per-side cut was removed). Pinned by tests/test_dead_branch_narrowing_levels.py.
     note: >-
       The longest horizon a target may claim before the desk stops believing
       it, owner-ratified appetite 2026-09-25 (delegated to the adversary).
@@ -1953,60 +1953,6 @@ numbers:
       version claimed the 0.50% floor existed in one place while listing it in
       two. Base-drift now fails the build if the pair stops agreeing, which
       nothing previously checked.
-  - id: src.data.levels.LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT
-    value: 10
-    status: arbitrary
-    engine_ab_2026_10_05: >-
-      NOT ANSWERABLE BY THE BACKTEST ENGINE TODAY - measured 2026-10-05, and the
-      first attempt to answer it was WRONG. src/backtest/engine.py imports
-      find_structural_levels and structural_floor but has ZERO call sites for
-      either: the only occurrences in the file are its docstring and comments
-      [measured by grep for the call forms]. The engine substitutes its own
-      nearest-level rule in _resolve_structural_stop_and_target instead, so no
-      sweep of this constant can move its output. A sweep that monkeypatched this
-      module global and came back byte-identical across the full legal range was
-      therefore measuring nothing, twice over: find_structural_levels also binds
-      this constant as a DEFAULT ARGUMENT (pivot_window: int = PIVOT_WINDOW,
-      src/data/levels.py line 782), which is evaluated at import and cannot be
-      reached by reassigning the module global afterwards. NAMED ENGINE CHANGE
-      REQUIRED: route the engine's stop and target derivation through the real
-      find_structural_levels, and pass the tunables explicitly rather than relying
-      on their defaults.
-    site: src/data/levels.py
-    note: >-
-      Board item 148 (2026-09-25): named out of an inline `/ 10.0` in the
-      level-strength formula (`len(cluster) / (1.0 + distance_pct /
-      LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT)`, src/data/levels.py::find_structural_levels), which
-      was outside src/number_sources.py rule (e)'s [0.5, 2.0) factor band and
-      so invisible to the scanner (see that module's own docstring, which
-      names this exact literal). No value or behaviour changed in this pass.
-      It sets how fast a level's strength falls off with its distance from
-      price: at distance_pct == 10 (10% away) the raw touch count is halved,
-      at 20% it is a third, and so on.
-    open_question: >-
-      What decay rate, if any, does the desk's own bounce data support for
-      strength-by-distance, as opposed to the touch-count effect that
-      the level-quality module already measured separately?
-    cost_while_unanswered: >-
-      This ranks the six levels shown to the Tech Analyst and feeds into
-      which level a stop or target is read from, on a fall-off rate nothing
-      has measured.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/, item 90, the 2026-10-01 sixth routing tranche (execution plumbing and the level scan)
-      records: >-
-        over the universe the desk could trade, the bounce rate at a level as a
-        function of how far price currently sits from it, in percent and in ATR,
-        holding touch count fixed so the separately measured touch-count effect
-        is not read twice, giving any distance fall-off as a measured curve
-        rather than an assumed decay.
-      closes_when: >-
-        the measured fall-off supports a decay rate, and the divisor becomes
-        that reading. DELETE outcome: if the bounce rate does not fall with
-        distance once touch count is held fixed, the distance term leaves the
-        strength formula entirely and levels rank on touch count alone, rather
-        than the divisor being re-picked.
   - id: src.data.levels.MAX_HORIZON_SESSIONS
     value: 60
     status: derived
@@ -2019,16 +1965,6 @@ numbers:
       trade on this desk may ask how far the instrument travels - which is why
       the level scan reads it as the relevance horizon
       (src/data/levels.py::MAX_HORIZON_SESSIONS). Same number as the deployed risk setting.
-  - id: src.data.levels.MAX_LEVELS_PER_SIDE
-    value: 6
-    status: not-trade-governing
-    site: src/data/levels.py
-    note: >-
-      How many levels to report per side (src/data/levels.py::MAX_LEVELS_PER_SIDE): enough
-      to describe the structure, few enough to stay readable in a prompt. It
-      truncates a PRESENTATION list after the scan has already ranked by
-      strength; it does not change which level is strongest, where a stop goes
-      or how large a position is.
   - id: src.data.levels.MAX_REACH_ATR_MULTIPLE
     value: 1.5
     status: derived

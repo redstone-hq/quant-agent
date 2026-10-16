@@ -155,9 +155,9 @@ class TestRelevanceFiltering:
         supports, _ = find_structural_levels(_bars(ancient + buffer + recent), atr=25.0)
         assert supports, "expected support levels"
         newest = min(supports, key=lambda lv: lv.last_touch_sessions_ago)
-        strongest = max(supports, key=lambda lv: lv.strength)
-        assert strongest.touches > newest.touches, (
-            "the strongest level here must be the one with more touches, not the one most recently touched"
+        most_touched = max(supports, key=lambda lv: lv.touches)
+        assert most_touched.touches > newest.touches, (
+            "the ancient zone must still be reported with its full touch count, however old"
         )
 
     def test_strength_does_not_depend_on_when_the_touches_happened(self):
@@ -177,7 +177,6 @@ class TestRelevanceFiltering:
         old_supports, _ = find_structural_levels(_bars(osc + old_tail), atr=25.0)
         recent_supports, _ = find_structural_levels(_bars(osc + recent_tail), atr=25.0)
         assert old_supports and recent_supports
-        assert [lv.strength for lv in old_supports] == [lv.strength for lv in recent_supports]
         # The match above is only meaningful if touches agreed (so strength
         # had no OTHER reason to match) and recency genuinely differed (so
         # there was something for a lingering age term to react to).
@@ -186,39 +185,11 @@ class TestRelevanceFiltering:
             lv.last_touch_sessions_ago for lv in recent_supports
         ]
 
-    def test_closer_levels_still_outrank_equally_touched_distant_ones(self):
-        """Distance still discounts strength — untouched by the 2026-09-02 change.
-
-        Nothing about the distance term was measured or changed; this pins it
-        directly so a future edit to the touch-count formula cannot silently
-        take the distance discount out with it. Two zones share the same
-        touch count (4 each) so only distance from the last close can be
-        doing the separating.
-        """
-        # 14 flat bars first: turning points need the stock's own ATR(14).
-        far = [58.0] * 14 + _oscillation(58.0, 60.0, cycles=4)
-        ramp = [60.0 + i * (33.0 / 120) for i in range(120)]
-        near = _oscillation(93.0, 95.0, cycles=4) + [95.5, 96.0, 96.5, 97.0, 97.5, 98.0]
-        supports, _ = find_structural_levels(_bars(far + ramp + near), atr=25.0)
-        near_levels = [lv for lv in supports if lv.price > 90.0]
-        far_levels = [lv for lv in supports if lv.price < 65.0]
-        assert near_levels and far_levels
-        assert all(lv.touches == 4 for lv in near_levels + far_levels), (
-            "this only isolates distance if the touch counts already match"
-        )
-        assert min(lv.strength for lv in near_levels) > max(lv.strength for lv in far_levels)
-
-    def test_levels_are_returned_strongest_first(self):
+    def test_levels_are_returned_nearest_first(self):
         bars = _bars(_oscillation(100.0, 120.0, cycles=8))
         supports, resistances = find_structural_levels(bars)
-        for side in (supports, resistances):
-            strengths = [lv.strength for lv in side]
-            assert strengths == sorted(strengths, reverse=True)
-
-    def test_result_count_is_bounded(self):
-        bars = _bars(_oscillation(100.0, 120.0, cycles=20))
-        supports, resistances = find_structural_levels(bars, max_per_side=3)
-        assert len(supports) <= 3 and len(resistances) <= 3
+        assert [lv.price for lv in supports] == sorted((lv.price for lv in supports), reverse=True)
+        assert [lv.price for lv in resistances] == sorted(lv.price for lv in resistances)
 
 
 class TestPromptBlock:
@@ -229,13 +200,13 @@ class TestPromptBlock:
         assert "invent" in text.lower()
 
     def test_block_orders_like_a_chart_axis(self):
-        supports = [Level(90.0, "support", 3, 5, 2.0)]
-        resistances = [Level(110.0, "resistance", 2, 9, 1.0)]
+        supports = [Level(90.0, "support", 3, 5)]
+        resistances = [Level(110.0, "resistance", 2, 9)]
         text = format_levels_block(supports, resistances, 100.0)
         assert text.index("110") < text.index("last close") < text.index("90")
 
     def test_block_reports_distance_and_recency(self):
-        text = format_levels_block([Level(95.0, "support", 4, 7, 3.0)], [], 100.0)
+        text = format_levels_block([Level(95.0, "support", 4, 7)], [], 100.0)
         assert "-5.0%" in text
         assert "4 touches" in text
         assert "7d ago" in text

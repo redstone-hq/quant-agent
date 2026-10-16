@@ -228,15 +228,16 @@ def level_zone_halfwidth(
 # geometry and confirmed against published measurement — do not "tighten" it.
 MIN_TOUCHES = 2
 
-#: Board item 148 (2026-09-25): this was an inline `/ 10.0` in the strength
-#: formula below, invisible to `src/number_sources.py`'s scanner (outside
-#: rule (e)'s [0.5, 2.0) factor band, per that module's own docstring). Named
-#: here so the ledger scanner sees it; value and behaviour are unchanged.
-#: Nothing measured 10.0 against any alternative — it sets how fast strength
-#: falls off with distance (at `distance_pct` == this value, distance has
-#: halved the raw touch count), and no source for that particular fall-off
-#: rate has been found.
-LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT = 10.0
+# No LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT and no per-side cut here (n06,
+# 2026-10-16). Levels used to be scored ``touches / (1 + distance% / 10)``
+# and only the top six per side survived to the Technical analyst. Neither
+# the 10 nor the 6 was ever measured, and the score's only job was that
+# cut. Every level that clears MIN_TOUCHES inside the reach window below
+# is now returned in price order, nearest first, and the prompt shows each
+# one's touches and its distance in ATR(14) as separate facts — no ranking.
+# Measured on the 101-symbol stored daily set (2026-09-14 fixture): the
+# reach window lets through a median 9 and a maximum 41 levels per side,
+# a levels block of at most ~2.7 KB per symbol before the ATR column.
 
 # No MAX_DISTANCE_PCT here. Until 2026-09-12 a level only counted if it sat
 # within a flat 40% of the current price — a number with no derivation that
@@ -250,15 +251,11 @@ LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT = 10.0
 # (`MAX_HORIZON_SESSIONS`). See `find_structural_levels`.
 
 # No RECENCY_HALFLIFE_SESSIONS here. Until 2026-09-02 this was 252.0 (~1
-# trading year), decaying each touch's contribution to `strength` by
+# trading year), decaying each touch's contribution to a level score by
 # `0.5 ** (age_sessions / 252)`. It was picked for being round, never
-# measured, and is gone rather than slowed down — see the strength
-# computation in `find_structural_levels` for the measurement that replaced
-# it and docs/RESEARCH_FINDINGS.md §7 for the full caveats.
-
-# How many levels to report per side. Enough to describe the structure, few
-# enough to stay readable in a prompt.
-MAX_LEVELS_PER_SIDE = 6
+# measured, and is gone: fitted against our own bars it showed no age
+# effect at all (docs/RESEARCH_FINDINGS.md §7). The score it fed was itself
+# removed on 2026-10-16 (n06, above).
 
 # Bad-print detection. A bar is rejected only when its high exceeds, or its low
 # falls below, the median of its immediate neighbours by this factor. 5x is
@@ -448,8 +445,7 @@ class Level:
     price: float
     kind: str  # "support" | "resistance"
     touches: int  # pivots clustered into this level
-    last_touch_sessions_ago: int  # informational only — not a strength input, see below
-    strength: float  # touch count, distance-discounted; higher = more significant
+    last_touch_sessions_ago: int  # informational only
     # The level's MEASURED zone (item 55, 2026-09-30): the combined traded
     # range of the pivot bars that formed it. `None` on a level built by an
     # older caller or a fixture — then `level_zone_halfwidth` falls back to
@@ -744,10 +740,12 @@ def find_structural_levels(
     atr: float | None = None,
     max_reach_atr_multiple: float = MAX_REACH_ATR_MULTIPLE,
     max_horizon_sessions: int = MAX_HORIZON_SESSIONS,
-    max_per_side: int = MAX_LEVELS_PER_SIDE,
     reference_price: float | None = None,
 ) -> tuple[list[Level], list[Level]]:
-    """Return ``(support_levels, resistance_levels)``, most significant first.
+    """Return ``(support_levels, resistance_levels)``, each nearest price first.
+
+    Every level that clears `min_touches` inside the reach window is
+    returned: no score, no ranking, no per-side cut (n06, 2026-10-16).
 
     **Which side of price (2026-09-14).** `reference_price`, when a finite
     positive live price is supplied, decides support vs resistance. During
@@ -755,7 +753,7 @@ def find_structural_levels(
     only — `MarketDataProvider.get_ohlcv`), so classifying against that close
     labelled a level "support" after the stock had already traded through
     it (ORCL 2026-09-10: traded 158.38 at the open, desk still called 159.79
-    support). The relevance window and strength stay measured from the last
+    support). The relevance window stays measured from the last
     completed close — they are properties of the completed history.
 
     Support is below the last close, resistance above it — classified by where
@@ -826,7 +824,6 @@ def find_structural_levels(
         if price <= 0:
             continue
 
-        distance_pct = abs(price - last_close) / last_close * 100.0
         if abs(price - last_close) > window:
             continue
 
@@ -834,60 +831,21 @@ def find_structural_levels(
         pivot_bars = tuple((float(clean[p[0]].low), float(clean[p[0]].high)) for p in cluster if 0 <= p[0] < len(clean))
         sessions_ago = last_index - newest_index
 
-        # Strength is touch count, discounted by distance — no age term.
-        # A recency half-life stood here until 2026-09-02, weighting each
-        # touch down by `0.5 ** (age_sessions / 252)` so old touches barely
-        # counted. It is gone because it was checked, not because it was
-        # suspected: `src/data/level_quality.py` fit a decay curve directly
-        # against our own bars (7,218 daily touch episodes, 101 symbols, 5
-        # years) and found no age effect at all — likelihood ratio 0.00
-        # against a constant-probability null, on both an age-of-level and a
-        # time-since-last-touch definition (docs/RESEARCH_FINDINGS.md §7). A
-        # level defended three years ago predicts a bounce exactly as well as
-        # one defended last week, in the data we actually have.
-        #
-        # The same measurement DOES support touches: pooled bounce
-        # probability rises from 0.516 (first touch) to 0.644 (5+ prior
-        # touches) on real price series, against a flat ~0.48-0.51 on
-        # shuffled controls (slope +0.0249 real vs +0.0049 shuffled) — a
-        # real, reproduced effect. Treat it as promising, not settled: two
-        # settings were changed after an initial run found nothing, and the
-        # shuffle control rules out the return distribution as an
-        # explanation but does not isolate levels from ordinary volatility
-        # clustering (§7 states both caveats plainly). Touch count is the
-        # honest way to use a promising-not-settled finding without
-        # overclaiming it.
-        #
-        # The measured probability CURVE itself is deliberately not imported
-        # as scoring weights, for two reasons visible in the numbers above:
-        # it is non-monotonic at low touch counts (0.507 at one prior touch,
-        # BELOW 0.516 at zero), and it pools every level past 5 touches into
-        # one number for posterior-sample-size reasons, which would score a
-        # 5-touch level and a 20-touch level identically here. Checked
-        # directly on the desk's 101-symbol universe (2026-09-02): swapping
-        # in that curve moves MORE of the top-6 selection than dropping decay
-        # did (33.9% of side-slots vs 27.1%, both measured the same way), so
-        # it is not a free upgrade sitting next to the simpler option — it is
-        # a different and less defensible ranking. Distance is untouched:
-        # nothing here measured it, so nothing here changes it.
-        strength = float(len(cluster)) / (1.0 + distance_pct / LEVEL_STRENGTH_DISTANCE_DIVISOR_PCT)
-
         zlow, zhigh = cluster_span(cluster)
         level = Level(
             price=round(price, 2),
             kind="support" if price < side_price else "resistance",
             touches=len(cluster),
             last_touch_sessions_ago=int(sessions_ago),
-            strength=round(strength, 4),
             zone_low=round(zlow, 4) if zlow is not None else None,
             zone_high=round(zhigh, 4) if zhigh is not None else None,
             pivot_bars=pivot_bars,
         )
         (supports if level.kind == "support" else resistances).append(level)
 
-    supports.sort(key=lambda lv: -lv.strength)
-    resistances.sort(key=lambda lv: -lv.strength)
-    return supports[:max_per_side], resistances[:max_per_side]
+    supports.sort(key=lambda lv: -lv.price)
+    resistances.sort(key=lambda lv: lv.price)
+    return supports, resistances
 
 
 def format_levels_block(
@@ -895,6 +853,7 @@ def format_levels_block(
     resistances: list[Level],
     last_close: float,
     live_price: float | None = None,
+    atr: float | None = None,
 ) -> str:
     """Render levels for the Tech Analyst prompt.
 
@@ -905,6 +864,11 @@ def format_levels_block(
     price marker are measured from it and the marker says so explicitly,
     with the last completed close shown beside it — never one silently
     standing in for the other.
+
+    `atr` (n06, 2026-10-16): the stock's ATR(14). Each level then also
+    states its distance in ATRs — typical daily moves — beside the % gap
+    and its touch count, as separate facts. No ATR, no ATR figure: the
+    line says so rather than guess one.
     """
     if not supports and not resistances:
         return (
@@ -914,12 +878,21 @@ def format_levels_block(
 
     live = _finite_positive(live_price)
     anchor = live or last_close
+    vol = _finite_positive(atr)
 
     def line(lv: Level) -> str:
         gap = (lv.price - anchor) / anchor * 100.0
-        return f"    ${lv.price:,.2f} ({gap:+.1f}%) · {lv.touches} touches · last {lv.last_touch_sessions_ago}d ago"
+        atrs = f"{abs(lv.price - anchor) / vol:.1f} ATR away" if vol else "ATR distance unknown"
+        return (
+            f"    ${lv.price:,.2f} ({gap:+.1f}%) · {atrs} · {lv.touches} touches · "
+            f"last {lv.last_touch_sessions_ago}d ago"
+        )
 
-    out = ["Structural levels (computed from the full price history):", "  Resistance (nearest last):"]
+    out = [
+        "Structural levels (computed from the full price history; every level within reach, "
+        "in price order, not ranked):",
+        "  Resistance (nearest last):",
+    ]
     if resistances:
         out.extend(line(lv) for lv in sorted(resistances, key=lambda x: -x.price))
     else:
