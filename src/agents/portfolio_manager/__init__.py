@@ -156,8 +156,11 @@ class PortfolioManagerAgent(
         # old to EARN size. Computed from the same earnings list the registry
         # was built from, so the prompt and the constructor gate the same
         # stances (`pipeline_stages` recomputes both from identical inputs).
+        # `asof` is the decision day: today (ET) in production, the recorded
+        # day in a replay, so a recording judges currency as of when it ran.
         stale_sources = self.stale_evidence_sources(
             earnings_analyses=earnings_analyses,
+            asof=kwargs.get("asof"),
         )
         # Item 109 — a SEPARATE mapping with a separate consequence, never
         # merged into `stale_sources`: a macro stance broadcast onto a name
@@ -369,6 +372,7 @@ class PortfolioManagerAgent(
             # above, so macro's ranked verdict and macro's registry stance
             # resolve one symbol's sector identically (item 31, 2026-09-13).
             symbol_sectors=kwargs.get("symbol_sectors") or {},
+            asof=kwargs.get("asof"),
         )
 
         # R7 — the 2026-09-25 owner conviction bar, applied ONCE here to the
@@ -402,6 +406,7 @@ class PortfolioManagerAgent(
                 smart_money_findings=smart_money_findings,
                 symbol_sectors=kwargs.get("symbol_sectors") or {},
                 positions=positions,
+                asof=kwargs.get("asof"),
             ),
         )
         self.last_candidate_ranking = list(ranked)
@@ -1322,6 +1327,7 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         # for the ranked-margin swap; `None` = unmeasured, no swap.
         score_noise_brake: float | None = None,
         symbol_sectors: dict[str, str] | None = None,
+        asof: date | None = None,
         session_type: str = "morning",
         allowed_buy_symbols: set[str] | None = None,
         transient_admitted_symbols: set[str] | None = None,
@@ -1415,6 +1421,7 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             min_risk_floor=min_risk_floor,
             score_noise_brake=score_noise_brake,
             symbol_sectors=symbol_sectors or {},
+            asof=asof,
             session_type=session_type,
             allowed_buy_symbols=allowed_buy_symbols or set(),
             transient_admitted_symbols=transient_admitted_symbols or set(),

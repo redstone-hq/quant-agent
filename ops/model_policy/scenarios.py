@@ -735,14 +735,13 @@ def load_frozen_selection(path: Path) -> SimpleNamespace:
         raise RuntimeError(f"selection fixture missing: {path}")
     raw = json.loads(path.read_text())
     # The recording predates `current_until` (2026-10-16), which the earnings
-    # provider now stamps from the SEC submissions list at decision time. Every
-    # recorded stance is a Q2-2026 report (filed 2026-07-23..08-28) that was the
-    # company's latest on the recorded day; the earliest legal deadline of any
-    # of their NEXT reports is the calendar-Q3 10-Q: 2026-09-30 + 45 days
-    # (Form 10-Q Gen. Instr. A.1) + 5 days (17 CFR 240.12b-25(b)) = 2026-11-19.
-    # Using that lower bound is the conservative reading, not a widened one.
+    # provider now stamps from the SEC submissions list at decision time. The
+    # recorded session served each of these as the company's latest periodic
+    # report, so each was current ON the recorded day — and a replay judges
+    # currency as of that day (`asof=session_day`), never the day it runs.
+    recorded_day = _deterministic_selection.session_day(raw).isoformat()
     for entry in raw.get("earnings_analyses") or []:
-        entry.setdefault("current_until", "2026-11-19")
+        entry.setdefault("current_until", recorded_day)
     return SimpleNamespace(
         raw=raw,
         analyses=[TechAnalysisResult.model_validate(r) for r in raw["analyses"]],
@@ -882,6 +881,7 @@ def _pm_selection_invoke(agent):
         total_value=account["total_value"],
         news_intel=_SELECTION_NEWS,
         earnings_analyses=_SELECTION["earnings_analyses"],
+        asof=_deterministic_selection.session_day(_SELECTION),
         recent_performance=_SELECTION["recent_performance"],
         position_history=_SELECTION["position_history"],
         yesterday_insights=_SELECTION["yesterday_insights"],

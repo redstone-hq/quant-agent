@@ -9,11 +9,14 @@ from datetime import date, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
+import pandas as pd
 from dateutil.relativedelta import relativedelta
+from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import CustomBusinessDay
 
 from src.agents.portfolio_manager import PortfolioManagerAgent
 from src.data.earnings import EarningsDataProvider
-from src.data.sec_client import build_sec_client
+from src.data.sec_client import build_sec_client, periodic_report_current_until
 from src.trading_calendar import et_today
 
 SYM = "ZZZE"
@@ -34,9 +37,12 @@ def _provider(tmp_path, filings: list[dict], *, fiscal_year_end: str | None, wit
         payload["filings"]["recent"]["reportDate"] = [f["period"].isoformat() for f in filings]
     if fiscal_year_end is not None:
         payload["fiscalYearEnd"] = fiscal_year_end
+    state = {"outage": False}
 
     def opener(req, timeout):
         url = req.full_url if hasattr(req, "full_url") else str(req)
+        if state["outage"]:
+            raise URLError("SEC unreachable")
         if "/submissions/" not in url:
             raise URLError("no network in tests")  # a filing download fails
 
@@ -57,6 +63,7 @@ def _provider(tmp_path, filings: list[dict], *, fiscal_year_end: str | None, wit
     )
     sec.cik_for = lambda _t: "1"
     provider = EarningsDataProvider(data_dir=str(tmp_path), sec_client=sec)
+    provider.outage_state = state
     return provider
 
 
@@ -67,12 +74,12 @@ def _analysed(provider, form: str, filed: date) -> None:
     provider.manifest[f"{SYM}_{form}"] = {"filing_date": filed.isoformat(), "failed_attempts": 0}
 
 
-def _stale(reports, asof: date) -> bool:
+def _stale(reports, asof: date, sentiment: str = "bullish") -> bool:
     """Stale = not served at all, or served but not counted by the PM gate."""
     rows = [
         {
             "symbol": r.symbol,
-            "analysis": {"investment_implications": {"sentiment": "bullish"}},
+            "analysis": {"investment_implications": {"sentiment": sentiment}},
             "filing_date": r.filing_date,
             "current_until": getattr(r, "current_until", ""),
         }
@@ -148,7 +155,9 @@ def test_backstop_q3_10q_goes_stale_at_period_end_plus_quarter_plus_105_days(tmp
     provider = _provider(tmp_path, filings, fiscal_year_end=_fye_after(period))
     _analysed(provider, "10-Q", filed)
     reports = provider.check_and_fetch([SYM])
-    deadline = period + relativedelta(months=3) + timedelta(days=105)
+    # 17 CFR 240.0-3: a weekend/holiday deadline rolls to the next business day.
+    raw_deadline = period + relativedelta(months=3) + timedelta(days=105)
+    deadline = CustomBusinessDay(calendar=USFederalHolidayCalendar()).rollforward(pd.Timestamp(raw_deadline)).date()
     assert [r.filing_date for r in reports] == [filed.isoformat()]
     assert not _stale(reports, deadline)
     assert _stale(reports, deadline + timedelta(days=1))
@@ -166,3 +175,42 @@ def test_missing_report_date_is_stale(tmp_path):
     _analysed(provider, "10-Q", filed)
     reports = provider.check_and_fetch([SYM])
     assert _stale(reports, today)
+
+
+def test_sec_outage_keeps_a_stored_in_deadline_bearish_stance(tmp_path):
+    """A failed SEC fetch must not erase a dissenting stance: dropping a
+    bearish view can lift a refusal, so an outage could let a trade through."""
+    today = et_today()
+    filed = today - timedelta(days=20)
+    period = filed - timedelta(days=30)
+    filings = [{"form": "10-Q", "filed": filed, "period": period}]
+    provider = _provider(tmp_path, filings, fiscal_year_end=_fye_after(period))
+    _analysed(provider, "10-Q", filed)
+    assert not _stale(provider.check_and_fetch([SYM]), today, "bearish")  # good fetch records currency
+    provider.outage_state["outage"] = True
+    reports = provider.check_and_fetch([SYM])
+    assert [r.filing_date for r in reports] == [filed.isoformat()]
+    assert not _stale(reports, today, "bearish")
+
+
+def test_sec_outage_past_the_stored_deadline_drops_the_stance(tmp_path):
+    today = et_today()
+    filed = today - timedelta(days=150)
+    period = filed - timedelta(days=30)
+    filings = [{"form": "10-Q", "filed": filed, "period": period}]
+    provider = _provider(tmp_path, filings, fiscal_year_end=_fye_after(period))
+    _analysed(provider, "10-Q", filed)
+    provider.manifest[f"{SYM}_10-Q"]["current_until"] = (today - timedelta(days=1)).isoformat()
+    provider.outage_state["outage"] = True
+    assert _stale(provider.check_and_fetch([SYM]), today, "bearish")
+
+
+def test_backstop_steps_month_end_to_month_end():
+    """Sep 30 + one quarter is Dec 31 (not Dec 30); Feb 28 -> May 31."""
+    assert periodic_report_current_until("2026-09-30", "0630") == date(2026, 12, 31) + timedelta(days=50)
+    assert periodic_report_current_until("2026-02-28", "1130") == date(2026, 5, 31) + timedelta(days=50)
+
+
+def test_backstop_deadline_on_a_weekend_rolls_to_the_next_business_day():
+    """17 CFR 240.0-3: Jun 26 + 50 days is Sat 15 Aug 2026 -> Mon 17 Aug."""
+    assert periodic_report_current_until("2026-03-26", "1231") == date(2026, 8, 17)

@@ -115,7 +115,9 @@ def count_aligned_sources(
     (superseded by a newer periodic report, or past the next report's
     statutory deadline) by
     `PortfolioManagerAgent.stale_evidence_sources`. It is a REMOVAL from the
-    tally, never an addition, so it can only ever lower a ceiling. A stale
+    tally, never an addition — but it removes the seat from BOTH sides, so
+    dropping an opposing stance can lift a refusal as well as dropping an
+    aligned one can lower a ceiling. A stale
     stance stays in the registry (it is still real coverage, and the PM may
     still cite it) — it simply stops being paid for.
     """

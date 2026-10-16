@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Callable
 
-from dateutil.relativedelta import relativedelta
+import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import CustomBusinessDay, DateOffset, MonthEnd
 
 from src.sentinel.counted import record_swallowed
 from src.trading_calendar import utc_now
@@ -39,7 +41,16 @@ TEN_K_EXTENSION_DAYS = 15
 TEN_Q_DUE_DAYS = 45
 #: 17 CFR 240.12b-25(b)(2)(ii)(B): a late 10-Q is deemed timely if filed within 5 calendar days after its due date.
 TEN_Q_EXTENSION_DAYS = 5
-_QUARTER = relativedelta(months=3)
+#: 17 CFR 240.0-3(a): a filing due on a Saturday, Sunday or federal holiday
+#: may be made on the next business day.
+_SEC_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+
+
+def _quarter_step(period: date):
+    """One fiscal quarter on from `period`: month-end to month-end (Sep 30 ->
+    Dec 31, Feb 28 -> May 31) when `period` is a month end, else the same
+    day three months on (52/53-week filers end mid-month)."""
+    return MonthEnd(3) if pd.Timestamp(period).is_month_end else DateOffset(months=3)
 
 
 def periodic_report_current_until(report_date: str, fiscal_year_end: str) -> date | None:
@@ -53,7 +64,9 @@ def periodic_report_current_until(report_date: str, fiscal_year_end: str) -> dat
     period of report or the fiscal year end is missing or unparseable.
     """
     try:
-        next_end = date.fromisoformat(str(report_date)) + _QUARTER
+        period = date.fromisoformat(str(report_date))
+        step = _quarter_step(period)
+        next_end = (pd.Timestamp(period) + step).date()
         fye = str(fiscal_year_end)
         month, day = int(fye[:2]), int(fye[2:4])
         anniversaries = []
@@ -66,9 +79,10 @@ def periodic_report_current_until(report_date: str, fiscal_year_end: str) -> dat
         return None
     fy_end = min(anniversaries, key=lambda d: abs((d - next_end).days))
     gap = abs((fy_end - next_end).days)
-    is_10k = gap < abs((fy_end - (next_end - _QUARTER)).days) and gap < abs((fy_end - (next_end + _QUARTER)).days)
+    before, after = (pd.Timestamp(next_end) - step).date(), (pd.Timestamp(next_end) + step).date()
+    is_10k = gap < abs((fy_end - before).days) and gap < abs((fy_end - after).days)
     days = TEN_K_DUE_DAYS + TEN_K_EXTENSION_DAYS if is_10k else TEN_Q_DUE_DAYS + TEN_Q_EXTENSION_DAYS
-    return next_end + timedelta(days=days)
+    return _SEC_BUSINESS_DAY.rollforward(pd.Timestamp(next_end + timedelta(days=days))).date()
 
 
 @dataclass
@@ -206,13 +220,15 @@ class SecClient:
                 self._ticker_to_cik = {}
         return self._ticker_to_cik.get(ticker.upper())
 
-    def recent_filings(self, cik: str, ticker: str) -> list[FilingInfo]:
+    def recent_filings(self, cik: str, ticker: str) -> list[FilingInfo] | None:
         """Every 10-Q/10-K in the company's SEC submissions list, newest first.
 
         No age cut: the first entry is the company's LATEST periodic report,
         which is what decides whether an earnings stance is still current
         (`periodic_report_current_until`). Amendments (10-Q/A, 10-K/A) are
         excluded — they restate a period already reported, not a newer one.
+        None when the fetch itself failed (an outage), so the caller can tell
+        that apart from a company with no periodic report.
 
         Note on MLPs (master limited partnerships, e.g. EPD): they are SEC
         registrants and DO file 10-Q/10-K via the partnership entity —
@@ -228,7 +244,7 @@ class SecClient:
         except Exception as e:
             record_swallowed("data.sec_client.submissions", e, log=logger, symbol=ticker)
             logger.warning("Failed to fetch submissions for %s (CIK %s): %s", ticker, cik, e)
-            return []
+            return None  # an outage, distinct from "no periodic report" ([])
 
         recent = data.get("filings", {}).get("recent", {})
         forms = recent.get("form", [])

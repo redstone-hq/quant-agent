@@ -177,6 +177,7 @@ class EarningsDataProvider:
                 "form_type": report.form_type,
                 "local_path": report.filing_path,
                 "analysis_path": report.analysis_path,
+                "current_until": report.current_until,
                 "failed_attempts": 0,
             }
         self.save_manifest()
@@ -298,6 +299,7 @@ class EarningsDataProvider:
                     reports.append(report)
             except Exception as e:
                 logger.warning("Error checking earnings for %s: %s", symbol, e)
+        self.save_manifest()  # persists `current_until` recorded this pass
 
         logger.info(
             "Earnings check: %d reports (%d new) from %d stocks",
@@ -322,17 +324,20 @@ class EarningsDataProvider:
 
         filings = self.sec.recent_filings(cik, symbol)
         if not filings:
-            return None
+            # None = the fetch failed (outage); [] = no periodic report at all.
+            return self._stored_current_analysis(symbol, outage=filings is None)
 
         latest = filings[0]
         until = periodic_report_current_until(latest.report_date, latest.fiscal_year_end)
         current_until = until.isoformat() if until else ""
+        self._record_currency(symbol, latest, current_until)
         manifest_key = f"{symbol}_{latest.form_type}"
         entry = self.manifest.get(manifest_key, {})
         last_known = entry.get("filing_date")
 
         # Honor the abandoned flag: after N failed analysis attempts we stop
-        # re-queueing this specific filing. Fall back to prior analysis if any.
+        # re-queueing this specific filing. Serve this filing's own analysis
+        # if one is on disk; never an older report's (it is superseded).
         if entry.get("abandoned") and last_known == latest.filing_date:
             logger.info(
                 "Skipping %s %s (%s) — previously abandoned after repeated LLM failures",
@@ -401,6 +406,43 @@ class EarningsDataProvider:
             xbrl_facts=xbrl_comparable_values(xbrl_raw),
             current_until=current_until,
         )
+
+    def _record_currency(self, symbol: str, latest: FilingInfo, current_until: str) -> None:
+        """Persist, from a good SEC fetch, which filing is current and until
+        when: the latest report's manifest entry carries `current_until`;
+        every other entry of this symbol loses it (superseded). Read back by
+        `_stored_current_analysis` when a later fetch fails."""
+        with self._manifest_lock:
+            for key, entry in self.manifest.items():
+                if not isinstance(entry, dict) or not key.startswith(f"{symbol}_"):
+                    continue
+                if key == f"{symbol}_{latest.form_type}" and entry.get("filing_date") == latest.filing_date:
+                    entry["current_until"] = current_until
+                else:
+                    entry.pop("current_until", None)
+
+    def _stored_current_analysis(self, symbol: str, *, outage: bool) -> EarningsReport | None:
+        """SEC outage: serve the analysis the last good fetch recorded as
+        current, with its stored `current_until`, if that deadline has not
+        passed today. Dropping it instead would remove a dissenting stance
+        too, which can lift a refusal — an outage must not let a trade through."""
+        if not outage:
+            return None
+        entries = [
+            (k[len(symbol) + 1 :], e)
+            for k, e in self.manifest.items()
+            if isinstance(e, dict) and k.startswith(f"{symbol}_") and e.get("current_until")
+        ]
+        if not entries:
+            return None
+        form_type, entry = max(entries, key=lambda ke: str(ke[1].get("filing_date") or ""))
+        try:
+            if et_today() > date.fromisoformat(str(entry["current_until"])):
+                return None
+            filing = FilingInfo(symbol, form_type, str(entry["filing_date"]), "", "")
+        except (KeyError, TypeError, ValueError):
+            return None
+        return self._get_existing_analysis(symbol, filing, str(entry["current_until"]))
 
     def _get_existing_analysis(self, symbol: str, latest: FilingInfo, current_until: str) -> EarningsReport | None:
         """The analysis already on disk for exactly `latest` — the company's
