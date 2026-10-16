@@ -21,13 +21,9 @@ RSS_FEEDS = {
     "MarketWatch Top": "https://feeds.marketwatch.com/marketwatch/topstories/",
     # "MarketWatch Markets" (marketpulse) removed 2026-08-29 — see the
     # audit note below. It 200s but stopped publishing over a year ago.
-    # Yahoo Finance republishes a large share of Reuters/AP/Bloomberg wire
-    # copy alongside its own reporting, which is the closest free substitute
-    # for the wire breadth "Reuters Business" and "AP Business" used to
-    # provide (see the removal note below). Verified live 2026-08-28:
-    # https://finance.yahoo.com/news/rssindex returns HTTP 200, valid RSS
-    # 2.0, ~49 items with same-day timestamps.
-    "Yahoo Finance News": "https://finance.yahoo.com/news/rssindex",
+    # "Yahoo Finance News" (finance.yahoo.com/news/rssindex) removed
+    # 2026-10-16: HTTP 404 on every fetch since 15 Oct (13 failures in the
+    # desk log 15:15-00:00 UTC); /rss/topstories and /news/rss also 404.
     # Seeking Alpha's editorial wire — company events (M&A, FDA approvals,
     # contract wins, share actions), not just macro. Verified live
     # 2026-08-29: HTTP 200, valid RSS, 7 items, newest ~minutes old.
