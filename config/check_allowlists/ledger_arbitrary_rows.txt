@@ -35,7 +35,6 @@ src.config.SmartMoneyConfig.min_external_history_days
 src.config.SmartMoneyConfig.refresh_deadline_s
 src.data.context._CONSOLIDATION_WINDOW
 src.data.context._SLOPE_LOOKBACK
-src.data.context._W_1M
 src.data.insider_signal._WEIGHTS[INDETERMINATE]
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
 src.models.analysis.RATING_MAGNITUDE['buy']
