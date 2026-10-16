@@ -671,7 +671,7 @@ def test_a_proportionally_tiny_sale_survives_the_provider_end_to_end(tmp_path):
 
     assert [obs.signal_class for obs in observations] == ["opportunistic"]
     assert [obs.signal_weight for obs in observations] == [1.0]
-    assert [obs.holdings_fraction_band for obs in observations] == ["under_10pct"]
+    assert [obs.holdings_fraction for obs in observations] and observations[0].holdings_fraction < 0.1
 
 
 # --- Trade size relative to the insider's own holding (WORK.md item 52) ----
@@ -690,47 +690,34 @@ def test_a_proportionally_tiny_sale_survives_the_provider_end_to_end(tmp_path):
 
 def test_sell_fraction_is_measured_against_the_pre_transaction_holding():
     """Sold 25,000 of a 100,000-share holding is 25%, not 33% of what is left."""
-    fraction, band = holdings_fraction(_row(direction="sell", shares=25_000.0, post_shares=75_000.0))
+    fraction, no_prior = holdings_fraction(_row(direction="sell", shares=25_000.0, post_shares=75_000.0))
 
     assert fraction == 0.25
-    assert band == "10_to_50pct"
+    assert no_prior is False
 
 
 def test_buy_fraction_is_measured_against_what_the_insider_already_held():
     """Bought 20,000 on top of an existing 80,000 is 25% added, not 20%."""
-    fraction, band = holdings_fraction(_row(direction="buy", shares=20_000.0, post_shares=100_000.0))
+    fraction, no_prior = holdings_fraction(_row(direction="buy", shares=20_000.0, post_shares=100_000.0))
 
     assert fraction == 0.25
-    assert band == "10_to_50pct"
+    assert no_prior is False
 
 
 def test_purchase_by_an_insider_holding_nothing_is_a_distinct_band_not_a_gap():
     """An insider who held none beforehand has no denominator; that distinct
     fact must not be reported as missing filing data."""
-    fraction, band = holdings_fraction(_row(direction="buy", shares=5_000.0, post_shares=5_000.0))
+    fraction, no_prior = holdings_fraction(_row(direction="buy", shares=5_000.0, post_shares=5_000.0))
 
     assert fraction is None
-    assert band == "no_prior_holding"
+    assert no_prior is True
 
 
 def test_missing_post_transaction_shares_reports_no_band_at_all():
-    fraction, band = holdings_fraction(_row(direction="sell", shares=1_000.0, post_shares=None))
+    fraction, no_prior = holdings_fraction(_row(direction="sell", shares=1_000.0, post_shares=None))
 
     assert fraction is None
-    assert band == ""
-
-
-def test_legacy_band_endpoints_remain_stable_while_routed():
-    """Preserve the legacy under-10 / 10-50 / over-50 runtime endpoints while
-    their unsupported per-filing application remains routed under item 90."""
-
-    def band_for(shares, post):
-        return holdings_fraction(_row(direction="sell", shares=shares, post_shares=post))[1]
-
-    assert band_for(9_999.0, 90_001.0) == "under_10pct"
-    assert band_for(10_000.0, 90_000.0) == "10_to_50pct"
-    assert band_for(50_000.0, 50_000.0) == "10_to_50pct"
-    assert band_for(50_001.0, 49_999.0) == "over_50pct"
+    assert no_prior is False
 
 
 def test_purchase_detail_names_the_added_fraction_for_the_seat():
@@ -778,6 +765,6 @@ def test_the_ratio_never_admits_or_rejects_a_row(tmp_path):
         "0000000001-26-000101",
         "0000000001-26-000102",
     }
-    bands = {obs.accession_number: obs.holdings_fraction_band for obs in observations}
-    assert bands["0000000001-26-000101"] == "under_10pct"
-    assert bands["0000000001-26-000102"] == "over_50pct"
+    ratios = {obs.accession_number: obs.holdings_fraction for obs in observations}
+    assert ratios["0000000001-26-000101"] == 1_000.0 / 999_000.0
+    assert ratios["0000000001-26-000102"] == 2.0

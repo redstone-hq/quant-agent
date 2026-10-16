@@ -821,7 +821,6 @@ def test_sale_census_counts_and_samples_sales_by_holdings_band():
     ).model_copy(
         update={
             "holdings_fraction": 0.04,
-            "holdings_fraction_band": "under_10pct",
         }
     )
     sale_large = _insider(
@@ -830,7 +829,6 @@ def test_sale_census_counts_and_samples_sales_by_holdings_band():
     ).model_copy(
         update={
             "holdings_fraction": 0.80,
-            "holdings_fraction_band": "over_50pct",
         }
     )
 
@@ -839,12 +837,11 @@ def test_sale_census_counts_and_samples_sales_by_holdings_band():
     assert census["parsed_rows"] == 3
     assert census["buy_rows"] == 1
     assert census["sale_rows"] == 2
-    assert census["band_counts"] == {"under_10pct": 1, "over_50pct": 1}
+    assert "band_counts" not in census
     # The forward return is forward: it is NOT computed here, and the
     # recording says so rather than implying it holds one.
     assert census["forward_return_joined"] is False
-    bands = {row["holdings_fraction_band"] for row in census["rows"]}
-    assert bands == {"under_10pct", "over_50pct"}
+    assert {row["holdings_fraction"] for row in census["rows"]} == {0.04, 0.80}
     assert all(row["reference_price"] is not None for row in census["rows"])
     assert all(row["transaction_date"] for row in census["rows"])
     # No buy leaks into a recording whose whole purpose is the sale side.

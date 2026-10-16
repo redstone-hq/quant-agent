@@ -48,14 +48,14 @@ def _census_rows_from_observations(path: str) -> list[dict]:
             shares=item.get("shares"),
             post_transaction_shares=item.get("post_transaction_shares"),
         )
-        fraction, band = holdings_fraction(probe)
+        fraction, _no_prior = holdings_fraction(probe)
         rows.append(
             {
                 "symbol": item.get("symbol"),
                 "transaction_date": item.get("transaction_date"),
                 "reference_price": item.get("price_per_share"),
                 "holdings_fraction": fraction,
-                "holdings_fraction_band": band or "unknown",
+                "holdings_fraction_band": "sell",
             }
         )
     return rows

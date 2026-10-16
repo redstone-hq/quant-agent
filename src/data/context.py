@@ -48,9 +48,9 @@ _HORIZON_3M = pd.DateOffset(months=3)
 _HORIZON_6M = pd.DateOffset(months=6)
 _HORIZON_12M = pd.DateOffset(months=12)
 
-# Session-count windows for the 52-week range / ATR percentile (_W_12M) and the
-# up/down volume window (_W_1M). Unchanged bar counts; see number_ledger.yaml.
-_W_1M, _W_12M = 21, 252
+# Session-count window for the up/down volume read (_W_1M); see number_ledger.yaml.
+# The 52-week range and ATR percentile use a calendar year of bars instead.
+_W_1M = 21
 
 # Sessions used to measure whether a moving average is rising or falling.
 _SLOPE_LOOKBACK = 10
@@ -68,11 +68,6 @@ _SLOPE_LOOKBACK = 10
 # name, which is the whole complaint. There is now no percentage anywhere in
 # this test.
 _CONSOLIDATION_WINDOW = ATR_PERIOD
-
-# Interim prompt cap, not a market-structure claim. Item 90 requires an
-# explicit token budget, removal, or controlled prompt-invariance evidence;
-# nearest gaps are collected first.
-_MAX_GAPS_REPORTED = 3
 
 
 @dataclass(frozen=True)
@@ -196,12 +191,11 @@ def _ma_slope(closes: np.ndarray, period: int, lookback: int) -> float | None:
     return round((float(ma[-1]) - past) / past * 100.0, 2)
 
 
-def _find_unfilled_gaps(bars: list[OHLCV], limit: int) -> list[Gap]:
+def _find_unfilled_gaps(bars: list[OHLCV]) -> list[Gap]:
     """Gaps that price has not since traded back through.
 
-    Walks backwards from the most recent bar so the nearest gaps are found
-    first, and stops once `limit` are collected — older gaps matter less and
-    the list is meant to be read, not exhaustive.
+    Walks backwards from the most recent bar so the nearest gaps come first,
+    and reports every unfilled gap the walk finds — there is no cap.
 
     **What makes a gap a gap.** Bulkowski's definition is structural and
     carries no size floor at all: "Gaps occur when today's high is below
@@ -252,8 +246,6 @@ def _find_unfilled_gaps(bars: list[OHLCV], limit: int) -> list[Gap]:
         return value if value > 0 else None
 
     for i in range(n - 1, 0, -1):
-        if len(out) >= limit:
-            break
         prev, cur = bars[i - 1], bars[i]
         if prev.high <= 0:
             continue
@@ -323,9 +315,11 @@ def compute_market_context(
                     rel_3m = value
 
     # 52-week range.
-    window_52w = closes[-_W_12M:] if len(closes) >= _W_12M else closes
-    high_52w = float(highs[-len(window_52w) :].max())
-    low_52w = float(lows[-len(window_52w) :].min())
+    # Bars on or after one calendar year before the last bar, selected by date.
+    year_start = (pd.Timestamp(bars[-1].date) - _HORIZON_12M).date()
+    year_idx = next(i for i, b in enumerate(bars) if b.date >= year_start)
+    high_52w = float(highs[year_idx:].max())
+    low_52w = float(lows[year_idx:].min())
     span = high_52w - low_52w
     range_position = round((last_close - low_52w) / span * 100.0, 1) if span > 0 else None
 
@@ -340,7 +334,10 @@ def compute_market_context(
     if atr.size:
         atr_now = float(atr[-1])
         atr_pct = round(atr_now / last_close * 100.0, 2)
-        recent = atr[-_W_12M:] if atr.size >= _W_12M else atr
+        # `atr_series` trims the warm-up: element j belongs to bar j + ATR_PERIOD - 1,
+        # so pick the elements by their own bar's date, not by a shared count.
+        atr_dates = [b.date for b in bars[ATR_PERIOD - 1 :][: atr.size]]
+        recent = atr[[d >= year_start for d in atr_dates]]
         if recent.size > 1:
             atr_percentile = round(float((recent <= atr_now).sum()) / float(recent.size) * 100.0, 1)
             if atr_percentile >= 70:
@@ -471,7 +468,7 @@ def compute_market_context(
         sessions_in_range=sessions_in_range,
         avg_dollar_volume_20d=avg_dollar_volume_20d_usd,
         up_down_volume_ratio=up_down_ratio,
-        unfilled_gaps=_find_unfilled_gaps(bars, _MAX_GAPS_REPORTED),
+        unfilled_gaps=_find_unfilled_gaps(bars),
     )
 
 

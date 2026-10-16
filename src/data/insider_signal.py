@@ -182,28 +182,6 @@ class InsiderSignalClass:
         return cls(label=label, reason=reason, detail=detail, weight=_WEIGHTS[label])
 
 
-# Legacy descriptive buckets for one filing's transaction-to-holding ratio.
-# Their values were copied from Scott & Xu, but that study measures an
-# aggregate six-month stock-wide quantity, not this per-row quantity, so the
-# transfer is unsupported and both edges remain arbitrary under item 90. No
-# deterministic gate reads them, but the labels reach the Smart Money prompt.
-_BAND_LOW = 0.10
-_BAND_HIGH = 0.50
-
-# The bands label a row; they never admit or reject one. "Reporting only"
-# describes this deterministic classifier, not the full decision chain: the
-# unsupported descriptive label is still visible to the Smart Money seat.
-# Since 2026-09-13 no holdings ratio changes a classification — see departure
-# #3 in the module docstring.
-BANDS_ARE_REPORTING_ONLY = True
-
-BAND_UNDER_LOW = "under_10pct"
-BAND_MID = "10_to_50pct"
-BAND_OVER_HIGH = "over_50pct"
-BAND_NO_PRIOR_HOLDING = "no_prior_holding"
-BAND_UNKNOWN = ""
-
-
 def _sell_fraction(shares: float | None, post_shares: float | None) -> float | None:
     """Fraction of the insider's pre-transaction holding that was disposed."""
     if shares is None or post_shares is None or shares <= 0:
@@ -230,25 +208,15 @@ def _buy_fraction(shares: float | None, post_shares: float | None) -> float | No
     return shares / pre_shares
 
 
-def _band(fraction: float | None, *, no_prior_holding: bool) -> str:
-    if fraction is None:
-        return BAND_NO_PRIOR_HOLDING if no_prior_holding else BAND_UNKNOWN
-    if fraction < _BAND_LOW:
-        return BAND_UNDER_LOW
-    if fraction <= _BAND_HIGH:
-        return BAND_MID
-    return BAND_OVER_HIGH
-
-
-def holdings_fraction(observation) -> tuple[float | None, str]:
-    """Trade size relative to the insider's own holding, plus its band.
+def holdings_fraction(observation) -> tuple[float | None, bool]:
+    """Trade size relative to the insider's own holding, and a no-prior flag.
 
     Reported for both directions and for every row, independently of which
-    classification rule fired: the exact ratio is uncited descriptive context
-    even when the label was decided by something else (a calendar-routine sale
-    still has a size relative to the position). ``(None, "")`` means the
-    filing did not carry enough to compute one. The returned bucket is a legacy
-    unsourced display label tracked by item 90, not an empirical inference.
+    classification rule fired: the exact ratio is descriptive context even
+    when the label was decided by something else. ``(None, False)`` means the
+    filing did not carry enough to compute one. The flag is True only for a
+    purchase by an insider who held nothing beforehand: no ratio exists, and
+    that is a distinct fact from a missing one. No bucket is derived.
 
     Sells use the pre-transaction holding ``shares + post_transaction_shares``
     as the denominator; buys use ``post_transaction_shares - shares``. Both
@@ -256,13 +224,12 @@ def holdings_fraction(observation) -> tuple[float | None, str]:
     from the two Form 4 numbers when both are present.
     """
     if str(getattr(observation, "stream", "") or "") != "insider":
-        return None, BAND_UNKNOWN
+        return None, False
     direction = str(getattr(observation, "direction", "") or "")
     shares = getattr(observation, "shares", None)
     post_shares = getattr(observation, "post_transaction_shares", None)
     if direction == "sell":
-        fraction = _sell_fraction(shares, post_shares)
-        return fraction, _band(fraction, no_prior_holding=False)
+        return _sell_fraction(shares, post_shares), False
     if direction == "buy":
         fraction = _buy_fraction(shares, post_shares)
         no_prior = (
@@ -272,8 +239,8 @@ def holdings_fraction(observation) -> tuple[float | None, str]:
             and shares > 0
             and post_shares - shares <= 0
         )
-        return fraction, _band(fraction, no_prior_holding=no_prior)
-    return None, BAND_UNKNOWN
+        return fraction, no_prior
+    return None, False
 
 
 def _has_inside_role(roles) -> bool:
@@ -438,10 +405,10 @@ def classify_transaction(
     )
     # Reported, never gated on: this is the arithmetic from the present Form 4
     # row, not a transfer of an aggregate study's return finding.
-    buy_fraction, buy_band = holdings_fraction(observation)
+    buy_fraction, buy_no_prior = holdings_fraction(observation)
     if buy_fraction is not None:
         size_note = f" Adds {buy_fraction:.1%} to the insider's existing holding."
-    elif buy_band == BAND_NO_PRIOR_HOLDING:
+    elif buy_no_prior:
         size_note = " The insider held none of this stock beforehand, so there is no size-relative-to-holdings ratio."
     else:
         size_note = ""
