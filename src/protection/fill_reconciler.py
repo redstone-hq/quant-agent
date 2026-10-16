@@ -391,8 +391,8 @@ class FillReconciler:
 
         Backdating a stop-out row to when it ACTUALLY filled (rather than
         to whenever this reconciler happened to notice) is what makes
-        `compute_trade_calibration`'s hold-days and win/loss dating, and
-        `_build_post_exit_reality`'s window filtering, measure the real
+        `compute_trade_calibration`'s hold-days and win/loss dating
+        measure the real
         exit instead of the detection lag. This is safe to do: the FIFO
         cost-basis walk in `_realized_pnl_through_trade` orders by `id`,
         not `timestamp`, so backdating this column can never corrupt a

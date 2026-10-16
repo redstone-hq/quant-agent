@@ -803,8 +803,8 @@ class TradeAnalytics:
                 # facts and the reviewer as calibration_note — on the real
                 # ledger the omission moved win_rate 22.2% → 30.0% and
                 # avg_return −2.79% → −2.18% for a typical window. The
-                # filled-guard mirrors _build_post_exit_reality: a placed-but-
-                # unfilled TRAIL_STOP is protection, not an exit.
+                # filled-guard: a placed-but-unfilled TRAIL_STOP is
+                # protection, not an exit.
                 # Close from oldest lot first
                 remaining = qty
                 lots = open_lots[sym]
