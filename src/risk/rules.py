@@ -40,6 +40,20 @@ logger = logging.getLogger(__name__)
 #: while its filing is the company's latest periodic report and the next
 #: report's statutory deadline has not passed (`src.data.sec_client.
 #: periodic_report_current_until`, `PortfolioManagerAgent.stale_evidence_sources`).
+#:
+#: The statutory deadlines that backstop works from (used by
+#: `src.data.sec_client.periodic_report_current_until`). Each is the LATEST
+#: legal deadline — the non-accelerated-filer one plus the Rule 12b-25
+#: extension — so a stance is never called stale while the next report could
+#: still lawfully be on time.
+#: Form 10-K General Instruction A(2): non-accelerated filers file within 90 days after fiscal year end.
+TEN_K_DUE_DAYS = 90
+#: 17 CFR 240.12b-25(b)(2)(ii)(A): a late 10-K is deemed timely if filed within 15 calendar days after its due date.
+TEN_K_EXTENSION_DAYS = 15
+#: Form 10-Q General Instruction A.1: non-accelerated filers file within 45 days after quarter end.
+TEN_Q_DUE_DAYS = 45
+#: 17 CFR 240.12b-25(b)(2)(ii)(B): a late 10-Q is deemed timely if filed within 5 calendar days after its due date.
+TEN_Q_EXTENSION_DAYS = 5
 
 
 #: §9.4 signed sum. Every seat enters the score at UNIT magnitude — +1 when it

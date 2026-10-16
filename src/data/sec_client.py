@@ -17,6 +17,15 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay, DateOffset, MonthEnd
 
 from src.sentinel.counted import record_swallowed
+
+# Statutory filing deadlines for the NEXT periodic report: ledger-scoped in
+# src/risk/rules.py (sourced rows in config/number_ledger.yaml).
+from src.risk.rules import (
+    TEN_K_DUE_DAYS,
+    TEN_K_EXTENSION_DAYS,
+    TEN_Q_DUE_DAYS,
+    TEN_Q_EXTENSION_DAYS,
+)
 from src.trading_calendar import utc_now
 from src.util.time import et_now
 
@@ -28,19 +37,6 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 USER_AGENT = "quant-agent research@example.com"  # SEC requires contact info
 REQUEST_DELAY = 0.12  # SEC rate limit: 10 req/s
 
-# Statutory filing deadlines for the NEXT periodic report, used as the backstop
-# for how long an earnings stance stays current when a company files nothing
-# newer (`periodic_report_current_until`). Each is the LATEST legal deadline —
-# the non-accelerated-filer one plus the Rule 12b-25 extension — so a stance is
-# never called stale while the next report could still lawfully be on time.
-#: Form 10-K General Instruction A(2): non-accelerated filers file within 90 days after fiscal year end.
-TEN_K_DUE_DAYS = 90
-#: 17 CFR 240.12b-25(b)(2)(ii)(A): a late 10-K is deemed timely if filed within 15 calendar days after its due date.
-TEN_K_EXTENSION_DAYS = 15
-#: Form 10-Q General Instruction A.1: non-accelerated filers file within 45 days after quarter end.
-TEN_Q_DUE_DAYS = 45
-#: 17 CFR 240.12b-25(b)(2)(ii)(B): a late 10-Q is deemed timely if filed within 5 calendar days after its due date.
-TEN_Q_EXTENSION_DAYS = 5
 #: 17 CFR 240.0-3(a): a filing due on a Saturday, Sunday or federal holiday
 #: may be made on the next business day.
 _SEC_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())

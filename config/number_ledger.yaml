@@ -5423,6 +5423,50 @@ numbers:
       inter-meeting interval is the smallest margin that never leaves the
       cache with no recent meeting in it. No order, size, price or stop is
       computed from it.
+  - id: src.risk.rules.TEN_K_DUE_DAYS
+    value: 90
+    status: sourced
+    site: src/risk/rules.py
+    source: 'Form 10-K General Instruction A(2)(c) (https://www.sec.gov/files/form10-k.pdf)'
+    note: >-
+      Days after fiscal year end a non-accelerated filer has to file its 10-K, the latest of the
+      filer-class deadlines. With TEN_K_EXTENSION_DAYS it backstops how long an earnings stance stays
+      current when the next report is a 10-K and nothing newer is filed. It only removes a stale
+      earnings stance from the agreement tally (src.data.sec_client.periodic_report_current_until); no
+      order, size, price or stop is computed from it.
+  - id: src.risk.rules.TEN_K_EXTENSION_DAYS
+    value: 15
+    status: sourced
+    site: src/risk/rules.py
+    source: '17 CFR 240.12b-25(b)(2)(ii) (https://www.ecfr.gov/current/title-17/section-240.12b-25)'
+    note: >-
+      Calendar days after the prescribed 10-K due date within which a report filed with a Form 12b-25
+      notice is deemed timely; counted from the due date after it is rolled to a business day (17 CFR
+      240.0-3). It only removes a stale earnings stance from the agreement tally
+      (src.data.sec_client.periodic_report_current_until); no order, size, price or stop is computed
+      from it.
+  - id: src.risk.rules.TEN_Q_DUE_DAYS
+    value: 45
+    status: sourced
+    site: src/risk/rules.py
+    source: 'Form 10-Q General Instruction A.1 (https://www.sec.gov/files/form10-q.pdf)'
+    note: >-
+      Days after quarter end a non-accelerated filer has to file its 10-Q, the latest of the filer-
+      class deadlines. With TEN_Q_EXTENSION_DAYS it backstops how long an earnings stance stays
+      current when the next report is a 10-Q and nothing newer is filed. It only removes a stale
+      earnings stance from the agreement tally (src.data.sec_client.periodic_report_current_until); no
+      order, size, price or stop is computed from it.
+  - id: src.risk.rules.TEN_Q_EXTENSION_DAYS
+    value: 5
+    status: sourced
+    site: src/risk/rules.py
+    source: '17 CFR 240.12b-25(b)(2)(ii) (https://www.ecfr.gov/current/title-17/section-240.12b-25)'
+    note: >-
+      Calendar days after the prescribed 10-Q due date within which a report filed with a Form 12b-25
+      notice is deemed timely; counted from the due date after it is rolled to a business day (17 CFR
+      240.0-3). It only removes a stale earnings stance from the agreement tally
+      (src.data.sec_client.periodic_report_current_until); no order, size, price or stop is computed
+      from it.
   - id: src.data.event_calendar.macro.RELEASE_SCHEDULE_LOOKAHEAD_DAYS
     value: 120
     status: sourced
