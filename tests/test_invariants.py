@@ -549,6 +549,7 @@ def test_invariant_intraday_scan_cannot_bypass_the_deterministic_gate():
             db_path=str(_Path(tempfile.mkdtemp()) / "t.db"),
         ),
         intraday_scan=IntradayScanConfig(enabled=True),
+        event_risk=SimpleNamespace(horizon_days=10),
     )
     p._atr_for_symbol = MagicMock(return_value=2.0)  # the scan ranks by move / own ATR
     p.broker.get_intraday_snapshots.return_value = {
