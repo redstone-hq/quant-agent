@@ -1706,16 +1706,14 @@ def _smart_money_invoke(agent):
     agent.synthesis_cache_path = (
         Path(tempfile.mkdtemp(prefix="seat-exam-synthesis-")) / "synthesis_cache.json"
     )
-    findings, _result, error = agent.analyze(observations)
+    findings, _result, error, gaps = agent.analyze_with_gaps(observations)
     return SimpleNamespace(
-        findings=findings, error=error,
+        findings=findings, error=error, gaps=gaps,
         presented=tuple(agent._presented_symbols(observations)),
     )
 
 
 def _smart_money_grade(output) -> list[Check]:
-    from src.agents.smart_money_analyst import _MAX_FINDING_TEXT_WORDS
-
     if output is None:
         return [Check("parsed", 0.30, False, "no output")]
     error = output.error
@@ -1731,23 +1729,17 @@ def _smart_money_grade(output) -> list[Check]:
         f"at src/agents/smart_money_analyst.py:434) or names a symbol that was "
         f"not presented or already answered (:449)",
     ))
-    over = [
-        f.symbol for f in findings
-        if len(f.summary.split()) > _MAX_FINDING_TEXT_WORDS
-        or len(f.why_now.split()) > _MAX_FINDING_TEXT_WORDS
-    ]
+    # The prompt requires one answer per presented symbol (a finding or an
+    # explicit no-read); the seat re-asks once and returns what is still
+    # unanswered as gaps.
+    unanswered = sorted(
+        gap["symbol"] for gap in (getattr(output, "gaps", None) or [])
+        if gap.get("after_reask") != "answered"
+    )
     checks.append(Check(
-        "summary_and_why_now_within_word_limit", 0.30, not over,
-        f"over {_MAX_FINDING_TEXT_WORDS} words: {over} "
-        f"(src/agents/smart_money_analyst.py:91, stated to the model in "
-        f"build_user_message)",
-    ))
-    missing = sorted(set(output.presented) - {f.symbol for f in findings})
-    checks.append(Check(
-        "covers_every_presented_symbol", 0.0, not missing,
-        f"UNSOURCED, reported not scored: the prompt caps findings ('at most 8, "
-        f"one per presented symbol') but requires none. {len(findings)} "
-        f"finding(s); presented but unanswered: {missing}",
+        "covers_every_presented_symbol", 0.30, not unanswered,
+        f"{len(findings)} finding(s) of {len(output.presented)} presented; "
+        f"unanswered after the one re-ask: {unanswered}",
     ))
     return checks
 

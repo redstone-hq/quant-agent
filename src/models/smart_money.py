@@ -493,12 +493,27 @@ class SmartMoneyFinding(LLMOutputModel):
         )
 
 
+class SmartMoneyNoRead(LLMOutputModel):
+    """The seat's explicit "no read" on one presented symbol.
+
+    Every presented symbol must be answered exactly once: a finding or this.
+    It is deliberately NOT a SmartMoneyFinding and carries no stance, so it
+    can never become a verdict, a ranking input or an evidence-registry row;
+    it only proves the symbol was read and left without a call.
+    """
+
+    symbol: str
+    reason: str = ""
+
+
 class SmartMoneySynthesis(LLMOutputModel):
-    """Top-level shape of the smart money analyst's response: a single
-    `findings` list. Exists ONLY to declare the OpenRouter response_format
+    """Top-level shape of the smart money analyst's response: a `findings`
+    list plus a `no_reads` list, together covering every presented symbol
+    exactly once. Exists ONLY to declare the OpenRouter response_format
     schema (src/agents/base.py) — the agent still reads `parsed["findings"]`
     and validates each entry as SmartMoneyFinding directly, per-entry
     isolated (src/agents/smart_money_analyst.py._parse_findings); this model
     is never itself constructed from a response."""
 
     findings: list[SmartMoneyFinding]
+    no_reads: list[SmartMoneyNoRead] = Field(default_factory=list)

@@ -3,10 +3,7 @@
 # A new entry needs a Guard-rule-change line in the commit message.
 src.agents.smart_money_analyst._MAX_ACTOR_ROLES
 src.agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS
-src.agents.smart_money_analyst._MAX_FINDING_TEXT_WORDS
 src.agents.smart_money_analyst._MAX_REASON_TEXT_CHARS
-src.agents.smart_money_analyst._MAX_REPRESENTATIVE_TRANSACTIONS
-src.agents.smart_money_analyst._MAX_SYNTHESIS_SYMBOLS
 src.agents.tech_analyst._BARS_PER_SYMBOL
 src.config.EventRiskConfig.horizon_days
 src.config.ExecutionConfig.max_entry_slippage_bps
