@@ -772,17 +772,17 @@ phases:
         symbol: "def stance_is_aligned"
         note: "§9.4: helper to check whether a source's stance aligns with the desired direction"
       - kind: symbol_in_file
-        path: "src/risk/rules.py"
-        symbol: "EARNINGS_STANCE_MAX_AGE_DAYS"
-        note: "§9.4 freshness: an earnings stance older than 90 days stops counting toward the agreement tally. 90 is the earnings seat's own existing threshold (config/prompts/earnings_analyst.md, and _missed_ops_earnings_signal), not a new number."
+        path: "src/agents/portfolio_manager/evidence_prompting.py"
+        symbol: "def earnings_stance_is_stale"
+        note: "§9.4 currency (2026-10-16, replacing the made-up 90-day age): an earnings stance counts toward the agreement tally only while its filing is the company's latest periodic report and the next report's statutory deadline has not passed."
       - kind: symbol_in_file
         path: "src/agents/portfolio_manager.py"
         symbol: "def stale_evidence_sources"
         note: "§9.4 freshness: the gate itself. Removes a stale stance from the TALLY only — it stays in the registry, so grounding still accepts it and this can only ever lower a ceiling."
       - kind: symbol_in_file
-        path: "src/data/earnings.py"
-        symbol: "EARNINGS_STANCE_MAX_AGE_DAYS"
-        note: "§9.4 freshness, the cause (2026-09-02): `_get_existing_analysis` imports the same constant and refuses to re-serve an analysis past it, returning None instead — the symbol looks like one with no earnings coverage yet, not a stale view presented as current. Complements stale_evidence_sources, which gates the CONSEQUENCE (the tally) for whatever a session is actually shown; this gates what the disk fallback is allowed to show in the first place."
+        path: "src/data/sec_client.py"
+        symbol: "def periodic_report_current_until"
+        note: "§9.4 currency, the backstop (2026-10-16): last day a stance on a periodic report is current when nothing newer is filed — next period end plus the 10-K/10-Q statutory deadline and Rule 12b-25 extension. `_get_existing_analysis` serves only the latest report's analysis."
       - kind: symbol_in_file
         path: "src/risk/rules.py"
         symbol: "def count_opposing_sources"

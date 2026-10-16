@@ -35,7 +35,6 @@ from src.risk.constants import (
 from src.risk.budget import allocate_risk_budget
 from src.risk.metrics import unrealized_pnl_pct
 from src.risk.rules import (
-    EARNINGS_STANCE_MAX_AGE_DAYS,
     _gross_multiplier,
     book_exposure as _book_exposure,
     own_bar_block_reason,
@@ -157,8 +156,11 @@ class PortfolioManagerAgent(
         # old to EARN size. Computed from the same earnings list the registry
         # was built from, so the prompt and the constructor gate the same
         # stances (`pipeline_stages` recomputes both from identical inputs).
+        # `asof` is the decision day: today (ET) in production, the recorded
+        # day in a replay, so a recording judges currency as of when it ran.
         stale_sources = self.stale_evidence_sources(
             earnings_analyses=earnings_analyses,
+            asof=kwargs.get("asof"),
         )
         # Item 109 — a SEPARATE mapping with a separate consequence, never
         # merged into `stale_sources`: a macro stance broadcast onto a name
@@ -218,7 +220,7 @@ class PortfolioManagerAgent(
             if stale_here:
                 notes.append(
                     f"{', '.join(stale_here)} stance NOT counted either way "
-                    f"— filing older than {EARNINGS_STANCE_MAX_AGE_DAYS}d"
+                    "— filing superseded or past the next report's deadline"
                 )
             broadcast_here = sorted(s for s in (broadcast or ()) if s in sources)
             if broadcast_here:
@@ -370,6 +372,7 @@ class PortfolioManagerAgent(
             # above, so macro's ranked verdict and macro's registry stance
             # resolve one symbol's sector identically (item 31, 2026-09-13).
             symbol_sectors=kwargs.get("symbol_sectors") or {},
+            asof=kwargs.get("asof"),
         )
 
         # R7 — the 2026-09-25 owner conviction bar, applied ONCE here to the
@@ -403,6 +406,7 @@ class PortfolioManagerAgent(
                 smart_money_findings=smart_money_findings,
                 symbol_sectors=kwargs.get("symbol_sectors") or {},
                 positions=positions,
+                asof=kwargs.get("asof"),
             ),
         )
         self.last_candidate_ranking = list(ranked)
@@ -742,7 +746,7 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
                 # reads the view from.
                 if "earnings" in stale_sources.get(str(sym).strip().upper(), frozenset()):
                     source_note += (
-                        f" [STALE >{EARNINGS_STANCE_MAX_AGE_DAYS}d — context only; "
+                        " [STALE: superseded or past next report's deadline — context only; "
                         "does NOT count toward the agreement score]"
                     )
 
@@ -1323,6 +1327,7 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         # for the ranked-margin swap; `None` = unmeasured, no swap.
         score_noise_brake: float | None = None,
         symbol_sectors: dict[str, str] | None = None,
+        asof: date | None = None,
         session_type: str = "morning",
         allowed_buy_symbols: set[str] | None = None,
         transient_admitted_symbols: set[str] | None = None,
@@ -1416,6 +1421,7 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             min_risk_floor=min_risk_floor,
             score_noise_brake=score_noise_brake,
             symbol_sectors=symbol_sectors or {},
+            asof=asof,
             session_type=session_type,
             allowed_buy_symbols=allowed_buy_symbols or set(),
             transient_admitted_symbols=transient_admitted_symbols or set(),

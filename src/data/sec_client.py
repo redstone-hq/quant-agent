@@ -1,7 +1,7 @@
 """SEC EDGAR client: rate-limited GET with retry, CIK lookup, recent filings.
 
 Owns its own request pacing and CIK cache.  The opener, the sleep, the
-clocks and the lookback window are handed in by value (`build_sec_client`),
+clocks are handed in by value (`build_sec_client`),
 so it is constructed and tested with no provider and no network.
 """
 
@@ -9,10 +9,23 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Callable
 
+import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import CustomBusinessDay, DateOffset, MonthEnd
+
 from src.sentinel.counted import record_swallowed
+
+# Statutory filing deadlines for the NEXT periodic report: ledger-scoped in
+# src/risk/rules.py (sourced rows in config/number_ledger.yaml).
+from src.risk.rules import (
+    TEN_K_DUE_DAYS,
+    TEN_K_EXTENSION_DAYS,
+    TEN_Q_DUE_DAYS,
+    TEN_Q_EXTENSION_DAYS,
+)
 from src.trading_calendar import utc_now
 from src.util.time import et_now
 
@@ -24,6 +37,55 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 USER_AGENT = "quant-agent research@example.com"  # SEC requires contact info
 REQUEST_DELAY = 0.12  # SEC rate limit: 10 req/s
 
+#: 17 CFR 240.0-3(a): a filing due on a Saturday, Sunday or federal holiday
+#: may be made on the next business day.
+_SEC_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+
+
+def _quarter_step(period: date):
+    """One fiscal quarter on from `period`: month-end to month-end (Sep 30 ->
+    Dec 31, Feb 28 -> May 31) when `period` is a month end, else the same
+    day three months on (52/53-week filers end mid-month)."""
+    return MonthEnd(3) if pd.Timestamp(period).is_month_end else DateOffset(months=3)
+
+
+def periodic_report_current_until(report_date: str, fiscal_year_end: str) -> date | None:
+    """Last day an earnings stance on this periodic report can be current
+    when the company files nothing newer: the latest legal filing date of
+    the NEXT periodic report. Next period end = this report's period of
+    report + one quarter; the next report is the 10-K when the company's
+    fiscal-year-end anniversary is nearer that period end than either
+    neighbouring quarter end (52/53-week filers end a few days off the
+    calendar date), else a 10-Q. None — stale, fail closed — when the
+    period of report or the fiscal year end is missing or unparseable.
+    """
+    try:
+        period = date.fromisoformat(str(report_date))
+        step = _quarter_step(period)
+        next_end = (pd.Timestamp(period) + step).date()
+        fye = str(fiscal_year_end)
+        month, day = int(fye[:2]), int(fye[2:4])
+        anniversaries = []
+        for year in (next_end.year - 1, next_end.year, next_end.year + 1):
+            try:
+                anniversaries.append(date(year, month, day))
+            except ValueError:  # 0229 in a non-leap year
+                anniversaries.append(date(year, month, day - 1))
+    except (TypeError, ValueError):
+        return None
+    fy_end = min(anniversaries, key=lambda d: abs((d - next_end).days))
+    gap = abs((fy_end - next_end).days)
+    before, after = (pd.Timestamp(next_end) - step).date(), (pd.Timestamp(next_end) + step).date()
+    is_10k = gap < abs((fy_end - before).days) and gap < abs((fy_end - after).days)
+    due_days, extension_days = (
+        (TEN_K_DUE_DAYS, TEN_K_EXTENSION_DAYS) if is_10k else (TEN_Q_DUE_DAYS, TEN_Q_EXTENSION_DAYS)
+    )
+    # Rule 0-3 first fixes the prescribed due date (weekend/holiday -> next
+    # business day); the 12b-25 extension runs in calendar days from THAT
+    # date, and its own last day is rolled again.
+    due = _SEC_BUSINESS_DAY.rollforward(pd.Timestamp(next_end + timedelta(days=due_days)))
+    return _SEC_BUSINESS_DAY.rollforward(due + timedelta(days=extension_days)).date()
+
 
 @dataclass
 class FilingInfo:
@@ -32,6 +94,8 @@ class FilingInfo:
     filing_date: str
     accession_number: str
     primary_doc: str  # filename of main document
+    report_date: str = ""  # submissions `reportDate`: the period the report covers
+    fiscal_year_end: str = ""  # submissions `fiscalYearEnd`, "MMDD"
 
 
 class SecClient:
@@ -45,7 +109,6 @@ class SecClient:
         sleep: Callable[[float], None],
         clock: Callable[[], float],
         now: Callable,
-        lookback_days: int,
     ):
         self._opener = opener
         self._request = request
@@ -54,7 +117,6 @@ class SecClient:
         self._sleep = sleep
         self._clock = clock
         self._now = now
-        self._lookback_days = lookback_days
         self._ticker_to_cik: dict[str, str] | None = None
 
     def get(
@@ -144,24 +206,32 @@ class SecClient:
         raise RuntimeError(f"SEC fetch failed for {url} without exception")
 
     def cik_for(self, ticker: str) -> str | None:
-        """Look up CIK number for a ticker symbol."""
+        """Look up CIK number for a ticker symbol.
+
+        None = the map was fetched and the ticker is not in it. A failed
+        fetch RAISES and is not cached (the next call retries): an outage is
+        "unknown", which the caller must not mistake for "no such company".
+        """
         if self._ticker_to_cik is None:
-            try:
-                data = json.loads(self.get(SEC_TICKERS_URL))
-                self._ticker_to_cik = {}
-                for entry in data.values():
-                    t = entry.get("ticker", "").upper()
-                    cik = str(entry.get("cik_str", ""))
-                    if t and cik:
-                        self._ticker_to_cik[t] = cik
-            except Exception as e:
-                record_swallowed("data.sec_client.ticker_map", e, log=logger)
-                logger.warning("Failed to fetch SEC ticker map: %s", e)
-                self._ticker_to_cik = {}
+            data = json.loads(self.get(SEC_TICKERS_URL))
+            ticker_to_cik = {}
+            for entry in data.values():
+                t = entry.get("ticker", "").upper()
+                cik = str(entry.get("cik_str", ""))
+                if t and cik:
+                    ticker_to_cik[t] = cik
+            self._ticker_to_cik = ticker_to_cik
         return self._ticker_to_cik.get(ticker.upper())
 
-    def recent_filings(self, cik: str, ticker: str) -> list[FilingInfo]:
-        """Get recent 10-Q/10-K filings from SEC EDGAR.
+    def recent_filings(self, cik: str, ticker: str) -> list[FilingInfo] | None:
+        """Every 10-Q/10-K in the company's SEC submissions list, newest first.
+
+        No age cut: the first entry is the company's LATEST periodic report,
+        which is what decides whether an earnings stance is still current
+        (`periodic_report_current_until`). Amendments (10-Q/A, 10-K/A) are
+        excluded — they restate a period already reported, not a newer one.
+        None when the fetch itself failed (an outage), so the caller can tell
+        that apart from a company with no periodic report.
 
         Note on MLPs (master limited partnerships, e.g. EPD): they are SEC
         registrants and DO file 10-Q/10-K via the partnership entity —
@@ -177,13 +247,15 @@ class SecClient:
         except Exception as e:
             record_swallowed("data.sec_client.submissions", e, log=logger, symbol=ticker)
             logger.warning("Failed to fetch submissions for %s (CIK %s): %s", ticker, cik, e)
-            return []
+            return None  # an outage, distinct from "no periodic report" ([])
 
         recent = data.get("filings", {}).get("recent", {})
         forms = recent.get("form", [])
         dates = recent.get("filingDate", [])
         accessions = recent.get("accessionNumber", [])
         primary_docs = recent.get("primaryDocument", [])
+        report_dates = recent.get("reportDate") or [""] * len(forms)
+        fiscal_year_end = str(data.get("fiscalYearEnd") or "")
 
         # SEC's submissions JSON returns parallel arrays; in practice they
         # always align, but an upstream truncation or partial response
@@ -205,17 +277,15 @@ class SecClient:
                 len(primary_docs),
             )
 
-        cutoff = (self._now() - timedelta(days=self._lookback_days)).strftime("%Y-%m-%d")
         filings = []
-        for form, filing_date, accession, primary_doc in zip(
+        for form, filing_date, accession, primary_doc, report_date in zip(
             forms,
             dates,
             accessions,
             primary_docs,
+            report_dates,
         ):
             if form not in ("10-Q", "10-K"):
-                continue
-            if filing_date < cutoff:
                 continue
             filings.append(
                 FilingInfo(
@@ -224,8 +294,11 @@ class SecClient:
                     filing_date=filing_date,
                     accession_number=accession,
                     primary_doc=primary_doc or "",
+                    report_date=report_date or "",
+                    fiscal_year_end=fiscal_year_end,
                 )
             )
+        filings.sort(key=lambda f: f.filing_date, reverse=True)
         return filings
 
 
@@ -238,7 +311,6 @@ def build_sec_client(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = lambda: utc_now().timestamp(),
     now: Callable = et_now,
-    lookback_days: int = 45,
 ) -> SecClient:
     return SecClient(
         opener=opener,
@@ -248,5 +320,4 @@ def build_sec_client(
         sleep=sleep,
         clock=clock,
         now=now,
-        lookback_days=lookback_days,
     )

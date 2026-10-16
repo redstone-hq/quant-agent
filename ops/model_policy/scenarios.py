@@ -734,6 +734,14 @@ def load_frozen_selection(path: Path) -> SimpleNamespace:
     if not path.exists():
         raise RuntimeError(f"selection fixture missing: {path}")
     raw = json.loads(path.read_text())
+    # The recording predates `current_until` (2026-10-16), which the earnings
+    # provider now stamps from the SEC submissions list at decision time. The
+    # recorded session served each of these as the company's latest periodic
+    # report, so each was current ON the recorded day — and a replay judges
+    # currency as of that day (`asof=session_day`), never the day it runs.
+    recorded_day = _deterministic_selection.session_day(raw).isoformat()
+    for entry in raw.get("earnings_analyses") or []:
+        entry.setdefault("current_until", recorded_day)
     return SimpleNamespace(
         raw=raw,
         analyses=[TechAnalysisResult.model_validate(r) for r in raw["analyses"]],
@@ -873,6 +881,7 @@ def _pm_selection_invoke(agent):
         total_value=account["total_value"],
         news_intel=_SELECTION_NEWS,
         earnings_analyses=_SELECTION["earnings_analyses"],
+        asof=_deterministic_selection.session_day(_SELECTION),
         recent_performance=_SELECTION["recent_performance"],
         position_history=_SELECTION["position_history"],
         yesterday_insights=_SELECTION["yesterday_insights"],

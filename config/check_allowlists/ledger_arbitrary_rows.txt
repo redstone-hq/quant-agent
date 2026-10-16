@@ -45,7 +45,6 @@ src.risk.gross_ladder.GROSS_LADDER[1][0]
 src.risk.gross_ladder.GROSS_LADDER[1][1]
 src.risk.gross_ladder.GROSS_LADDER[2][0]
 src.risk.gross_ladder.GROSS_LADDER[2][1]
-src.risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS
 src.trading_calendar._PHASE_SPECS['earnings_preprocess'][1]
 src.trading_calendar._PHASE_SPECS['earnings_preprocess'][3]
 src.trading_calendar._PHASE_SPECS['midday'][1]

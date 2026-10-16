@@ -2630,32 +2630,6 @@ numbers:
       UNDER-deployment only. CORRECTION 2026-09-18: the first version put
       "fully invested" in quotation marks as text at this site; it is not
       there.
-  - id: src.risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
-      records: >-
-        the realised gaps between consecutive reported earnings dates for the names in the tradable
-        universe, taken from the earnings calendar feed the desk already pulls -- never from this
-        desk's own holding periods
-      closes_when: >-
-        that gap distribution is known, so the staleness limit is set at a named quantile of real
-        inter-earnings gaps (a stance must expire before the next report can have changed it) instead
-        of a round quarter. DELETE OUTCOME: if every stance in the record is refreshed well inside any
-        plausible limit, the age cap never binds and is deleted
-    value: 90
-    status: arbitrary
-    site: src/risk/rules.py
-    note: >-
-      How old an earnings stance may be before it is dropped. A round quarter
-      in calendar days with no source, and calendar days are the wrong unit
-      per board item 91.
-    open_question: >-
-      For how long after a report does an earnings stance remain valid?
-    cost_while_unanswered: >-
-      A stale stance either gates a trade it should not, or is trusted past
-      the point the fundamentals changed.
   - cost_while_unanswered: A ratified owner table of fixed percentages; the desk carries this as accepted
       appetite pending a measurement of the account's own recovery behaviour.
     id: src.risk.gross_ladder.GROSS_LADDER[0][0]
@@ -5449,6 +5423,50 @@ numbers:
       inter-meeting interval is the smallest margin that never leaves the
       cache with no recent meeting in it. No order, size, price or stop is
       computed from it.
+  - id: src.risk.rules.TEN_K_DUE_DAYS
+    value: 90
+    status: sourced
+    site: src/risk/rules.py
+    source: 'Form 10-K General Instruction A(2)(c) (https://www.sec.gov/files/form10-k.pdf)'
+    note: >-
+      Days after fiscal year end a non-accelerated filer has to file its 10-K, the latest of the
+      filer-class deadlines. With TEN_K_EXTENSION_DAYS it backstops how long an earnings stance stays
+      current when the next report is a 10-K and nothing newer is filed. It only removes a stale
+      earnings stance from the agreement tally (src.data.sec_client.periodic_report_current_until); no
+      order, size, price or stop is computed from it.
+  - id: src.risk.rules.TEN_K_EXTENSION_DAYS
+    value: 15
+    status: sourced
+    site: src/risk/rules.py
+    source: '17 CFR 240.12b-25(b)(2)(ii) (https://www.ecfr.gov/current/title-17/section-240.12b-25)'
+    note: >-
+      Calendar days after the prescribed 10-K due date within which a report filed with a Form 12b-25
+      notice is deemed timely; counted from the due date after it is rolled to a business day (17 CFR
+      240.0-3). It only removes a stale earnings stance from the agreement tally
+      (src.data.sec_client.periodic_report_current_until); no order, size, price or stop is computed
+      from it.
+  - id: src.risk.rules.TEN_Q_DUE_DAYS
+    value: 45
+    status: sourced
+    site: src/risk/rules.py
+    source: 'Form 10-Q General Instruction A.1 (https://www.sec.gov/files/form10-q.pdf)'
+    note: >-
+      Days after quarter end a non-accelerated filer has to file its 10-Q, the latest of the filer-
+      class deadlines. With TEN_Q_EXTENSION_DAYS it backstops how long an earnings stance stays
+      current when the next report is a 10-Q and nothing newer is filed. It only removes a stale
+      earnings stance from the agreement tally (src.data.sec_client.periodic_report_current_until); no
+      order, size, price or stop is computed from it.
+  - id: src.risk.rules.TEN_Q_EXTENSION_DAYS
+    value: 5
+    status: sourced
+    site: src/risk/rules.py
+    source: '17 CFR 240.12b-25(b)(2)(ii) (https://www.ecfr.gov/current/title-17/section-240.12b-25)'
+    note: >-
+      Calendar days after the prescribed 10-Q due date within which a report filed with a Form 12b-25
+      notice is deemed timely; counted from the due date after it is rolled to a business day (17 CFR
+      240.0-3). It only removes a stale earnings stance from the agreement tally
+      (src.data.sec_client.periodic_report_current_until); no order, size, price or stop is computed
+      from it.
   - id: src.data.event_calendar.macro.RELEASE_SCHEDULE_LOOKAHEAD_DAYS
     value: 120
     status: sourced

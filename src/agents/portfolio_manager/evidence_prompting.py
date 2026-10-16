@@ -15,18 +15,21 @@ from src.models import (
     normalize_sector_stance,
 )
 from src.quantities import collapse_stances
-from src.risk.rules import EARNINGS_STANCE_MAX_AGE_DAYS
 from src.trading_calendar import et_today
 
 
-def earnings_filing_is_stale(filing_date, asof: date | None = None) -> bool:
-    """§9.4 freshness: an earnings stance whose filing is older than
-    `EARNINGS_STANCE_MAX_AGE_DAYS`, or whose filing date is absent or
-    unparseable, is stale (an unknowable age is not evidence of freshness).
-    The ONE rule: the tally (`stale_evidence_sources`) and the shared seat
-    view builder (buys and judgement sales alike) both call it."""
+def earnings_stance_is_stale(current_until, asof: date | None = None) -> bool:
+    """§9.4 currency: an earnings stance counts only while its filing is the
+    company's LATEST periodic report in the SEC submissions list fetched this
+    session, and only until the next report's latest legal filing date.
+    `current_until` is that date, set by the earnings provider at fetch time
+    (`src.data.sec_client.periodic_report_current_until`); a superseded report
+    is never served at all. Absent or unparseable — the report's period or the
+    list was missing — is stale (an unknowable currency is not evidence of
+    one). The ONE rule: the tally (`stale_evidence_sources`) and the shared
+    seat view builder (buys and judgement sales alike) both call it."""
     try:
-        return ((asof or et_today()) - date.fromisoformat(filing_date)).days > EARNINGS_STANCE_MAX_AGE_DAYS
+        return (asof or et_today()) > date.fromisoformat(current_until)
     except (TypeError, ValueError):
         return True
 
@@ -169,7 +172,7 @@ class PromptEvidence:
         self,
         earnings_analyses: list[dict],
     ) -> list[tuple[str, str, str]]:
-        """`(SYMBOL, stance, filing_date)` for every earnings entry that
+        """`(SYMBOL, stance, current_until)` for every earnings entry that
         produces a registry stance, in input order.
 
         The filter is exactly the one `build_evidence_registry`'s `put`
@@ -179,11 +182,10 @@ class PromptEvidence:
         earnings stance came from. Order is preserved because the registry
         is last-wins per symbol.
 
-        `filing_date` is read from the pipeline wrapper first (the shape
-        `run_earnings_preprocess` / `EarningsAnalystAgent.analyze_reports`
-        emit) and from the validated analysis second. Empty string when
-        neither carries one — an unknowable age, which the gate treats as
-        stale.
+        `current_until` is read from the pipeline wrapper only — it is
+        decided from the SEC submissions list fetched this session, which the
+        stored analysis cannot know. Empty string when absent, which the gate
+        treats as stale.
         """
         rows: list[tuple[str, str, str]] = []
         for item in earnings_analyses:
@@ -195,8 +197,8 @@ class PromptEvidence:
             symbol = str(item.get("symbol") or "").strip().upper()
             if not symbol or not stance:
                 continue
-            filing_date = str(item.get("filing_date") or analysis.get("filing_date") or "").strip()
-            rows.append((symbol, stance, filing_date))
+            current_until = str(item.get("current_until") or "").strip()
+            rows.append((symbol, stance, current_until))
         return rows
 
     def _render_earnings_verdict(
@@ -321,7 +323,7 @@ class PromptEvidence:
         earnings_analyses: list[dict],
         asof: date | None = None,
     ) -> dict[str, frozenset[str]]:
-        """`{SYMBOL: {"earnings"}}` for stances too old to earn size.
+        """`{SYMBOL: {"earnings"}}` for stances no longer current, which earn no size.
 
         §9.4 pays for agreement, and before this gate it paid the same for a
         view formed yesterday and one formed six months ago: the registry
@@ -329,22 +331,13 @@ class PromptEvidence:
         `filing_date` and `is_new` on the floor, so a cached bullish earnings
         stance was a full live corroborating source forever. Nothing in
         `src/risk/rules.py` or `src/portfolio_constructor.py` looked at age.
-        That was reachable, not theoretical: when a symbol has no filing
-        inside the provider's 45-day SEC scan window,
-        `EarningsProvider._check_symbol` fell back to
-        `_get_existing_analysis`, which re-served whatever was on disk with
-        no age bound of its own (the store prunes at 1000 days).
-        `_get_existing_analysis` now carries this same bound (2026-09-02,
-        same constant, `src/data/earnings.py`), so that specific route to a
-        stale stance is closed at the source — an over-age analysis is no
-        longer handed to a session at all. This gate stays regardless: it is
-        what actually governs the TALLY for a stance from ANY source, so a
-        stale view that reaches the registry some other way is still caught
-        here rather than relying on every producer to self-police age.
-
-        Threshold: `EARNINGS_STANCE_MAX_AGE_DAYS` (90) — the number the
-        earnings seat's own prompt and the missed-opportunity scan already
-        use. See that constant for why it is reused rather than invented.
+        The rule (2026-10-16, replacing a made-up 90-day age): a stance is
+        current while its filing is the company's latest 10-Q/10-K and the
+        next report's latest legal filing date has not passed — see
+        `earnings_stance_is_stale`. The earnings provider already refuses to
+        serve a superseded report's analysis; this gate is what governs the
+        TALLY for a stance from ANY source, so one that reaches the registry
+        some other way is still caught here.
 
         A stale stance is REMOVED FROM THE TALLY ONLY. It stays in the
         canonical registry, so `validate_grounding` still recognises the
@@ -352,14 +345,13 @@ class PromptEvidence:
         a size reduction, not a new hard block. The prompt marks it so the
         PM cannot read it as corroborating.
 
-        An absent or unparseable `filing_date` is treated as stale: an
-        unknowable age is not evidence of freshness, and the same call is
-        already made in `TradingPipeline._missed_ops_earnings_signal`.
+        An absent or unparseable `current_until` is treated as stale: an
+        unknowable currency is not evidence of one.
         """
         today = asof or et_today()
         stale: dict[str, frozenset[str]] = {}
-        for symbol, _stance, filing_date in self._earnings_stance_rows(earnings_analyses):
-            is_stale = earnings_filing_is_stale(filing_date, today)
+        for symbol, _stance, current_until in self._earnings_stance_rows(earnings_analyses):
+            is_stale = earnings_stance_is_stale(current_until, today)
             # Last-wins, exactly as the registry resolves the stance itself:
             # a later entry for the same symbol replaces the verdict rather
             # than merging with it.

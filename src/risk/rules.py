@@ -36,29 +36,24 @@ from src.risk.gross_ladder import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
-#: §9.4 freshness. An earnings stance older than this many days stops
-#: COUNTING toward the agreement tally (it is still shown to the PM, and
-#: still valid provenance — see `PortfolioManagerAgent.stale_evidence_sources`).
+#: §9.4 currency of an earnings stance has no tunable here: it is current
+#: while its filing is the company's latest periodic report and the next
+#: report's statutory deadline has not passed (`src.data.sec_client.
+#: periodic_report_current_until`, `PortfolioManagerAgent.stale_evidence_sources`).
 #:
-#: Also (2026-09-02) the bound `EarningsDataProvider._get_existing_analysis`
-#: (`src/data/earnings.py`) uses to decide whether a disk-cached analysis is
-#: even eligible to be re-served as the CURRENT earnings view when no fresher
-#: SEC filing exists — past this age that fallback returns None instead, so
-#: an over-age analysis never reaches a session in the first place. That is a
-#: stricter, earlier check than `stale_evidence_sources` above: this one
-#: decides whether a stance is shown at all, that one decides whether a
-#: stance that IS shown gets to count. Same threshold, so the two can never
-#: disagree about what "too old" means.
-#:
-#: 90 is not a new number. `config/prompts/earnings_analyst.md` already tells
-#: the seat that a filing more than 90 days old must cap its own `conviction`
-#: at `low` and flag `stale_filing_<N>d`, and that past 180 days the filing
-#: "should not have reached you"; `TradingPipeline._missed_ops_earnings_signal`
-#: already refuses anything older than 90 days as "recent earnings evidence".
-#: The seat and the reflector had a threshold; only the SIZING path did not
-#: read it. Reusing 90 makes the sizing path agree with the opinion the desk
-#: had already written down, rather than adding a fourth staleness rule.
-EARNINGS_STANCE_MAX_AGE_DAYS = 90
+#: The statutory deadlines that backstop works from (used by
+#: `src.data.sec_client.periodic_report_current_until`). Each is the LATEST
+#: legal deadline — the non-accelerated-filer one plus the Rule 12b-25
+#: extension — so a stance is never called stale while the next report could
+#: still lawfully be on time.
+#: Form 10-K General Instruction A(2): non-accelerated filers file within 90 days after fiscal year end.
+TEN_K_DUE_DAYS = 90
+#: 17 CFR 240.12b-25(b)(2)(ii)(A): a late 10-K is deemed timely if filed within 15 calendar days after its due date.
+TEN_K_EXTENSION_DAYS = 15
+#: Form 10-Q General Instruction A.1: non-accelerated filers file within 45 days after quarter end.
+TEN_Q_DUE_DAYS = 45
+#: 17 CFR 240.12b-25(b)(2)(ii)(B): a late 10-Q is deemed timely if filed within 5 calendar days after its due date.
+TEN_Q_EXTENSION_DAYS = 5
 
 
 #: §9.4 signed sum. Every seat enters the score at UNIT magnitude — +1 when it

@@ -588,17 +588,16 @@ def test_t4_a_refusal_carried_from_an_earlier_run_is_not_this_runs_record():
     assert aside < snapshot < restore
 
 
-def _earnings_item(filing_date):
+def _earnings_item(current_until):
     from tests.test_analyst_verdict import _earnings
 
     raw = _earnings(sentiment="bearish").model_dump(mode="json")
-    raw["filing_date"] = filing_date
-    return {"symbol": "AAPL", "filing_date": filing_date, "analysis": raw}
+    return {"symbol": "AAPL", "current_until": current_until, "analysis": raw}
 
 
 def test_t6_buy_side_view_builder_drops_a_stale_earnings_stance():
     from src.agents.portfolio_manager import PortfolioManagerAgent
-    from src.agents.portfolio_manager.evidence_prompting import earnings_filing_is_stale
+    from src.agents.portfolio_manager.evidence_prompting import earnings_stance_is_stale
     from src.trading_calendar import et_today
 
     def build(item):
@@ -608,7 +607,7 @@ def test_t6_buy_side_view_builder_drops_a_stale_earnings_stance():
 
     assert [v.seat for v in build(_earnings_item(et_today().isoformat()))] == ["earnings"]
     assert [v.seat for v in build(_earnings_item("2026-01-02"))] == []
-    assert earnings_filing_is_stale("") and earnings_filing_is_stale(None)
+    assert earnings_stance_is_stale("") and earnings_stance_is_stale(None)
 
 
 def test_t9_macro_view_reaches_a_holding_the_scan_did_not_read():

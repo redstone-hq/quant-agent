@@ -493,19 +493,12 @@ def test_earnings_provider_prune_removes_old_raw_html_keeps_analyses(tmp_path, m
 
 
 # --------------------------------------------------------------------------
-# `_get_existing_analysis` age bound (2026-09-02)
+# `_get_existing_analysis` serves only the LATEST periodic report (2026-10-16)
 #
-# Before this, the fallback `_check_symbol` reaches when the 45-day SEC scan
-# window has nothing for a symbol had NO age bound at all — it globbed the
-# symbol's directory and re-served whatever was newest on disk, however old,
-# as the CURRENT earnings view. `PortfolioManagerAgent.stale_evidence_sources`
-# (src/agents/portfolio_manager.py, same day) already stops a stance past
-# EARNINGS_STANCE_MAX_AGE_DAYS from earning size, but deliberately leaves it
-# IN the evidence registry — pulling a cited stance out fails
-# `validate_grounding` for the whole session (see that test file). This is
-# the other half: bounding the DATA layer so an over-age analysis is never
-# handed to a session as current in the first place, rather than served and
-# then discounted. Reuses the same constant, not a new number.
+# The 2026-09-02 90-day age bound tested here before was a made-up number and
+# is gone; currency is now "is it the latest 10-Q/10-K" plus the statutory
+# backstop, tested in tests/test_earnings_stance_currency.py. What stays here:
+# with no periodic report in the list, nothing is served.
 # --------------------------------------------------------------------------
 
 
@@ -514,110 +507,6 @@ def _write_analysis(symbol_dir, form_type, filing_date_str, body="# analysis\n")
     path = symbol_dir / f"analysis_{form_type}_{filing_date_str}.md"
     path.write_text(body)
     return path
-
-
-def test_existing_analysis_at_the_threshold_is_still_served(tmp_path, monkeypatch):
-    """90 days old is NOT stale — the exact boundary
-    `EARNINGS_STANCE_MAX_AGE_DAYS` (src/risk/rules.py) and
-    `stale_evidence_sources` already use, so the data layer and the sizing
-    layer agree at the edge instead of one gating a day before the other."""
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    _write_analysis(provider.data_dir / "NVDA", "10-Q", "2026-06-04")  # exactly 90d
-
-    report = provider._get_existing_analysis("NVDA")
-
-    assert report is not None
-    assert report.filing_date == "2026-06-04"
-    assert report.is_new is False
-
-
-def test_existing_analysis_one_day_past_the_threshold_is_not_served(tmp_path, monkeypatch):
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    _write_analysis(provider.data_dir / "NVDA", "10-Q", "2026-06-03")  # 91d
-
-    assert provider._get_existing_analysis("NVDA") is None
-
-
-def test_existing_analysis_with_unparseable_filing_date_is_not_served(tmp_path, monkeypatch):
-    """An unknowable age is not evidence of freshness — same call
-    `stale_evidence_sources` and `_missed_ops_earnings_signal` already make
-    on a filing_date that won't parse."""
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    symbol_dir = provider.data_dir / "NVDA"
-    symbol_dir.mkdir(parents=True)
-    # Malformed filename — the date segment doesn't parse as ISO.
-    (symbol_dir / "analysis_10-Q_not-a-date.md").write_text("# analysis\n")
-
-    assert provider._get_existing_analysis("NVDA") is None
-
-
-def test_existing_analysis_prefers_the_freshest_file_even_when_a_stale_one_exists(tmp_path, monkeypatch):
-    """Selection still picks the most-recent filing_date first; the age bound
-    only refuses it, it never silently substitutes an older candidate."""
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    symbol_dir = provider.data_dir / "NVDA"
-    _write_analysis(symbol_dir, "10-Q", "2026-02-14")  # 200d — stale
-    _write_analysis(symbol_dir, "10-Q", "2026-08-23")  # 10d — fresh
-
-    report = provider._get_existing_analysis("NVDA")
-
-    assert report is not None
-    assert report.filing_date == "2026-08-23"
-
-
-def test_existing_analysis_returns_none_when_every_candidate_is_stale(tmp_path, monkeypatch):
-    """The most-recent file on disk is still the OLDEST possible age bound
-    can ever compare against (nothing newer exists); if even that fails,
-    every other candidate is at least as old, so there is nothing to fall
-    back to further — the whole symbol degrades to no coverage."""
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    symbol_dir = provider.data_dir / "NVDA"
-    _write_analysis(symbol_dir, "10-Q", "2026-02-14")  # 200d
-    _write_analysis(symbol_dir, "10-Q", "2025-11-01")  # older still
-
-    assert provider._get_existing_analysis("NVDA") is None
-
-
-def test_existing_analysis_form_type_scoped_lookup_is_also_bounded(tmp_path, monkeypatch):
-    """`_check_symbol`'s abandoned-filing path calls this with an explicit
-    form_type. The bound has to apply on that path too, not just the
-    any-form default `_check_symbol` uses when the scan window is empty."""
-    import src.data.earnings as earnings_mod
-    from datetime import date
-    from src.data.earnings import EarningsDataProvider
-
-    monkeypatch.setattr(earnings_mod, "et_today", lambda: date(2026, 9, 2))
-    provider = EarningsDataProvider(data_dir=str(tmp_path / "earnings"))
-    symbol_dir = provider.data_dir / "NVDA"
-    _write_analysis(symbol_dir, "10-Q", "2026-02-14")  # 200d, matches form_type
-    _write_analysis(symbol_dir, "10-K", "2026-08-23")  # 10d, wrong form_type
-
-    assert provider._get_existing_analysis("NVDA", form_type="10-Q") is None
 
 
 def test_check_symbol_degrades_to_no_coverage_when_only_a_stale_analysis_exists(tmp_path, monkeypatch):

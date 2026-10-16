@@ -11,8 +11,8 @@ import pytest
 from src.data.sec_client import SecClient, build_sec_client
 
 
-def _client(opener, *, sleep=lambda _s: None, clock=None, lookback_days=45):
-    kwargs = {"opener": opener, "sleep": sleep, "lookback_days": lookback_days}
+def _client(opener, *, sleep=lambda _s: None, clock=None):
+    kwargs = {"opener": opener, "sleep": sleep}
     if clock is not None:
         kwargs["clock"] = clock
     return build_sec_client(request=Request, http_error=HTTPError, url_error=URLError, **kwargs)
@@ -39,13 +39,11 @@ def test_collaborators_are_the_objects_handed_in():
         sleep=sleep,
         clock=clock,
         now=now,
-        lookback_days=7,
     )
     assert client._opener is opener
     assert client._sleep is sleep
     assert client._clock is clock
     assert client._now is now
-    assert client._lookback_days == 7
 
 
 def test_every_request_is_preceded_by_the_rate_limit_delay():
@@ -247,10 +245,10 @@ def test_get_recent_filings_tolerates_misaligned_arrays():
 
         return _Resp()
 
-    client = _client(fake_urlopen, lookback_days=365)
+    client = _client(fake_urlopen)
     filings = client.recent_filings("0001234567", "NVDA")
     # zip stops at shortest: only first 2 rows yield filings, of which only
-    # 1 is a 10-Q/10-K within lookback (the 10-K at idx 1).
+    # 1 is a 10-Q/10-K (the 10-K at idx 1).
     forms_seen = [f.form_type for f in filings]
     assert "10-Q" in forms_seen
     assert "10-K" in forms_seen

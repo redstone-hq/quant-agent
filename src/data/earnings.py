@@ -12,7 +12,6 @@ import threading
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from src.risk.rules import EARNINGS_STANCE_MAX_AGE_DAYS
 from src.util.time import et_now, et_today
 from pathlib import Path
 from urllib.error import HTTPError, URLError  # noqa: F401 — handed to the SEC client
@@ -28,6 +27,7 @@ from src.data.sec_client import (  # noqa: F401 — re-exported for existing cal
     FilingInfo,
     SecClient,
     build_sec_client,
+    periodic_report_current_until,
 )
 from src.data.xbrl_facts import fetch_xbrl_raw, format_xbrl_text, xbrl_comparable_values
 from src.sentinel.counted import record_swallowed
@@ -86,6 +86,11 @@ class EarningsReport:
     # check against, which the mismatch check already treats as "not a
     # mismatch" for an absent value.
     xbrl_facts: dict = field(default_factory=dict)
+    # Last day (ISO) the stance on this report is current, decided from the
+    # SEC submissions list fetched THIS session: the report is the company's
+    # latest periodic report, and this is the latest legal filing date of the
+    # next one (`periodic_report_current_until`). "" = unknown = stale.
+    current_until: str = ""
 
 
 class EarningsDataProvider:
@@ -104,7 +109,6 @@ class EarningsDataProvider:
             request=lambda *a, **k: Request(*a, **k),
             http_error=HTTPError,
             url_error=URLError,
-            lookback_days=lookback_days,
         )
 
     def _load_manifest(self) -> dict:
@@ -173,6 +177,7 @@ class EarningsDataProvider:
                 "form_type": report.form_type,
                 "local_path": report.filing_path,
                 "analysis_path": report.analysis_path,
+                "current_until": report.current_until,
                 "failed_attempts": 0,
             }
         self.save_manifest()
@@ -246,6 +251,12 @@ class EarningsDataProvider:
 
     def _download_filing(self, cik: str, filing: FilingInfo) -> str | None:
         """Download filing HTML and save to local file. Returns local path."""
+        # The download window: a latest report first seen more than
+        # `lookback_days` after it was filed is not downloaded and analysed
+        # now. It decides only what gets newly analysed, never whether an
+        # analysis already on disk is current.
+        if filing.filing_date < (et_today() - timedelta(days=self.lookback_days)).isoformat():
+            return None
         symbol_dir = self.data_dir / filing.symbol
         symbol_dir.mkdir(parents=True, exist_ok=True)
 
@@ -288,6 +299,7 @@ class EarningsDataProvider:
                     reports.append(report)
             except Exception as e:
                 logger.warning("Error checking earnings for %s: %s", symbol, e)
+        self.save_manifest()  # persists `current_until` recorded this pass
 
         logger.info(
             "Earnings check: %d reports (%d new) from %d stocks",
@@ -298,24 +310,39 @@ class EarningsDataProvider:
         return reports
 
     def _check_symbol(self, symbol: str) -> EarningsReport | None:
-        """Check a single symbol for new or existing filings."""
-        cik = self.sec.cik_for(symbol)
+        """The earnings report for a symbol's LATEST periodic report, or None.
+
+        An earnings stance is current only while its filing is the company's
+        latest 10-Q/10-K in the submissions list fetched now; an analysis of
+        any older report is superseded and is never served. A ticker absent
+        from SEC's map, or a company with no periodic report, gets None.
+
+        SEC outage (the ticker map or the submissions list cannot be fetched):
+        serve the analysis the last good fetch recorded as current, with its
+        stored `current_until`, unless that deadline has passed today. An
+        outage must not erase a stance — dropping a dissenting one can lift a
+        refusal and let a trade through.
+        """
+        cik, outage = self._lookup_cik(symbol)
         if not cik:
-            return None
+            return self._stored_current_analysis(symbol, outage=outage)
 
         filings = self.sec.recent_filings(cik, symbol)
         if not filings:
-            # No recent filings — check for existing analysis (any form)
-            return self._get_existing_analysis(symbol)
+            # None = the fetch failed (outage); [] = no periodic report at all.
+            return self._stored_current_analysis(symbol, outage=filings is None)
 
-        # Take the most recent filing
         latest = filings[0]
+        until = periodic_report_current_until(latest.report_date, latest.fiscal_year_end)
+        current_until = until.isoformat() if until else ""
+        self._record_currency(symbol, latest, current_until)
         manifest_key = f"{symbol}_{latest.form_type}"
         entry = self.manifest.get(manifest_key, {})
         last_known = entry.get("filing_date")
 
         # Honor the abandoned flag: after N failed analysis attempts we stop
-        # re-queueing this specific filing. Fall back to prior analysis if any.
+        # re-queueing this specific filing. Serve this filing's own analysis
+        # if one is on disk; never an older report's (it is superseded).
         if entry.get("abandoned") and last_known == latest.filing_date:
             logger.info(
                 "Skipping %s %s (%s) — previously abandoned after repeated LLM failures",
@@ -323,7 +350,7 @@ class EarningsDataProvider:
                 latest.form_type,
                 latest.filing_date,
             )
-            return self._get_existing_analysis(symbol, form_type=latest.form_type)
+            return self._get_existing_analysis(symbol, latest, current_until)
 
         # "Already processed" must mean SUCCEEDED, not merely attempted.
         #
@@ -348,7 +375,7 @@ class EarningsDataProvider:
             prior_failures = 0
         if last_known == latest.filing_date and not prior_failures:
             # Already processed this filing — return existing analysis matching this form_type
-            existing = self._get_existing_analysis(symbol, form_type=latest.form_type)
+            existing = self._get_existing_analysis(symbol, latest, current_until)
             if existing:
                 return existing
             # Analysis file missing (e.g. killed mid-analysis) — re-download
@@ -364,7 +391,7 @@ class EarningsDataProvider:
         # New filing — download it
         local_path = self._download_filing(cik, latest)
         if not local_path:
-            return self._get_existing_analysis(symbol, form_type=latest.form_type)
+            return self._get_existing_analysis(symbol, latest, current_until)
 
         text = extract_text(local_path)
         xbrl_raw = fetch_xbrl_raw(self.sec.get, cik, symbol, latest.filing_date)
@@ -382,91 +409,74 @@ class EarningsDataProvider:
             text_excerpt=text,
             is_new=True,
             xbrl_facts=xbrl_comparable_values(xbrl_raw),
+            current_until=current_until,
         )
 
-    def _get_existing_analysis(self, symbol: str, form_type: str | None = None) -> EarningsReport | None:
-        """Find the latest existing analysis for a symbol, bounded by age.
-
-        When form_type is given, only analyses of that form are considered; otherwise
-        any form's most-recent analysis is returned. Ordering is by filing_date from
-        the filename, not by lexicographic sort (so 10-K 2026-03-01 beats 10-Q 2026-02-15).
-
-        This is the fallback `_check_symbol` reaches whenever the SEC scan window
-        (45 days) has nothing for the symbol — a quiet quarter, not an outage, is
-        the common case. Before 2026-09-02 that fallback had no age bound at all:
-        whatever was newest on disk was re-served as the CURRENT earnings view no
-        matter how old, because `prune()` only removes raw filing HTML, and only
-        past 1000 days. A symbol with no new filing for a year would still hand
-        back that year-old analysis looking exactly like a fresh one.
-        `PortfolioManagerAgent.stale_evidence_sources` already stops a stance past
-        this age from EARNING SIZE — but that gate is downstream, in the sizing
-        path, and it deliberately leaves a served stance in place (see its
-        docstring) rather than remove it, because pulling a stance the PM has
-        already cited out of the evidence registry fails `validate_grounding` for
-        the WHOLE session, not just that one target. Bounding it HERE instead
-        means an over-age analysis is never handed to a session as "current" in
-        the first place: the symbol looks exactly like one with no earnings
-        coverage yet at all — a CIK miss, an unlisted name, a first-run symbol —
-        which every consumer already treats as ordinary, not an error. Nothing
-        about `stale_evidence_sources` changes: it still recomputes staleness
-        generically from `filing_date` for anything that IS served, so a report
-        reaching the PM through some other path is still caught there too.
-
-        Reuses `EARNINGS_STANCE_MAX_AGE_DAYS` (`src/risk/rules.py`) rather than a
-        new threshold — this desk already wrote 90 days down twice before this
-        fix existed (the earnings seat's own prompt caps conviction past it and
-        calls anything past 180d one that "should not have reached you";
-        `TradingPipeline._missed_ops_earnings_signal` already refuses anything
-        older as "recent" evidence). A fourth, independent number here would just
-        be one more way for the three to quietly disagree.
-
-        An unparseable or missing filing_date is treated as too old to serve —
-        an unknowable age is not evidence of freshness, the same call
-        `stale_evidence_sources` and `_missed_ops_earnings_signal` already make.
-        """
-        symbol_dir = self.data_dir / symbol
-        if not symbol_dir.exists():
-            return None
-
-        pattern = f"analysis_{form_type}_*.md" if form_type else "analysis_*.md"
-
-        def _filing_date(path: Path) -> str:
-            # filename format: analysis_<form_type>_<YYYY-MM-DD>.md
-            parts = path.stem.split("_", 2)
-            return parts[2] if len(parts) > 2 else ""
-
-        analyses = sorted(symbol_dir.glob(pattern), key=_filing_date, reverse=True)
-        if not analyses:
-            return None
-
-        analysis_path = str(analyses[0])
-        # Parse form type and date from filename: analysis_10-Q_2026-03-15.md
-        parts = analyses[0].stem.split("_", 2)
-        form_type = parts[1] if len(parts) > 1 else "unknown"
-        filing_date = parts[2] if len(parts) > 2 else "unknown"
-
+    def _lookup_cik(self, symbol: str) -> tuple[str | None, bool]:
+        """(CIK, outage): (None, True) when SEC's ticker map could not be
+        fetched; (None, False) when it was and the ticker is not in it."""
         try:
-            age_days = (et_today() - date.fromisoformat(filing_date)).days
-        except (TypeError, ValueError):
-            age_days = None
-        if age_days is None or age_days > EARNINGS_STANCE_MAX_AGE_DAYS:
-            logger.info(
-                "Existing earnings analysis for %s (%s, filed %s) is %s — "
-                "the fallback will not re-serve it (bound: %dd)",
-                symbol,
-                form_type,
-                filing_date,
-                "unparseable" if age_days is None else f"{age_days}d old",
-                EARNINGS_STANCE_MAX_AGE_DAYS,
-            )
-            return None
+            return self.sec.cik_for(symbol), False
+        except Exception as e:
+            record_swallowed("data.earnings.ticker_map", e, log=logger, symbol=symbol)
+            return None, True
 
+    def _record_currency(self, symbol: str, latest: FilingInfo, current_until: str) -> None:
+        """Persist, from a good SEC fetch, which filing is current and until
+        when: the latest report's manifest entry carries `current_until`;
+        every other entry of this symbol loses it (superseded). Read back by
+        `_stored_current_analysis` when a later fetch fails."""
+        with self._manifest_lock:
+            for key, entry in self.manifest.items():
+                if not isinstance(entry, dict) or not key.startswith(f"{symbol}_"):
+                    continue
+                if key == f"{symbol}_{latest.form_type}" and entry.get("filing_date") == latest.filing_date:
+                    entry["current_until"] = current_until
+                else:
+                    entry.pop("current_until", None)
+
+    def _stored_current_analysis(self, symbol: str, *, outage: bool) -> EarningsReport | None:
+        """SEC outage: serve the analysis the last good fetch recorded as
+        current, with its stored `current_until`, if that deadline has not
+        passed today. Dropping it instead would remove a dissenting stance
+        too, which can lift a refusal — an outage must not let a trade through."""
+        if not outage:
+            return None
+        entries = [
+            (k[len(symbol) + 1 :], e)
+            for k, e in self.manifest.items()
+            if isinstance(e, dict) and k.startswith(f"{symbol}_") and e.get("current_until")
+        ]
+        if not entries:
+            return None
+        form_type, entry = max(entries, key=lambda ke: str(ke[1].get("filing_date") or ""))
+        try:
+            if et_today() > date.fromisoformat(str(entry["current_until"])):
+                return None
+            filing = FilingInfo(symbol, form_type, str(entry["filing_date"]), "", "")
+        except (KeyError, TypeError, ValueError):
+            return None
+        return self._get_existing_analysis(symbol, filing, str(entry["current_until"]))
+
+    def _get_existing_analysis(self, symbol: str, latest: FilingInfo, current_until: str) -> EarningsReport | None:
+        """The analysis already on disk for exactly `latest` — the company's
+        latest periodic report — or None.
+
+        Never an older report's analysis: once a newer 10-Q/10-K exists, the
+        stance on the previous one is superseded, so a symbol whose latest
+        report has not been analysed looks exactly like one with no earnings
+        coverage yet, which every consumer already treats as ordinary.
+        """
+        path = self.data_dir / symbol / f"analysis_{latest.form_type}_{latest.filing_date}.md"
+        if not path.exists():
+            return None
         return EarningsReport(
             symbol=symbol,
-            form_type=form_type,
-            filing_date=filing_date,
+            form_type=latest.form_type,
+            filing_date=latest.filing_date,
             filing_path="",
-            analysis_path=analysis_path,
+            analysis_path=str(path),
             text_excerpt="",  # No text needed — analysis already exists
             is_new=False,
+            current_until=current_until,
         )

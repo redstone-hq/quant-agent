@@ -847,8 +847,8 @@ class DecisionStage:
             ctx.seat_verdicts = []
         # §9.4 freshness — same pure function, same inputs, so the stances
         # the constructor refuses to pay for are exactly the ones the PM's
-        # prompt marked stale. An earnings view older than
-        # `EARNINGS_STANCE_MAX_AGE_DAYS` stops counting toward the agreement
+        # prompt marked stale. An earnings view whose filing
+        # is no longer the latest periodic report stops counting toward the agreement
         # tally on BOTH sides; it stays in the registry above, so grounding
         # still accepts it as coverage and this can only ever shrink a
         # ceiling.
