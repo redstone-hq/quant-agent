@@ -12,11 +12,6 @@ from src.storage.analytics.calibration import CLEAN_RECORD_DATE, CLEAN_RECORD_ST
 logger = logging.getLogger(__name__)
 
 
-#: Rows of `insights` fetched before the clean-record date filter. A fetch /
-#: prompt-size (context budget) ceiling, not a claim about the market.
-_INSIGHT_FETCH_MAX = 120
-
-
 class ReviewExits:
     """Post-exit reality, the missed-lesson and loss-pit digests; standalone, built from explicit collaborators."""
 
@@ -157,7 +152,7 @@ class ReviewExits:
         import json as _json
 
         try:
-            rows = self.db.get_recent_insights(limit=_INSIGHT_FETCH_MAX)
+            rows = self.db.get_recent_insights(limit=None, since_date=CLEAN_RECORD_DATE)
         except Exception as e:
             logger.warning("recent_missed_lessons: insights fetch failed: %s", e)
             return ""
@@ -294,7 +289,7 @@ class ReviewExits:
         import json as _json
 
         try:
-            rows = self.db.get_recent_insights(limit=_INSIGHT_FETCH_MAX)
+            rows = self.db.get_recent_insights(limit=None, since_date=CLEAN_RECORD_DATE)
         except Exception as e:
             logger.warning("recent_loss_pits: insights fetch failed: %s", e)
             return ""

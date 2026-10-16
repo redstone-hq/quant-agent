@@ -2206,9 +2206,9 @@ class Database:
         """Thin shim: every executed row of `buy_row`'s position chain (TradeAnalytics)."""
         return self._analytics().get_position_chain_rows(buy_row)
 
-    def get_recent_insights(self, limit: int = 7) -> list[dict]:
+    def get_recent_insights(self, limit: int | None = 7, since_date: str | None = None) -> list[dict]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""
-        return self._analytics().get_recent_insights(limit)
+        return self._analytics().get_recent_insights(limit, since_date)
 
     def get_proposal_funnel_rows(self, since_ts: str) -> dict[str, list[dict]]:
         """Thin shim: lifted into TradeAnalytics (db rebuild instalment 2); built per call."""

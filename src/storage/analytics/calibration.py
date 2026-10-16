@@ -576,12 +576,16 @@ class TradeAnalytics:
         with self._lock:
             return select_position_chain_rows(self.conn, buy_row, self._executed_trade_predicate())
 
-    def get_recent_insights(self, limit: int = 7) -> list[dict]:
-        """Last N evening insights, newest first. PM reads to build 7-day narrative."""
+    def get_recent_insights(self, limit: int | None = 7, since_date: str | None = None) -> list[dict]:
+        """Evening insights, newest first: the last ``limit`` rows, or every row
+        dated on or after ``since_date`` when ``limit`` is None."""
+        where, params = ("WHERE date >= ?", [since_date]) if since_date else ("", [])
+        tail = "" if limit is None else " LIMIT ?"
+        params += [] if limit is None else [limit]
         with self._lock:
             rows = self.conn.execute(
-                "SELECT * FROM insights ORDER BY date DESC LIMIT ?",
-                (limit,),
+                f"SELECT * FROM insights {where} ORDER BY date DESC{tail}",
+                params,
             ).fetchall()
         return [dict(r) for r in rows]
 

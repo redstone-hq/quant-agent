@@ -61,7 +61,7 @@ class _InsightDb:
     def __init__(self, rows):
         self.rows = rows
 
-    def get_recent_insights(self, limit=7):
+    def get_recent_insights(self, limit=7, since_date=None):
         return self.rows
 
 
