@@ -39,6 +39,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
 from src.data.smart_money_cluster import find_cluster_census
 from src.nomination_evidence import persist_nomination_summary
 from src.stage_risk import _persist_dropped_reasons  # noqa: F401  moved with RiskStage
+from src.data.event_calendar.upcoming import fetch_upcoming
 from src.sentinel.morning_guarded import record_morning_fault
 
 if TYPE_CHECKING:
@@ -365,32 +366,12 @@ class MorningResearchStage:
             # bounds it independently. A failure NEVER propagates: the seat is
             # shown the coverage line and told the calendar is impaired, which
             # is the whole point of fetching it.
-            macro_events: list = []
-            event_coverage = None
-            if self.event_calendar is not None:
-                try:
-                    macro_events = self.event_calendar.get_upcoming_events(
-                        horizon_days=self.config.event_risk.horizon_days,
-                    )
-                    event_coverage = self.event_calendar.last_coverage
-                except Exception as e:  # noqa: BLE001
-                    record_morning_fault(self, "event_calendar", e)
-                    macro_events, event_coverage = [], None
-            # FOMC meeting schedule, from the Fed's own free calendar. Fetched
-            # in the same worker for the same reason, under its own deadline
-            # (event_risk.fomc_deadline_s), and degrading the same way: the
-            # seats read a named absence, never an empty schedule.
-            fomc_meetings: list = []
-            fomc_coverage = None
-            if self.fomc_calendar is not None:
-                try:
-                    fomc_meetings = self.fomc_calendar.get_meetings(
-                        horizon_days=self.config.event_risk.horizon_days,
-                    )
-                    fomc_coverage = self.fomc_calendar.last_coverage
-                except Exception as e:  # noqa: BLE001
-                    record_morning_fault(self, "fomc_calendar", e)
-                    fomc_meetings, fomc_coverage = [], None
+            macro_events, event_coverage, fomc_meetings, fomc_coverage = fetch_upcoming(
+                self.event_calendar,
+                self.fomc_calendar,
+                self.config.event_risk.horizon_days,
+                lambda where, exc: record_morning_fault(self, where, exc),
+            )
             analysis, result = self.macro_analyst.analyze(
                 macro_summary=macro_summary,
                 universe=effective_symbols,
