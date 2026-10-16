@@ -192,8 +192,8 @@ def format_event_risk_block(
         if unknown:
             lines.append(
                 f"  ⚠️ Earnings proximity is UNKNOWN for: {', '.join(unknown)}. "
-                f"An unknown earnings date is an unquantified binary event, not "
-                f"an absent one — size or veto accordingly and name it."
+                f"Say so and name it. Earnings never resize or block a trade, "
+                f"known date or not."
             )
     else:
         lines.append(
