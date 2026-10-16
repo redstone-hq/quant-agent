@@ -83,6 +83,17 @@ def owner_precheck_lines(record: dict | None) -> list[str]:
                 "enough cash and borrowing room to open a new position, so "
                 "nothing had to be sold to make room for a new idea."
             ]
+        # The record carries `new_symbol` (None) when the session had no
+        # unheld candidate to size, so no cash figure was ever needed. That
+        # is not a read failure. A record with no such key says nothing
+        # about candidates and keeps the unreadable wording.
+        if "new_symbol" in record and not record.get("new_symbol"):
+            return [
+                f"🔄 Rotation check: not needed — there is still {headroom} "
+                f"of risk headroom under the desk's {ceiling} ceiling, and "
+                "no new idea needed room this session, so cash was not "
+                "checked."
+            ]
         return [
             f"🔄 Rotation check: not needed on risk — there is still "
             f"{headroom} of risk headroom under the desk's {ceiling} "
