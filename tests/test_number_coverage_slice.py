@@ -25,7 +25,6 @@ EXPECTED_STATUS = {
     "src.data.insider_signal.InsiderSignalThresholds.cadence_min_mean_gap_days": "derived",
     "src.data.insider_signal.InsiderSignalThresholds.calendar_routine_years": "derived",
     "src.data.insider_signal.InsiderSignalThresholds.min_cadence_trades": "derived",
-    "src.data.context._W_1M": "arbitrary",
     "src.data.context._SLOPE_LOOKBACK": "arbitrary",
     "src.data.context._CONSOLIDATION_WINDOW": "arbitrary",
 }
@@ -46,7 +45,7 @@ def test_every_new_arbitrary_row_has_an_actionable_route_not_a_fourth_state() ->
     ledger = load_ledger()
     arbitrary = {site_id: ledger[site_id] for site_id, status in EXPECTED_STATUS.items() if status == "arbitrary"}
 
-    assert len(arbitrary) == 6
+    assert len(arbitrary) == 5
     for site_id, entry in arbitrary.items():
         assert "unsettled" not in entry, site_id
         assert settlement_route_problem(entry) is None, site_id

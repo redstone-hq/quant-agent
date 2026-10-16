@@ -48,9 +48,8 @@ _HORIZON_3M = pd.DateOffset(months=3)
 _HORIZON_6M = pd.DateOffset(months=6)
 _HORIZON_12M = pd.DateOffset(months=12)
 
-# Session-count window for the up/down volume read (_W_1M); see number_ledger.yaml.
-# The 52-week range and ATR percentile use a calendar year of bars instead.
-_W_1M = 21
+# The up/down volume read, the 52-week range and the ATR percentile all select
+# their bars by calendar date (_HORIZON_1M / _HORIZON_12M), not by bar count.
 
 # Sessions used to measure whether a moving average is rising or falling.
 _SLOPE_LOOKBACK = 10
@@ -418,7 +417,7 @@ def compute_market_context(
 
     # 20-day average dollar volume — the SAME definition the two admission
     # gates use (`src.quantities.avg_dollar_volume`), not a third one. This
-    # site previously averaged `_W_1M` = 21 bars: the generic
+    # site previously averaged a fixed 21 bars: the generic
     # one-month-of-sessions constant leaking into a measure whose name, the
     # config key it is compared against and every log line all say 20. With
     # one halted session in the window the three implementations read
@@ -428,8 +427,9 @@ def compute_market_context(
 
     # Accumulation vs distribution.
     up_down_ratio = None
-    if len(bars) > _W_1M:
-        window = bars[-_W_1M:]
+    month_idx = _anchor_index(bars, _HORIZON_1M)
+    if month_idx is not None and month_idx < len(bars) - 1:
+        window = bars[month_idx:]
         up_vol = sum(b.volume for b in window if b.close > b.open)
         down_vol = sum(b.volume for b in window if b.close < b.open)
         if down_vol > 0:

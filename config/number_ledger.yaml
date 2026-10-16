@@ -8444,32 +8444,6 @@ numbers:
     note: >-
       Fallback copy of the SmartMoneyConfig field. Production constructs the
       thresholds from config, and base drift keeps this duplicate aligned.
-  - id: src.data.context._W_1M
-    value: 21
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Completed-session count used to label a return as one month. Twenty-one
-      approximates a month but does not read the boundary from the calendar.
-    open_question: >-
-      Can the named one-month return be anchored to an actual calendar boundary
-      and the instrument's completed sessions rather than a fixed bar count?
-    cost_while_unanswered: >-
-      The Technical seat receives a horizon label whose elapsed calendar time
-      varies with month length, holidays and exceptional exchange closures.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md, the 2026-10-05 context-and-ranking
-        coverage repair
-      records: >-
-        for each present analysis date, the actual completed session selected
-        at the named calendar boundary and the elapsed calendar duration, with
-        no later return or trade outcome
-      closes_when: >-
-        the return is computed from the last completed session at or before the
-        named calendar boundary and this fixed session count is removed
   - id: src.data.context._SLOPE_LOOKBACK
     value: 10
     site: src/data/context.py

@@ -4,10 +4,10 @@ Sorts every ledger row the guard marks `arbitrary` into one of four piles. It ad
 
 ## What was measured
 
-- The ledger holds 336 rows [measured: `config/number_ledger.yaml`]; 133 are `arbitrary` -- the prior 133-of-336 figure is current [measured].
-- 132 of the 133 `arbitrary` rows have an empty `source:` field; the justification text sits in `note` and `settles_by` instead [measured].
+- The ledger holds 335 rows [measured: `config/number_ledger.yaml`]; 132 are `arbitrary` -- the prior 133-of-336 figure is current less the retired one-month row [measured].
+- 131 of the 132 `arbitrary` rows have an empty `source:` field; the justification text sits in `note` and `settles_by` instead [measured].
 - No row in any other status has both `source` and `note` empty [measured].
-- All 133 carry a settlement route (guard-enforced); 4 are routed to recordings already built [measured].
+- All 132 carry a settlement route (guard-enforced); 4 are routed to recordings already built [measured].
 
 ## Pile counts
 
