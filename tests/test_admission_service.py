@@ -129,16 +129,6 @@ def test_filter_blocks_a_buy_outside_the_universe_and_allows_an_admitted_one(tmp
     assert len(blocked) == 1 and "ZZZZ" in blocked[0]
 
 
-def test_old_gate_admits_a_good_name_and_refuses_a_cheap_one(tmp_path, monkeypatch):
-    monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
-    svc, _ = _service(tmp_path, enabled=False)
-    ok, reason, details = svc._evaluate_external_admission_gates("ACME")
-    assert ok is True and details["sector"] == "Industrials"
-    svc.market.get_ohlcv.return_value = _bars(300, price=1.0)
-    ok, reason, _ = svc._evaluate_external_admission_gates("ACME")
-    assert (ok, reason) == (False, "price_below_minimum")
-
-
 def test_universe_screen_writes_its_evidence_to_the_injected_journal(tmp_path, monkeypatch):
     monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
     svc, journal = _service(tmp_path, enabled=True)

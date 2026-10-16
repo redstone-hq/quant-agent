@@ -472,7 +472,7 @@ def test_the_signed_and_the_magnitude_forms_are_deliberately_different(factory):
 
 #: `halted_session_bars()` — 20 sessions, one of them halted. Worked out from
 #: the fixture: sum(close x volume) over the trailing 20, divided by 20.
-_HALTED_FIXTURE_ADV_USD = 124_460_250.0
+_HALTED_FIXTURE_ADV_USD = 118_604_333.33  # 30 consecutive days, all inside one calendar month
 
 
 def _adv_dropping_the_halt(bars) -> float:
@@ -482,7 +482,7 @@ def _adv_dropping_the_halt(bars) -> float:
     wrongly ADMITS an illiquid symbol through a liquidity gate. On this
     fixture it reads 5.26% high.
     """
-    recent = bars[-20:]
+    recent = bars  # the fixture sits inside one calendar month
     values = [float(b.close) * float(b.volume) for b in recent if float(b.volume) > 0]
     return sum(values) / len(values)
 
@@ -503,7 +503,7 @@ def test_a_halted_session_is_kept_as_a_real_zero():
         f"{_HALTED_FIXTURE_ADV_USD:,.0f}"
     )
     assert measured < dropped
-    assert dropped / measured - 1 == pytest.approx(0.0526, abs=5e-4), (
+    assert dropped / measured - 1 == pytest.approx(0.0345, abs=5e-4), (
         "the fixture no longer separates the two definitions — the halt must land inside the trailing 20-session window"
     )
 

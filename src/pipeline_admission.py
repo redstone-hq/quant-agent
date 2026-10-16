@@ -11,7 +11,6 @@ from datetime import date
 from src.sector_reference import _get_sector
 from src.models import TechAnalysisResult, TradeDecision
 from src.ports.event_journal import EventJournal
-from src.quantities import avg_dollar_volume
 
 #: Logged under `src.pipeline`, as before the move (log records stay identical).
 logger = logging.getLogger("src.pipeline")
@@ -128,81 +127,16 @@ class AdmissionService:
         Returns ``(eligible, rejection_reason, details)``. ``details`` is
         populated only when eligible: ``last_price``,
         ``avg_dollar_volume_20d_usd``, ``sector``, ``broker``.
-        ``rejection_reason`` is one of: ``broker_ineligible`` (or the
-        broker's own reason string), ``market_data_error``,
-        ``insufficient_history``, ``invalid_market_data``,
-        ``price_below_minimum``, ``dollar_volume_below_minimum``,
-        ``unresolved_sector``.
+        ``rejection_reason`` is ``universe_screen_disabled`` when the
+        universe screen is off (fail closed: the screen is the only
+        admission check), else whatever the screen reports.
         """
-        if self._universe_screen_enabled():
-            return self._evaluate_screened_admission(symbol, context=context)
-        cfg = self.config.smart_money
-        broker_fact = self.broker.get_transient_equity_eligibility(symbol)
-        if not broker_fact.get("eligible"):
-            reason = broker_fact.get("reason", "broker_ineligible")
-            logger.info("%s admission rejected %s: %s", context, symbol, reason)
-            return False, reason, {}
-        try:
-            bars = (
-                self.market.get_ohlcv(
-                    symbol,
-                    max(self.config.trading.lookback_days, cfg.min_external_history_days + 5),
-                )
-                or []
-            )
-        except Exception as exc:
-            logger.warning("%s admission bars failed for %s: %s", context, symbol, exc)
-            return False, "market_data_error", {}
-        if len(bars) < cfg.min_external_history_days:
-            logger.info("%s admission rejected %s: insufficient_history", context, symbol)
-            return False, "insufficient_history", {}
-        recent = bars[-20:]
-        try:
-            last_price = float(recent[-1].close)
-        except (AttributeError, TypeError, ValueError, IndexError):
-            logger.info("%s admission rejected %s: invalid_market_data", context, symbol)
-            return False, "invalid_market_data", {}
-        # Single shared definition (`src.quantities.avg_dollar_volume`);
-        # the threshold below stays this gate's own. None = the window did
-        # not contain a full 20 usable sessions, which fails closed here
-        # rather than admitting on partial data.
-        adv = avg_dollar_volume(recent)
-        if adv is None:
-            logger.info("%s admission rejected %s: invalid_market_data", context, symbol)
-            return False, "invalid_market_data", {}
-        avg_dollar_volume_usd = adv
-        if last_price < cfg.min_external_price_usd:
-            logger.info(
-                "%s admission rejected %s: price %.2f < %.2f",
-                context,
-                symbol,
-                last_price,
-                cfg.min_external_price_usd,
-            )
-            return False, "price_below_minimum", {}
-        if avg_dollar_volume_usd < cfg.min_external_avg_dollar_volume_usd:
-            logger.info(
-                "%s admission rejected %s: avg dollar volume %.0f < %.0f",
-                context,
-                symbol,
-                avg_dollar_volume_usd,
-                cfg.min_external_avg_dollar_volume_usd,
-            )
-            return False, "dollar_volume_below_minimum", {}
-        sector = _get_sector(symbol) or "Unknown"
-        if sector == "Unknown":
-            logger.info("%s admission rejected %s: unresolved_sector", context, symbol)
-            return False, "unresolved_sector", {}
-        return (
-            True,
-            None,
-            {
-                "last_price": round(last_price, 4),
-                "avg_dollar_volume_20d_usd": round(avg_dollar_volume_usd, 2),
-                "sector": sector,
-                "broker": broker_fact,
-            },
-        )
+        if not self._universe_screen_enabled():
+            # Fail closed: the universe screen is the only admission check
+            # (it replaced the old $10M dollar-volume / 20-day floors).
+            logger.info("%s admission rejected %s: universe_screen_disabled", context, symbol)
+            return False, "universe_screen_disabled", {}
+        return self._evaluate_screened_admission(symbol, context=context)
 
     # ------------------------------------------------------------------
     # Universe expansion and pruning (src/universe_screen.py). Everything

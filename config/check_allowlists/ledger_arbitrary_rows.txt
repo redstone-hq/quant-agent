@@ -30,8 +30,6 @@ src.config.SmartMoneyConfig.lookback_days
 src.config.SmartMoneyConfig.max_external_candidates
 src.config.SmartMoneyConfig.max_filings_per_refresh
 src.config.SmartMoneyConfig.max_observations
-src.config.SmartMoneyConfig.min_external_avg_dollar_volume_usd
-src.config.SmartMoneyConfig.min_external_history_days
 src.config.SmartMoneyConfig.refresh_deadline_s
 src.data.context._CONSOLIDATION_WINDOW
 src.data.context._SLOPE_LOOKBACK
@@ -53,7 +51,6 @@ src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(max_symbols)
 src.prompt_facts.review.exits.ReviewExits._build_post_exit_reality(min_age_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_loss_pits(lookback_days)
 src.prompt_facts.review.exits.ReviewExits._build_recent_missed_lessons(lookback_days)
-src.quantities.AVG_DOLLAR_VOLUME_WINDOW
 src.risk.constants.STARTER_POSITION_RISK_PCT
 src.risk.gross_ladder.GROSS_LADDER[0][0]
 src.risk.gross_ladder.GROSS_LADDER[0][1]

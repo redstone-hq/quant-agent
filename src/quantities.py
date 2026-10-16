@@ -41,6 +41,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+import pandas as pd
+
 from src.stop_price_classification import classify_stop_price
 from src.trade_actions import (
     FILL_ORDER_UNKNOWN,
@@ -60,7 +62,6 @@ ORDER_QTY_DECIMALS = 9
 
 __all__ = [
     "ETF_LEVERAGE",
-    "AVG_DOLLAR_VOLUME_WINDOW",
     "effective_multiplier",
     "gross_multiplier",
     "inverse_etf_symbols",
@@ -270,14 +271,14 @@ def net_exposure_pct(net_usd: Any, equity: Any) -> float | None:
 # 3. Average dollar volume — the liquidity admission measure
 # ---------------------------------------------------------------------------
 
-# The window every consumer uses. Three call sites previously used 20, 20
-# and 21 bars; the 21 was the ordinary-monthly-window constant leaking into
-# a measure whose name, config key and log lines all say 20.
-AVG_DOLLAR_VOLUME_WINDOW = 20
+# The window every consumer uses: one calendar month back from the last bar
+# (the same offset the 1M return and up/down volume read use).
+_HORIZON_1M = pd.DateOffset(months=1)
 
 
-def dollar_volumes(bars: Iterable[Any], window: int = AVG_DOLLAR_VOLUME_WINDOW) -> list[float]:
-    """Per-session `close * volume` over the trailing `window` sessions.
+def dollar_volumes(bars: Iterable[Any]) -> list[float]:
+    """Per-session `close * volume` over the bars dated on or after one
+    calendar month before the last bar.
 
     A HALTED session (zero volume) is a real session with zero dollar
     volume and is kept as 0.0. Dropping it — as one of the three previous
@@ -292,8 +293,9 @@ def dollar_volumes(bars: Iterable[Any], window: int = AVG_DOLLAR_VOLUME_WINDOW) 
     1.0) from smuggling phantom volume into the total.
     """
     bars_list = list(bars or [])
-    if window > 0:
-        bars_list = bars_list[-window:]
+    if bars_list:
+        start = (pd.Timestamp(_field(bars_list[-1], "date")) - _HORIZON_1M).date()
+        bars_list = [b for b in bars_list if _field(b, "date") >= start]
     out: list[float] = []
     for bar in bars_list:
         close = _finite(_field(bar, "close"))
@@ -308,10 +310,9 @@ def dollar_volumes(bars: Iterable[Any], window: int = AVG_DOLLAR_VOLUME_WINDOW) 
 
 def avg_dollar_volume(
     bars: Iterable[Any],
-    window: int = AVG_DOLLAR_VOLUME_WINDOW,
     min_bars: int | None = None,
 ) -> float | None:
-    """Mean daily dollar volume over the trailing `window` sessions.
+    """Mean daily dollar volume over the last calendar month of bars.
 
     One definition, three thresholds: callers compare the result against
     their own limit ($10M for external-symbol admission, $5M for the
@@ -320,9 +321,8 @@ def avg_dollar_volume(
     not.
 
     `min_bars` is the coverage floor — how many usable sessions the window
-    must contain for the answer to mean anything. Defaults to the full
-    window (an admission gate should not judge liquidity off three bars);
-    callers that deliberately tolerate short history pass a smaller number.
+    must contain for the answer to mean anything. Defaults to 1; callers
+    that need more coverage pass a larger number.
     Returns None when coverage is short — never 0.0, which a `< threshold`
     comparison would read as "definitely illiquid" instead of "unknown".
 
@@ -334,10 +334,8 @@ def avg_dollar_volume(
     hard zero would be fabricating a measurement, which every other
     unavailable number in this system refuses to do.
     """
-    values = dollar_volumes(bars, window=window)
-    required = window if min_bars is None else min_bars
-    if required < 1:
-        required = 1
+    values = dollar_volumes(bars)
+    required = 1 if min_bars is None else max(min_bars, 1)
     if len(values) < required:
         return None
     if not any(v > 0 for v in values):

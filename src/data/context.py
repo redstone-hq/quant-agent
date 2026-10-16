@@ -35,6 +35,7 @@ import pandas as pd
 
 from src.data.technical import ATR_PERIOD, atr_series
 from src.models import OHLCV
+from src.quantities import _HORIZON_1M as _QUANTITIES_HORIZON_1M
 from src.quantities import avg_dollar_volume
 
 # Return horizons. DEFINITION, not tunable numbers: the 1w/1m/3m/6m/12m return
@@ -43,7 +44,7 @@ from src.quantities import avg_dollar_volume
 # index by `_anchor_index` (last bar on or before that date), so holidays are
 # handled by the data itself. These are calendar periods, not lookback windows.
 _HORIZON_1W = pd.DateOffset(days=7)
-_HORIZON_1M = pd.DateOffset(months=1)
+_HORIZON_1M = _QUANTITIES_HORIZON_1M
 _HORIZON_3M = pd.DateOffset(months=3)
 _HORIZON_6M = pd.DateOffset(months=6)
 _HORIZON_12M = pd.DateOffset(months=12)

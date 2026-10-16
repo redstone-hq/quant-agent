@@ -470,65 +470,6 @@ def test_pipeline_symbol_guard_allows_only_run_admitted_analyzed_buy():
     assert pipeline.config.trading.universe == ["SPY"]
 
 
-def test_transient_admission_requires_sec_purchase_broker_and_market_quality(monkeypatch):
-    from datetime import date, timedelta
-    from types import SimpleNamespace
-    from src.models import OHLCV
-
-    pipeline = build_pipeline(broker=MagicMock(), market=MagicMock())
-    pipeline.config = SimpleNamespace(
-        trading=SimpleNamespace(universe=["SPY"], lookback_days=120),
-        smart_money=SimpleNamespace(
-            max_external_candidates=3,
-            min_external_history_days=20,
-            min_external_price_usd=5.0,
-            min_external_avg_dollar_volume_usd=10_000_000,
-        ),
-    )
-    pipeline.broker.get_transient_equity_eligibility.return_value = {
-        "eligible": True,
-        "reason": "eligible",
-        "name": "Vistra Corp",
-        "exchange": "nyse",
-    }
-    monkeypatch.setattr("src.pipeline_admission._get_sector", lambda _symbol: "Utilities")
-    pipeline.market.get_ohlcv.return_value = [
-        OHLCV(
-            date=date.today() - timedelta(days=30 - i),
-            open=100,
-            high=102,
-            low=99,
-            close=100,
-            volume=200_000,
-        )
-        for i in range(30)
-    ]
-    observations = [
-        SimpleNamespace(
-            symbol="VST",
-            transaction_code="P",
-            admission_eligible=True,
-            transaction_value_usd=500_000,
-            accession_number="0001-26-000001",
-            actor="Example Director",
-            known_at="2026-08-25T12:00:00Z",
-        )
-    ]
-
-    admitted, details = pipeline.admission._admit_transient_smart_money_symbols(observations)
-    assert admitted == {"VST"}
-    assert details["VST"]["temporary"] is True
-    assert details["VST"]["transaction_value_usd"] == 500_000
-    assert details["VST"]["sector"] == "Utilities"
-    assert pipeline.config.trading.universe == ["SPY"]
-
-    observations[0].transaction_code = "S"
-    assert pipeline.admission._admit_transient_smart_money_symbols(observations)[0] == set()
-    observations[0].transaction_code = "P"
-    pipeline.market.get_ohlcv.return_value = pipeline.market.get_ohlcv.return_value[:10]
-    assert pipeline.admission._admit_transient_smart_money_symbols(observations)[0] == set()
-
-
 def test_transient_admission_rejects_unresolved_sector(monkeypatch):
     from datetime import date, timedelta
     from types import SimpleNamespace

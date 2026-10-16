@@ -115,9 +115,6 @@ class SmartMoneyConfig(BaseModel):
     cluster_window_days: int = Field(default=2, ge=1, le=45)
     min_cluster_owners: int = Field(default=2, ge=2, le=10)
     max_external_candidates: int = Field(default=3, ge=1, le=10)
-    min_external_price_usd: float = Field(default=5.0, ge=1.0)
-    min_external_avg_dollar_volume_usd: float = Field(default=10_000_000, ge=1_000_000)
-    min_external_history_days: int = Field(default=20, ge=10, le=120)
 
     # --- Routine-versus-opportunistic Form 4 classification ---------------
     # `src/data/insider_signal.py::classify_transaction`. Evidence basis is

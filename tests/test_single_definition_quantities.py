@@ -336,14 +336,13 @@ def _bars_with_one_halt(n: int = 25) -> list[OHLCV]:
     return bars
 
 
-def test_all_three_call_sites_measure_the_same_dollar_volume(monkeypatch):
+def test_all_call_sites_measure_the_same_dollar_volume():
     """Nomination admission gate, top-mover digest and the tech-analyst
     prompt. Previously $11.400M / $12.000M / $11.429M on identical bars."""
     from src.data import context as context_mod
-    import src.pipeline as pipeline_mod
 
     bars = _bars_with_one_halt()
-    expected_usd = 11_400_000.0  # 19 sessions x $12M / 20 sessions
+    expected_usd = 11_520_000.0  # 24 sessions x $12M / 25 sessions (all inside one calendar month)
 
     # a) the shared definition itself
     assert avg_dollar_volume(bars) == pytest.approx(expected_usd)
@@ -356,46 +355,13 @@ def test_all_three_call_sites_measure_the_same_dollar_volume(monkeypatch):
     ctx = context_mod.compute_market_context(bars)
     assert ctx.avg_dollar_volume_20d == pytest.approx(expected_usd)
 
-    # d) the external-symbol admission gate
-    p = _pipeline()
-    p.config.trading = SimpleNamespace(lookback_days=60)
-    p.config.smart_money = SimpleNamespace(
-        min_external_history_days=20,
-        min_external_price_usd=5.0,
-        min_external_avg_dollar_volume_usd=10_000_000.0,
-    )
-    p.broker.get_transient_equity_eligibility = MagicMock(return_value={"eligible": True})
-    p.market = MagicMock()
-    p.market.get_ohlcv = MagicMock(return_value=bars)
-    monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Technology")
-    ok, reason, facts = p.admission._evaluate_external_admission_gates("FAKE")
-    assert ok, reason
-    assert facts["avg_dollar_volume_20d_usd"] == pytest.approx(expected_usd)
-
-
-def test_the_window_is_twenty_sessions_not_twenty_one():
-    """The prompt-facing site averaged `_W_1M` = 21 bars — the generic
-    one-month constant leaking into a measure whose name, config key and
-    log lines all say 20."""
-    from src.data import context as context_mod
-
-    bars = [
-        OHLCV(date=date(2026, 8, 1) + timedelta(days=i), open=100.0, high=101.0, low=99.0, close=100.0, volume=100_000)
-        for i in range(30)
-    ]
-    # Make the 21st-from-last bar enormous. A 21-bar window sees it; the
-    # correct 20-bar window does not.
-    bars[-21] = OHLCV(date=bars[-21].date, open=100.0, high=100.0, low=100.0, close=100.0, volume=100_000_000)
-    ctx = context_mod.compute_market_context(bars)
-    assert ctx.avg_dollar_volume_20d == pytest.approx(10_000_000.0)
-
 
 def test_a_halted_session_counts_as_zero_not_as_missing():
     """The conservative reading, and the only one an admission gate may
     use: dropping the halt inflates the average toward ADMITTING an
     illiquid symbol."""
     bars = _bars_with_one_halt()
-    assert avg_dollar_volume(bars) == pytest.approx(11_400_000.0)
+    assert avg_dollar_volume(bars) == pytest.approx(11_520_000.0)
     # The dropped-survivor definition would have read $12.000M.
     assert avg_dollar_volume(bars) < 12_000_000.0
 

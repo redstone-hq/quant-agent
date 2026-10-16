@@ -59,7 +59,7 @@ def _missed_ops_quality_metrics(bars: list, lookback_days: int) -> tuple[float |
     vol_conf_ratio: float | None = None
     try:
         dollar_vols = dollar_volumes(bars)
-        avg_dvol = avg_dollar_volume(bars, min_bars=5)
+        avg_dvol = avg_dollar_volume(bars)
         if avg_dvol is not None:
             avg_dvol_m = round(avg_dvol / 1_000_000, 2)
             # Today's dollar volume vs the average. >1.5 = buyers showed up.

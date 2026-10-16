@@ -686,16 +686,6 @@ def test_side_door_runs_the_screen_when_on(tmp_path, monkeypatch):
     pipeline.broker.get_transient_equity_eligibility.assert_not_called()
 
 
-def test_side_door_keeps_its_old_gate_when_off(tmp_path, monkeypatch):
-    pipeline = _pipeline(tmp_path, enabled=False)
-    monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
-    pipeline.market.get_ohlcv.return_value = _bars(30, price=50, rng=0.0005)
-    ok, reason, _ = pipeline.admission._evaluate_external_admission_gates("ACME")
-    assert ok is True  # 30 bars would fail the screen's one-year history
-    pipeline.broker.get_transient_equity_eligibility.assert_called_once()
-    pipeline.sec_form4_provider._get.assert_not_called()
-
-
 def test_side_door_reads_company_size_from_the_listing_not_yahoo(tmp_path, monkeypatch):
     """Yahoo says $5B; the listing has no size: the listing decides, so the
     name is dropped as size unknown and Yahoo is never asked."""
@@ -785,13 +775,6 @@ def test_form4_door_runs_the_screen_and_its_age_gate(tmp_path, monkeypatch):
     assert details["ACME"]["screen"] == "universe_screen"
     # A purchase disclosed ~a year ago (the RSG case) no longer admits.
     assert pipeline.admission._admit_transient_smart_money_symbols([_purchase(364)])[0] == set()
-
-
-def test_form4_age_gate_is_off_with_the_screen(tmp_path, monkeypatch):
-    pipeline = _pipeline(tmp_path, enabled=False)
-    monkeypatch.setattr("src.pipeline_admission._get_sector", lambda s: "Industrials")
-    pipeline.market.get_ohlcv.return_value = _bars(30, price=50, rng=0.0005)
-    assert pipeline.admission._admit_transient_smart_money_symbols([_purchase(364)])[0] == {"ACME"}
 
 
 def test_screened_universe_is_empty_when_off(tmp_path):
