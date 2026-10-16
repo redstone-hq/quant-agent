@@ -42,6 +42,7 @@ second — one unreadable row is a shortfall — is stated in the test that
 covers it rather than softened into a percentage.
 """
 
+from datetime import timedelta
 from unittest.mock import Mock
 
 import pytest
@@ -1124,3 +1125,94 @@ def test_more_readable_filings_than_edgar_reported_is_named():
     assert coverage["ratio"] == 1.2
     assert coverage["verified"] is False
     assert "edgar_enumerated_above_total" in coverage["reasons"]
+
+
+# ---------------------------------------------------------------------------
+# completed past days are not re-paged
+# ---------------------------------------------------------------------------
+
+ZZZ_CIK = "9990001"
+ZZZ_LISTED = {ZZZ_CIK: {"ZZZA": "Nasdaq"}}
+
+
+def _counting_scan(provider, monkeypatch, by_page, processed):
+    """One `_discover` run that records which days were requested."""
+    requested: list[str] = []
+    inner = _bodies(by_page)
+
+    def _get(url, *, params, deadline):
+        requested.append(str(params["startdt"]))
+        return inner(url, params=params, deadline=deadline)
+
+    monkeypatch.setattr(provider, "_get", _get)
+    stats: dict = {}
+    found = provider._discover(ZZZ_LISTED, float("inf"), processed, set(), stats)
+    return found, stats, requested
+
+
+def _zzz_pages():
+    today = et_today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    hits = [_hit(_accession(i), cik=ZZZ_CIK) for i in range(1, 4)]
+    page = {"hits": {"hits": hits, "total": {"value": 3}}}
+    return today.isoformat(), yesterday, {(today.isoformat(), 0): page, (yesterday, 0): page}
+
+
+def test_a_completed_past_day_is_not_requested_again(tmp_path, monkeypatch):
+    provider = _provider(tmp_path, lookback_days=1, max_filings_per_refresh=50)
+    today, yesterday, pages = _zzz_pages()
+    found, _s, first = _counting_scan(provider, monkeypatch, pages, set())
+    assert yesterday in first
+    processed = {f["accession"] for f in found}
+    assert len(processed) == 3
+
+    _f, _s, second = _counting_scan(provider, monkeypatch, pages, processed)
+    assert yesterday not in second
+    assert today in second
+
+
+def test_a_day_with_an_unread_accession_is_not_marked_complete(tmp_path, monkeypatch):
+    provider = _provider(tmp_path, lookback_days=1, max_filings_per_refresh=50)
+    _today, yesterday, pages = _zzz_pages()
+    found, _s, _r = _counting_scan(provider, monkeypatch, pages, set())
+    processed = {f["accession"] for f in found}
+    processed.discard(_accession(2))  # one filing never got read
+
+    _f, _s, second = _counting_scan(provider, monkeypatch, pages, processed)
+    assert yesterday in second  # still re-paged, so the unread one is found
+    processed.add(_accession(2))
+    _f, _s, third = _counting_scan(provider, monkeypatch, pages, processed)
+    assert yesterday not in third  # and once read, the day is done
+
+
+def test_today_is_never_marked_complete(tmp_path, monkeypatch):
+    provider = _provider(tmp_path, lookback_days=1, max_filings_per_refresh=50)
+    today, yesterday, pages = _zzz_pages()
+    found, _s, _r = _counting_scan(provider, monkeypatch, pages, set())
+    processed = {f["accession"] for f in found}
+    _counting_scan(provider, monkeypatch, pages, processed)
+
+    stored = provider.stores.load_completed_days()
+    assert yesterday in stored
+    assert today not in stored
+
+
+def test_a_skipped_completed_day_reports_the_same_coverage_as_a_read_one(tmp_path, monkeypatch):
+    provider = _provider(tmp_path, lookback_days=1, max_filings_per_refresh=50)
+    _today, yesterday, pages = _zzz_pages()
+    found, first_stats, _r = _counting_scan(provider, monkeypatch, pages, set())
+    processed = {f["accession"] for f in found}
+    _f, second_stats, second = _counting_scan(provider, monkeypatch, pages, processed)
+
+    assert yesterday not in second
+    for key in (
+        "edgar_total",
+        "edgar_enumerated",
+        "edgar_rows_received",
+        "edgar_days_queried",
+        "edgar_days_with_total",
+        "edgar_days_in_window",
+    ):
+        assert second_stats[key] == first_stats[key], key
+    assert edgar_coverage(second_stats) == edgar_coverage(first_stats)
+    assert "days_not_queried" not in second_stats["edgar_coverage_reasons"]

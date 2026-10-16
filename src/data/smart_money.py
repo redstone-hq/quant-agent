@@ -547,10 +547,57 @@ class SECForm4Provider:
         # Query one day at a time. EFTS caps deep pagination, while 14 days of
         # ownership filings can exceed that cap. Day slices also let repeated
         # refreshes skip the processed head and make progress into a backlog.
+        #
+        # COMPLETED PAST DAYS. A day strictly before today has a fixed Form 4
+        # set. Re-paging it on every run made the walk deeper each day
+        # (days_queried 12, 13, 15 on 13-15 Oct, 59 on 16 Oct; discovery took
+        # ~168 s of the 180 s deadline and read 103 of 1000 filings
+        # [measured, live log]). A day is recorded as completed when this scan
+        # paged it to EDGAR's own parsed count (it is in `exhausted_days`) and
+        # read at least that many distinct usable accessions - the same
+        # definition the coverage stats use. Its unread listed candidates are
+        # stored with it; on a later run the day is skipped with NO HTTP
+        # request once every one of them is in `processed`, and it still counts
+        # as queried / exhausted with its stored total and usable count, so
+        # coverage is reported exactly as if it had been read. A day with any
+        # unread accession is re-paged. Today is never recorded. Records
+        # outside the lookback window are pruned.
+        today = et_today()
+        today_iso = today.isoformat()
+        window_days = {(today - timedelta(days=n)).isoformat() for n in range(days_in_window)}
+        stored_days = self.stores.load_completed_days()
+        if not isinstance(stored_days, dict):
+            stored_days = {}
+        completed: dict[str, dict] = {
+            d: rec
+            for d, rec in stored_days.items()
+            if d in window_days and d < today_iso and isinstance(rec, dict)
+        }
+        day_candidates: dict[str, set[str]] = {}
+        skipped_days: set[str] = set()
         try:
             for days_ago in range(days_in_window):
-                filing_date = et_today() - timedelta(days=days_ago)
+                filing_date = today - timedelta(days=days_ago)
                 day = filing_date.isoformat()
+                rec = completed.get(day)
+                if rec is not None:
+                    try:
+                        rec_total = int(rec["total"])
+                        rec_usable = [str(a) for a in rec["usable"]]
+                        rec_pending = [str(a) for a in rec["pending"]]
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                    else:
+                        if all(a in processed for a in rec_pending):
+                            skipped_days.add(day)
+                            queried_days.add(day)
+                            exhausted_days.add(day)
+                            day_total[day] = rec_total
+                            day_rows[day] = int(rec.get("rows", len(rec_usable)))
+                            day_usable[day] = set(rec_usable)
+                            if rec_total > busiest_day_total:
+                                busiest_day_total = rec_total
+                            continue
                 params = {
                     "forms": "4",
                     "startdt": day,
@@ -635,6 +682,7 @@ class SECForm4Provider:
                             continue
                         watched_hit = [c for c in listed_ciks if c in watched_ciks]
                         seen.add(accession)
+                        day_candidates.setdefault(day, set()).add(accession)
                         if watched_hit:
                             watched_seen.add(accession)
                         filing = {
@@ -681,6 +729,23 @@ class SECForm4Provider:
             # record the truncation — the alternative spends the whole
             # deadline scanning and reads nothing.
             deadline_hit = True
+
+        # Record the past days this scan read through. `rows` is kept so a
+        # skipped day reports the same rows_received as a freshly read one.
+        for day in list(day_rows):
+            if day in skipped_days:
+                continue
+            completed.pop(day, None)
+            usable = day_usable.get(day) or set()
+            if day < today_iso and day in exhausted_days and day in day_total and len(usable) >= day_total[day]:
+                completed[day] = {
+                    "total": day_total[day],
+                    "rows": day_rows[day],
+                    "usable": sorted(usable),
+                    "pending": sorted(day_candidates.get(day, set())),
+                }
+        if completed != stored_days:
+            self.stores.save_completed_days(completed)
 
         out = list(priority.values())[:cap]
         out.extend(list(other.values())[: max(0, cap - len(out))])

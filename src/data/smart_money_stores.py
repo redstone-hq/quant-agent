@@ -42,8 +42,10 @@ class SmartMoneyStores:
         history_path: Path,
         tickers_path: Path,
         raw_dir: Path,
+        completed_days_path: Path | None = None,
     ):
         self.manifest_path = manifest_path
+        self.completed_days_path = completed_days_path or manifest_path.with_name("form4_completed_days.json")
         self.observations_path = observations_path
         self.history_path = history_path
         self.tickers_path = tickers_path
@@ -66,6 +68,12 @@ class SmartMoneyStores:
 
     def save_history(self, payload: object) -> None:
         atomic_json(self.history_path, payload)
+
+    def load_completed_days(self):
+        return load_json(self.completed_days_path, {})
+
+    def save_completed_days(self, payload: object) -> None:
+        atomic_json(self.completed_days_path, payload)
 
     def tickers_cached(self) -> bool:
         return self.tickers_path.exists()
@@ -108,4 +116,5 @@ def build_smart_money_stores(data_dir: Path) -> SmartMoneyStores:
         history_path=data_dir / "insider_history.json",
         tickers_path=data_dir / "company_tickers_exchange.json",
         raw_dir=raw_dir,
+        completed_days_path=data_dir / "form4_completed_days.json",
     )
