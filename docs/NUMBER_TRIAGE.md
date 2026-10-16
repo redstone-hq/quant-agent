@@ -125,7 +125,6 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS` = 5
 - `data.smart_money_cluster.MIN_PURCHASE_CLUSTER_INSIDERS` = 2
 - `risk.trailing.PIVOT_WINDOW` = 3
-- `agents.smart_money_analyst._MAX_SYNTHESIS_SYMBOLS` = 8
 - `agents.tech_analyst._BARS_PER_SYMBOL` = 40
 
 ## READ LIVE (12)
@@ -173,8 +172,6 @@ Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidat
 - ~~`config.RiskConfig.target_divergence_warn_pct` = 25~~ -- DELETED 2026-10-13: the threshold and the WARNING it triggered are gone; every computed-vs-analyst target gap is still recorded, one row per comparison.
 - `config.SmartMoneyConfig.max_filings_per_refresh` = 1000
 - `config.SmartMoneyConfig.refresh_deadline_s` = 180
-- `agents.smart_money_analyst._MAX_REPRESENTATIVE_TRANSACTIONS` = 3
-- `agents.smart_money_analyst._MAX_FINDING_TEXT_WORDS` = 24
 - `agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS` = 96
 - `agents.smart_money_analyst._MAX_REASON_TEXT_CHARS` = 220
 - `agents.smart_money_analyst._MAX_ACTOR_ROLES` = 8

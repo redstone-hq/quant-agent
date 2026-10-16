@@ -559,7 +559,7 @@ def test_analyst_cache_key_ignores_age_and_run_membership(tmp_path):
 
     def run(**_):
         calls.append(1)
-        return AgentResult('{"findings":[]}', 10, "test")
+        return AgentResult('{"findings":[],"no_reads":[{"symbol":"NVDA"}]}', 10, "test")
 
     analyst.run = run
     first = _insider()
@@ -581,7 +581,7 @@ def test_analyst_cache_key_ignores_age_and_run_membership(tmp_path):
 def test_analyst_distinguishes_valid_empty_from_parse_failure(tmp_path):
     analyst = object.__new__(SmartMoneyAnalystAgent)
     analyst.synthesis_cache_path = tmp_path / "cache.json"
-    analyst.run = lambda **_: AgentResult('{"findings":[]}', 1, "test")
+    analyst.run = lambda **_: AgentResult('{"findings":[],"no_reads":[{"symbol":"NVDA"}]}', 1, "test")
     findings, _, error = analyst.analyze([_insider()])
     assert findings == [] and error is None
 
@@ -624,9 +624,11 @@ def test_analyst_compacts_and_ranks_production_shaped_observations():
     assert message == reversed_message
     assert payload["input_observation_count"] == 40
     assert payload["input_symbol_count"] == 40
-    assert payload["presented_symbol_count"] == 8
-    assert payload["omitted_symbol_count"] == 32
-    assert [row["symbol"] for row in payload["symbol_facts"]] == [
+    # Every symbol is sent, in rank order; nothing is cut.
+    assert payload["presented_symbol_count"] == 40
+    assert "omitted_symbol_count" not in payload
+    assert len(payload["symbol_facts"]) == 40
+    assert [row["symbol"] for row in payload["symbol_facts"]][:8] == [
         "S00",
         "S39",
         "S38",
@@ -636,10 +638,9 @@ def test_analyst_compacts_and_ranks_production_shaped_observations():
         "S34",
         "S33",
     ]
-    assert all(len(row["representative_transactions"]) <= 3 for row in payload["symbol_facts"])
-    assert all(len(row["representative_transactions"][0]["actor"]) <= 96 for row in payload["symbol_facts"])
+    assert all(len(row["transactions"]) == 1 for row in payload["symbol_facts"])
+    assert all(len(row["transactions"][0]["actor"]) <= 96 for row in payload["symbol_facts"])
     assert "https://www.sec.gov/Archives/" not in message
-    assert len(message) < 15_000
 
 
 def test_analyst_compaction_does_not_replace_canonical_finding_evidence(tmp_path):
@@ -671,7 +672,7 @@ def test_analyst_compaction_does_not_replace_canonical_finding_evidence(tmp_path
     compact = _compact_payload(captured["message"])
 
     assert error is None
-    assert len(compact["symbol_facts"][0]["representative_transactions"]) == 3
+    assert len(compact["symbol_facts"][0]["transactions"]) == 5
     assert len(findings[0].observations) == 5
     assert {row.accession_number for row in findings[0].observations} == {row.accession_number for row in observations}
 
@@ -705,11 +706,15 @@ def test_analyst_enforces_presented_unique_symbol_boundary(tmp_path):
         "test",
     )
 
+    raw_findings.append(dict(raw_findings[0], symbol="ZZZQ"))  # never presented
+
     findings, _, error = analyst.analyze(observations)
 
-    assert error == "analysis_partial_schema_error"
-    assert len(findings) == 8
-    assert len({finding.symbol for finding in findings}) == 8
+    # The duplicate and the never-presented symbol are dropped; every
+    # presented symbol was answered once, so nothing is missing.
+    assert error is None
+    assert len(findings) == 10
+    assert len({finding.symbol for finding in findings}) == 10
     assert {finding.symbol for finding in findings} == {
         row["symbol"] for row in _compact_payload(analyst.build_user_message(observations=observations))["symbol_facts"]
     }
@@ -738,7 +743,9 @@ def test_analyst_cache_is_bound_to_run_scoped_presented_symbols(tmp_path):
 
     def run(**_):
         calls.append(1)
-        return AgentResult('{"findings":[]}', 10, "test")
+        return AgentResult(
+            json.dumps({"findings": [], "no_reads": [{"symbol": f"S{i:02d}"} for i in range(9)]}), 10, "test"
+        )
 
     analyst.run = run
     analyst.analyze(observations)
@@ -766,7 +773,7 @@ def test_compact_symbol_surfaces_estimated_disclosure_dates_to_the_seat():
     # Both observations fit under the representative-transaction cap, so
     # each one's own estimated/real flag must be visible individually, not
     # just as an aggregate count.
-    flags = {row["disclosure_date_estimated"] for row in compact["representative_transactions"]}
+    flags = {row["disclosure_date_estimated"] for row in compact["transactions"]}
     assert flags == {True, False}
 
 

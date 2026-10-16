@@ -602,13 +602,13 @@ class MorningResearchStage:
                 or not self.smart_money_provider
                 or not self.smart_money_analyst
             ):
-                return [], None, smart_money_provider_error, None
+                return [], None, smart_money_provider_error, None, []
             if not smart_money_observations:
-                return [], None, smart_money_provider_error, None
-            findings, result, analysis_error = self.smart_money_analyst.analyze(
+                return [], None, smart_money_provider_error, None, []
+            findings, result, analysis_error, gaps = self.smart_money_analyst.analyze_with_gaps(
                 smart_money_observations,
             )
-            return findings, result, smart_money_provider_error, analysis_error
+            return findings, result, smart_money_provider_error, analysis_error, gaps
 
         logger.info("Starting parallel: macro + news + tech + earnings + smart money")
         with ThreadPoolExecutor(max_workers=5) as ex:
@@ -675,7 +675,7 @@ class MorningResearchStage:
             not sm_coverage.get("known") or bool(sm_coverage.get("unread")) or sm_edgar_unverified
         )
         try:
-            findings, sm_result, provider_error, analysis_error = smart_money_future.result()
+            findings, sm_result, provider_error, analysis_error, sm_gaps = smart_money_future.result()
             ctx.smart_money_findings = findings
             ctx.smart_money_provider_error = provider_error or analysis_error
             import json as _sm_json
@@ -779,6 +779,23 @@ class MorningResearchStage:
                     data_status["smart_money"] = "degraded"
                 elif not provider_error:
                     data_status["smart_money"] = "ok"
+            # Every presented symbol must be answered (a finding or an explicit
+            # no-read). One `unanswered_symbol` row per symbol the first reply
+            # left unanswered, with the outcome of the single re-ask, and one
+            # `reply_anomaly` row per duplicate, contradictory or never-sent
+            # symbol in a reply. These rows carry a partial answer; the seat
+            # is failed only when no symbol was answered. A no-read is not a
+            # finding: never written as `finding` evidence, never ranked.
+            for record in sm_gaps or []:
+                _persist_evidence(
+                    self.db,
+                    run_id=ctx.run_id,
+                    agent_name="smart_money_analyst",
+                    kind=record.get("kind", "unanswered_symbol"),
+                    scope="research",
+                    symbol=record.get("symbol") or None,
+                    evidence_json=_sm_json.dumps(record, sort_keys=True),
+                )
             for finding in findings:
                 symbol = finding.symbol.upper()
                 is_candidate = (

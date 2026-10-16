@@ -2201,7 +2201,7 @@ def test_morning_research_stage_smart_money_truncated_marks_status_truncated():
     # Findings list is empty (as a truncated call would plausibly look
     # like "no signal") and there's no analysis_error — the parse
     # succeeded on the incomplete-but-valid JSON.
-    smart_money_analyst.analyze.return_value = ([], truncated_result, None)
+    smart_money_analyst.analyze_with_gaps.return_value = ([], truncated_result, None, [])
 
     db = MagicMock()
 
@@ -2261,10 +2261,11 @@ def _smart_money_morning_stage(coverage, findings):
     smart_money_provider.fetch.return_value = ([SimpleNamespace(symbol="RSG")], None)
     smart_money_provider.form4_coverage.return_value = coverage
     smart_money_analyst = MagicMock()
-    smart_money_analyst.analyze.return_value = (
+    smart_money_analyst.analyze_with_gaps.return_value = (
         findings,
         AgentResult(raw_text='{"findings":[]}', tokens_used=1, model="test", user_message="x"),
         None,
+        [],
     )
     stage = MorningResearchStage(
         config=config,

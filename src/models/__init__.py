@@ -62,6 +62,7 @@ from src.models.smart_money import (
     _SMART_MONEY_ROLE_CONVICTION,
     _purchase_cluster_lift,
     SmartMoneyFinding,
+    SmartMoneyNoRead,
     SmartMoneySynthesis,
 )
 from src.models.risk_narrative_claims import (
