@@ -4052,6 +4052,8 @@ numbers:
       that call site, which no scanner rule sees -- reported as a gap, not
       ledgered here.
   - id: src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(min_top_mover_dollar_volume_m)
+    recording_2026_10_17: >-
+      each build of the evening missed-opportunity digest logs one missed_ops_digest_cut_record line: candidates before the dollar-volume floor and the top-movers cap, rows kept, and the cut symbols with move % and dollar volume (built 2026-10-17); record-only
     value: 5
     status: arbitrary
     site: src/prompt_facts/missed_ops_signals.py
@@ -4100,6 +4102,8 @@ numbers:
       number is settled together with the tick cadence and the per-run held-book
       context, never alone.
   - id: src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(top_movers_count)
+    recording_2026_10_17: >-
+      each build of the evening missed-opportunity digest logs one missed_ops_digest_cut_record line: candidates before the dollar-volume floor and the top-movers cap, rows kept, and the cut symbols with move % and dollar volume (built 2026-10-17); record-only
     value: 15
     status: arbitrary
     site: src/prompt_facts/missed_ops_signals.py
