@@ -805,9 +805,7 @@ class MissedOpsSignals:
 
         snapshots.sort(key=_priority_key)
         # Record-only (governs nothing): how much each made-up cut removed.
-        top_n_cut = [
-            (s.symbol, s.move_pct, s.avg_dollar_volume_20d_m) for s in snapshots[top_n:]
-        ]
+        top_n_cut = [(s.symbol, s.move_pct, s.avg_dollar_volume_20d_m) for s in snapshots[top_n:]]
         logger.info(
             "missed_ops_digest_cut_record top_movers_count=%d top_movers_returned=%d "
             "min_top_mover_dollar_volume_m=%s candidates=%d dollar_volume_cut=%d "
