@@ -185,7 +185,9 @@ def _ma_change_atr(closes: np.ndarray, period: int, atr_now: float | None) -> fl
     if atr_now is None or atr_now <= 0 or len(closes) < period + 1:
         return None
     ma = np.convolve(closes, np.ones(period) / period, mode="valid")
-    return round((float(ma[-1]) - float(ma[-2])) / atr_now, 2)
+    # Unrounded: the sign must match the exit rule's raw > / < comparison,
+    # and a MA200 day-over-day move is often under 0.005 ATR.
+    return (float(ma[-1]) - float(ma[-2])) / atr_now
 
 
 def _find_unfilled_gaps(bars: list[OHLCV]) -> list[Gap]:
@@ -512,7 +514,7 @@ def format_context_block(ctx: MarketContext | None, days_to_earnings: int | None
         lines.append(f"  Volatility: ATR {ctx.atr_pct:.2f}% of price{state}{pctile}")
 
     changes = [
-        f"MA{p} {v:+.2f} ({'rising' if v > 0 else 'falling' if v < 0 else 'flat'})"
+        f"MA{p} {v:+.3f} ({'rising' if v > 0 else 'falling' if v < 0 else 'flat'})"
         for p, v in (("20", ctx.ma20_change_atr), ("50", ctx.ma50_change_atr), ("200", ctx.ma200_change_atr))
         if v is not None
     ]

@@ -99,3 +99,12 @@ def test_screen_history_floor_is_longest_window_plus_one():
     )
     s = ScreenThresholds.from_config(config)
     assert s.min_history_bars == LONGEST_INDICATOR_WINDOW + 1
+
+
+def test_small_rise_is_rising_not_rounded_to_flat():
+    # A MA200 move far under 0.005 ATR must still read rising, not be rounded to flat.
+    closes = [100.0] * 299 + [100.2]
+    bars = _bars(closes)
+    ctx = compute_market_context(bars)
+    assert 0 < ctx.ma200_change_atr < 0.005
+    assert "MA200 +0.00" in format_context_block(ctx) and "(rising)" in format_context_block(ctx)
