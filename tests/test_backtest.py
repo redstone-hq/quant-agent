@@ -93,7 +93,7 @@ def _build_long_win_series() -> list[OHLCV]:
       extremity — a perfectly flat/repeating series creates a degenerate,
       massively-clustered pivot right at the baseline price, which drowns
       out the deliberate levels below; see the probe work that found this).
-      `MIN_BARS_FOR_SIGNAL` (210) bars of history are required before the
+      the fixture's `min_bars_for_signal` (210) bars of history are required before the
       engine will evaluate a symbol at all, so nothing in this padding is
       ever looked at for a signal — bars 0..208 give exactly 209 bars of
       history on day 208, one short of the threshold.
@@ -146,7 +146,7 @@ def _build_long_win_series() -> list[OHLCV]:
     """
     bars: list[OHLCV] = []
     d = BASE_DATE
-    n_pad = MIN_BARS_FOR_SIGNAL - 1  # 209
+    n_pad = 209  # fixture geometry: pivots sit at bars 40..170, signal on bar 209
     dip_indices = {40, 140}
     spike_indices = {70, 170}
     for i in range(n_pad):
@@ -214,6 +214,10 @@ def _run(bars: list[OHLCV], **risk_overrides) -> tuple:
         max_hold_days=20,
         initial_equity=100_000.0,
         slippage_bps=0.0,
+        # The hand-built fixture is padded to 209 bars so its first evaluated
+        # day is its designed signal bar; that geometry is the fixture's own,
+        # not the engine default (200 + 1).
+        min_bars_for_signal=210,
     )
     config = _risk_config(**risk_overrides)
     result = run_backtest(config=config, bars_by_symbol={SYMBOL: bars}, params=params)

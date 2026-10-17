@@ -228,7 +228,6 @@ not bare literals. So "give it a name" is a no-op remedy here; the only real rem
 - `src.backtest.engine.MIN_BARS_FOR_SIGNAL`
 - `src.data.congressional_trading._MAX_PLAUSIBLE_AGE_YEARS`
 - `src.data.context._CONSOLIDATION_WINDOW`
-- `src.data.context._SLOPE_LOOKBACK`
 - `src.data.event_calendar.EARNINGS_EVENT_WINDOW_SESSIONS`
 - `src.data.event_calendar.RELEASE_SCHEDULE_LOOKAHEAD_DAYS`
 - `src.data.news_dedup.SIMILARITY_THRESHOLD`

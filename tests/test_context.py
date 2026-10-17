@@ -119,18 +119,18 @@ class TestMovingAverageSlopes:
     def test_rising_market_has_positive_slopes(self):
         ctx = compute_market_context(_bars(_ramp(400, 100.0, 200.0)))
         assert ctx is not None
-        assert ctx.ma20_slope_pct is not None and ctx.ma20_slope_pct > 0
-        assert ctx.ma50_slope_pct is not None and ctx.ma50_slope_pct > 0
+        assert ctx.ma20_change_atr is not None and ctx.ma20_change_atr > 0
+        assert ctx.ma50_change_atr is not None and ctx.ma50_change_atr > 0
 
     def test_falling_market_has_negative_slopes(self):
         ctx = compute_market_context(_bars(_ramp(300, 200.0, 100.0)))
         assert ctx is not None
-        assert ctx.ma20_slope_pct is not None and ctx.ma20_slope_pct < 0
+        assert ctx.ma20_change_atr is not None and ctx.ma20_change_atr < 0
 
-    def test_slope_unset_without_enough_history(self):
+    def test_change_unset_without_enough_history(self):
         ctx = compute_market_context(_bars(_flat(40)))
         assert ctx is not None
-        assert ctx.ma200_slope_pct is None
+        assert ctx.ma200_change_atr is None
 
 
 class TestConsolidation:

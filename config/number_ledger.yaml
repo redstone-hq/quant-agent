@@ -6137,10 +6137,10 @@ numbers:
       means NO inflation of the cost reservation as the pricing cache
       ages; any real relaxation is passed in explicitly by the caller.
   - id: src.backtest.engine.MIN_BARS_FOR_SIGNAL
-    value: 210
+    value: 201
     status: not-trade-governing
     site: src/backtest/engine.py
-    note: "Derived, not chosen: 200 bars for the 200-day moving average plus 10 for the slope lookback the market-context step needs (the comment at the definition). Only the offline backtest harness imports this module; no live module imports it (grep over src/ finds only src/backtest/* and comments naming it), so it sizes, prices, places and refuses nothing live. It does decide which historic days an A/B run may use, so a sweep inherits it."
+    note: "Derived, not chosen: 200 bars for the 200-day moving average plus 1 for the prior session's average, which the market-context step needs to call it rising or falling (the comment at the definition). Only the offline backtest harness imports this module; no live module imports it (grep over src/ finds only src/backtest/* and comments naming it), so it sizes, prices, places and refuses nothing live. It does decide which historic days an A/B run may use, so a sweep inherits it."
   - id: src.backtest.engine.DEFAULT_MAX_HOLD_DAYS
     value: 20
     status: not-trade-governing
@@ -7383,36 +7383,6 @@ numbers:
     note: >-
       Fallback copy of the SmartMoneyConfig field. Production constructs the
       thresholds from config, and base drift keeps this duplicate aligned.
-  - id: src.data.context._SLOPE_LOOKBACK
-    value: 10
-    site: src/data/context.py
-    status: arbitrary
-    note: >-
-      Sessions over which each moving-average slope is called rising or
-      falling. The resulting direction enters the Technical prompt and the
-      same count extends the screen's minimum-history requirement.
-      Provisional: nothing on the instrument gives this window yet; tying it to
-      the owner's hold intent would be a relabel (adversary 2026-10-16).
-    open_question: >-
-      What current-instrument window makes moving-average direction stable
-      enough to report without imposing the same flat duration on every name?
-    cost_while_unanswered: >-
-      The Technical seat sees a trend direction and the screen requires extra
-      history using a flat, unmeasured calendar count.
-    settles_by:
-      kind: measurement
-      state: specified
-      where: >-
-        config/number_ledger.yaml, the settlement route on
-        src.data.context._SLOPE_LOOKBACK
-      records: >-
-        slope direction across candidate windows on public bars for the
-        tradable universe, alongside each name's present volatility and the
-        persistence of that direction rather than this desk's selected trades
-      closes_when: >-
-        the window is reformulated from the instrument's current structure or
-        volatility, or the direction field is removed if no stable
-        instrument-relative formulation exists
   - id: src.data.context._CONSOLIDATION_WINDOW
     value: 14
     site: src/data/context.py

@@ -92,12 +92,11 @@ _BAR_CLAIM_RE = re.compile(
 _DATA_SUFFICIENCY_PHRASE = "< 20 bars of history"
 _DATA_SUFFICIENCY_FLOOR = 20
 
-#: `src/data/context.py` writes "MA direction over <n> sessions" into the market
-#: context block. That `<n>` is `_SLOPE_LOOKBACK` — how far back a moving
-#: average's slope is measured — and has nothing to do with how many bars are
-#: attached. Exempted by shape so the number may change without touching this
-#: file, while any OTHER "<n> sessions" claim is still treated as a window claim.
-_SLOPE_PHRASE_RE = re.compile(r"MA direction over \d+ sessions")
+#: `src/data/context.py` writes "MA change since prior session (in ATR)" into
+#: the market context block. It names no session count; the pattern is kept so
+#: a "<n> sessions" wording reappearing there would still be exempted by shape
+#: and not mistaken for a window claim.
+_SLOPE_PHRASE_RE = re.compile(r"MA change since prior session \(in ATR\)")
 
 #: The rendered history-depth phrase (board item 168) says "about <n> weekday
 #: sessions", which is a claim about the UPSTREAM history the indicators are

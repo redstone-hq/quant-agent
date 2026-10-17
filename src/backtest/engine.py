@@ -142,7 +142,7 @@ from src.backtest.exit_rules import (  # noqa: F401
     _size_position,
 )
 from src.config import AppConfig
-from src.data.technical import compute_indicators
+from src.data.technical import LONGEST_INDICATOR_WINDOW, compute_indicators
 from src.backtest.structural_stops import (  # noqa: F401
     _resolve_structural_stop_and_target,
     _setup_type_for,
@@ -155,11 +155,12 @@ from src.risk.budget import RiskRequest, allocate_risk_budget
 from src.risk.trailing import compute_trailing_stop
 
 #: Trading days of history a symbol needs before this engine will evaluate it
-#: for a signal. 210 = 200 (MA200) + 10 (the slope lookback `compute_market_context`
-#: needs to say whether that average is rising or falling) — below this, both
+#: for a signal. 201 = 200 (MA200) + 1 (the prior session's MA200, which
+#: `compute_market_context` needs to say whether that average is rising or
+#: falling, the same test the exit rule uses) — below this, both
 #: `find_structural_levels` and `compute_market_context` are working with a
 #: materially incomplete picture, and the live system would be too.
-MIN_BARS_FOR_SIGNAL = 210
+MIN_BARS_FOR_SIGNAL = LONGEST_INDICATOR_WINDOW + 1
 
 DEFAULT_MAX_HOLD_DAYS = 20
 DEFAULT_INITIAL_EQUITY = 100_000.0
