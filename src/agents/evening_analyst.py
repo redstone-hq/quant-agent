@@ -495,7 +495,7 @@ class EveningAnalystAgent(BaseAgent):
 ## Today's Earnings Filings
 {_fmt_earnings_for_evening(earnings_analyses)}
 
-## Thesis Health Review — each held position over the last ~8 weeks
+## Thesis Health Review — each held position since it opened
 {thesis_health_section}
 
 ## Missed Opportunity Review — universe + Alpaca top gainers (|move|≥8%, 5-day)

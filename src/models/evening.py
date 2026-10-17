@@ -16,7 +16,7 @@ class EveningReasoningChain(LLMOutputModel):
     structurally anchored on DAILY cycles (yesterday's outlook, today's
     tape, tomorrow's preparation). For a medium-long-term investor, the
     most important question — "how is each held thesis playing out over
-    the past 6-8 weeks?" — wasn't being asked anywhere. `thesis_health_
+    the holding period?" — wasn't being asked anywhere. `thesis_health_
     review` is that missing step, and it sits between the retrospective
     (what happened) and the decision-quality review (how did we react).
     """
@@ -31,7 +31,7 @@ class EveningReasoningChain(LLMOutputModel):
     face. Cross-reference specific predictions to specific outcomes."""
 
     thesis_health_review: str = Field(min_length=1)
-    """For each held position: given 6-8 weeks of fundamentals evolution
+    """For each held position: given fundamentals evolution
     (earnings trajectory, macro sector stance, news flow, tech rating
     history), is the ORIGINAL entry thesis strengthening, still intact,
     weakening, or broken? This is the step that makes the agent a value
