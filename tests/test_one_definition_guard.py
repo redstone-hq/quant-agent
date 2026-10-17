@@ -257,7 +257,7 @@ def find_atr_definitions(tree: ast.AST, path: Path) -> list[Finding]:
     7-8% on average and 39% on the worst day measured. ATR sets stop distance
     and stop distance sets position size, so two ATRs are two books.
 
-    Note `_ma_slope` in the same module also calls `np.convolve` and is NOT
+    Note `_ma_change_atr` in the same module also calls `np.convolve` and is NOT
     matched — it convolves closes, never true ranges.
     """
     out: list[Finding] = []

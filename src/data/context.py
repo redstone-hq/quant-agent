@@ -52,9 +52,6 @@ _HORIZON_12M = pd.DateOffset(months=12)
 # The up/down volume read, the 52-week range and the ATR percentile all select
 # their bars by calendar date (_HORIZON_1M / _HORIZON_12M), not by bar count.
 
-# Sessions used to measure whether a moving average is rising or falling.
-_SLOPE_LOOKBACK = 10
-
 # The shortest stretch currently admitted as a base. It reuses the ATR period
 # this file already reads (Wilder, via `src.data.technical.ATR_PERIOD`), but
 # equal values do not derive base duration from volatility-estimator duration.
@@ -124,9 +121,13 @@ class MarketContext:
     volatility_state: str | None = None  # "expanding" | "contracting" | "stable"
 
     # Trend direction of the averages, not merely price's position against them.
-    ma20_slope_pct: float | None = None
-    ma50_slope_pct: float | None = None
-    ma200_slope_pct: float | None = None
+    # Each is today's MA minus the PRIOR session's MA, in the name's own ATR:
+    # positive = rising, negative = falling. The same rising/falling test the
+    # exit rule trades on (`risk.exit_guard_trend`: MA200 rising when today's
+    # MA200 > the prior session's).
+    ma20_change_atr: float | None = None
+    ma50_change_atr: float | None = None
+    ma200_change_atr: float | None = None
 
     # Consolidation — the measurable half of "range or breakout".
     is_consolidating: bool = False
@@ -173,22 +174,18 @@ def _pct_change(bars: list[OHLCV], horizon: pd.DateOffset) -> float | None:
     return round((float(bars[-1].close) - past) / past * 100.0, 2)
 
 
-def _ma_slope(closes: np.ndarray, period: int, lookback: int) -> float | None:
-    """Percent change in the moving average over `lookback` sessions.
+def _ma_change_atr(closes: np.ndarray, period: int, atr_now: float | None) -> float | None:
+    """Today's simple MA minus the prior session's, in units of the current ATR.
 
     'Price above MA50' says little on its own; 'price above a *rising* MA50'
-    is the actual signal, and a falling MA50 beneath price is a warning.
+    is the actual signal. Rising means today's MA > the prior session's MA,
+    exactly as `risk.exit_guard_trend` reads the 200-day average (Weinstein /
+    Dow). Needs `period + 1` closes: one prior MA value is all it takes.
     """
-    if len(closes) < period + lookback:
+    if atr_now is None or atr_now <= 0 or len(closes) < period + 1:
         return None
-    kernel = np.ones(period) / period
-    ma = np.convolve(closes, kernel, mode="valid")
-    if len(ma) <= lookback:
-        return None
-    past = float(ma[-1 - lookback])
-    if past <= 0:
-        return None
-    return round((float(ma[-1]) - past) / past * 100.0, 2)
+    ma = np.convolve(closes, np.ones(period) / period, mode="valid")
+    return round((float(ma[-1]) - float(ma[-2])) / atr_now, 2)
 
 
 def _find_unfilled_gaps(bars: list[OHLCV]) -> list[Gap]:
@@ -328,7 +325,7 @@ def compute_market_context(
     # the true ranges with a flat kernel, which is a simple moving average
     # and not an ATR at all; the analyst was reading one volatility number
     # while position sizing and stop widening used another.
-    atr_pct = atr_percentile = None
+    atr_pct = atr_percentile = atr_now = None
     volatility_state = None
     atr = atr_series(bars)
     if atr.size:
@@ -458,9 +455,9 @@ def compute_market_context(
         atr_pct=atr_pct,
         atr_percentile_1y=atr_percentile,
         volatility_state=volatility_state,
-        ma20_slope_pct=_ma_slope(closes, 20, _SLOPE_LOOKBACK),
-        ma50_slope_pct=_ma_slope(closes, 50, _SLOPE_LOOKBACK),
-        ma200_slope_pct=_ma_slope(closes, 200, _SLOPE_LOOKBACK),
+        ma20_change_atr=_ma_change_atr(closes, 20, atr_now),
+        ma50_change_atr=_ma_change_atr(closes, 50, atr_now),
+        ma200_change_atr=_ma_change_atr(closes, 200, atr_now),
         is_consolidating=is_consolidating,
         consolidation_high=round(cons_high, 2) if cons_high else None,
         consolidation_low=round(cons_low, 2) if cons_low else None,
@@ -514,13 +511,13 @@ def format_context_block(ctx: MarketContext | None, days_to_earnings: int | None
         )
         lines.append(f"  Volatility: ATR {ctx.atr_pct:.2f}% of price{state}{pctile}")
 
-    slopes = [
-        f"MA{p} {pct(v)}"
-        for p, v in (("20", ctx.ma20_slope_pct), ("50", ctx.ma50_slope_pct), ("200", ctx.ma200_slope_pct))
+    changes = [
+        f"MA{p} {v:+.2f} ({'rising' if v > 0 else 'falling' if v < 0 else 'flat'})"
+        for p, v in (("20", ctx.ma20_change_atr), ("50", ctx.ma50_change_atr), ("200", ctx.ma200_change_atr))
         if v is not None
     ]
-    if slopes:
-        lines.append(f"  MA direction over {_SLOPE_LOOKBACK} sessions: " + " · ".join(slopes))
+    if changes:
+        lines.append("  MA change since prior session (in ATR): " + " · ".join(changes))
 
     if ctx.is_consolidating and ctx.consolidation_high and ctx.consolidation_low:
         # Width is stated in the name's OWN ATR as well as in percent: a 6%

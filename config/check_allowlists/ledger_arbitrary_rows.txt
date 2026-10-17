@@ -17,7 +17,6 @@ src.config.SmartMoneyConfig.max_filings_per_refresh
 src.config.SmartMoneyConfig.max_observations
 src.config.SmartMoneyConfig.refresh_deadline_s
 src.data.context._CONSOLIDATION_WINDOW
-src.data.context._SLOPE_LOOKBACK
 src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
 src.pipeline_intraday._NAMES_PER_PAID_CALL
 src.prompt_facts.decisions.PromptDecisions._build_own_recent_decisions(limit)

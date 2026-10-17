@@ -45,9 +45,9 @@ THE CRITERIA, and where each threshold comes from (every number is in
               removed at once, no second chance.
   history     a year of daily bars: the first bar is at least a calendar
               year before the last, AND there are enough bars for the
-              200-session average plus the 10-session slope the analyst
-              reads (`technical.LONGEST_INDICATOR_WINDOW` +
-              `context._SLOPE_LOOKBACK`).
+              200-session average plus one prior session, the one extra MA200
+              value the rising/falling definition needs
+              (`technical.LONGEST_INDICATOR_WINDOW` + 1).
   price       last close >= `min_price_usd` ($5, SEC Rule 3a51-1(d): a
               security priced at five dollars or more is not a penny stock).
   spread      the Corwin & Schultz (J. Finance 2012) high-low spread
@@ -381,7 +381,6 @@ class ScreenThresholds:
         any caller with no constructor to hand) the old route is used and
         the values are the class defaults.
         """
-        from src.data.context import _SLOPE_LOOKBACK
         from src.data.technical import LONGEST_INDICATOR_WINDOW
 
         # Imported here, not at module scope: `portfolio_constructor` is a
@@ -418,7 +417,7 @@ class ScreenThresholds:
                     float(config.risk.min_stop_atr_multiple),
                 )
             ),
-            min_history_bars=int(LONGEST_INDICATOR_WINDOW + _SLOPE_LOOKBACK),
+            min_history_bars=int(LONGEST_INDICATOR_WINDOW + 1),
         )
 
 

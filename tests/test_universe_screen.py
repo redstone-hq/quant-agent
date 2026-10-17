@@ -48,7 +48,7 @@ TH = us.ScreenThresholds(
     min_market_cap_usd=30_000_000,
     hold_sessions=10,
     max_atr_fraction=1.0 / 2.5,
-    min_history_bars=210,
+    min_history_bars=201,
 )
 
 GOOD_ASSET = {
@@ -404,7 +404,7 @@ def test_thresholds_are_read_from_existing_desk_numbers():
     assert th.min_market_cap_usd == 30_000_000
     assert th.hold_sessions == 10
     assert th.max_atr_fraction == pytest.approx(1.0 / 2.5)
-    assert th.min_history_bars == 210
+    assert th.min_history_bars == 201
 
 
 def test_screen_code_default_is_off_and_deployed_on():
