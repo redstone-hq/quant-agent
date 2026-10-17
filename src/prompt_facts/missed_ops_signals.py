@@ -101,7 +101,7 @@ class MissedOpsSignals:
         sync — adding a third shape should only require editing that helper.
         """
         from datetime import timedelta
-        from src.evolution.quarterly_digest import _tech_analyses_from_data
+        from src.evolution.quarterly_digest import _tech_analyses_from_row
 
         try:
             rows = self.db.get_recent_agent_outputs(
@@ -118,10 +118,7 @@ class MissedOpsSignals:
             ts_date = (row.get("timestamp") or "")[:10]
             if not ts_date or ts_date < cutoff_str:
                 continue
-            data = self._parse_logged_agent_response(row)
-            if data is None:
-                continue
-            for a in _tech_analyses_from_data(data):
+            for a in _tech_analyses_from_row(row.get("full_response")):
                 sym = (a.get("symbol") or "").upper()
                 rating = a.get("rating")
                 if not sym or not rating:
@@ -340,7 +337,7 @@ class MissedOpsSignals:
         count: the tech seat writes many rows a session, so a fixed row cap
         returned only today's intraday runs. Uses the same shape-normalizer
         as the missed_ops digest. Empty dict on failure."""
-        from src.evolution.quarterly_digest import _tech_analyses_from_data
+        from src.evolution.quarterly_digest import _tech_analyses_from_row
         from src.storage.analytics.agent_log_reads import count_recent_agent_outputs
 
         if not opens:
@@ -368,10 +365,7 @@ class MissedOpsSignals:
             if at is None:
                 continue
             session = session_date_key(at)
-            data = self._parse_logged_agent_response(row)
-            if data is None:
-                continue
-            for a in _tech_analyses_from_data(data):
+            for a in _tech_analyses_from_row(row.get("full_response")):
                 sym = (a.get("symbol") or "").upper()
                 rating = a.get("rating")
                 if not sym or not rating or sym not in opens or at < opens[sym]:

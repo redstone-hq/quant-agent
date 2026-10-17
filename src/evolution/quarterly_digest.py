@@ -802,17 +802,42 @@ def _tech_analyses_from_data(data) -> list[dict]:
     return []
 
 
+_LOG_PART_MARKER = re.compile(r"^--- [^\n]* ---\n", re.MULTILINE)
+
+
+def _tech_analyses_from_row(raw_text) -> list[dict]:
+    """Per-symbol rows of a logged tech_analyst `full_response`, read the way the seat writes it.
+
+    The seat answers `{"results": [...]}` and reads that with
+    `AgentResult.parse_json_rows(list_field="results")`; a batch of several
+    chunks is logged as "--- chunk i/n ---" sections, each one such answer.
+    Every section goes through that same parser; older shapes (bare list,
+    "analyses" wrapper, symbol-keyed dict) still go through
+    `_tech_analyses_from_data`.
+    """
+    from src.agents.base import AgentResult
+
+    text = raw_text if isinstance(raw_text, str) else ""
+    parts = [p for p in _LOG_PART_MARKER.split(text) if p.strip()] or [text]
+    out: list[dict] = []
+    for part in parts:
+        salvage = AgentResult(raw_text=part, tokens_used=0, model="").parse_json_rows(list_field="results")
+        for row in salvage.rows if salvage else []:
+            out.extend([row] if isinstance(row, dict) and "symbol" in row else _tech_analyses_from_data(row))
+    return out
+
+
 def _count_tech_signals(db: "Database", period_start: date, period_end: date) -> dict:
     counts: Counter = Counter()
     distinct_syms_buy: set[str] = set()
-    for _, data in _iter_agent_logs_in_window(
+    for row, _data in _iter_agent_logs_in_window(
         db,
         "tech_analyst",
         period_start,
         period_end,
         limit_hint=500,
     ):
-        for a in _tech_analyses_from_data(data):
+        for a in _tech_analyses_from_row(row.get("full_response")):
             rating = (a.get("rating") or "").strip()
             if rating:
                 counts[rating] += 1
