@@ -691,6 +691,7 @@ class MissedOpsSignals:
         macro_sector_map = self._missed_ops_macro_sector_map()
 
         snapshots: list = []
+        thin_cut: list[tuple[str, float, float]] = []
         for sym, move_pct in candidates.items():
             if sym in universe_set and sym in top_mover_syms:
                 source = "both"
@@ -714,6 +715,7 @@ class MissedOpsSignals:
                     avg_dvol_m,
                     min_top_mover_dollar_volume_m,
                 )
+                thin_cut.append((sym, move_pct, avg_dvol_m))
                 continue
 
             ta_rating, ta_date = tech_map.get(sym, (None, None))
@@ -794,6 +796,7 @@ class MissedOpsSignals:
         # held name. Held positions still get full coverage via
         # thesis_health_review — they don't need a "missed" entry.
         snapshots = [s for s in snapshots if not s.held_during_window]
+        before_top_n = len(snapshots)
 
         def _priority_key(s) -> tuple:
             any_signal = s.had_ta_signal or s.had_news_signal or s.had_earnings_signal
@@ -801,4 +804,25 @@ class MissedOpsSignals:
             return (group, -abs(s.move_pct))
 
         snapshots.sort(key=_priority_key)
+        # Record-only (governs nothing): how much each made-up cut removed.
+        top_n_cut = [
+            (s.symbol, s.move_pct, s.avg_dollar_volume_20d_m) for s in snapshots[top_n:]
+        ]
+        logger.info(
+            "missed_ops_digest_cut_record top_movers_count=%d top_movers_returned=%d "
+            "min_top_mover_dollar_volume_m=%s candidates=%d dollar_volume_cut=%d "
+            "before_top_n=%d top_n=%d kept=%d top_n_cut=%d "
+            "dollar_volume_cut_rows=%s top_n_cut_rows=%s",
+            top_movers_count,
+            len(top_mover_syms),
+            min_top_mover_dollar_volume_m,
+            len(candidates),
+            len(thin_cut),
+            before_top_n,
+            top_n,
+            min(before_top_n, top_n),
+            len(top_n_cut),
+            [(sym, mv, dv) for sym, mv, dv in sorted(thin_cut)[:30]],
+            top_n_cut[:30],
+        )
         return snapshots[:top_n]
