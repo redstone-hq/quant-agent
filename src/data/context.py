@@ -174,7 +174,7 @@ def _pct_change(bars: list[OHLCV], horizon: pd.DateOffset) -> float | None:
     return round((float(bars[-1].close) - past) / past * 100.0, 2)
 
 
-def _ma_change_atr(closes: np.ndarray, period: int, atr_now: float | None) -> float | None:
+def _ma_daily_change(closes: np.ndarray, period: int, atr_now: float | None) -> float | None:
     """Today's simple MA minus the prior session's, in units of the current ATR.
 
     'Price above MA50' says little on its own; 'price above a *rising* MA50'
@@ -457,9 +457,9 @@ def compute_market_context(
         atr_pct=atr_pct,
         atr_percentile_1y=atr_percentile,
         volatility_state=volatility_state,
-        ma20_change_atr=_ma_change_atr(closes, 20, atr_now),
-        ma50_change_atr=_ma_change_atr(closes, 50, atr_now),
-        ma200_change_atr=_ma_change_atr(closes, 200, atr_now),
+        ma20_change_atr=_ma_daily_change(closes, 20, atr_now),
+        ma50_change_atr=_ma_daily_change(closes, 50, atr_now),
+        ma200_change_atr=_ma_daily_change(closes, 200, atr_now),
         is_consolidating=is_consolidating,
         consolidation_high=round(cons_high, 2) if cons_high else None,
         consolidation_low=round(cons_low, 2) if cons_low else None,
