@@ -1373,9 +1373,10 @@ numbers:
         retires the cap rather than re-deriving it.
   - id: src.config.SmartMoneyConfig.max_filings_per_refresh
     value: 1000
-    status: arbitrary
+    status: not-trade-governing
     site: src/config/smart_money.py
     note: >-
+      RECLASSIFIED 2026-10-18 as technical plumbing, status not-trade-governing. The SEC fair-access limit is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data). This limit bounds only the market-wide Form 4 crawl for external candidate nomination and decides no trade. The earlier text below is kept as history.
       CORRECTION 2026-09-18. This entry read `not-trade-governing`, with the
       note "it decides how long the desk waits or how much it fetches, never
       whether or how much to trade". That sentence was falsified the same
@@ -1470,33 +1471,6 @@ numbers:
       saying the cap bound cannot distinguish a true demand of 1000 from one
       of 2000. Stopped at two attempts: the recording below is what would
       settle it.
-    open_question: >-
-      How many DISTINCT Form 4 accessions are filed on a busy day, and what
-      cap does that imply for market-wide reading -- read off
-      `busiest_day_total`, now recorded, rather than chosen?
-    cost_while_unanswered: >-
-      Set too low, the desk reads less of the wider market's insider flow
-      than it could, so external candidate nomination sees fewer names.
-      Since 2026-09-18 this no longer starves the desk's own names or
-      refuses decisions: the watched drain covers those separately. Set too
-      high, the refresh exceeds its deadline and reads less, not more.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
-        routing pass, which specifies each recording field by name
-      records: >-
-        per refresh, the pre-cap DEMAND rather than the boolean that exists
-        today: how many filings the discovery scan would have returned had the
-        cap not bound, how long the scan would have run had the deadline not
-        cut it, and how many external candidates cleared the admission screen
-        before the nomination cap truncated them.
-      closes_when: >-
-        enough refreshes accumulate to show the distribution of demand against
-        each cap, so the cap is set where it stops discarding evidence the
-        desk would otherwise have used -- or is shown never to bind, which
-        retires the cap rather than re-deriving it.
   - id: src.config.SmartMoneyConfig.max_observations
     value: 40
     status: arbitrary
@@ -1561,9 +1535,10 @@ numbers:
       a correction to it. No value changed.
   - id: src.config.SmartMoneyConfig.refresh_deadline_s
     value: 180
-    status: arbitrary
+    status: not-trade-governing
     site: src/config/smart_money.py
     note: >-
+      RECLASSIFIED 2026-10-18 as technical plumbing, status not-trade-governing. The deadline is a schedule slot for the pre-market refresh; it decides when that refresh stops, not what the desk trades. The earlier text below is kept as history.
       CORRECTION 2026-09-18. This entry read `not-trade-governing`, with the
       note "it decides how long the desk waits or how much it fetches, never
       whether or how much to trade" -- the identical sentence corrected as
@@ -1601,34 +1576,6 @@ numbers:
       saying the cap bound cannot distinguish a true demand of 1000 from one
       of 2000. Stopped at two attempts: the recording below is what would
       settle it.
-    open_question: >-
-      What is the right network budget for one pre-market refresh plus a
-      watched-name drain -- read off the measured time to read the desk's
-      own residue, not chosen? Note this is a budget belonging to the
-      caller, so it must NOT be derived from EDGAR filing volume; that
-      would make a property of the market decide how long the desk waits.
-    cost_while_unanswered: >-
-      Set too low, the pre-market drain cannot finish, the watermark does
-      not advance, and the pre-open check reports that the desk will refuse
-      to decide all day. Set too high, a stuck SEC endpoint delays the
-      pre-market path by up to this many seconds per refresh.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
-        routing pass, which specifies each recording field by name
-      records: >-
-        per refresh, the pre-cap DEMAND rather than the boolean that exists
-        today: how many filings the discovery scan would have returned had the
-        cap not bound, how long the scan would have run had the deadline not
-        cut it, and how many external candidates cleared the admission screen
-        before the nomination cap truncated them.
-      closes_when: >-
-        enough refreshes accumulate to show the distribution of demand against
-        each cap, so the cap is set where it stops discarding evidence the
-        desk would otherwise have used -- or is shown never to bind, which
-        retires the cap rather than re-deriving it.
   - id: src.config.SmartMoneyConfig.watched_drain_deadline_s
     value: 859
     status: sourced
@@ -2601,9 +2548,7 @@ numbers:
       UNDER-deployment only. CORRECTION 2026-09-18: the first version put
       "fully invested" in quotation marks as text at this site; it is not
       there.
-  - cost_while_unanswered: A ratified owner table of fixed percentages; the desk carries this as accepted
-      appetite pending a measurement of the account's own recovery behaviour.
-    id: src.risk.gross_ladder.GROSS_LADDER[0][0]
+  - id: src.risk.gross_ladder.GROSS_LADDER[0][0]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2623,23 +2568,13 @@ numbers:
       reintroducing full liquidation, and a gap-survival re-derivation for importing an unmeasurable
       gap assumption. Ratified, not sourced: the rung percentages and multiples are round numbers,
       not read off the account.'
-    open_question: What peak-to-trough drawdown marks the first rung at which gross exposure should
-      come down?
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: -8
-  - cost_while_unanswered: As above.
-    id: src.risk.gross_ladder.GROSS_LADDER[0][1]
+  - id: src.risk.gross_ladder.GROSS_LADDER[0][1]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2657,22 +2592,13 @@ numbers:
       were adversary-REJECTED - a Grossman-Zhou hard-zero rung for reintroducing full liquidation,
       and a gap-survival re-derivation for importing an unmeasurable gap assumption. Ratified, not
       sourced: the rung percentages and multiples are round numbers, not read off the account.'
-    open_question: And what gross multiple is right at that rung?
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: 1.5
-  - cost_while_unanswered: As above.
-    id: src.risk.gross_ladder.GROSS_LADDER[1][0]
+  - id: src.risk.gross_ladder.GROSS_LADDER[1][0]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2690,23 +2616,13 @@ numbers:
       were adversary-REJECTED - a Grossman-Zhou hard-zero rung for reintroducing full liquidation,
       and a gap-survival re-derivation for importing an unmeasurable gap assumption. Ratified, not
       sourced: the rung percentages and multiples are round numbers, not read off the account.'
-    open_question: The second rung's drawdown trigger.
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: -15
-  - cost_while_unanswered: Part of a ratified owner table of fixed percentages; carried as accepted
-      appetite pending a measurement of this book's own recovery record.
-    id: src.risk.gross_ladder.GROSS_LADDER[1][1]
+  - id: src.risk.gross_ladder.GROSS_LADDER[1][1]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2723,23 +2639,13 @@ numbers:
       exclusion. Owner-ratified appetite 2026-09-25 (delegated to the adversary) as part of the deliberate
       never-liquidate ladder; kept as-is (the Grossman-Zhou hard-zero and gap-survival reformulations
       were both adversary-REJECTED).'
-    open_question: At what peak-to-trough drawdown should leverage go to zero, on this book's own
-      recovery record?
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: 1
-  - cost_while_unanswered: As above, and this is the rung that halves the book.
-    id: src.risk.gross_ladder.GROSS_LADDER[2][0]
+  - id: src.risk.gross_ladder.GROSS_LADDER[2][0]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2757,22 +2663,13 @@ numbers:
       were adversary-REJECTED - a Grossman-Zhou hard-zero rung for reintroducing full liquidation,
       and a gap-survival re-derivation for importing an unmeasurable gap assumption. Ratified, not
       sourced: the rung percentages and multiples are round numbers, not read off the account.'
-    open_question: The third rung's drawdown trigger.
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: -20
-  - cost_while_unanswered: As above.
-    id: src.risk.gross_ladder.GROSS_LADDER[2][1]
+  - id: src.risk.gross_ladder.GROSS_LADDER[2][1]
     note: 'OWNER APPETITE, declared 2026-10-02 (fix #4, first slice). The rung''s drawdown trigger
       and its leverage ceiling are preferences, not measurements, and the `measurement` route previously
       attached to this row was a wish that could never close: no measurement of gaps, correlations
@@ -2790,19 +2687,11 @@ numbers:
       - a Grossman-Zhou hard-zero rung for reintroducing full liquidation, and a gap-survival re-derivation
       for importing an unmeasurable gap assumption. Ratified, not sourced: the rung percentages and
       multiples are round numbers, not read off the account.'
-    open_question: And the gross multiple at the floor rung.
-    settles_by:
-      closes_when: the owner answers the plain-language question in this entry and the answer is recorded
-        with its reason, at which point the row becomes a ratified structural bound rather than an
-        unanswered one; no amount of market data closes it
-      kind: ratified-bound
-      records: the owner's ratified value, the plain-language question it answers, and the fact that
-        the quantity is a preference rather than an observable, so no later reader re-opens it as
-        a measurement that was never possible
-      state: specified
-      where: docs/board_notes/item-090.md (item 90, the 2026-10-01 tranche-five pass over src/risk)
     site: src/risk/gross_ladder.py
-    status: arbitrary
+    status: owner-ruled
+    ruled_on: '2026-10-02'
+    ruling_summary: "Owner declared the de-levering ladder rungs and per-rung gross multiples as risk appetite on 2026-10-02, and kept them as-is on 2026-09-25 after two adversary-rejected reformulations."
+    ruling_record: "docs/board_notes/item-090.md (owner appetite, item 90); the owner declaration of 2026-10-02 is quoted in the row note"
     value: 0.5
   - id: src.risk.gross_ladder.GROSS_LADDER_ALERT_PCT
     value: -10
@@ -5169,9 +5058,10 @@ numbers:
       skippable.
   - id: src.trading_calendar._PHASE_SPECS['morning'][3]
     value: 150
-    status: arbitrary
+    status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      RECLASSIFIED 2026-10-18 as schedule plumbing, status not-trade-governing. This is a run-acceptance window for a scheduled job: it decides when a review runs, not what the review decides. The earlier text below is kept as history.
       Now held as an offset from the session open (open +150 minutes), so the normal-day
       12:00 ET (minute 720) is derived from it, not typed. Moved from SESSION_WINDOWS['morning'][1]; source and
       classification unchanged.
@@ -5182,36 +5072,12 @@ numbers:
       no intraday session clock at all, so a sweep of this value would return
       identical results for the WRONG reason -- the value never reaches any
       code the engine runs. No settlement is recorded here.
-    open_question: >-
-      Measure, over the recorded session log, the distribution of the minute at which the morning stage actually finishes, and set the bound from the observed tail rather than from a round noon.
-    cost_while_unanswered: >-
-      A morning run that overruns noon is cut off or silently spills into the midday seat; nobody knows how often, because the finishing minute is not recorded per run.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        NOT BUILT. It would record, for every scheduled session the desk runs,
-        the wall-clock ET minute at which the stage started and finished, and
-        for the pre-open window the publication minute of every earnings
-        release the desk consumed that morning.
-      records: >-
-        the start and finish minute of every scheduled stage run, and the
-        publication minute of each consumed pre-market earnings release, so a
-        window bound can be read off the observed tail of those distributions
-        instead of chosen as a round clock time, and so an overrun or a missed
-        release is counted rather than assumed rare.
-      closes_when: >-
-        the recording has covered enough sessions to show the distribution of
-        stage finish minutes and release publication minutes, at which point
-        each bound is re-derived from its own tail and this row is replaced by
-        a measured value or by a read-at-run-time rule. The backtest engine
-        cannot close it: that engine steps daily bars and models no intraday
-        session clock, so these minutes never reach code it runs.
   - id: src.trading_calendar._PHASE_SPECS['midday'][1]
     value: -180
-    status: arbitrary
+    status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      RECLASSIFIED 2026-10-18 as schedule plumbing, status not-trade-governing. This is a run-acceptance window for a scheduled job: it decides when a review runs, not what the review decides. The earlier text below is kept as history.
       Now held as an offset from the session close (close -180 minutes), so the normal-day
       13:00 ET (minute 780) is derived from it, not typed. Moved from SESSION_WINDOWS['midday'][0]; source and
       classification unchanged.
@@ -5222,36 +5088,12 @@ numbers:
       no intraday session clock at all, so a sweep of this value would return
       identical results for the WRONG reason -- the value never reaches any
       code the engine runs. No settlement is recorded here.
-    open_question: >-
-      Measure whether a position review at this hour sees information a 12:00 or 14:00 review would not, from recorded intraday snapshots on the same days.
-    cost_while_unanswered: >-
-      The patient reviewer may be looking at the quietest hour of the session or the busiest; the desk cannot say which, so it cannot say what the review is worth.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        NOT BUILT. It would record, for every scheduled session the desk runs,
-        the wall-clock ET minute at which the stage started and finished, and
-        for the pre-open window the publication minute of every earnings
-        release the desk consumed that morning.
-      records: >-
-        the start and finish minute of every scheduled stage run, and the
-        publication minute of each consumed pre-market earnings release, so a
-        window bound can be read off the observed tail of those distributions
-        instead of chosen as a round clock time, and so an overrun or a missed
-        release is counted rather than assumed rare.
-      closes_when: >-
-        the recording has covered enough sessions to show the distribution of
-        stage finish minutes and release publication minutes, at which point
-        each bound is re-derived from its own tail and this row is replaced by
-        a measured value or by a read-at-run-time rule. The backtest engine
-        cannot close it: that engine steps daily bars and models no intraday
-        session clock, so these minutes never reach code it runs.
   - id: src.trading_calendar._PHASE_SPECS['midday'][3]
     value: -90
-    status: arbitrary
+    status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      RECLASSIFIED 2026-10-18 as schedule plumbing, status not-trade-governing. This is a run-acceptance window for a scheduled job: it decides when a review runs, not what the review decides. The earlier text below is kept as history.
       Now held as an offset from the session close (close -90 minutes), so the normal-day
       14:30 ET (minute 870) is derived from it, not typed. Moved from SESSION_WINDOWS['midday'][1]; source and
       classification unchanged.
@@ -5262,36 +5104,12 @@ numbers:
       no intraday session clock at all, so a sweep of this value would return
       identical results for the WRONG reason -- the value never reaches any
       code the engine runs. No settlement is recorded here.
-    open_question: >-
-      Same measurement as the window's start: the bound should fall out of when the review's inputs stop changing, not from a round 90 minutes.
-    cost_while_unanswered: >-
-      Same as the start bound: a review window chosen for roundness, with no recorded evidence that 90 minutes is enough or too much.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        NOT BUILT. It would record, for every scheduled session the desk runs,
-        the wall-clock ET minute at which the stage started and finished, and
-        for the pre-open window the publication minute of every earnings
-        release the desk consumed that morning.
-      records: >-
-        the start and finish minute of every scheduled stage run, and the
-        publication minute of each consumed pre-market earnings release, so a
-        window bound can be read off the observed tail of those distributions
-        instead of chosen as a round clock time, and so an overrun or a missed
-        release is counted rather than assumed rare.
-      closes_when: >-
-        the recording has covered enough sessions to show the distribution of
-        stage finish minutes and release publication minutes, at which point
-        each bound is re-derived from its own tail and this row is replaced by
-        a measured value or by a read-at-run-time rule. The backtest engine
-        cannot close it: that engine steps daily bars and models no intraday
-        session clock, so these minutes never reach code it runs.
   - id: src.trading_calendar._PHASE_SPECS['earnings_preprocess'][1]
     value: -90
-    status: arbitrary
+    status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      RECLASSIFIED 2026-10-18 as schedule plumbing, status not-trade-governing. This is a run-acceptance window for a scheduled job: it decides when a review runs, not what the review decides. The earlier text below is kept as history.
       Now held as an offset from the session open (open -90 minutes), so the normal-day
       08:00 ET (minute 480) is derived from it, not typed. Moved from SESSION_WINDOWS['earnings_preprocess'][0]; source and
       classification unchanged.
@@ -5302,36 +5120,12 @@ numbers:
       no intraday session clock at all, so a sweep of this value would return
       identical results for the WRONG reason -- the value never reaches any
       code the engine runs. No settlement is recorded here.
-    open_question: >-
-      Measure the publication-time distribution of the pre-market earnings releases the desk actually consumes, and start the window at the tail of that distribution.
-    cost_while_unanswered: >-
-      A release published before 08:00 ET is missed for that session; the desk does not count those misses, so the exposure is unmeasured rather than known-small.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        NOT BUILT. It would record, for every scheduled session the desk runs,
-        the wall-clock ET minute at which the stage started and finished, and
-        for the pre-open window the publication minute of every earnings
-        release the desk consumed that morning.
-      records: >-
-        the start and finish minute of every scheduled stage run, and the
-        publication minute of each consumed pre-market earnings release, so a
-        window bound can be read off the observed tail of those distributions
-        instead of chosen as a round clock time, and so an overrun or a missed
-        release is counted rather than assumed rare.
-      closes_when: >-
-        the recording has covered enough sessions to show the distribution of
-        stage finish minutes and release publication minutes, at which point
-        each bound is re-derived from its own tail and this row is replaced by
-        a measured value or by a read-at-run-time rule. The backtest engine
-        cannot close it: that engine steps daily bars and models no intraday
-        session clock, so these minutes never reach code it runs.
   - id: src.trading_calendar._PHASE_SPECS['earnings_preprocess'][3]
     value: -15
-    status: arbitrary
+    status: not-trade-governing
     site: src/trading_calendar.py
     note: >-
+      RECLASSIFIED 2026-10-18 as schedule plumbing, status not-trade-governing. This is a run-acceptance window for a scheduled job: it decides when a review runs, not what the review decides. The earlier text below is kept as history.
       Now held as an offset from the session open (open -15 minutes), so the normal-day
       09:15 ET (minute 555) is derived from it, not typed. Moved from SESSION_WINDOWS['earnings_preprocess'][1]; source and
       classification unchanged.
@@ -5342,31 +5136,6 @@ numbers:
       no intraday session clock at all, so a sweep of this value would return
       identical results for the WRONG reason -- the value never reaches any
       code the engine runs. No settlement is recorded here.
-    open_question: >-
-      Measure how long the preprocessing stage actually takes against how much of the 15-minute pre-open cushion it leaves, from the recorded stage durations.
-    cost_while_unanswered: >-
-      If preprocessing overruns 09:15 the morning stage starts without its earnings inputs; the overrun is not counted, so the frequency is unknown.
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        NOT BUILT. It would record, for every scheduled session the desk runs,
-        the wall-clock ET minute at which the stage started and finished, and
-        for the pre-open window the publication minute of every earnings
-        release the desk consumed that morning.
-      records: >-
-        the start and finish minute of every scheduled stage run, and the
-        publication minute of each consumed pre-market earnings release, so a
-        window bound can be read off the observed tail of those distributions
-        instead of chosen as a round clock time, and so an overrun or a missed
-        release is counted rather than assumed rare.
-      closes_when: >-
-        the recording has covered enough sessions to show the distribution of
-        stage finish minutes and release publication minutes, at which point
-        each bound is re-derived from its own tail and this row is replaced by
-        a measured value or by a read-at-run-time rule. The backtest engine
-        cannot close it: that engine steps daily bars and models no intraday
-        session clock, so these minutes never reach code it runs.
   - id: src.trading_calendar._PHASE_SPECS['evening'][1]
     value: 240
     status: not-trade-governing
