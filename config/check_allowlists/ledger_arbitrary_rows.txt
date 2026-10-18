@@ -5,7 +5,6 @@ src.agents.smart_money_analyst._MAX_ACTOR_ROLES
 src.agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS
 src.agents.smart_money_analyst._MAX_REASON_TEXT_CHARS
 src.agents.tech_analyst._BARS_PER_SYMBOL
-src.config.EventRiskConfig.horizon_days
 src.config.ExecutionConfig.max_entry_slippage_bps
 src.config.NominationConfig.max_per_seat_per_run
 src.config.RiskConfig.max_target_horizon_sessions

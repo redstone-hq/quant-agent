@@ -46,7 +46,9 @@ class RiskReasoningChain(LLMOutputModel):
     )  # setup-aware since 2026-09-11: breakouts carry no R/R judgement; a range trade's real ratio is an input, not a floor
     signal_fidelity: str = Field(min_length=1)  # does PM's action align with Tech/Macro/News? silent contradictions?
     correlation_check: str = Field(min_length=1)  # any hidden cluster / factor concentration across decisions?
-    event_risk: str = Field(min_length=1)  # earnings / FOMC / macro events in the coming 3 days affecting these names?
+    event_risk: str = Field(
+        min_length=1
+    )  # fetched earnings dates for these names (information only; scheduled economic releases are not an input, owner ruling 2026-10-18)
     sizing_sanity: str = Field(min_length=1)  # is size proportional to conviction and R/R? any outsized bet?
     overall: str = Field(min_length=1)  # final synthesis and why approved/rejected/modified
 

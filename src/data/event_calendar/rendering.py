@@ -165,16 +165,13 @@ def format_macro_events_section(
 def format_event_risk_block(
     *,
     earnings: list[EarningsProximity] | None,
-    events: list[MacroEvent] | None,
-    coverage: EventCalendarCoverage | None,
-    horizon_days: int,
-    fomc_meetings: list[FOMCMeeting] | None = None,
-    fomc_coverage: FOMCCoverage | None = None,
 ) -> str:
     """The Event Risk section the Risk Manager reads instead of its memory.
 
-    Earnings proximity per symbol under review, then the shared macro-release
-    section. Same absence discipline throughout.
+    Earnings proximity per symbol under review, information only. Scheduled
+    economic releases (CPI, jobs report, FOMC) are deliberately NOT rendered
+    here: owner ruling 2026-10-18 — they must not shape buy or risk decisions;
+    stops cover event risk.
     """
     lines = [
         "## Event Risk — FETCHED DATA (do NOT answer this from memory)",
@@ -182,7 +179,7 @@ def format_event_risk_block(
         "Everything below was fetched this run. Where a line says UNAVAILABLE, "
         "UNKNOWN or NOT COVERED, that is the answer — say so plainly in "
         "`reasoning_chain.event_risk` rather than substituting a date you "
-        "recall. A remembered earnings or release date is a fabricated figure.",
+        "recall. A remembered earnings date is a fabricated figure.",
         "",
         "### Next scheduled earnings, per symbol under review",
     ]
@@ -201,24 +198,4 @@ def format_event_risk_block(
             "any symbol under review. This is an absence of data, NOT a "
             "confirmation that no name reports soon."
         )
-
-    lines.append("")
-    # No horizon is quoted when nothing was fetched — "the next 0 calendar
-    # days" would be a number describing a window that was never queried.
-    heading = (
-        "### Scheduled US macro releases"
-        if coverage is None
-        else f"### Scheduled US macro releases, next {horizon_days} calendar days"
-    )
-    return (
-        "\n".join(lines)
-        + "\n"
-        + format_macro_events_section(
-            events,
-            coverage,
-            horizon_days,
-            heading=heading,
-            fomc_meetings=fomc_meetings,
-            fomc_coverage=fomc_coverage,
-        )
-    )
+    return "\n".join(lines) + "\n"

@@ -12,8 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
-    EventCalendarCoverage,
-    FOMCCoverage,
     MacroCoverage,
     NewsIntelligenceReport,
     PaidAnalysisSuspended,
@@ -39,7 +37,6 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
 from src.data.smart_money_cluster import find_cluster_census
 from src.nomination_evidence import persist_nomination_summary
 from src.stage_risk import _persist_dropped_reasons  # noqa: F401  moved with RiskStage
-from src.data.event_calendar.upcoming import fetch_upcoming
 from src.sentinel.morning_guarded import record_morning_fault
 
 if TYPE_CHECKING:
@@ -51,10 +48,6 @@ if TYPE_CHECKING:
     from src.data.smart_money import SmartMoneySource
     from src.config import AppConfig
     from src.data.earnings import EarningsDataProvider
-    from src.data.event_calendar import (
-        FOMCCalendarProvider,
-        MacroEventCalendarProvider,
-    )
     from src.data.macro import MacroDataProvider
     from src.data.macro_store import MacroStore
     from src.data.market import MarketDataProvider
@@ -100,8 +93,6 @@ class MorningResearchStage:
         admit_smart_money_candidates_fn=None,
         admit_nominated_candidates_fn=None,
         admit_screened_universe_fn=None,
-        event_calendar: "MacroEventCalendarProvider | None" = None,
-        fomc_calendar: "FOMCCalendarProvider | None" = None,
         live_session_context_fn=None,
     ):
         self.config = config
@@ -112,15 +103,6 @@ class MorningResearchStage:
         # keep working; absent means "no live price" (pre-2026-09-14).
         self._live_session_context = live_session_context_fn
         self.macro = macro
-        # Optional so every existing construction site (tests, the
-        # commissioning verifier) keeps working; when absent, the macro seat is
-        # told the calendar was NOT FETCHED rather than being shown an empty
-        # one it would read as "no events scheduled".
-        self.event_calendar = event_calendar
-        # Same optionality and the same reason: absent, the seats are told the
-        # FOMC calendar was NOT FETCHED rather than shown an empty schedule
-        # that reads as "no Fed decision coming".
-        self.fomc_calendar = fomc_calendar
         self.news_provider = news_provider
         self.news_store = news_store
         self.macro_store = macro_store
@@ -359,30 +341,12 @@ class MorningResearchStage:
                 macro_summary.get("inflation", {}).get("core_cpi_yoy"),
                 macro_summary.get("unemployment", {}).get("current"),
             )
-            # Forward calendar of scheduled macro releases. Fetched here, in
-            # the same background worker as the macro summary, so it shares the
-            # research fan-out's wall clock instead of adding to the critical
-            # path — and its own hard deadline (event_risk.calendar_deadline_s)
-            # bounds it independently. A failure NEVER propagates: the seat is
-            # shown the coverage line and told the calendar is impaired, which
-            # is the whole point of fetching it.
-            macro_events, event_coverage, fomc_meetings, fomc_coverage = fetch_upcoming(
-                self.event_calendar,
-                self.fomc_calendar,
-                self.config.event_risk.horizon_days,
-                lambda where, exc: record_morning_fault(self, where, exc),
-            )
             analysis, result = self.macro_analyst.analyze(
                 macro_summary=macro_summary,
                 universe=effective_symbols,
                 last_state=prior_macro_state,
                 news_narrative=news_narrative,
                 macro_coverage=macro_coverage,
-                macro_events=macro_events,
-                event_coverage=event_coverage,
-                event_horizon_days=self.config.event_risk.horizon_days,
-                fomc_meetings=fomc_meetings,
-                fomc_coverage=fomc_coverage,
             )
             if analysis is not None and macro_coverage is not None:
                 # Board item 119, second criterion. Stamp the fetch record
@@ -426,10 +390,6 @@ class MorningResearchStage:
                 analysis,
                 result,
                 macro_coverage,
-                macro_events,
-                event_coverage,
-                fomc_meetings,
-                fomc_coverage,
             )
 
         # Filled by `_run_news` below (same thread-pool fan-out), read after
@@ -886,10 +846,6 @@ class MorningResearchStage:
                 macro_analysis,
                 ma_result,
                 macro_coverage,
-                macro_events,
-                event_coverage,
-                fomc_meetings,
-                fomc_coverage,
             ) = macro_future.result()
             # A test double / older caller may hand back something other
             # than a real MacroCoverage (e.g. a bare MagicMock attribute
@@ -906,56 +862,14 @@ class MorningResearchStage:
             ctx.macro_summary = macro_summary
             ctx.macro_analysis = macro_analysis
             ctx.macro_coverage = macro_coverage
-            # Carried on ctx so RiskStage reuses this run's calendar instead of
-            # re-fetching it (one FRED sweep per session, not two). Same
-            # test-double guard as macro_coverage above: anything that is not
-            # the real dataclass reads as "not fetched", which the renderer
-            # states explicitly rather than showing as an empty calendar.
-            if not isinstance(event_coverage, EventCalendarCoverage):
-                event_coverage = None
-                macro_events = []
-            ctx.macro_events = list(macro_events or [])
-            ctx.macro_event_coverage = event_coverage
             # Board item 187: durable per-open coverage record, so the item
             # closes on observed rows rather than on someone reading logs.
             try:
                 from src.data.fetch_coverage_record import build_row
 
-                self.db.insert_fred_fetch_coverage_run(build_row(ctx.run_id, macro_coverage, event_coverage))
+                self.db.insert_fred_fetch_coverage_run(build_row(ctx.run_id, macro_coverage, None))
             except Exception as e:  # noqa: BLE001 — telemetry never costs the run
                 record_morning_fault(self, "fred_coverage_row", e)
-            # Same test-double guard, same reason: anything that is not the
-            # real dataclass reads as NOT FETCHED, which the renderer states
-            # outright rather than showing as an empty FOMC schedule.
-            if not isinstance(fomc_coverage, FOMCCoverage):
-                fomc_coverage = None
-                fomc_meetings = []
-            ctx.fomc_meetings = list(fomc_meetings or [])
-            ctx.fomc_coverage = fomc_coverage
-            if event_coverage is not None and event_coverage.status != "ok":
-                # Deliberately NOT written into `data_status`. Every key in
-                # that dict feeds the `data_degraded` advisory's ">= 2 degraded
-                # sources" arithmetic (below), and a release whose next date the
-                # source agency has simply not published yet is a normal,
-                # recurring "partial" — adding it would move an existing gate's
-                # threshold as a side effect of this change. The seats are told
-                # through their own event-risk block, which is where the fact
-                # can actually be acted on; the operator gets this log line.
-                logger.warning(
-                    "Macro event calendar %s this run: %s",
-                    event_coverage.status.upper(),
-                    event_coverage.describe(),
-                )
-            if fomc_coverage is not None and not fomc_coverage.measured:
-                # Same reasoning as the line above — the seats are told in
-                # their own block; this is the operator's copy. Kept out of
-                # `data_status` so it cannot move the `data_degraded`
-                # threshold as a side effect.
-                logger.warning(
-                    "FOMC calendar %s this run: %s",
-                    fomc_coverage.status.upper(),
-                    fomc_coverage.describe(),
-                )
             if macro_coverage is not None:
                 _persist_evidence(
                     self.db,

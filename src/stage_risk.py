@@ -23,8 +23,6 @@ from src.stage_risk_helpers import (  # noqa: F401  re-exported: callers import 
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
     Any,
     DROP_CODE_UNSPECIFIED,
-    EventCalendarCoverage,
-    FOMCCoverage,
     RunContext,
     SOFT_EXIT_MISSING_AFTER_RETRY,
     _ANALYSIS_DROP_KIND,
@@ -71,56 +69,21 @@ if TYPE_CHECKING:
     from src.pipeline import TradingPipeline
 
 
-def _fetched_event_matches(event_text: str, ctx: RunContext, horizon_days: int) -> bool:
-    """True when `event_text` names a macro release or FOMC meeting that was
-    actually FETCHED onto this run's context and lands inside the horizon.
-
-    A name matches on the fetched event's ISO date (any day of an FOMC
-    meeting). The label is not required: a reworded label ("Consumer Price
-    Index" for "CPI") must not void a block on a real release — the seat keeps
-    its veto. Nothing fetched (resume lane, failed sweep)
-    means nothing can match: an event the desk never fetched cannot justify
-    blocking a trade.
-    """
-    from datetime import timedelta
-
-    from src.trading_calendar import et_today
-
-    text = (event_text or "").casefold()
-    today = et_today()
-    horizon_end = today + timedelta(days=max(0, int(horizon_days)))
-    for ev in ctx.macro_events or []:
-        when = getattr(ev, "event_date", None)
-        if when is None or not today <= when <= horizon_end:
-            continue
-        if when.isoformat() in text:
-            return True
-    for meeting in ctx.fomc_meetings or []:
-        if meeting.end_date < today or not meeting.intersects(today, horizon_end):
-            continue
-        days = (meeting.end_date - meeting.start_date).days
-        if any((meeting.start_date + timedelta(days=i)).isoformat() in text for i in range(days + 1)):
-            return True
-    return False
-
-
 def _refuse_unverified_event_blocks(pipeline, ctx: RunContext, verdict) -> dict[str, str]:
     """`{SYMBOL: reason}` for the verdict's per-symbol refusals that may be
     APPLIED, first entry winning on a duplicated symbol (the same contract as
     `rejections_by_symbol`).
 
     Owner rulings: the risk seat KEEPS its power to block a buy it judges
-    risky (2026-10-16), and earnings never resize or block a trade. An
-    `event_risk` entry is therefore applied only when its named `event`
-    matches a fetched macro release / FOMC meeting inside the horizon; any
-    other is refused — logged at warning and recorded durably, the same
-    mechanism as the protective-exit guard — and the trade proceeds. Measured
-    breach this closes: 2026-10-15 17:17 UTC, a buy blocked on an earnings
-    date ~3 sessions away under `event_risk`. Every other category is applied
-    as before.
+    risky (2026-10-16); earnings never resize or block a trade; and scheduled
+    economic releases (CPI, jobs report, FOMC) must not shape buy or risk
+    decisions (2026-10-18 — stops cover event risk). An `event_risk` entry
+    therefore has nothing left that can justify it: it is refused — logged at
+    warning and recorded durably, the same mechanism as the protective-exit
+    guard — and the trade proceeds. Measured breach the earnings half closed:
+    2026-10-15 17:17 UTC, a buy blocked on an earnings date ~3 sessions away
+    under `event_risk`. Every other category is applied as before.
     """
-    event_cfg = getattr(getattr(pipeline, "config", None), "event_risk", None)
-    horizon_days = getattr(event_cfg, "horizon_days", 10)
     out: dict[str, str] = {}
     for rejection in verdict.rejected_symbols:
         category = getattr(rejection, "category", None)
@@ -141,14 +104,13 @@ def _refuse_unverified_event_blocks(pipeline, ctx: RunContext, verdict) -> dict[
                 rejection.reason,
                 gate="risk_manager_category_missing",
             )
-        if category == "event_risk" and not _fetched_event_matches(event or "", ctx, horizon_days):
+        if category == "event_risk":
             logger.warning(
-                "Risk manager blocked %s as event_risk naming %r, which matches no fetched macro "
-                "release or FOMC meeting inside the %s-day horizon — refusal IGNORED, trade "
-                "proceeds (earnings never block a trade). Reason given: %s",
+                "Risk manager blocked %s as event_risk naming %r — refusal IGNORED, trade "
+                "proceeds (neither earnings nor a scheduled economic release blocks a trade). "
+                "Reason given: %s",
                 rejection.symbol,
                 event,
-                horizon_days,
                 rejection.reason,
             )
             _record_pipeline_event(
@@ -172,8 +134,7 @@ class RiskStage:
     Reads:  ctx.portfolio_decision, ctx.positions, ctx.total_value,
             ctx.last_equity, ctx.earnings_results, ctx.macro_analysis,
             ctx.analyses, ctx.symbols_bars, ctx.data_status, ctx.news_intel,
-            ctx.macro_summary, ctx.macro_events, ctx.macro_event_coverage,
-            ctx.fomc_meetings, ctx.fomc_coverage
+            ctx.macro_summary
 
     Writes: ctx.portfolio_decision.decisions (filtered/capped/scaled),
             ctx.correlation_matrix, ctx.daily_pnl, ctx.invested_target_pct
@@ -189,34 +150,20 @@ class RiskStage:
     def _build_event_risk_block(pipeline, ctx: RunContext) -> str:
         """The fetched Event Risk section handed to the Risk Manager.
 
-        `RiskVerdict.reasoning_chain.event_risk` is a REQUIRED narrative field
-        asking whether earnings or a macro release land in the next few
-        sessions. Nothing fetched either fact before this: the earnings-date
-        lookup (`MarketDataProvider.get_next_earnings_date`) had no callers
-        anywhere, and no macro calendar existed — so a mandatory risk check was
-        being answered from the model's recollection.
-
-        Earnings are looked up for exactly the symbols RM is judging (this
-        run's decisions), bounded per-symbol AND in aggregate so a stalled
-        yfinance call can never delay the session. The macro calendar is REUSED
-        from the research stage (`ctx.macro_events`) so one session issues one
-        FRED sweep, and the FOMC schedule the same way (`ctx.fomc_meetings`),
-        so one session issues one Fed calendar fetch; on a resume lane where
-        research never ran, ctx carries its "not fetched" defaults and the
-        block says exactly that.
+        `RiskVerdict.reasoning_chain.event_risk` is a REQUIRED narrative field.
+        Its only fetched input is earnings proximity, looked up for exactly the
+        symbols RM is judging (this run's decisions), bounded per-symbol AND in
+        aggregate so a stalled yfinance call can never delay the session.
+        Earnings are information only. Scheduled economic releases and FOMC
+        meetings are not shown (owner ruling 2026-10-18).
 
         Never raises and never returns an empty string: on any failure the seat
-        is shown the NOT FETCHED form. A missing section reads as a calm
-        calendar, which is precisely the failure being fixed.
+        is shown the NOT FETCHED form.
         """
         symbols = [d.symbol for d in (ctx.portfolio_decision.decisions if ctx.portfolio_decision else [])]
-        # Every lookup below is a getattr with a default: this helper is called
-        # on partially-constructed pipelines (the resume lane, and several test
-        # doubles built with __new__), and an event-risk block is never worth
-        # aborting a risk review over. A missing dependency degrades to the
-        # labelled NOT FETCHED form, which is still an honest answer.
+        # getattr with defaults: called on partially-constructed pipelines
+        # (the resume lane, and test doubles built with __new__).
         event_cfg = getattr(getattr(pipeline, "config", None), "event_risk", None)
-        horizon_days = getattr(event_cfg, "horizon_days", 10)
         earnings = None
         try:
             if symbols and getattr(pipeline, "market", None) is not None:
@@ -234,35 +181,11 @@ class RiskStage:
             logger.warning("Earnings proximity sweep failed: %s", e)
             earnings = None
 
-        coverage = ctx.macro_event_coverage
-        if not isinstance(coverage, EventCalendarCoverage):
-            coverage = None
-        events = list(ctx.macro_events or []) if coverage is not None else None
-        # Same pairing rule for the FOMC half: the schedule is only shown
-        # alongside the coverage object that says how far it reaches, because
-        # an empty schedule with no coverage line reads as "no Fed decision
-        # coming" — the exact fabrication this block exists to prevent.
-        fomc_coverage = getattr(ctx, "fomc_coverage", None)
-        if not isinstance(fomc_coverage, FOMCCoverage):
-            fomc_coverage = None
-        fomc_meetings = list(getattr(ctx, "fomc_meetings", None) or []) if fomc_coverage is not None else None
         try:
-            return format_event_risk_block(
-                earnings=earnings,
-                events=events,
-                coverage=coverage,
-                horizon_days=horizon_days,
-                fomc_meetings=fomc_meetings,
-                fomc_coverage=fomc_coverage,
-            )
+            return format_event_risk_block(earnings=earnings)
         except Exception as e:  # noqa: BLE001
             logger.warning("Event-risk block render failed: %s", e)
-            return format_event_risk_block(
-                earnings=None,
-                events=None,
-                coverage=None,
-                horizon_days=0,
-            )
+            return format_event_risk_block(earnings=None)
 
     def run(self, ctx: RunContext) -> dict | None:
         try:

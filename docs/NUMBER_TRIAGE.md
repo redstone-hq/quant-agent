@@ -77,7 +77,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 **Tier 2 gates entries/exits or shapes stops after entry.** Order-floor, target horizon, sector common drawdown, earnings stance age, event horizon, and pre-filter spread; each has a named recording or public-data measurement.
 
 - `config.CashSweepConfig.min_order_usd` = 500
-- `config.EventRiskConfig.horizon_days` = 10
+- ~~`config.EventRiskConfig.horizon_days` = 10~~ -- DELETED 2026-10-18: owner ruling, scheduled economic releases no longer shape any decision, so there is no look-ahead window to set.
 - `config.RiskConfig.max_target_horizon_sessions` = 60
 - `portfolio_constructor.ConstructorConfig.max_sector_pct` = 75
 - ~~`risk.rules.EARNINGS_STANCE_MAX_AGE_DAYS` = 90~~ -- DELETED 2026-10-16: a stance is current while its filing is the latest 10-Q/10-K and the next report's statutory deadline (10-K/10-Q General Instructions, Rule 12b-25) has not passed.

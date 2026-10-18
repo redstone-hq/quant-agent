@@ -177,7 +177,7 @@ factor.
 - **Deployment gap band (1).** `DeploymentGapConfig.band_pct`. Cost arithmetic
   over this account's own fee schedule and the entry-slippage distribution
   already measured in this ledger, not an appetite question.
-- **Macro event horizon (1).** `EventRiskConfig.horizon_days`. Pre-release
+- **Macro event horizon (1).** `EventRiskConfig.horizon_days` (DELETED 2026-10-18 by owner ruling: scheduled releases no longer shape decisions). Pre-release
   moves across the tradable universe, and the route requires the answer in
   SESSIONS, which also settles board item 91's calendar-day defect for this
   field.

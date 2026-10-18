@@ -1,5 +1,6 @@
-"""Each risk refusal carries its own category; an event_risk block stands only
-on a FETCHED macro release / FOMC meeting.
+"""Each risk refusal carries its own category; an event_risk block never
+stands (earnings never block a trade; scheduled economic releases are not a
+decision input, owner ruling 2026-10-18 — see test_no_macro_release_lookahead).
 
 Owner rulings: the risk seat keeps its power to block a buy it judges risky
 (2026-10-16), and earnings never resize or block a trade. Measured breach
@@ -70,24 +71,6 @@ def test_earnings_only_event_risk_block_is_refused_and_the_buy_proceeds():
     assert not any(e[0] == "ZZZ" and e[2] == "rejected" for e in events)
 
 
-def test_event_risk_block_naming_a_fetched_macro_release_is_applied():
-    when = et_today() + timedelta(days=2)
-    cpi = MacroEvent(release_id=10, label="CPI", why="inflation print", event_date=when, days_away=2)
-    survivors, events = _run(
-        [
-            {
-                "symbol": "ZZZ",
-                "reason": "rate-sensitive name into the CPI print",
-                "category": "event_risk",
-                "event": f"{when.isoformat()} CPI",
-            }
-        ],
-        macro_events=[cpi],
-    )
-    assert survivors == ["YYY"]
-    assert any(e[0] == "ZZZ" and e[2] == "rejected" for e in events)
-
-
 def test_concentration_block_is_applied():
     survivors, _ = _run(
         [{"symbol": "YYY", "reason": "sector already 30% of book", "category": "concentration"}],
@@ -106,20 +89,3 @@ def test_an_event_risk_entry_without_event_is_refused():
     survivors, events = _run([{"symbol": "ZZZ", "reason": "macro", "category": "event_risk"}])
     assert survivors == ["ZZZ", "YYY"]
     assert any(e[0] == "ZZZ" and e[2] == "event_refusal_ignored" for e in events)
-
-
-def test_event_risk_block_with_a_reworded_label_on_a_fetched_date_is_applied():
-    when = et_today() + timedelta(days=2)
-    cpi = MacroEvent(release_id=10, label="CPI", why="inflation print", event_date=when, days_away=2)
-    survivors, _ = _run(
-        [
-            {
-                "symbol": "ZZZ",
-                "reason": "rate-sensitive name into the inflation print",
-                "category": "event_risk",
-                "event": f"Consumer Price Index {when.isoformat()}",
-            }
-        ],
-        macro_events=[cpi],
-    )
-    assert survivors == ["YYY"]

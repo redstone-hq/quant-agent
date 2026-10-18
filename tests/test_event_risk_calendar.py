@@ -150,9 +150,6 @@ def test_the_fetched_earnings_date_reaches_the_risk_managers_input_text():
     assert market.calls == ["NVDA", "JPM"]  # the dead function now has callers
     block = format_event_risk_block(
         earnings=earnings,
-        events=[],
-        coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-        horizon_days=10,
     )
 
     agent = RiskManagerAgent.__new__(RiskManagerAgent)
@@ -195,9 +192,6 @@ def test_risk_manager_input_says_unknown_when_the_earnings_lookup_returns_nothin
         rule_violations=[],
         event_risk_block=format_event_risk_block(
             earnings=earnings,
-            events=[],
-            coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-            horizon_days=10,
         ),
     )
     assert "unavailable_no_fetched_date" in message
@@ -222,9 +216,6 @@ def test_risk_manager_input_says_unknown_when_the_earnings_lookup_raises():
     assert earnings[0].status == EARNINGS_LOOKUP_FAILED
     rendered = format_event_risk_block(
         earnings=earnings,
-        events=[],
-        coverage=None,
-        horizon_days=10,
     )
     assert "LOOKUP FAILED" in rendered
     assert "unavailable_lookup_failed" in rendered
@@ -264,9 +255,6 @@ def test_symbols_not_reached_inside_the_budget_are_labelled_never_dropped():
     )
     rendered = format_event_risk_block(
         earnings=earnings,
-        events=None,
-        coverage=None,
-        horizon_days=10,
     )
     assert "CCC" in rendered
 
@@ -353,12 +341,7 @@ def test_a_failed_calendar_is_reported_as_coverage_not_as_an_empty_calendar():
     assert coverage.succeeded == 0
     assert coverage.failed_count == len(MACRO_RELEASES)
 
-    rendered = format_event_risk_block(
-        earnings=[EarningsProximity("NVDA", 5, EARNINGS_MEASURED)],
-        events=events,
-        coverage=coverage,
-        horizon_days=10,
-    )
+    rendered = format_macro_events_section(events, coverage, 10)
     assert "the calendar is UNAVAILABLE" in rendered
     assert "means NOT FETCHED, never" in rendered
     assert "does NOT mean an empty calendar" in rendered
@@ -693,15 +676,7 @@ def test_fred_is_still_not_the_fomc_source_and_the_gap_list_no_longer_claims_it_
     assert 101 not in {r.release_id for r in MACRO_RELEASES}
     assert not any("FOMC meeting" in item for item in UNCOVERED_EVENTS)
     assert UNCOVERED_EVENTS, "an empty gap list would render a heading over nothing"
-    for rendered in (
-        format_macro_events_section([], None, 10),
-        format_event_risk_block(
-            earnings=None,
-            events=[],
-            coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-            horizon_days=10,
-        ),
-    ):
+    for rendered in (format_macro_events_section([], None, 10),):
         assert "FOMC" in rendered
         assert "do not supply a date from memory" in rendered
 
@@ -722,40 +697,6 @@ def test_the_tracked_releases_are_the_live_verified_ids():
 
 
 # --- the macro seat gets the same calendar ----------------------------------
-
-
-def test_macro_analyst_prompt_carries_the_fetched_calendar():
-    from src.agents.macro_analyst import MacroAnalystAgent
-
-    agent = MacroAnalystAgent.__new__(MacroAnalystAgent)
-    today = et_today()
-    message = agent.build_user_message(
-        macro_summary={},
-        universe=["SPY"],
-        macro_events=[
-            type(
-                "E",
-                (),
-                {
-                    "describe": lambda self: f"{today.isoformat()} (TODAY): CPI — x",
-                },
-            )(),
-        ],
-        event_coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-        event_horizon_days=10,
-    )
-    assert "Scheduled Macro Releases" in message
-    assert "CPI" in message
-    assert "FOMC" in message
-
-
-def test_macro_analyst_prompt_says_not_fetched_when_no_calendar_was_passed():
-    from src.agents.macro_analyst import MacroAnalystAgent
-
-    agent = MacroAnalystAgent.__new__(MacroAnalystAgent)
-    message = agent.build_user_message(macro_summary={}, universe=["SPY"])
-    assert "Scheduled Macro Releases" in message
-    assert "NOT FETCHED this run" in message
 
 
 # --- the risk stage assembles it -------------------------------------------
@@ -812,7 +753,6 @@ def test_risk_stage_block_says_not_fetched_when_research_never_ran():
         _ctx(_decision(("NVDA",))),
     )
     assert "NVDA: next earnings ~6 sessions away (fetched)" in block
-    assert "NOT FETCHED this run — the macro event calendar was not consulted" in block
 
 
 def test_risk_stage_block_survives_a_broken_market_provider():
@@ -827,30 +767,6 @@ def test_risk_stage_block_survives_a_broken_market_provider():
         _ctx(_decision(("NVDA",))),
     )
     assert "unavailable_lookup_failed" in block
-
-
-def test_risk_stage_reuses_the_research_stages_calendar_without_refetching():
-    """One session, one FRED calendar sweep — RiskStage reads ctx rather than
-    building its own provider."""
-    from src.pipeline_stages import RiskStage
-
-    today = et_today()
-    event = type(
-        "E",
-        (),
-        {
-            "describe": lambda self: f"{today.isoformat()} (TODAY): CPI — inflation",
-        },
-    )()
-    block = RiskStage._build_event_risk_block(
-        _StubPipeline(_FakeMarket({"NVDA": 9})),
-        _ctx(
-            _decision(("NVDA",)),
-            events=[event],
-            coverage=EventCalendarCoverage(configured=7, succeeded=6, failed=[]),
-        ),
-    )
-    assert "CPI — inflation" in block
 
 
 # --- defect (b): FOMC meeting dates are FETCHED, not recalled ---------------
@@ -1507,184 +1423,6 @@ def _fomc_provider_with_real_schedule(tmp_path):
     ]
     provider = _fomc_provider(tmp_path, json_body=_json_bytes(rows))
     return provider, inside, beyond
-
-
-def test_the_fetched_fomc_dates_reach_the_risk_managers_input_text(tmp_path):
-    """The load-bearing proof for defect (b).
-
-    Not "the fetch function was called" — that would pass with the dates thrown
-    away. The exact fetched meeting date has to be visible in the message the
-    Risk Manager actually reads, flagged as inside the horizon.
-    """
-    from src.agents.risk_manager import RiskManagerAgent
-
-    provider, inside, beyond = _fomc_provider_with_real_schedule(tmp_path)
-    meetings = provider.get_meetings(horizon_days=10)
-    assert provider.last_coverage.status == FOMC_MEASURED
-
-    agent = RiskManagerAgent.__new__(RiskManagerAgent)
-    message = agent.build_user_message(
-        portfolio_decision=_decision(("NVDA",)),
-        positions=[],
-        macro_summary={},
-        rule_violations=[],
-        event_risk_block=format_event_risk_block(
-            earnings=None,
-            events=[],
-            coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-            horizon_days=10,
-            fomc_meetings=meetings,
-            fomc_coverage=provider.last_coverage,
-        ),
-    )
-    assert inside.isoformat() in message
-    assert "FOMC RATE DECISION INSIDE THIS HORIZON" in message
-    assert f"rate decision / statement on {inside.isoformat()}" in message
-    assert beyond.isoformat() in message
-    assert "Next scheduled meeting beyond this horizon" in message
-    assert FOMC_SOURCE_JSON in message
-
-
-def test_the_risk_manager_is_told_the_fomc_calendar_is_unavailable_when_it_is(tmp_path):
-    """The degraded path, asserted where it matters — in the seat's own input.
-
-    The failure mode being closed is not "the block is missing", it is "the
-    block reads like reassurance". So this asserts the reassuring sentence is
-    absent as firmly as it asserts the warning is present.
-    """
-    from src.agents.risk_manager import RiskManagerAgent
-
-    provider = _fomc_provider(tmp_path, json_body=None, html_body=None)
-    meetings = provider.get_meetings(horizon_days=10)
-    assert meetings == []
-
-    agent = RiskManagerAgent.__new__(RiskManagerAgent)
-    message = agent.build_user_message(
-        portfolio_decision=_decision(("NVDA",)),
-        positions=[],
-        macro_summary={},
-        rule_violations=[],
-        event_risk_block=format_event_risk_block(
-            earnings=None,
-            events=[],
-            coverage=EventCalendarCoverage(configured=7, succeeded=7, failed=[]),
-            horizon_days=10,
-            fomc_meetings=meetings,
-            fomc_coverage=provider.last_coverage,
-        ),
-    )
-    assert "FOMC schedule UNAVAILABLE" in message
-    assert "unavailable_fetch_failed" in message
-    assert "NOT a confirmation that no meeting is scheduled" in message
-    assert "None. The published FOMC schedule spans" not in message
-    assert "no meeting falls inside it" not in message
-
-
-def test_the_risk_manager_is_told_when_the_fomc_calendar_was_never_fetched():
-    """A resume lane, or any session that never ran research, must not be
-    handed a silent FOMC section — silence reads as a calm calendar."""
-    from src.agents.risk_manager import RiskManagerAgent
-
-    agent = RiskManagerAgent.__new__(RiskManagerAgent)
-    message = agent.build_user_message(
-        portfolio_decision=_decision(("NVDA",)),
-        positions=[],
-        macro_summary={},
-        rule_violations=[],
-    )
-    assert "FOMC" in message
-    assert "NOT FETCHED this run" in message
-    assert "no meeting falls inside it" not in message
-
-
-def test_the_fetched_fomc_dates_reach_the_macro_analysts_input_text(tmp_path):
-    """Both seats read the same calendar, rendered by the same helper — so they
-    cannot end up reasoning from differently-worded versions of it."""
-    from src.agents.macro_analyst import MacroAnalystAgent
-
-    provider, inside, _beyond = _fomc_provider_with_real_schedule(tmp_path)
-    meetings = provider.get_meetings(horizon_days=10)
-
-    agent = MacroAnalystAgent.__new__(MacroAnalystAgent)
-    message = agent.build_user_message(
-        macro_summary={},
-        universe=["NVDA"],
-        fomc_meetings=meetings,
-        fomc_coverage=provider.last_coverage,
-        event_horizon_days=10,
-    )
-    assert inside.isoformat() in message
-    assert "FOMC RATE DECISION INSIDE THIS HORIZON" in message
-    assert "do NOT answer from memory" in message
-
-
-def test_the_macro_analyst_is_told_when_the_fomc_calendar_is_unavailable(tmp_path):
-    from src.agents.macro_analyst import MacroAnalystAgent
-
-    provider = _fomc_provider(tmp_path, json_body=None, html_body=None)
-    provider.get_meetings(horizon_days=10)
-
-    agent = MacroAnalystAgent.__new__(MacroAnalystAgent)
-    message = agent.build_user_message(
-        macro_summary={},
-        universe=["NVDA"],
-        fomc_meetings=[],
-        fomc_coverage=provider.last_coverage,
-        event_horizon_days=10,
-    )
-    assert "FOMC schedule UNAVAILABLE" in message
-    assert "no meeting falls inside it" not in message
-
-
-def test_the_risk_stage_carries_this_runs_fomc_schedule_into_the_block(tmp_path):
-    """End to end through the stage helper, not through the renderer directly:
-    the schedule the research stage fetched has to survive the trip on
-    RunContext to the Risk Manager's block, without a second fetch."""
-    from src.pipeline_stages import RiskStage
-    from src.pipeline_context import RunContext
-
-    provider, inside, _beyond = _fomc_provider_with_real_schedule(tmp_path)
-    meetings = provider.get_meetings(horizon_days=10)
-
-    class _Cfg:
-        class event_risk:  # noqa: N801 — mirrors the config attribute path
-            horizon_days = 10
-            earnings_symbol_timeout_s = 1.0
-            earnings_deadline_s = 1.0
-
-    class _Pipeline:
-        config = _Cfg()
-        market = None
-
-    ctx = RunContext(run_id="r1", session="morning")
-    ctx.fomc_meetings = list(meetings)
-    ctx.fomc_coverage = provider.last_coverage
-
-    block = RiskStage._build_event_risk_block(_Pipeline(), ctx)
-    assert inside.isoformat() in block
-    assert "FOMC RATE DECISION INSIDE THIS HORIZON" in block
-    # One fetch per session: the stage reuses the research stage's result.
-    assert provider.transport_calls == [provider.json_url]
-
-
-def test_a_run_context_that_never_fetched_the_fomc_calendar_says_not_fetched():
-    from src.pipeline_stages import RiskStage
-    from src.pipeline_context import RunContext
-
-    class _Pipeline:
-        config = None
-        market = None
-
-    block = RiskStage._build_event_risk_block(
-        _Pipeline(),
-        RunContext(
-            run_id="r1",
-            session="morning",
-        ),
-    )
-    assert "FOMC" in block
-    assert "NOT FETCHED this run" in block
-    assert "no meeting falls inside it" not in block
 
 
 def test_the_fomc_config_refuses_a_deadline_shorter_than_one_request(tmp_path):

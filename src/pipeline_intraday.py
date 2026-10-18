@@ -24,8 +24,6 @@ from datetime import datetime, timezone
 
 from src.agents.base import agent_log_kwargs, seat_acceptance_kwargs
 from src.cost_circuit import PaidAnalysisSuspended
-from src.data.event_calendar import EventCalendarCoverage, FOMCCoverage
-from src.data.event_calendar.upcoming import fetch_upcoming
 from src.data.technical import compute_indicators
 from src.intraday.buying_room import NO_BUYING_ROOM, assess_buying_room, judgement_sale_reasons
 from src.intraday.candidates import IntradayCandidates, record_dropped_name
@@ -89,8 +87,6 @@ class IntradayScanBody:
         *,
         config=None,
         db=None,
-        event_calendar=None,
-        fomc_calendar=None,
         market=None,
         tech_store=None,
         macro_store=None,
@@ -120,8 +116,6 @@ class IntradayScanBody:
     ) -> None:
         self.config = config
         self.db = db
-        self.event_calendar = event_calendar
-        self.fomc_calendar = fomc_calendar
         self.market = market
         self.tech_store = tech_store
         self.macro_store = macro_store
@@ -661,19 +655,6 @@ class IntradayScanBody:
         ctx.news_intel = carried_news.payload
         ctx.earnings_results = list(carried_earnings.payload or [])
         ctx.smart_money_findings = list(carried_insider.payload or [])
-        # Forward macro-release + FOMC calendars, from the same on-disk cache
-        # the morning reads. Without this the risk stage rendered NOT FETCHED
-        # on every intraday tick. Same test-double guard as the morning.
-        _events, _ev_cov, _fomc, _fomc_cov = fetch_upcoming(
-            self.event_calendar,
-            self.fomc_calendar,
-            self.config.event_risk.horizon_days,
-            lambda where, exc: _site(self, where, exc),
-        )
-        if isinstance(_ev_cov, EventCalendarCoverage):
-            ctx.macro_events, ctx.macro_event_coverage = list(_events or []), _ev_cov
-        if isinstance(_fomc_cov, FOMCCoverage):
-            ctx.fomc_meetings, ctx.fomc_coverage = list(_fomc or []), _fomc_cov
         self._heal_lost_research_seats(ctx)
 
         # Same owner rule as morning: a decision on incomplete evidence is
@@ -938,8 +919,6 @@ class IntradayMixin:
         return IntradayScanBody(
             config=getattr(self, "config", None),
             db=getattr(self, "db", None),
-            event_calendar=getattr(self, "event_calendar", None),
-            fomc_calendar=getattr(self, "fomc_calendar", None),
             market=getattr(self, "market", None),
             tech_store=getattr(self, "tech_store", None),
             macro_store=getattr(self, "macro_store", None),
