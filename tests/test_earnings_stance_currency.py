@@ -12,7 +12,7 @@ from urllib.request import Request
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 from pandas.tseries.holiday import USFederalHolidayCalendar
-from pandas.tseries.offsets import CustomBusinessDay
+from pandas.tseries.offsets import CustomBusinessDay, DateOffset, MonthEnd
 
 from src.agents.portfolio_manager import PortfolioManagerAgent
 from src.data.earnings import EarningsDataProvider
@@ -155,9 +155,16 @@ def test_backstop_q3_10q_goes_stale_at_period_end_plus_quarter_plus_105_days(tmp
     provider = _provider(tmp_path, filings, fiscal_year_end=_fye_after(period))
     _analysed(provider, "10-Q", filed)
     reports = provider.check_and_fetch([SYM])
-    # 17 CFR 240.0-3: a weekend/holiday deadline rolls to the next business day.
-    raw_deadline = period + relativedelta(months=3) + timedelta(days=105)
-    deadline = CustomBusinessDay(calendar=USFederalHolidayCalendar()).rollforward(pd.Timestamp(raw_deadline)).date()
+    # 17 CFR 240.0-3: a weekend/holiday due date rolls to the next business
+    # day, and the 15-day Rule 12b-25 extension runs from that rolled date
+    # (then rolls again). Rolling only once at the end is a day short
+    # whenever the 90-day due date lands on a weekend.
+    # The next period end is month-end to month-end when `period` is a month
+    # end (May 31 -> Aug 31, Sep 30 -> Dec 31), else three months on.
+    next_end = pd.Timestamp(period) + (MonthEnd(3) if pd.Timestamp(period).is_month_end else DateOffset(months=3))
+    bday = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+    due = bday.rollforward(next_end + timedelta(days=90))
+    deadline = bday.rollforward(due + timedelta(days=15)).date()
     assert [r.filing_date for r in reports] == [filed.isoformat()]
     assert not _stale(reports, deadline)
     assert _stale(reports, deadline + timedelta(days=1))
