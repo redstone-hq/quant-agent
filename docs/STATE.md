@@ -939,8 +939,15 @@ Genuinely still open: full wire-service breadth needs a paid subscription and an
 owner decision. The macro event calendar was built on 2026-08-31
 (`src/data/event_calendar.py`): FRED's free release-dates API supplies the forward
 schedule for CPI, Employment Situation (NFP), PPI, PCE, GDP, retail sales and
-jobless claims, threaded into both the macro analyst and the Risk Manager with a
-`MacroCoverage`-shaped coverage line. Since 2026-09-23 the FRED schedules are
+jobless claims. **Since 2026-10-18 neither the macro-release nor the FOMC
+schedule reaches any seat or decision** (owner ruling: scheduled economic releases
+must not shape buy or risk decisions — measured, prices swing ~11% more only on
+release day itself, 258 stocks / 86 releases; stops cover event risk). The
+morning and intraday paths no longer fetch it, the macro analyst and Risk Manager
+prompts no longer show it, `EventRiskConfig.horizon_days` is deleted, and a risk
+refusal filed under `event_risk` is always ignored (the trade proceeds). Earnings
+dates are still shown, information only. The provider history below is kept as
+the record of how the calendar was built. Since 2026-09-23 the FRED schedules are
 FETCHED over `RELEASE_SCHEDULE_LOOKAHEAD_DAYS` (120 days, four monthly cadences)
 and FILTERED to the caller's `horizon_days`, which is unchanged: the fetch window
 used to be the horizon itself, so the monthly releases returned nothing for most

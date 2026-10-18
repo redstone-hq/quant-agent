@@ -231,35 +231,6 @@ numbers:
       how long the desk waits or how much it fetches, never whether or how
       much to trade. A wrong value degrades data availability, which is a
       separate failure the seats already see as missing evidence.
-  - id: src.config.EventRiskConfig.horizon_days
-    settles_by:
-      kind: measurement
-      state: specified
-      where: docs/board_notes/item-090.md (the 2026-10-01 eighth routing tranche)
-      records: how many sessions ahead of a scheduled event the realised daily range of a name is
-        elevated above its own baseline, measured over the universe the desk could trade, on public
-        daily bars across many scheduled events, so the lookahead window is read off when event risk
-        actually begins rather than picked at two trading weeks
-      closes_when: the elevation-versus-days-ahead curve is in hand and the horizon is set where elevation
-        becomes indistinguishable from baseline; it is DELETED, and event proximity stops being a
-        sizing or gating input, if no pre-event elevation is measurable at any horizon
-    value: 10
-    status: arbitrary
-    site: src/config/risk_adjuncts.py
-    note: >-
-      How far ahead the macro release calendar looks. The definition site says
-      10 calendar days "covers the next few sessions the event_risk field asks
-      about" -- a restatement, not a derivation, and in calendar days rather
-      than sessions (board item 91). An event past this horizon is invisible
-      to every seat, so it decides which trades are taken into a known
-      catalyst.
-    open_question: >-
-      Over what forward window does a macro release measurably move the names
-      this desk holds - i.e. how far ahead does the calendar have to look to
-      be useful rather than noise?
-    cost_while_unanswered: >-
-      Too short and the desk positions into a release it never saw; too long
-      and the seat skims past rows it will not act on.
   - id: src.config.ExecutionConfig.fractional_share_decimals
     value: 4
     status: sourced
@@ -3849,17 +3820,6 @@ numbers:
       (src/agents/base.py::BaseAgent._execute). Same class as the token budgets recorded not-
       trade-governing on 2026-09-19; a seat that truncates fails its parse
       loudly rather than trading on a partial answer.
-  - id: src.agents.macro_analyst.MacroAnalystAgent.analyze(event_horizon_days)
-    value: 10
-    status: derived
-    site: src/agents/macro_analyst.py
-    derived_from: src.config.EventRiskConfig.horizon_days
-    base_value: 10
-    note: >-
-      Default macro-event horizon (src/agents/macro_analyst.py::MacroAnalystAgent.analyze);
-      production passes event_risk.horizon_days (src/stage_risk.py::RiskStage._build_event_risk_block).
-      A further inline `or 10` fallback sits at
-      src/agents/macro_analyst.py::MacroAnalystAgent.build_user_message, which no rule sees.
   - id: src.agents.portfolio_manager.PortfolioManagerAgent.decide(max_portfolio_risk_pct)
     value: 25
     status: derived

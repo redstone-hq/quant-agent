@@ -1079,14 +1079,13 @@ macro:
 
 event_risk:
   # Scheduled-event lookups that ground the Risk Manager's mandatory
-  # `event_risk` check (src/data/event_calendar.py). Before this existed the
-  # check was answered from the model's own memory: the earnings-date fetcher
-  # had zero callers and no macro release calendar was fetched at all.
+  # `event_risk` check (src/data/event_calendar.py). Only earnings proximity
+  # reaches a seat; the macro-release / FOMC look-ahead and its horizon_days
+  # window were removed by owner ruling 2026-10-18 (stops cover event risk).
   # The FRED retry/backoff policy is NOT repeated here — the calendar hits the
   # same host as the macro feed, so the `macro:` settings above are threaded
   # into it. Only the ceilings below are event-calendar-specific. See
   # src/config/__init__.py::EventRiskConfig for the reasoning behind each default.
-  horizon_days: 10
   calendar_deadline_s: 20.0
   earnings_deadline_s: 20.0
   earnings_symbol_timeout_s: 8.0

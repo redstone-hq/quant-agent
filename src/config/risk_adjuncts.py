@@ -57,7 +57,9 @@ class CashReserveConfig(BaseModel):
 
 class EventRiskConfig(BaseModel):
     """Scheduled-event lookups that ground the Risk Manager's mandatory
-    `event_risk` check (`src/data/event_calendar.py`).
+    `event_risk` check (`src/data/event_calendar.py`). Only earnings
+    proximity reaches a seat; the macro-release / FOMC look-ahead was removed
+    by owner ruling 2026-10-18 (its `horizon_days` window with it).
 
     Added because that check was previously answered from the model's own
     memory: `MarketDataProvider.get_next_earnings_date` had zero callers, and
@@ -69,12 +71,6 @@ class EventRiskConfig(BaseModel):
     `src/pipeline.py` threads the existing `macro.*` retry settings into it and
     only the deadline below is calendar-specific.
     """
-
-    horizon_days: int = Field(default=10, ge=1, le=60)
-    """How far ahead the macro release calendar looks, in calendar days. 10
-    covers "the next few sessions" the `event_risk` field asks about with
-    enough margin to see a release the desk should already be positioning
-    around, without burying the seat in rows it will skim past."""
 
     calendar_deadline_s: float = Field(default=20.0, ge=1.0, le=120.0)
     """Hard wall-clock ceiling for one `get_upcoming_events()` call. Much
@@ -116,7 +112,7 @@ class EventRiskConfig(BaseModel):
     """How long a cached FOMC schedule is trusted without a refetch. FOMC dates
     are published a year ahead and change perhaps twice a year, so a weekly
     refresh is generous. Freshness alone is never sufficient: a cache is used
-    without fetching only if it ALSO spans `horizon_days`, and an expired cache
+    without fetching only if it ALSO spans the requested horizon, and an expired cache
     is still served — clearly labelled `measured_from_stale_cache`, with its
     age — when the live sources are unreachable."""
 

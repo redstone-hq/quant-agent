@@ -185,10 +185,9 @@ class ExitRecords:
 
         Earnings proximity IS fetchable here — `self.market` exists on the
         midday/close loop and the sweep is bounded per-symbol and in aggregate
-        by the same `config.event_risk` timeouts the morning path uses. The
-        macro-release and FOMC calendars are NOT: they are fetched by the
-        morning research stage and no equivalent runs on this loop, so they
-        render as the labelled NOT FETCHED form, which is the honest answer.
+        by the same `config.event_risk` timeouts the morning path uses.
+        Scheduled economic releases and FOMC meetings are not shown on any
+        path (owner ruling 2026-10-18).
 
         Never raises. Any failure degrades to the fully-NOT-FETCHED block —
         an absent section reads as a calm calendar, which is the failure the
@@ -200,7 +199,6 @@ class ExitRecords:
         )
 
         event_cfg = getattr(getattr(self, "config", None), "event_risk", None)
-        horizon_days = getattr(event_cfg, "horizon_days", 10)
         earnings = None
         try:
             if symbols and getattr(self, "market", None) is not None:
@@ -218,20 +216,10 @@ class ExitRecords:
             logger.warning("Exit review: earnings proximity sweep failed: %s", e)
             earnings = None
         try:
-            return format_event_risk_block(
-                earnings=earnings,
-                events=None,
-                coverage=None,
-                horizon_days=horizon_days,
-            )
+            return format_event_risk_block(earnings=earnings)
         except Exception as e:  # noqa: BLE001
             logger.warning("Exit review: event-risk block render failed: %s", e)
-            return format_event_risk_block(
-                earnings=None,
-                events=None,
-                coverage=None,
-                horizon_days=0,
-            )
+            return format_event_risk_block(earnings=None)
 
     def _record_exit_review_approvals(
         self,

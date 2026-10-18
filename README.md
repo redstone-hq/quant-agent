@@ -199,7 +199,7 @@ As of remediation-spec Phase 2b, that ceiling is enforced, not just reported: th
 - Mandatory 6-step `reasoning_chain`: rr_audit → signal_fidelity → correlation_check → event_risk → sizing_sanity → overall
 - Judges reward:risk by setup type, not against a fixed floor (2026-09-11): no judgement at all on a breakout; on a range trade the real ratio is an input, and a thin one (already starter-capped in Python) is cut or refused only when a second, named problem exists
 - Receives raw TechAnalyst signals + computed R/R to verify PM's fidelity (no silent contradictions)
-- `event_risk` is grounded in a fetched **Event Risk** block (per-symbol next-earnings proximity + FRED macro release calendar), with every gap explicitly labelled — never answered from the model's memory
+- `event_risk` is grounded in a fetched **Event Risk** block (per-symbol next-earnings proximity, information only), with every gap explicitly labelled — never answered from memory. Scheduled economic releases (CPI, jobs, FOMC) are not shown to any seat and never justify a block (owner ruling 2026-10-18).
 - Sees hard-engine advisories inline: `correlation_cluster`, `macro_exposure_deviation`, `data_degraded` — must address each in `reasoning_chain`
 - Reviews correlation concentration and imminent event risk (earnings / FOMC proximity), and reads the reward:risk figure as a setup-type-conditional input rather than as a pass/fail test
 - Sees the same `PortfolioHeat` object PM sized against (at-risk $/%, headroom, per-position R-multiple) — `sizing_sanity` is judged in at-risk dollars, not notional weight

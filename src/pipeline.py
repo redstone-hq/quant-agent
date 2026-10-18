@@ -678,8 +678,6 @@ class TradingPipeline(
             admit_smart_money_candidates_fn=self.admission._admit_transient_smart_money_symbols,
             admit_nominated_candidates_fn=self.admission._admit_nominated_external_symbols,
             admit_screened_universe_fn=self.admission._admit_screened_universe_symbols,
-            event_calendar=self._collab("event_calendar"),
-            fomc_calendar=self._collab("fomc_calendar"),
             has_actionable_signal_fn=RiskGate._has_actionable_signal_fn,
             live_session_context_fn=self._collab("_live_session_context"),
             run_news_update_fn=self._collab("_run_news_update"),

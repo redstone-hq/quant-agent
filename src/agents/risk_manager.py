@@ -163,13 +163,10 @@ class RiskManagerAgent(LiveLimitPrompt, BaseAgent):
         # setting. It now reads the live value, so a caller that passes
         # nothing shows the reviewer the ceiling the engine enforces.
         risk_ceiling_pct: float = float(kwargs.get("risk_ceiling_pct") or self.risk_config.max_portfolio_risk_pct)
-        # `reasoning_chain.event_risk` is a REQUIRED field asking whether an
-        # earnings report or a macro release lands in the next few sessions.
-        # Until this block existed nothing fetched either fact, so the answer
-        # came from the model's memory — and `risk_manager.md` explicitly told
-        # it to reason that way. This is the fetched data that replaces the
-        # recollection; when the caller passes nothing, the block still renders
-        # and says NOT FETCHED, because a missing section reads as a calm one.
+        # `reasoning_chain.event_risk` is a REQUIRED field. Its fetched input
+        # is earnings proximity (information only); scheduled economic
+        # releases are not shown (owner ruling 2026-10-18). When the caller
+        # passes nothing, the block still renders and says NOT FETCHED.
         # WHICH review this is. One seat, two callers: the morning plan
         # (`pipeline_stages.RiskStage`) and the exit review
         # (`pipeline._risk_review_exits`). The exit path reused this renderer
@@ -184,12 +181,7 @@ class RiskManagerAgent(LiveLimitPrompt, BaseAgent):
         if not event_risk_block:
             from src.data.event_calendar import format_event_risk_block
 
-            event_risk_block = format_event_risk_block(
-                earnings=None,
-                events=None,
-                coverage=None,
-                horizon_days=0,
-            ).strip()
+            event_risk_block = format_event_risk_block(earnings=None).strip()
 
         # audit round 2 #5: RM's rr_audit / sizing_sanity / concentration
         # checks were running blind — no equity, no cash, no per-position
