@@ -119,7 +119,9 @@ def random_draws(rng: np.random.Generator, n_eligible: int, k: int, n_draws: int
 
 def percentile(actual: float, null: np.ndarray) -> float:
     """Share of random draws the actual pick beats, ties counted half (0-100)."""
-    return float(100.0 * ((null < actual).mean() + 0.5 * (null == actual).mean()))
+    from scipy.stats import percentileofscore
+
+    return float(percentileofscore(null, actual, kind="mean"))
 
 
 def score(eligible: dict, picks: dict, returns_by_day: dict, rng: np.random.Generator, n_draws: int = N_DRAWS) -> dict:
