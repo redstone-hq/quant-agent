@@ -202,6 +202,8 @@ SCOPED_PATHS: tuple[str, ...] = (
     # 2026-10-08: the restored trend-alignment research harness (board item 75); offline, reaches no order.
     "scripts/trend_alignment/analysis.py",
     "scripts/trend_alignment/data.py",
+    # 2026-10-18: the voters-vs-random scoring script; record-only, reaches no order.
+    "scripts/score_voters_vs_random.py",
     # 2026-10-05 numbers sweep 3: the news-verdict model and the company-profile
     # and market-data fetch modules. Scoped so each number is ledgered with the evidence
     # of whether it reaches a trade decision.
