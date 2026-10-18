@@ -7417,6 +7417,26 @@ numbers:
         consolidation duration is read from the current instrument's detected
         structure and the fixed minimum is removed, or the field is removed if
         no structure-defined start can be stated
+  - id: scripts.score_voters_vs_random.DEFAULT_WINDOWS[0]
+    value: 5
+    status: not-trade-governing
+    site: scripts/score_voters_vs_random.py
+    note: "Record-only research script scripts/score_voters_vs_random.py; it reads the desk database and prints a percentile, and no module under src/ or main.py imports it, so it reaches no trade decision. Five sessions is one trading week, the shortest reading horizon."
+  - id: scripts.score_voters_vs_random.DEFAULT_WINDOWS[1]
+    value: 10
+    status: not-trade-governing
+    site: scripts/score_voters_vs_random.py
+    note: "Record-only research script scripts/score_voters_vs_random.py; it reads the desk database and prints a percentile, and no module under src/ or main.py imports it, so it reaches no trade decision. Ten sessions is two trading weeks."
+  - id: scripts.score_voters_vs_random.DEFAULT_WINDOWS[2]
+    value: 21
+    status: not-trade-governing
+    site: scripts/score_voters_vs_random.py
+    note: "Record-only research script scripts/score_voters_vs_random.py; it reads the desk database and prints a percentile, and no module under src/ or main.py imports it, so it reaches no trade decision. Twenty-one sessions is one trading month."
+  - id: scripts.score_voters_vs_random.N_DRAWS
+    value: 1000
+    status: not-trade-governing
+    site: scripts/score_voters_vs_random.py
+    note: "Record-only research script scripts/score_voters_vs_random.py; it reads the desk database and prints a percentile, and no module under src/ or main.py imports it, so it reaches no trade decision. Monte Carlo draws; the percentile's standard error is at most sqrt(0.25/1000) = 1.6 points."
   - id: scripts.trend_alignment.analysis.FWD
     value: 14
     status: not-trade-governing

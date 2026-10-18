@@ -208,10 +208,11 @@ def fetch_closes(symbols: list[str], first_day: str) -> pd.DataFrame:
             sys.path.insert(0, str(p))
     from src.api.deps import get_alpaca_credentials, get_alpaca_paper
     from src.execution.broker import AlpacaBroker
+    from src.trading_calendar import et_today
 
     key, secret = get_alpaca_credentials()
     broker = AlpacaBroker(api_key=key, secret_key=secret, paper=get_alpaca_paper())
-    lookback = (date.today() - date.fromisoformat(first_day)).days + 7
+    lookback = (et_today() - date.fromisoformat(first_day)).days + 7
     frames = {}
     for i in range(0, len(symbols), 100):
         bars = broker.get_bars_batch(symbols[i : i + 100], lookback, adjustment="all")
