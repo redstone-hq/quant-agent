@@ -158,20 +158,20 @@ Portfolio loss tolerance, concentration ceilings, per-trade risk budget and the 
 - `config.RiskConfig.max_portfolio_risk_pct` = 25
 - `portfolio_constructor.ConstructorConfig.max_sector_hard_pct` = 90
 - `portfolio_constructor.ConstructorConfig.risk_budget_pct` = 5
-- `risk.rules.GROSS_LADDER[0][0]` = -8
-- `risk.rules.GROSS_LADDER[0][1]` = 1.5
-- `risk.rules.GROSS_LADDER[1][0]` = -15
-- `risk.rules.GROSS_LADDER[1][1]` = 1
-- `risk.rules.GROSS_LADDER[2][0]` = -20
-- `risk.rules.GROSS_LADDER[2][1]` = 0.5
+- ~~`risk.rules.GROSS_LADDER[0][0]` = -8~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
+- ~~`risk.rules.GROSS_LADDER[0][1]` = 1.5~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
+- ~~`risk.rules.GROSS_LADDER[1][0]` = -15~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
+- ~~`risk.rules.GROSS_LADDER[1][1]` = 1~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
+- ~~`risk.rules.GROSS_LADDER[2][0]` = -20~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
+- ~~`risk.rules.GROSS_LADDER[2][1]` = 0.5~~ -- OWNER-RULED 2026-10-18 ledger pass: owner appetite declared 2026-10-02 and kept as-is 2026-09-25; reclassified from arbitrary to owner-ruled, the same status as the starter risk floor.
 
 ## HARMLESS (45)
 
 Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidate scoring weights and prompt-block row limits: none sizes, prices or places an order.
 
 - ~~`config.RiskConfig.target_divergence_warn_pct` = 25~~ -- DELETED 2026-10-13: the threshold and the WARNING it triggered are gone; every computed-vs-analyst target gap is still recorded, one row per comparison.
-- `config.SmartMoneyConfig.max_filings_per_refresh` = 1000
-- `config.SmartMoneyConfig.refresh_deadline_s` = 180
+- ~~`config.SmartMoneyConfig.max_filings_per_refresh` = 1000~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
+- ~~`config.SmartMoneyConfig.refresh_deadline_s` = 180~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
 - `agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS` = 96
 - `agents.smart_money_analyst._MAX_REASON_TEXT_CHARS` = 220
 - `agents.smart_money_analyst._MAX_ACTOR_ROLES` = 8
