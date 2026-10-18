@@ -90,12 +90,15 @@ class UniverseScreenConfig(BaseModel):
     # 2026-09-19). The owner's words were "filter out ... the penny stocks";
     # this is the legal line for what a penny stock is.
     min_price_usd: float = Field(default=5.0, gt=0)
-    # FTSE Russell US indexes methodology: ineligible — "Companies under $30
-    # Million in total market capitalization" (https://www.lseg.com/content/
-    # dam/ftse-russell/en_us/documents/other/ftse-russell-us-indexes-
-    # methodology-overview-cut-sheet.pdf, fetched 2026-09-19). The floor of
-    # the broadest published US investable-equity index.
-    min_market_cap_usd: float = Field(default=30_000_000, gt=0)
+    # S&P U.S. Indices methodology (July 2026): an S&P SmallCap 600 addition
+    # needs a company market cap of US$1.2 billion or more, the S&P
+    # Composite 1500's lowest band (set 1 Jul 2025, reviewed quarterly;
+    # https://www.spglobal.com/spdji/en/documents/methodologies/
+    # methodology-sp-us-indices.pdf, fetched 2026-10-18). Owner 2026-10-18:
+    # the first filter removes micro-caps; the Russell 3000E's $30M floor
+    # admitted them by design, and the liquidity ratio paired with it is
+    # relative, so it rewarded pumped micro-caps.
+    min_market_cap_usd: float = Field(default=1_200_000_000, gt=0)
     # Wall-clock budget for one incremental pass. It runs at the end of the
     # evening session: TimeoutStartSec=1260 in
     # scripts/systemd/quant-agent-evening.service, and the evening body
