@@ -132,7 +132,6 @@ def _pipeline(decide_returns):
         "_build_weekly_narrative",
         "_build_macro_trajectory",
         "_build_active_state_changes",
-        "_build_rm_recent_verdicts",
         "_build_pm_recent_decisions",
         "_build_projected_portfolio",
         "_build_calibration_note",

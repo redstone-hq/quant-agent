@@ -169,7 +169,7 @@ def test_decisions_part_runs_against_a_stub_db():
     """Exercised, not just built: a db that returns nothing yields a string and reads only the db."""
     db = MagicMock(name="db")
     part = _build(PromptDecisions, db=db)
-    assert isinstance(part._build_rm_recent_verdicts(), str)
+    assert isinstance(part._build_pm_recent_decisions(), str)
     assert db.method_calls, "the body never read the db collaborator"
 
 

@@ -539,7 +539,6 @@ def test_decision_stage_pm_view_gets_deployable_cash_not_sgov_inflated():
     p._build_weekly_narrative = MagicMock(return_value="")
     p._build_macro_trajectory = MagicMock(return_value="")
     p._build_active_state_changes = MagicMock(return_value="")
-    p._build_rm_recent_verdicts = MagicMock(return_value="")
     p._build_pm_recent_decisions = MagicMock(return_value="")
     p._build_projected_portfolio = MagicMock(return_value="")
     p._build_calibration_note = MagicMock(return_value="")

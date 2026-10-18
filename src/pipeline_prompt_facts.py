@@ -873,10 +873,6 @@ class PromptFactsMixin:
         """Thin shim: body lives in the standalone class in this module (it reads the broker seam, so it cannot move out)."""
         return self._prompt_history()._build_active_state_changes(*args, **kwargs)
 
-    def _build_rm_recent_verdicts(self, *args, **kwargs):
-        """Thin shim: body moved to src/prompt_facts/decisions.py."""
-        return self._prompt_decisions()._build_rm_recent_verdicts(*args, **kwargs)
-
     def _build_pm_recent_decisions(self, *args, **kwargs):
         """Thin shim: body moved to src/prompt_facts/decisions.py."""
         return self._prompt_decisions()._build_pm_recent_decisions(*args, **kwargs)

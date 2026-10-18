@@ -606,24 +606,6 @@ Plan for the room it would free; do not assume it will happen.
 - Both 5d > +5% AND 20d > +10% → do NOT size up extra. R/R + conviction
   rule sizing as always.
 
-**RM history self-calibration** — each of the last 5 Risk Manager
-Verdicts carries a `cat=<reason_category>` tag. The distribution tells
-you HOW to adjust base allocations TODAY. Threshold = 2+ occurrences
-unless noted, single match for `signal_fidelity`:
-
-| `cat=` tag | Today's adjustment |
-|---|---|
-| `oversized` | Your recent BUY bases have been too big for their conviction: bring them DOWN on the names whose thesis is thinnest, and name the reduction in `sizing_logic`. No fixed percentage — the old flat 25% was an invented figure nothing in the desk enforced, and it is gone. |
-| `rr_fail` | Read TA R/R literally on RANGE setups and prefer better-paying candidates; never apply it to a breakout |
-| `concentration` | Over-concentrated: SHRINK or SKIP into the crowded sector — trim base size or drop the marginal name; NEVER open or add a name to "diversify" or balance the book. Concentration can shed weight, it cannot buy it. |
-| `correlation_risk` | Names that move together; information only, there is no group limit |
-| `event_risk` | Next earnings date is information only; earnings never resize or block a trade. Check FOMC / macro releases |
-| `signal_fidelity` (1+) | Read TA ratings more carefully; explain every override |
-| `clean` dominant | Calibrated — no change needed |
-
-Repeated `mods on SAME_SYMBOL` → your stop/entry on that name is
-consistently wrong; follow TA's numbers literally.
-
 **Sizing formula — explicit ordering of multipliers**
 
 Compute each BUY's `risk_allocation_pct` in this exact order so two
@@ -838,9 +820,6 @@ re-derive from the prose narrative layers below.
   than small-bucket → oversizing conviction; shrink base allocations.
 - **L3 Your Recent Decisions (last 3)** — your own prior trade lists +
   sizing notes. Flip-flopping against yesterday needs a named reason.
-- **L4 Risk Manager Verdicts (last 5)** — RM history. Each carries a
-  `cat=<reason_category>` tag; Step 5 reads the distribution to
-  calibrate today. `scale_all_buys < 1.0` on 2+ → oversizing.
 - **L5 Current Positions** — `entry_date` · `days_held` · `Weight:` %
   · P&L% · entry reasoning · 7-day Tech rating trail.
 - **L6 Portfolio Narrative (7d)** — last 7 evenings' outlook / return
@@ -1121,9 +1100,9 @@ Semantics of `risk_allocation_pct`:
 
 ## Inputs you read
 
-Quantitative facts (calibration, RM history, sector weights, system
+Quantitative facts (calibration, sector weights, system
 performance, rolling 5d/20d returns) · 8-layer memory (L1 Projected Book
-Preview, L2 Trade Calibration, L3 Recent Decisions, L4 RM Verdicts,
+Preview, L2 Trade Calibration, L3 Recent Decisions,
 L5 Current Positions, L6 Portfolio Narrative 7d, L7 Macro Regime
 Trajectory 7d, L8 Active News State Changes 14d) · today's signals
 (Macro · News · Earnings · Tech) · account state (cash, positions,

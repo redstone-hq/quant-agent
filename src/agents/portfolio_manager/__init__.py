@@ -1104,20 +1104,13 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
             else "## Proposal Conversion\n(no proposals on record in the last 21 days)"
         )
 
-        # Self-calibration layers: PM reads RM's recent verdicts on it + its own
-        # recent decisions, to avoid oversizing repeatedly and to spot flip-flops.
-        rm_recent_verdicts: str = kwargs.get("rm_recent_verdicts") or ""
+        # Self-calibration layer: PM reads its own recent decisions to spot flip-flops.
         pm_recent_decisions: str = kwargs.get("pm_recent_decisions") or ""
         projected_portfolio: str = kwargs.get("projected_portfolio") or ""
         calibration_note: str = kwargs.get("calibration_note") or ""
         macro_tech_alignment: str = kwargs.get("macro_tech_alignment") or ""
         facts = kwargs.get("facts")  # PMFacts | None
 
-        rm_verdicts_section = (
-            f"## Risk Manager Verdicts (last 5 sessions — self-calibrate)\n{rm_recent_verdicts}"
-            if rm_recent_verdicts
-            else "## Risk Manager Verdicts\n(no prior RM verdicts on record)"
-        )
         pm_decisions_section = (
             f"## Your Recent Decisions (last 3 sessions — avoid flip-flops)\n{pm_recent_decisions}"
             if pm_recent_decisions
@@ -1192,7 +1185,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
 
 {pm_decisions_section}
 
-{rm_verdicts_section}
 
 {narrative_section}
 
@@ -1290,7 +1282,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         weekly_narrative: str = "",
         macro_trajectory: str = "",
         active_state_changes: str = "",
-        rm_recent_verdicts: str = "",
         pm_recent_decisions: str = "",
         projected_portfolio: str = "",
         calibration_note: str = "",
@@ -1403,7 +1394,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             weekly_narrative=weekly_narrative,
             macro_trajectory=macro_trajectory,
             active_state_changes=active_state_changes,
-            rm_recent_verdicts=rm_recent_verdicts,
             pm_recent_decisions=pm_recent_decisions,
             projected_portfolio=projected_portfolio,
             calibration_note=calibration_note,

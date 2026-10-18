@@ -196,9 +196,11 @@ retired:
       Risk Manager that PM "pre-adjusts its sizing before you ever see the
       plan — 2+ `oversized` tags cut its base allocations 25%", and used that
       as grounds to discount a conservative-looking plan as anchoring rather
-      than conviction. What is real: `_build_rm_recent_verdicts`
-      (`src/pipeline.py`) renders the last 5 verdicts with their `cat=` tags
-      into PM's sheet, and PM's sheet asks the model to adjust. Nothing reads
+      than conviction. What was real: `_build_rm_recent_verdicts`
+      rendered the last 5 verdicts with their `cat=` tags into PM's sheet and
+      asked the model to adjust; RETIRED 2026-10-18 (owner decision: the
+      planning AI no longer resizes buys from past risk reviews, feed
+      deleted). Nothing read
       `reason_category` and resizes anything; the 25% was an invented figure
       (`docs/WORK.md` item 99(f), measured 2026-09-19 — 36 of 37 recorded
       `risk_allocation_pct` sat on the prompt's own 0.25 grid with a maximum

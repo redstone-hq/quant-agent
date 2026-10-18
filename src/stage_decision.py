@@ -167,7 +167,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     weekly_narrative = pipeline._build_weekly_narrative()
     macro_trajectory = pipeline._build_macro_trajectory()
     active_state_changes = pipeline._build_active_state_changes()
-    rm_recent_verdicts = pipeline._build_rm_recent_verdicts()
     pm_recent_decisions = pipeline._build_pm_recent_decisions()
     projected_portfolio = pipeline._build_projected_portfolio(
         positions,
@@ -322,7 +321,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         weekly_narrative=weekly_narrative,
         macro_trajectory=macro_trajectory,
         active_state_changes=active_state_changes,
-        rm_recent_verdicts=rm_recent_verdicts,
         pm_recent_decisions=pm_recent_decisions,
         projected_portfolio=projected_portfolio,
         calibration_note=calibration_note,
