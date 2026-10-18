@@ -23,14 +23,12 @@ def test_prompt_decisions_failures_are_recorded(tmp_path):
     real = db.get_recent_agent_outputs
     db.get_recent_agent_outputs = MagicMock(side_effect=RuntimeError("boom"))
     pd = PromptDecisions(db=db, parse_logged_agent_response=lambda r: r)
-    assert pd._build_rm_recent_verdicts() == ""
     assert pd._build_pm_recent_decisions() == ""
     assert pd._build_own_recent_decisions() == ""
     db.get_recent_agent_outputs = real
     assert sorted(_rows(db)) == [
         "guarded:prompt_facts.own_recent_decisions",
         "guarded:prompt_facts.pm_recent_decisions",
-        "guarded:prompt_facts.rm_recent_verdicts",
     ]
 
 

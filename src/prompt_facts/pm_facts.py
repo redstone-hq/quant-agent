@@ -58,7 +58,7 @@ class PromptPMFacts:
 
         Phase 4 #4: reduces PM's reliance on LLM-summarized prose for the
         things that are actually numbers (win rate, sector weights, age
-        buckets). Prose layers (weekly_narrative, rm_recent_verdicts)
+        buckets). Prose layers (weekly_narrative)
         stay for qualitative continuity.
         """
         import statistics
