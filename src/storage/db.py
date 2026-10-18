@@ -936,8 +936,7 @@ class Database:
 
     # --- Position-reviewer memory (spec Phase 3.2 / audit §1.5) -----------
     #
-    # `_build_own_recent_decisions` replays past ACTIONS and explicitly drops
-    # HOLDs, so the reviewer rebuilt its view of every position from scratch
+    # Without these the reviewer rebuilt its view of every position from scratch
     # twice a day with no idea what it had measured six hours earlier. On
     # 2026-08-26 it sold EPD for "not progressing" when progress had risen
     # 16% -> 20% and distance-to-stop had improved since its own midday read.

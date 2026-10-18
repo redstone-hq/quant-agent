@@ -658,8 +658,7 @@ class PositionReviewSession:
             )
 
             # Phase 3.2 / audit §1.5 — the reviewer's memory of its OWN prior
-            # numbers. `_build_own_recent_decisions` below replays past ACTIONS
-            # and drops HOLDs, so without this the seat rebuilds its view from
+            # numbers. Without this the seat rebuilds its view from
             # scratch every session and can report a position deteriorating
             # while everything it measured six hours ago improved. That is
             # exactly how EPD and MRVL were sold on intact theses.

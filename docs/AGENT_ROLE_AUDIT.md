@@ -53,7 +53,7 @@ Profit measured against initial risk is the standard trader metric for whether a
 
 ### 1.5 The Position Reviewer has no memory of its own prior review
 
-`_build_own_recent_decisions` (`src/pipeline.py:6369-6409`) replays past *actions* and explicitly drops HOLDs. No prior metric values are carried forward, so the reviewer rebuilds its view from scratch twice a day.
+The past-actions replay (`_build_own_recent_decisions`) was removed 2026-10-18 (owner ruling: every holding is judged fresh). No prior metric values are carried forward, so the reviewer rebuilds its view from scratch twice a day.
 
 This is the second independent confirmation of the EPD defect: on 2026-08-26 it sold a position for "not progressing" when progress had risen 16% → 20% and distance-to-stop had improved since its own midday read.
 

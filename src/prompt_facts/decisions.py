@@ -1,4 +1,4 @@
-"""src.prompt_facts.decisions -- recent risk verdicts, recent PM decisions, review metric deltas and own recent decisions.
+"""src.prompt_facts.decisions -- review metric deltas and the shared candidate cut.
 
 Bodies moved verbatim from src/pipeline_prompt_facts.py (`PromptFactsMixin`), which keeps
 same-named thin shims built per call. Every collaborator is an explicit keyword-only
@@ -20,7 +20,7 @@ logger = logging.getLogger("src.pipeline")
 
 
 class PromptDecisions:
-    """Recent risk verdicts, recent PM decisions, review metric deltas and own recent decisions; standalone, built from explicit collaborators."""
+    """Review metric deltas and the shared candidate cut; standalone, built from explicit collaborators."""
 
     def __init__(
         self,
