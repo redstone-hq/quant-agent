@@ -216,7 +216,7 @@ def check_thesis_invalid_if(
         status = "TRIGGERED" if fired else "NOT_TRIGGERED"
         return ThesisInvalidationCheck(
             status,
-            f"price {cur} vs MA{period} {ma_value}, condition was '{direction}'",
+            f"price {cur} vs MA{period} {ma_value:.2f}, condition was '{direction}'",
         )
 
     for key, pattern in _MACRO_SERIES_RE:
