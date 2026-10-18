@@ -4550,16 +4550,13 @@ numbers:
       this is the statutory line for one. Price here is the last completed
       daily close.
   - id: src.config.UniverseScreenConfig.min_market_cap_usd
-    value: 30000000
+    value: 1200000000
     status: sourced
     site: src/config/research.py
     source: >-
-      FTSE Russell US indexes methodology overview, ineligible securities:
-      "Companies under $30 Million in total market capitalization".
-      https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ftse-russell-us-indexes-methodology-overview-cut-sheet.pdf
-      (fetched 2026-09-19). The floor of the Russell 3000E, the broadest
-      published US investable-equity index. Market capitalisation is read
-      from yfinance at screen time.
+      S&P U.S. Indices methodology (July 2026), S&P Composite 1500 eligibility: an addition to the S&P SmallCap 600 needs an unadjusted company market cap of US$1.2 billion or more (the band set 1 Jul 2025, still in force in the July 2026 methodology; S&P reviews it quarterly). https://www.spglobal.com/spdji/en/documents/methodologies/methodology-sp-us-indices.pdf and https://press.spglobal.com/2025-07-01-S-P-Dow-Jones-Indices-Announces-Update-to-S-P-Composite-1500-Market-Cap-Guidelines (fetched 2026-10-18).
+      Owner ruling 2026-10-18: the first filter removes micro-caps. It replaces the Russell 3000E's $30M floor,
+      which admitted them by design. Market capitalisation is read from yfinance at screen time.
   - id: src.config.UniverseScreenConfig.screen_deadline_s
     value: 900
     status: not-trade-governing

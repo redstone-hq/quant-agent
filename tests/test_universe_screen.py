@@ -347,6 +347,19 @@ def test_small_company_is_refused():
     assert result.failures == ["company_too_small"]
 
 
+def test_desk_size_floor_refuses_a_micro_cap_and_admits_a_small_cap():
+    """Owner 2026-10-18: the first filter removes micro-caps. The desk's own
+    floor is the S&P SmallCap 600 addition floor, US$1.2B; a $39M company
+    (BNAI on 16 Oct) is refused, a $1.25B one passes."""
+    from dataclasses import replace
+
+    th = replace(TH, min_market_cap_usd=UniverseScreenConfig().min_market_cap_usd)
+    micro = us.screen_symbol("ACME", _sources(profile={"market_cap_usd": 39e6, "sector": "Technology"}), th)
+    small = us.screen_symbol("ACME", _sources(profile={"market_cap_usd": 1.25e9, "sector": "Technology"}), th)
+    assert micro.failures == ["company_too_small"]
+    assert small.passed
+
+
 def test_unknown_company_size_is_refused():
     result = us.screen_symbol("ACME", _sources(profile={"market_cap_usd": None, "sector": "Industrials"}), TH)
     assert result.failures == ["market_cap_unknown"]
@@ -401,7 +414,7 @@ def test_thresholds_are_read_from_existing_desk_numbers():
     )
     th = us.ScreenThresholds.from_config(config)
     assert th.min_price_usd == 5.0
-    assert th.min_market_cap_usd == 30_000_000
+    assert th.min_market_cap_usd == 1_200_000_000
     assert th.hold_sessions == 10
     assert th.max_atr_fraction == pytest.approx(1.0 / 2.5)
     assert th.min_history_bars == 201

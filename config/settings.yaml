@@ -1025,7 +1025,7 @@ universe_screen:
   enabled: true
   data_dir: "data/universe"
   min_price_usd: 5
-  min_market_cap_usd: 30000000
+  min_market_cap_usd: 1200000000
   screen_deadline_s: 900
   bars_batch_size: 50
   # Owner's "$7 a month" / 21 sessions, and the measured cost of one more name

@@ -78,8 +78,9 @@ THE CRITERIA, and where each threshold comes from (every number is in
               placed at all and the name fails by construction. Nothing is
               chosen here: the bound is arithmetic, and it moves by itself
               if the owner-ruled stop multiple moves.
-  size        market capitalisation >= `min_market_cap_usd` ($30M, the
-              Russell US indexes' eligibility floor).
+  size        market capitalisation >= `min_market_cap_usd` ($1.2B, the
+              S&P SmallCap 600 addition floor in the S&P Composite 1500
+              eligibility rules).
   sector      resolves to a real sector — the sector cap needs one. Kept
               from the pre-existing side-door gate.
   takeover    no pending acquisition: the issuer is not the TARGET of a
@@ -336,7 +337,7 @@ PLAIN_REASON = {
     "not_traded_every_session": "did not trade on every session of the past year",
     "spread_unmeasurable": "its trading cost could not be measured",
     "volatility_above_ceiling": "so volatile the desk's widest stop would sit at or below zero",
-    "company_too_small": "company too small (under $30M)",
+    "company_too_small": "company too small (under $1.2B)",
     "market_cap_unknown": "company size unknown",
     "unresolved_sector": "no sector",
     "pending_takeover": "being taken over",
