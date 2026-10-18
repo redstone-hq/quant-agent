@@ -148,7 +148,7 @@ def test_measured_ledger_id_counts_for_the_two_modules() -> None:
     assert (
         len(ledger_ids_for_module("src.pipeline_prompt_facts", ledger)) == 0
         and len(ledger_ids_for_module("src.prompt_facts.decisions", ledger))
-        == 2  # 2026-10-18: rm_recent_verdicts limit id deleted with the feed -- removed, not moved
+        == 0  # 2026-10-18: rm_recent_verdicts, pm_recent_decisions and own_recent_decisions ids deleted with their feeds -- removed, not moved
         and len(ledger_ids_for_module("src.prompt_facts.watchlist", ledger)) == 1
         and len(ledger_ids_for_module("src.prompt_facts.pm_facts", ledger)) == 1
         and len(ledger_ids_for_module("src.prompt_facts.missed_ops_signals", ledger))

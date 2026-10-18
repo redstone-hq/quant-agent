@@ -19,7 +19,6 @@ def _message(**extra) -> str:
             macro_analysis=None,
             cash_balance=5000.0,
             total_value=10000.0,
-            pm_recent_decisions="- 2026-04-16: BUY ZZZA 5%",
             **extra,
         )
 
@@ -29,7 +28,7 @@ def test_pm_message_has_no_risk_verdict_block():
     assert "Risk Manager Verdicts" not in msg
     assert "self-calibrate" not in msg
     assert "cat=oversized" not in msg
-    assert "## Your Recent Decisions" in msg
+    assert "## Your Recent Decisions" not in msg
 
 
 def test_feed_builder_is_gone():

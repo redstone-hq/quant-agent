@@ -63,7 +63,6 @@ def _run_position_review_body(pipeline, session_type: str) -> dict:
         build_active_state_changes=pipeline._collab("_build_active_state_changes"),
         build_calibration_note=pipeline._collab("_build_calibration_note"),
         build_macro_trajectory=pipeline._collab("_build_macro_trajectory"),
-        build_own_recent_decisions=pipeline._collab("_build_own_recent_decisions"),
         build_position_facts=pipeline._collab("_build_position_facts"),
         build_review_metric_deltas=pipeline._collab("_build_review_metric_deltas"),
         build_trade_grade_summary=pipeline._collab("_build_trade_grade_summary"),

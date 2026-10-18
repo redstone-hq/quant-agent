@@ -32,11 +32,6 @@ class PMFacts:
     avg_return_30d_pct: float | None = None
     avg_hold_days_30d: float | None = None
 
-    # RM discipline (how often RM overrode PM lately)
-    rm_verdicts_seen: int = 0
-    rm_scale_downs_last5: int = 0  # count with scale_all_buys < 1.0
-    rm_mods_last5: int = 0  # count with any modifications
-
     # Current book state
     invested_pct: float = 0.0
     #: Signed, leverage-aware net direction of the book, as a % of equity.
@@ -130,25 +125,9 @@ class PMFacts:
         long_sector_lines = _sector_lines(self.sector_weights_long)
         short_sector_lines = _sector_lines(self.sector_weights_short)
 
-        # audit round 2 #35: the denominator is rm_verdicts_seen (the query
-        # is limit=5 but can return 0-5 rows), not a hardcoded 5 — a fresh
-        # deployment with 2 verdicts, both overrides, used to render "2/5"
-        # (40%) when the true override rate was 2/2 (100%). PM must cite
-        # these numbers verbatim, so the block itself has to be honest.
-        if self.rm_verdicts_seen > 0:
-            rm_block = (
-                f"### RM Discipline (last {self.rm_verdicts_seen} verdicts)\n"
-                f"- scale_all_buys<1.0 count: {self.rm_scale_downs_last5}/{self.rm_verdicts_seen}"
-                f" · mods emitted: {self.rm_mods_last5}/{self.rm_verdicts_seen}"
-            )
-        else:
-            rm_block = "### RM Discipline\n- (no RM verdicts on record — cite as [UNSOURCED:no_rm_history])"
-
         return f"""### Calibration (last 30d closed trades)
 - n={self.closed_trades_30d} · win_rate={_pct(self.win_rate_30d_pct)} · avg_return={_pct(self.avg_return_30d_pct)} \
 · avg_hold={_num(self.avg_hold_days_30d)}d
-
-{rm_block}
 
 ### Book State (current)
 - invested={self.invested_pct:.1f}% (capital at work, unsigned) \

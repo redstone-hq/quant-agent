@@ -165,14 +165,6 @@ def test_projected_part_holds_no_sector_cache_and_writes_onto_the_run():
     assert "run" in inspect.signature(PromptProjected._build_projected_portfolio).parameters
 
 
-def test_decisions_part_runs_against_a_stub_db():
-    """Exercised, not just built: a db that returns nothing yields a string and reads only the db."""
-    db = MagicMock(name="db")
-    part = _build(PromptDecisions, db=db)
-    assert isinstance(part._build_pm_recent_decisions(), str)
-    assert db.method_calls, "the body never read the db collaborator"
-
-
 # --- The trade-review SEAT (src/prompt_facts/review/held.py): built alone from its collaborators
 # ONLY -- no host object exists anywhere in these tests. The pipeline holds one, rebuilt per call
 # from its own collaborators by `review_of`, and inherits nothing.

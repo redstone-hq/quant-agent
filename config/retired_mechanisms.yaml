@@ -40,6 +40,30 @@
 
 retired:
 
+
+  - name: planning AI's past-decision and risk-verdict memory
+    retired: 2026-10-18
+    why: >-
+      Owner rulings: every holding is judged fresh on today's evidence. The
+      "Your Recent Decisions" diaries and the "RM Discipline" override tally
+      anchored the planning and review seats on their own past calls and on
+      how often risk overrode them, which is the flip-flop guard the rulings
+      replaced with fresh evidence each session.
+    symbols:
+      - _build_pm_recent_decisions
+      - _build_own_recent_decisions
+      - _build_rm_recent_verdicts
+    phrases:
+      - "rm discipline"
+      - "your recent decisions"
+      - "own recent decisions"
+    allowed_in:
+      - config/retired_mechanisms.yaml
+      - docs/INCIDENT_HISTORY.md
+      - docs/WORK.md
+      - docs/board_notes/
+      - src/retired_mechanisms.py
+      - tests/test_retired_mechanisms.py
   - name: daily-loss whole-book liquidation
     retired: 2026-09-14
     why: >-

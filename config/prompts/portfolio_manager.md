@@ -209,13 +209,11 @@ without mention) are the #1 reason RM downgrades or rejects — RM's
 ## Guardrails
 
 - **Cite quantitative facts; `[UNSOURCED:<reason>]` for gaps.** Numbers
-  in `reasoning_chain` (exposure %, win rate, stale signal count, RM
-  history) MUST come from the Quantitative Facts block at the top of
+  in `reasoning_chain` (exposure %, win rate, stale signal count) MUST come from the Quantitative Facts block at the top of
   the prompt — don't re-derive from the prose narrative layers. When
-  a fact is missing (e.g., first session with empty `rm_history`,
-  fresh account with no `closed_trades_30d`), emit
+  a fact is missing (e.g., fresh account with no `closed_trades_30d`), emit
   `[UNSOURCED:<reason>]` rather than guessing. Valid reasons:
-  `no_rm_history` · `no_calibration` (insufficient closed trades) ·
+  `no_calibration` (insufficient closed trades) ·
   `no_drawdown_data`. Downstream RM audit + meta_reflector grep this.
 - **Hard caps are non-negotiable — but the engine applies them, not you.**
   A proposal that exceeds one is scaled or refused ON ITS OWN; your other
@@ -295,7 +293,7 @@ held**, NOT execution detail:
    unchanged**; a risk allocation above what the position already
    carries = **add for the delta**.
 3. A 10-field `reasoning_chain` showing how Macro / News / Earnings /
-   Tech / RM-history / book-balance / cash / continuity / pre-mortem
+   Tech / book-balance / cash / continuity / pre-mortem
    drove the targets, plus your audit of the macro seat's own reasoning.
 4. `portfolio_view` — 1-3 sentence prose summary.
 
@@ -777,8 +775,6 @@ question is a number):
 
 - `closed_trades_30d / win_rate_30d_pct / avg_return_30d_pct /
   avg_hold_days_30d` — actual realized outcomes
-- `rm_scale_downs_last5 / rm_mods_last5` — did RM keep trimming me?
-  (0 = clean, ≥2 = oversizing)
 - `invested_pct / cash_pct` — current deployment. `invested_pct` is CAPITAL
   AT WORK: unsigned and un-leveraged, so a short counts its own notional
   (it is capital committed, not capital returned) and a 3x fund counts its
@@ -818,8 +814,6 @@ re-derive from the prose narrative layers below.
 - **L2 Trade Calibration** — your realized win rate + avg return on
   closed BUYs (45d), overall and by size bucket. Large-bucket worse
   than small-bucket → oversizing conviction; shrink base allocations.
-- **L3 Your Recent Decisions (last 3)** — your own prior trade lists +
-  sizing notes. Flip-flopping against yesterday needs a named reason.
 - **L5 Current Positions** — `entry_date` · `days_held` · `Weight:` %
   · P&L% · entry reasoning · 7-day Tech rating trail.
 - **L6 Portfolio Narrative (7d)** — last 7 evenings' outlook / return
@@ -1102,7 +1096,7 @@ Semantics of `risk_allocation_pct`:
 
 Quantitative facts (calibration, sector weights, system
 performance, rolling 5d/20d returns) · 8-layer memory (L1 Projected Book
-Preview, L2 Trade Calibration, L3 Recent Decisions,
+Preview, L2 Trade Calibration,
 L5 Current Positions, L6 Portfolio Narrative 7d, L7 Macro Regime
 Trajectory 7d, L8 Active News State Changes 14d) · today's signals
 (Macro · News · Earnings · Tech) · account state (cash, positions,

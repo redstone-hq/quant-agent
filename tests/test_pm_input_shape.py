@@ -68,7 +68,6 @@ def rendered() -> str:
         weekly_narrative=memory["weekly_narrative"],
         macro_trajectory=memory["macro_trajectory"],
         active_state_changes=memory["active_state_changes"],
-        pm_recent_decisions=memory["pm_recent_decisions"],
         projected_portfolio=memory["projected_portfolio"],
         calibration_note=memory["calibration_note"],
         recent_missed_lessons=memory["recent_missed_lessons"],

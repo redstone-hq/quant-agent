@@ -28,7 +28,6 @@ class PositionReviewSession:
         build_active_state_changes,
         build_calibration_note,
         build_macro_trajectory,
-        build_own_recent_decisions,
         build_position_facts,
         build_review_metric_deltas,
         build_trade_grade_summary,
@@ -98,7 +97,6 @@ class PositionReviewSession:
         self._build_active_state_changes = build_active_state_changes
         self._build_calibration_note = build_calibration_note
         self._build_macro_trajectory = build_macro_trajectory
-        self._build_own_recent_decisions = build_own_recent_decisions
         self._build_position_facts = build_position_facts
         self._build_review_metric_deltas = build_review_metric_deltas
         self._build_trade_grade_summary = build_trade_grade_summary
@@ -660,8 +658,7 @@ class PositionReviewSession:
             )
 
             # Phase 3.2 / audit §1.5 — the reviewer's memory of its OWN prior
-            # numbers. `_build_own_recent_decisions` below replays past ACTIONS
-            # and drops HOLDs, so without this the seat rebuilds its view from
+            # numbers. Without this the seat rebuilds its view from
             # scratch every session and can report a position deteriorating
             # while everything it measured six hours ago improved. That is
             # exactly how EPD and MRVL were sold on intact theses.
@@ -675,7 +672,6 @@ class PositionReviewSession:
             macro_trajectory = self._build_macro_trajectory()
             active_state_changes = self._build_active_state_changes()
             calibration_note = self._build_calibration_note()
-            own_recent_decisions = self._build_own_recent_decisions()
             # v2: evening's per-trade grades feed back into position_reviewer.
             # 14-day rolling counts of correct/premature/wrong SELLs (and BUYs)
             # let the reviewer lean patient when past SELLs trended premature.
@@ -784,7 +780,6 @@ class PositionReviewSession:
                 macro_trajectory=macro_trajectory,
                 active_state_changes=active_state_changes,
                 calibration_note=calibration_note,
-                own_recent_decisions=own_recent_decisions,
                 trade_grade_summary=trade_grade_summary,
                 yesterday_insights=yesterday_insights,
                 recent_performance=recent_performance,

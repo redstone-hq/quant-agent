@@ -1104,18 +1104,11 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
             else "## Proposal Conversion\n(no proposals on record in the last 21 days)"
         )
 
-        # Self-calibration layer: PM reads its own recent decisions to spot flip-flops.
-        pm_recent_decisions: str = kwargs.get("pm_recent_decisions") or ""
         projected_portfolio: str = kwargs.get("projected_portfolio") or ""
         calibration_note: str = kwargs.get("calibration_note") or ""
         macro_tech_alignment: str = kwargs.get("macro_tech_alignment") or ""
         facts = kwargs.get("facts")  # PMFacts | None
 
-        pm_decisions_section = (
-            f"## Your Recent Decisions (last 3 sessions — avoid flip-flops)\n{pm_recent_decisions}"
-            if pm_recent_decisions
-            else "## Your Recent Decisions\n(no prior PM decisions on record)"
-        )
         projected_section = (
             f"## Projected Book Preview (if you rubber-stamp TA's BUYs at 5% each)\n{projected_portfolio}"
             if projected_portfolio
@@ -1183,7 +1176,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
 
 {alignment_section}
 
-{pm_decisions_section}
 
 
 {narrative_section}
@@ -1282,7 +1274,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         weekly_narrative: str = "",
         macro_trajectory: str = "",
         active_state_changes: str = "",
-        pm_recent_decisions: str = "",
         projected_portfolio: str = "",
         calibration_note: str = "",
         macro_tech_alignment: str = "",
@@ -1394,7 +1385,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             weekly_narrative=weekly_narrative,
             macro_trajectory=macro_trajectory,
             active_state_changes=active_state_changes,
-            pm_recent_decisions=pm_recent_decisions,
             projected_portfolio=projected_portfolio,
             calibration_note=calibration_note,
             macro_tech_alignment=macro_tech_alignment,
