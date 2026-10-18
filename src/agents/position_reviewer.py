@@ -18,8 +18,6 @@ v3 upgrades vs the original MiddayReviewerAgent:
     winner flag (parabolic). Math done in Python
     and surfaced as numbers, not asked of the LLM.
   - Session-type awareness: 'midday' and 'close' prompts differ in bias.
-  - Anti-flip-flop: "Own Recent Decisions" memory shown so the agent
-    doesn't reverse itself within hours without a named thesis break.
 """
 
 import logging
@@ -149,7 +147,6 @@ class PositionReviewerAgent(BaseAgent):
         macro_trajectory: str = kwargs.get("macro_trajectory") or ""
         active_state_changes: str = kwargs.get("active_state_changes") or ""
         calibration_note: str = kwargs.get("calibration_note") or ""
-        own_recent_decisions: str = kwargs.get("own_recent_decisions") or ""
         trade_grade_summary: dict = kwargs.get("trade_grade_summary") or {}
         yesterday_insights: dict | None = kwargs.get("yesterday_insights")
         recent_performance: dict = kwargs.get("recent_performance") or {}
@@ -444,11 +441,6 @@ class PositionReviewerAgent(BaseAgent):
         trajectory_section = _opt_section("Macro Regime Trajectory (7 days)", macro_trajectory)
         active_changes_section = _opt_section("Active HIGH-conviction State Changes (14 days)", active_state_changes)
         calibration_section = _opt_section("Trade Calibration (45-day realized)", calibration_note)
-        decisions_section = _opt_section(
-            "Your Recent Decisions (don't flip-flop without a named trigger)",
-            own_recent_decisions,
-        )
-
         if yesterday_insights:
             yi_outlook = (yesterday_insights.get("tomorrow_outlook") or "").strip()[:300]
             yi_bias = yesterday_insights.get("tomorrow_bias", "neutral")
@@ -739,7 +731,6 @@ class PositionReviewerAgent(BaseAgent):
 {yesterday_section}
 {grade_section}
 {calibration_section}
-{decisions_section}
 {deltas_section}
 {perf_section}
 
@@ -770,7 +761,6 @@ schema."""
         macro_trajectory: str = "",
         active_state_changes: str = "",
         calibration_note: str = "",
-        own_recent_decisions: str = "",
         trade_grade_summary: dict | None = None,
         yesterday_insights: dict | None = None,
         recent_performance: dict | None = None,
@@ -808,7 +798,6 @@ schema."""
             macro_trajectory=macro_trajectory,
             active_state_changes=active_state_changes,
             calibration_note=calibration_note,
-            own_recent_decisions=own_recent_decisions,
             trade_grade_summary=trade_grade_summary or {},
             yesterday_insights=yesterday_insights,
             recent_performance=recent_performance or {},

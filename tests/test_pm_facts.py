@@ -52,11 +52,6 @@ def test_pmfacts_render_produces_structured_block():
         win_rate_30d_pct=58.3,
         avg_return_30d_pct=2.4,
         avg_hold_days_30d=6.1,
-        # audit round 2 #35: the render denominator is now rm_verdicts_seen
-        # (real row count), not a hardcoded /5 — set it so "2/5" stays valid.
-        rm_verdicts_seen=5,
-        rm_scale_downs_last5=2,
-        rm_mods_last5=3,
         invested_pct=72.0,
         cash_pct=28.0,
         position_count=8,
@@ -75,7 +70,6 @@ def test_pmfacts_render_produces_structured_block():
     rendered = f.render()
     assert "n=12" in rendered
     assert "win_rate=+58.30%" in rendered
-    assert "2/5" in rendered  # scale_downs
     assert "Technology: 22.0%" in rendered
     assert "LONG side" in rendered and "SHORT side" in rendered
     assert "Energy: 6.0%" in rendered
@@ -149,10 +143,6 @@ def test_pm_facts_builder_populates_from_positions_and_calibration(tmp_path, mon
 
     # Calibration picked up
     assert facts.closed_trades_30d == 3
-
-    # RM discipline
-    assert facts.rm_verdicts_seen == 1
-    assert facts.rm_scale_downs_last5 == 1
 
     # Book state.
     #

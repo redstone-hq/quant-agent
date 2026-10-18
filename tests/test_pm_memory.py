@@ -112,7 +112,7 @@ def test_pm_gracefully_handles_missing_memory_layers():
         assert "none surfaced" in msg
         # New self-calibration sections also have fallbacks
         assert "Risk Manager Verdicts" not in msg
-        assert "no prior PM decisions on record" in msg
+        assert "Your Recent Decisions" not in msg
         assert "no projection available" in msg
 
 
@@ -126,16 +126,8 @@ def test_pm_renders_rm_verdicts_and_own_history():
             macro_analysis=None,
             cash_balance=5000.0,
             total_value=10000.0,
-            pm_recent_decisions=(
-                "- 2026-04-16: BUY NVDA 12%; BUY AMD 10%\n"
-                "    sizing: high conviction stacked on AI thesis\n"
-                "- 2026-04-17: BUY GOOGL 12%; SELL AAPL 100%"
-            ),
         )
-        # PM's own decisions surfaced
-        assert "## Your Recent Decisions" in msg
-        assert "BUY NVDA 12%" in msg
-        assert "high conviction stacked on AI thesis" in msg
+        assert "## Your Recent Decisions" not in msg
 
 
 def test_pm_renders_projected_book_preview():
@@ -395,13 +387,11 @@ def test_pm_memory_builders_warn_on_corrupt_json(caplog):
     with caplog.at_level(logging.WARNING, logger="src.pipeline"):
         pipeline._build_recent_missed_lessons()
         pipeline._build_recent_loss_pits()
-        pipeline._build_pm_recent_decisions(limit=3)
 
     warns = [r.message for r in caplog.records if r.levelno == logging.WARNING]
     # All 4 builders should have surfaced the parse failure.
     assert any("recent_missed_lessons" in m for m in warns), warns
     assert any("recent_loss_pits" in m for m in warns), warns
-    assert any("pm_recent_decisions" in m for m in warns), warns
 
 
 def test_build_recent_sells_joins_current_prices(tmp_path):
@@ -593,99 +583,6 @@ def test_risk_verdict_accepts_reason_category():
 
     with pytest.raises(Exception):  # pydantic ValidationError
         RiskVerdict(approved=True, reasoning_chain=_rc(), reasoning="x", reason_category="weird")
-
-
-def test_pm_decisions_builder_parses_own_history(tmp_path):
-    import json
-    from src.pipeline import TradingPipeline
-    from src.storage.db import Database
-
-    db = Database(str(tmp_path / "t.db"))
-    db.initialize()
-    db.insert_agent_log(
-        agent_name="portfolio_manager",
-        run_id="p1",
-        input_summary="",
-        input_message="",
-        output_summary="1 trade",
-        full_response=json.dumps(
-            {
-                "reasoning_chain": {
-                    "sizing_logic": "high conviction on AI capex",
-                    "continuity_check": "consistent with 5-day risk-on narrative",
-                },
-                "decisions": [
-                    {
-                        "action": "BUY",
-                        "symbol": "NVDA",
-                        "allocation_pct": 8.0,
-                        "entry_price": 195,
-                        "stop_loss": 186,
-                        "take_profit": 215,
-                        "reasoning": "...",
-                    },
-                ],
-            }
-        ),
-        model="gpt-5.4",
-        tokens_used=100,
-    )
-    db.conn.execute(
-        "UPDATE agent_logs SET timestamp = datetime('now', '-1 day') WHERE agent_name = 'portfolio_manager'"
-    )
-    db.conn.commit()
-
-    pipeline = build_pipeline(db=db)
-    out = pipeline._build_pm_recent_decisions(limit=3)
-    assert "BUY NVDA 8.0%" in out
-    assert "high conviction on AI capex" in out
-    assert "consistent with 5-day risk-on narrative" in out
-
-
-def test_pm_decisions_builder_tags_the_unit_on_targets_schema(tmp_path):
-    """Phase 2's `targets` schema sizes by `risk_allocation_pct`; older rows
-    carry the legacy `target_weight_pct`. Reading only the legacy field
-    rendered every current size as '?' (live output stopped emitting
-    `target_weight_pct` on 2026-08-28) -- a flip-flop check that cannot see
-    the size is not a check. Fixed 2026-09-02; this test is the regression
-    guard the fix shipped without. Pins all three branches: risk-tagged,
-    legacy-weight-tagged, and the true-unknown fallback when neither field
-    is present.
-    """
-    import json
-    from src.pipeline import TradingPipeline
-    from src.storage.db import Database
-
-    db = Database(str(tmp_path / "t.db"))
-    db.initialize()
-    db.insert_agent_log(
-        agent_name="portfolio_manager",
-        run_id="p1",
-        input_summary="",
-        input_message="",
-        output_summary="targets",
-        full_response=json.dumps(
-            {
-                "targets": [
-                    {"symbol": "NVDA", "risk_allocation_pct": 1.2, "conviction": "high"},
-                    {"symbol": "JPM", "target_weight_pct": 5.0, "conviction": "medium"},
-                    {"symbol": "XLE", "conviction": "low"},
-                ],
-            }
-        ),
-        model="gpt-5.4",
-        tokens_used=100,
-    )
-    db.conn.execute(
-        "UPDATE agent_logs SET timestamp = datetime('now', '-1 day') WHERE agent_name = 'portfolio_manager'"
-    )
-    db.conn.commit()
-
-    pipeline = build_pipeline(db=db)
-    out = pipeline._build_pm_recent_decisions(limit=3)
-    assert "NVDA→1.2%r(h)" in out
-    assert "JPM→5.0%w(m)" in out
-    assert "XLE→?(l)" in out
 
 
 def test_pm_renders_weight_pct():

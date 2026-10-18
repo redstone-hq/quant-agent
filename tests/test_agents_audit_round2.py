@@ -791,33 +791,6 @@ def test_idx34_position_reviewer_macro_outage_renders_na():
 
 
 # ---------------------------------------------------------------------------
-# idx 35 — PMFacts RM-discipline denominator is rm_verdicts_seen, not /5
-# ---------------------------------------------------------------------------
-
-
-def test_idx35_pmfacts_uses_real_rm_denominator():
-    from src.pipeline_context import PMFacts
-
-    rendered = PMFacts(
-        rm_verdicts_seen=2,
-        rm_scale_downs_last5=2,
-        rm_mods_last5=1,
-    ).render()
-    assert "last 2 verdicts" in rendered
-    assert "2/2" in rendered
-    assert "1/2" in rendered
-    assert "2/5" not in rendered
-
-
-def test_idx35_pmfacts_zero_verdicts_named_unsourced():
-    from src.pipeline_context import PMFacts
-
-    rendered = PMFacts(rm_verdicts_seen=0).render()
-    assert "no RM verdicts on record" in rendered
-    assert "/0" not in rendered
-
-
-# ---------------------------------------------------------------------------
 # idx 36 — evening-grade calibration renders when only BUY grades exist
 # ---------------------------------------------------------------------------
 

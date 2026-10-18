@@ -493,7 +493,6 @@ def test_production_scale_pm_prompt_and_grounding_contract():
             weekly_narrative="Seven-day portfolio narrative. " * 80,
             macro_trajectory="Regime trajectory evidence. " * 80,
             active_state_changes="Current state change. " * 80,
-            pm_recent_decisions="Prior grounded target. " * 80,
         )
     assert len(message) > 18_000
     assert all(f"- {symbol}:" in message for symbol in symbols)

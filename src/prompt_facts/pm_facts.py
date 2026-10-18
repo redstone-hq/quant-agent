@@ -78,30 +78,6 @@ class PromptPMFacts:
             f.avg_return_30d_pct = calib.get("avg_return_pct")
             f.avg_hold_days_30d = calib.get("avg_hold_days")
 
-        # RM discipline
-        try:
-            rm_rows = self.db.get_recent_agent_outputs(
-                agent_name="risk_manager",
-                limit=5,
-                before_date=session_date_key(),
-            )
-        except Exception as e:
-            logger.warning("pm_facts: rm outputs failed: %s", e)
-            rm_rows = []
-        f.rm_verdicts_seen = len(rm_rows)
-        for row in rm_rows:
-            data = self._parse_logged_agent_response(row)
-            if not isinstance(data, dict):
-                continue
-            scale = data.get("scale_all_buys", 1.0)
-            try:
-                if float(scale) < 1.0:
-                    f.rm_scale_downs_last5 += 1
-            except (TypeError, ValueError):
-                pass
-            if data.get("modifications"):
-                f.rm_mods_last5 += 1
-
         # Book state.
         #
         # `invested_pct` comes from `book_exposure` — the SAME function the
