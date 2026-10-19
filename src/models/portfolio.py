@@ -11,6 +11,7 @@ from src.models.base import (
     logger,
 )
 from src.models.decisions import AnalystProvenance, ReasoningChain, TradeDecision
+from src.models.positions import ObjectionAnswer
 
 from src.models.risk_narrative_claims import _explicit_risk_pct_claim_texts, risk_pct_half_ulp
 
@@ -154,6 +155,12 @@ class TargetPosition(LLMOutputModel):
     # live PM decisions are required to populate this by the deterministic
     # PM grounding validator before they may reach PortfolioConstructor.
     provenance: list[AnalystProvenance] = Field(default_factory=list)
+
+    # Desk archetype step A (19 Oct 2026): written answers to seat
+    # objections on this symbol (`ObjectionAnswer`). Optional, so old
+    # outputs parse unchanged; hidden from the schema the PM is handed until
+    # the wording step (D) tells the PM about it.
+    objection_answers: Annotated[list[ObjectionAnswer], SkipJsonSchema()] = Field(default_factory=list)
 
     # --- Risk-narrative cross-check (item 163) -----------------------------
     # `risk_allocation_pct` is authoritative for anything the desk acts on;
