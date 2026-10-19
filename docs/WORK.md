@@ -254,8 +254,8 @@ DONE WHEN:
   - [x] each below-bar name carries the entry rules it fails on in plain words, or says the record does not hold them -- never a bare name
   - [x] direction is derived from recorded passes (slipped / recovered / steady, and since when) with no cutoff chosen
   - [x] the route is read-only and passes the dashboard-cannot-trade guard
-  - [x] the margin each holding sits from failing each rule that has a distance is recorded per session (`src/rotation_margins.py`: R2 in rating steps from neutral, R5 in independent net-evidence points above failing) and shown with day-on-day direction; R3, R6 and R7 are yes-or-no and have none
-  - [ ] a production session is observed writing the margins row and feeding the panel with real rows, and the margin recorder's R5 value is checked against the live eligibility reasons -- proven by test only until a production session since the 2026-10-09 restart is read
+  - [x] the margin each holding sits from failing each rule that has a distance is recorded per session (`src/rotation_margins.py`: R2 in rating steps from neutral, R5 is retired as a gate (desk archetype); the recorder keeps its old value for history only and the panel shows no R5 margin) and shown with day-on-day direction; R3, R6 and R7 are yes-or-no and have none
+  - [ ] a production session is observed writing the margins row and feeding the panel with real rows, with the margins row observed feeding the panel for R2 only (R3, R6, R7 carry no distance) -- proven by test only until a production session since the 2026-10-09 restart is read
   - [x] reasons for below-bar names that were not cut come from item 219's dispositions row (PR 1108, merged 2026-10-02); proven by a writer-to-panel round-trip test
 detail: docs/board_notes/item-228.md
 
