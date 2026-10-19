@@ -1165,6 +1165,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence (SEC Insider Transactions Data Sets, Form 4 code-P buys, 5,311 events / 1,054 issuers, 21-session excess return vs SPY, issuer-resampled 95% intervals, halves 2024 and 2025-Q1 2026): cluster-vs-single at windows 0,1,2,3,5,7,10,14,30 days never has an interval excluding 0 in both halves and the sign flips between halves (window 0: -1.94 [-4.74,+0.83] in 2024, +0.45 [-1.56,+2.49] in 2025-26; window 2: -1.20 then -0.17, both spanning 0). So no change point 0-30 days. On the insider (Form 4) path the window decides nothing today: cluster_survivors is called with a zero size floor (src/data/smart_money.py line 1811, threshold_fn=lambda symbol: 0.0), so every priced row survives alone; it only pads the cache-prune horizon. It still gates congressional buys, whose history is out of reach with free data. Outcome: owned open question for the congressional path (docs/OUTCOME.md "No arbitrary numbers, ever", outcome 3). Routine/opportunistic labels not reproduced; 180 of 1,500 sampled issuers had no prices (survivorship, direction unknown).
     open_question: >-
       Within how many days do insider purchases actually co-occur when they
       represent one decision rather than several?
@@ -1215,6 +1217,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence: not measurable with free data. The two configured feeds hold only a recent slice (one capped at 5,000 rows, the other about 8,000), so two years of disclosures with filing dates needs either paid data or parsing House Clerk / Senate eFD disclosure documents (PDF/HTML, no structured transaction table). Owned open question.
     open_question: >-
       Over what window does a congressional disclosure still carry
       information, given disclosure lag?
@@ -1303,6 +1307,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence (same insider data and method as cluster_window_days): a prior purchase filed 1-7, 8-30, 31-90, 91-180, 181-365, 366-545 or 546-730 days earlier does not change the new filing's 5/10/21-session excess return versus none in 730 days, in both halves; single-half stars do not replicate. So there is no change point from 1 to 730 days and price behaviour cannot set the number. It cannot simply be removed (some fetch bound must exist). The code comment (src/config/smart_money.py, field comment on lookback_days) records 365 as an owner behavioural ruling introduced in commit 40e4febb6 on 2026-09-11; no verbatim owner message is on file, so the row stays arbitrary rather than owner-ruled, which requires a dated ruling record. Owned open question: the data neither supports nor refutes 365. Horizon checked was 5/10/21 sessions only.
     open_question: >-
       Over what window does insider-purchase information remain predictive?
     cost_while_unanswered: >-
@@ -1482,30 +1488,29 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence (SEC Insider Transactions Data Sets, six dates 2023-12-31..2026-03-31): 40 is a GLOBAL cap on rows handed to the deciding seat across all stocks, not a per-stock cap. Market-wide code-P rows filed in a trailing 365 days: 19,950-26,911; issuers alone exceeding 40 rows: 59-109 (2.5-4.3%); p99 rows per issuer 66-78. How often the cap truncates the desk's actual live cache is unknown (the repo copy of the cache is a 5-row stale fixture from 2026-08-25). Post-filing price behaviour cannot settle it: it is a seat-attention budget, settled by a recording of how much the seat reads. Owned open question.
     open_question: >-
       How many observations does the seat need in its prompt before more stop
       changing its read?
     cost_while_unanswered: >-
       Either evidence is truncated away or the prompt is padded at cost.
     settles_by:
-      kind: measurement
-      state: specified
+      kind: "recording"
+      state: "specified"
       where: >-
         docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
         routing pass, which specifies each recording field by name
       records: >-
-        every insider and congressional purchase the desk ingests, with its
-        transaction and filing dates, the filer's role, the gaps to that
-        filer's own prior purchases, the other filers buying the same name in
-        the same span, and the price path of the name afterwards -- read off
-        the filings record and market prices, never off this desk's own fills.
+        every build of the smart-money observations block handed to the
+        deciding seat, with the count of rows available BEFORE the cap, the
+        count kept, the symbols cut, and the seat's verdict, so how often the
+        cap truncates live and whether the verdict changes with more rows is a
+        recorded series instead of an assumption nobody can inspect
       closes_when: >-
-        that record is long enough to show how post-filing price behaviour
-        varies with each window -- the span that makes a cluster, the length
-        of the lookback, the cadence gaps that mark a buy routine, and the age
-        of a calendar pattern -- so each window is read off where behaviour
-        actually changes rather than set to a round number; a window across
-        which behaviour does not change is removed instead of re-picked.
+        a run of sessions shows the row count beyond which the seat's verdict
+        stops changing; the cap is then set at that point, read off the
+        recording, instead of at a round number.
   - id: src.config.SmartMoneyConfig.min_cluster_owners
     value: 2
     status: sourced
