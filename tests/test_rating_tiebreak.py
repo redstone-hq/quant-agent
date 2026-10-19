@@ -49,11 +49,13 @@ def test_strong_sell_ranks_above_sell_at_equal_conviction():
     assert [c.symbol for c in ranked] == ["ZZZ", "AAA"]
 
 
-def test_high_conviction_buy_outranks_medium_conviction_strong_buy():
+def test_stated_conviction_no_longer_ranks_so_strong_buy_wins_the_tie():
+    """2026-10-19: conviction is not scored, so one buy and one strong_buy
+    from the same seat tie on count and the strong rung breaks the tie."""
     ranked = rank_verdicts(
         [
             _verdict("technical", "AAA", rating="strong_buy", conviction="medium"),
             _verdict("technical", "ZZZ", rating="buy", conviction="high"),
         ]
     )
-    assert [c.symbol for c in ranked] == ["ZZZ", "AAA"]
+    assert [c.symbol for c in ranked] == ["AAA", "ZZZ"]

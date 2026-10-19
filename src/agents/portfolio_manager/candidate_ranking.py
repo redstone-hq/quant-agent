@@ -449,7 +449,9 @@ class CandidateRanking:
         their reasons. Ordering is `src/verdicts.py::rank_verdicts` over
         every seat's `AnalystVerdict` (2026-09-03: extended from Technical
         alone to all five — see `_collect_seat_verdicts`), every seat counted
-        equally (per-seat weights deleted 2026-10-15, n06).
+        equally (per-seat weights deleted 2026-10-15, n06); since 2026-10-19
+        the score is the count of agreeing seats, conviction unread and macro
+        uncounted (`src/verdicts.py::UNCOUNTED_SEATS`).
         Blocked names are never ordered: they are reported, not ranked.
 
         Eligibility itself is still decided from Technical's own analyses
@@ -616,12 +618,17 @@ class CandidateRanking:
             "The names below passed every rule that can be checked before you "
             "decide (actionable rating; longs BUY-eligible; net independent "
             "evidence ≥ 1; not refused by the order constructor's own "
-            "preview). They are ORDERED by the SUM across "
-            "every seat that reported a direction on the name, of that "
-            "seat's stated conviction — every seat counts the same. "
-            "A SUM, so more "
-            "agreeing seats always score higher: breadth is the point, and "
-            "an agreeing seat can never pull a name down. Only technical "
+            "preview). They are ORDERED by the COUNT of seats that agree "
+            "on the name's direction — each agreeing seat adds 1, "
+            "whatever conviction it stated (a seat's own confidence is not "
+            "checked, so it does not rank). Macro is not counted: its read "
+            "is market-wide and reaches every name alike, so it tilts size, "
+            "not order. An agreeing seat can never pull a name down. "
+            "The order stays a plain count, every seat equal, until seat "
+            "weights are measured from the desk's own record; weighing the "
+            "views — which seat matters more for this name — is your job "
+            "as head trader, not the ranking's. "
+            "Only technical "
             "states a rating rung (strong over plain); it is NOT added to "
             "the score and only breaks a tie between equal scores. The "
             "other four seats have no rating rung at all — absent, not "
@@ -652,10 +659,9 @@ class CandidateRanking:
                 no_strength = f" | no strength scale: {', '.join(c.no_strength_seats)}" if c.no_strength_seats else ""
                 lines.append(
                     f"{i}. {c.symbol} — {c.direction} | score {c.score:.2f} "
-                    f"(conviction "
-                    f"{c.components['conviction_score']:.2f} summed over "
-                    f"{len(c.verdicts)} seat(s); {strength}) | seats: {seats} "
-                    f"({convictions}){no_strength}{no_lean} | invalid if "
+                    f"({c.components['agreeing_seats']:.0f} agreeing seat(s) "
+                    f"counted of {len(c.verdicts)} leaning; {strength}) | seats: {seats} "
+                    f"(stated conviction, not scored: {convictions}){no_strength}{no_lean} | invalid if "
                     f"— {invalidation}"
                 )
         else:

@@ -16,7 +16,11 @@ from functools import partial
 
 from src.models import AnalystVerdict, VerdictEvidence
 from src.rotation import evaluate_rotation_opportunity as _evaluate_rotation_opportunity
-from src.verdicts import RankedCandidate, score_verdict
+import pytest
+
+import src.rotation as rotation_mod
+from src.rotation_parts import score_noise as score_noise_mod
+from src.verdicts import CONVICTION_SCORE, RankedCandidate, score_verdict
 
 # The desk's own ratified floor (`STARTER_POSITION_RISK_PCT` /
 # `RiskConfig.min_position_risk_pct`) — the exact number
@@ -55,6 +59,28 @@ def _verdict(
     )
 
 
+def _weighted_score(verdict: AnalystVerdict) -> float:
+    """A stand-in per-seat score that can differ between two names on the
+    same seat -- what a measured seat weighting would produce. Used ONLY to
+    keep the like-for-like margin code exercised while the live score is a
+    plain count (2026-10-19), under which that code is refused outright."""
+    return CONVICTION_SCORE.get(verdict.conviction, 0.0)
+
+
+def _use_weighted(mp: pytest.MonkeyPatch) -> None:
+    mp.setattr(score_noise_mod, "SCORE_BASIS", "measured_weights_test_basis")
+    mp.setattr(rotation_mod, "score_verdict", _weighted_score)
+
+
+@pytest.fixture
+def weighted_basis(monkeypatch):
+    """Run a test against the margin code as it will run once seat weights
+    are measured (score basis off the plain count). The live basis refuses
+    the comparison as "awaiting_measured_seat_weights" -- see
+    `test_every_like_for_like_scenario_is_refused_on_the_count_basis`."""
+    _use_weighted(monkeypatch)
+
+
 def _rcv(symbol: str, seats: dict[str, tuple[float, str]], direction: str = "bullish") -> RankedCandidate:
     """A candidate whose score is DERIVED from its own seat coverage.
 
@@ -66,7 +92,7 @@ def _rcv(symbol: str, seats: dict[str, tuple[float, str]], direction: str = "bul
     verdicts = [
         _verdict(symbol, seat, magnitude, conviction, direction) for seat, (magnitude, conviction) in seats.items()
     ]
-    score = round(sum(score_verdict(v) for v in verdicts), 4)
+    score = round(sum(rotation_mod.score_verdict(v) for v in verdicts), 4)
     return RankedCandidate(
         symbol=symbol,
         direction=direction,
@@ -103,7 +129,7 @@ def test_stronger_new_candidate_rotates_out_a_stale_ineligible_holding():
     assert opp.reasons
 
 
-def test_stronger_new_candidate_rotates_out_a_weak_but_still_eligible_holding():
+def test_stronger_new_candidate_rotates_out_a_weak_but_still_eligible_holding(weighted_basis):
     """Both sides eligible: OLD ranks last among held names, NEW clears the
     25% margin (0.75 * 1.25 = 0.9375 <= 1.5).
 
@@ -302,7 +328,7 @@ def test_a_held_name_that_is_itself_the_best_ranked_candidate_is_not_compared_ag
 # must now also clear on the seats that scored BOTH names.
 
 
-def test_coverage_decay_alone_does_not_rotate_a_held_name_out():
+def test_coverage_decay_alone_does_not_rotate_a_held_name_out(weighted_basis):
     """The item-66 case, end to end. HELD and NEW carry an IDENTICAL
     technical read — the strongest one that seat can give. NEW additionally
     has a live earnings filing and a confirmed flow; HELD's lapsed weeks
@@ -355,7 +381,7 @@ def test_no_shared_scoring_seat_declines_rather_than_comparing():
     assert opp is None
 
 
-def test_a_real_like_for_like_gap_still_rotates_and_records_the_comparison():
+def test_a_real_like_for_like_gap_still_rotates_and_records_the_comparison(weighted_basis):
     """The check is not a blanket refusal. HELD's own chart is weak where
     NEW's is strong, so the gap survives on the shared seat and the
     rotation is surfaced — with the seats and both sub-scores recorded, so
@@ -387,7 +413,7 @@ def test_a_real_like_for_like_gap_still_rotates_and_records_the_comparison():
     assert round(opp.new_score - opp.new_shared_score, 4) == 1.0
 
 
-def test_the_like_for_like_check_can_only_remove_rotations_never_add_one():
+def test_the_like_for_like_check_can_only_remove_rotations_never_add_one(weighted_basis):
     """The property, not an example: the shared-seat test is a CONJUNCTION
     with the full-score test, so every surfaced ranked-margin rotation also
     clears the original comparison. Swept over a grid of coverage and
@@ -542,7 +568,7 @@ def test_render_rotation_section_returns_plain_text_not_structured_data():
     assert "Opportunity Rotation" in result
 
 
-def test_render_states_the_like_for_like_comparison_for_the_ranked_tier():
+def test_render_states_the_like_for_like_comparison_for_the_ranked_tier(weighted_basis):
     """Item 66. When a ranked-margin rotation IS surfaced, the model is
     shown the coverage-neutral comparison that justified it, not only the
     two coverage-sensitive totals."""
@@ -823,13 +849,8 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
             blocked={},
             held_symbols={"OLD"},
         ).point,
-        # (f) no seat scored both names
-        _refusal(
-            ranked=[_rcv("NEW", {"earnings": (1.0, "high")}), weak],
-            blocked={},
-            held_symbols={"OLD"},
-        ).point,
-        # (h) cleared on the full composite, not on the shared seats
+        # (g) archetype step C, 2026-10-19: on the live count basis a name
+        # that clears the full composite is refused at the comparison step
         _refusal(
             ranked=[
                 _rcv("NEW", {"technical": (0.8, "low"), "earnings": (1.0, "high")}),
@@ -838,6 +859,29 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
             blocked={},
             held_symbols={"OLD"},
         ).point,
+    }
+    # (f) and (h) sit behind (g); reached under a measured-weights basis.
+    with pytest.MonkeyPatch.context() as mp:
+        _use_weighted(mp)
+        weak_w = _rcv("OLD", {"technical": (0.75, "low")})
+        seen |= {
+            # (f) no seat scored both names
+            _refusal(
+                ranked=[_rcv("NEW", {"earnings": (1.0, "high")}), weak_w],
+                blocked={},
+                held_symbols={"OLD"},
+            ).point,
+            # (h) cleared on the full composite, not on the shared seats
+            _refusal(
+                ranked=[
+                    _rcv("NEW", {"technical": (0.8, "low"), "earnings": (1.0, "high")}),
+                    weak_w,
+                ],
+                blocked={},
+                held_symbols={"OLD"},
+            ).point,
+        }
+    seen |= {
         # (i) owner decision 2026-10-15: no measured score noise, no swap
         _refusal(
             ranked=[strong, weak],
@@ -851,7 +895,7 @@ def test_no_refusal_point_is_silent_and_every_one_is_reachable():
     )
 
 
-def test_the_refusal_row_carries_the_named_fields():
+def test_the_refusal_row_carries_the_named_fields(weighted_basis):
     """The dataset board item 39(a) needs: which holding, which candidate,
     the shared seats, both shared scores, the ratio, and which point."""
     refusal = _refusal(
@@ -877,7 +921,7 @@ def test_the_refusal_row_carries_the_named_fields():
     assert refusal.detail
 
 
-def test_the_row_describes_the_comparison_even_when_the_book_had_room():
+def test_the_row_describes_the_comparison_even_when_the_book_had_room(weighted_basis):
     """The sessions with room are 51 of the last 51 and are most of the
     population 39(a) must be answered from. A row saying only "there was
     room" is not a dataset."""
@@ -1033,7 +1077,7 @@ def test_the_natural_selection_telemetry_introduces_no_margin_change():
     assert not hasattr(rotation, "ROTATION_MARGIN_PCT")
 
 
-def test_a_held_name_every_seat_rates_low_is_replaced_once_the_gap_beats_the_noise():
+def test_a_held_name_every_seat_rates_low_is_replaced_once_the_gap_beats_the_noise(weighted_basis):
     """n06: a score of zero is a real score, not an uninterpretable one. The
     margin is an absolute gap against the measured noise, so a holding that
     every seat rates low (score 0) is replaceable by a candidate that beats
@@ -1052,3 +1096,42 @@ def test_a_held_name_every_seat_rates_low_is_replaced_once_the_gap_beats_the_noi
     assert opp is not None
     assert opp.held_symbol == "HELD"
     assert opp.new_symbol == "NEW"
+
+
+def test_every_like_for_like_scenario_is_refused_on_the_count_basis():
+    """Archetype step C (2026-10-19): the live score is the count of agreeing
+    seats, so on the seats scoring both names the two always tie. Rotation
+    refuses that comparison explicitly -- never as an accidental tie -- until
+    seat weights are measured. These are the scenarios the weighted-basis
+    tests above rotate on; on the live basis each is refused."""
+    assert score_noise_mod.SCORE_BASIS == score_noise_mod.AGREEING_SEAT_COUNT_BASIS
+    scenarios = [
+        # held weaker on its one seat, new adds coverage
+        (
+            _rcv("HELD", {"technical": (0.75, "low")}),
+            _rcv("NEW", {"technical": (1.0, "high"), "earnings": (None, "high")}),
+        ),
+        # coverage decay: identical shared read, new has extra seats
+        (
+            _rcv("HELD", {"technical": (1.0, "high")}),
+            _rcv("NEW", {"technical": (1.0, "high"), "earnings": (None, "high"), "smart_money": (None, "medium")}),
+        ),
+        # every seat on the held name rates low
+        (
+            _rcv("HELD", {"technical": (0.5, "low"), "news": (None, "low")}),
+            _rcv("NEW", {"technical": (1.0, "high"), "news": (None, "high"), "earnings": (None, "high")}),
+        ),
+    ]
+    for held, new in scenarios:
+        assert new.score - held.score > TEST_NOISE_BRAKE
+        outcome = rotation_mod.evaluate_rotation(
+            ranked=[new, held],
+            blocked={},
+            held_symbols={held.symbol},
+            headroom_pct=0.1,
+            floor_pct=0.5,
+            noise_brake=TEST_NOISE_BRAKE,
+        )
+        assert outcome.opportunity is None
+        assert outcome.refusal.point == "awaiting_measured_seat_weights"
+        assert "measured" in outcome.refusal.detail

@@ -312,6 +312,7 @@ from src.rotation_unrecorded import empty_pass_lines
 from dataclasses import replace
 
 from src.risk.min_risk import MinRiskFloor
+from src.rotation_parts import score_noise as _score_noise
 from src.rotation_parts.score_noise import ScoreNoiseBrake, evidence_key
 from src.rotation_parts.constraints import (
     funding_view_measured,
@@ -607,6 +608,21 @@ def _evaluate_rotation_core(
     # that scored BOTH names and require the same margin there too. No
     # constant is introduced: `score_verdict` is
     # `src/verdicts.py`'s own, unchanged, and the margin is the same one.
+    #
+    # 2026-10-19 (archetype step C): the score is the COUNT of agreeing
+    # seats, every seat counting 1. Over the seats that scored both names
+    # each side then sums to the same number, so this comparison can never
+    # tell the two apart. Refused explicitly, not as an accidental tie:
+    # no swap until seat weights are measured from the desk's own record
+    # and the score basis moves off the plain count.
+    if _score_noise.SCORE_BASIS == _score_noise.AGREEING_SEAT_COUNT_BASIS:
+        return _refuse(
+            "awaiting_measured_seat_weights",
+            "the score is a count of agreeing seats with every seat weighted "
+            "the same until seat weights are measured, so on the seats "
+            f"scoring both {weakest_held.symbol} and {best_new.symbol} the two "
+            "always tie and no like-for-like gap exists; no swap is made",
+        )
     shared = _shared_seat_comparison(held=weakest_held, new=best_new)
     if shared is None:
         # No seat scored both names. There is no like-for-like comparison
@@ -719,9 +735,9 @@ def _shared_seat_comparison(
     names share no scoring seat.
 
     The arithmetic is `src/verdicts.py`'s own and is reproduced, not
-    re-derived: a seat's contribution to `RankedCandidate.score` is
-    `conviction_score` alone (every seat counts equally since n06,
-    2026-10-15), which is exactly `score_verdict(verdict)`. Summing that over a
+    re-derived: a seat's contribution to `RankedCandidate.score` is exactly
+    `score_verdict(verdict)` — since 2026-10-19 a count of 1 per agreeing
+    seat (macro uncounted), declared conviction not read. Summing that over a
     subset of seats therefore yields the same composite restricted to that
     subset — a partial sum of the real score, not a second scoring scheme.
 

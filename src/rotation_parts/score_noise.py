@@ -64,7 +64,10 @@ UNMEASURED = ScoreNoiseBrake(value=None, pairs=0, observations=0)
 
 #: How `RankedCandidate.score` is computed. Bump it whenever the score's
 #: arithmetic changes, so scores from two bases never pair.
-SCORE_BASIS = "conviction_only"
+AGREEING_SEAT_COUNT_BASIS = "agreeing_seat_count"
+#: Rotation refuses its like-for-like comparison while the basis is the plain
+#: count (`src/rotation.py`, "awaiting_measured_seat_weights").
+SCORE_BASIS = AGREEING_SEAT_COUNT_BASIS
 
 
 def evidence_key(candidate) -> str:
@@ -79,6 +82,10 @@ def evidence_key(candidate) -> str:
     scored under the old weights carries no basis and a new row carries
     `SCORE_BASIS`; the two keys can never be identical, so an old score is
     never paired with a new one and the brake restarts its measurement.
+    Bumped 2026-10-19 from "conviction_only" to "agreeing_seat_count" when
+    the score became the count of agreeing seats: a conviction-sum score
+    never pairs with a count, so the brake reads unmeasured and no swap is
+    made until pairs on the new basis are recorded.
     """
     if candidate is None:
         return ""

@@ -441,7 +441,9 @@ def test_data_quality_evidence_is_omitted_when_it_is_the_bare_default():
 
 
 def test_ranking_reads_two_signals_at_equal_weight():
-    assert RANKING_SIGNALS == ("conviction_score",)
+    # 2026-10-19: the score is the count of agreeing seats; the conviction
+    # ordinal still exists but no longer ranks.
+    assert RANKING_SIGNALS == ("agreeing_seats",)
     assert CONVICTION_SCORE == {"low": 0.0, "medium": 0.5, "high": 1.0}
 
 
@@ -469,13 +471,14 @@ def test_no_seat_weight_table_exists_in_the_ranking_module():
     assert hits == [], f"expected no seat-keyed table, found at lines {hits}"
 
 
-def test_score_is_magnitude_plus_conviction():
+def test_score_is_one_per_leaning_seat_whatever_its_conviction():
+    """2026-10-19: a leaning seat adds exactly 1; stated conviction is not read."""
     v = _tech("A", "strong_buy", "low").to_verdict()
-    assert score_verdict(v) == 0.0
+    assert score_verdict(v) == 1.0
     v = _tech("A", "buy", "high").to_verdict()
     assert score_verdict(v) == 1.0
     v = _tech("A", "buy", "medium").to_verdict()
-    assert score_verdict(v) == 0.5
+    assert score_verdict(v) == 1.0
 
 
 def test_rank_verdicts_orders_by_score_then_symbol_and_skips_neutral():
@@ -490,7 +493,9 @@ def test_rank_verdicts_orders_by_score_then_symbol_and_skips_neutral():
     ]
     ranked = rank_verdicts(verdicts)
     assert [c.symbol for c in ranked] == ["BBB", "AAA", "CCC", "DDD"]
-    assert [c.score for c in ranked] == [1.0, 0.5, 0.5, 0.0]
+    # 2026-10-19: every lone seat counts 1, so all tie; BBB's strong rung
+    # breaks the tie, the rest fall to symbol.
+    assert [c.score for c in ranked] == [1.0, 1.0, 1.0, 1.0]
     assert ranked[0].direction == "bearish"
     assert ranked[0].seats == ["technical"]
     # Pure: same input, same order.
@@ -522,11 +527,11 @@ def test_two_seats_on_one_symbol_sum_with_every_seat_counted_equally():
     # `computed_level_touches`, and neither seat here is one that would
     # carry the evidence anyway besides technical (item 141, 2026-09-20).
     assert c.components == {
-        "conviction_score": 1.0,
+        "agreeing_seats": 2.0,
         "risk_reward_tiebreak": 2.4,
         "level_touches_tiebreak": 0.0,
     }
-    assert c.score == 1.0
+    assert c.score == 2.0
     assert c.seats == ["news", "technical"]
 
 
@@ -573,13 +578,14 @@ def test_a_second_agreeing_seat_can_never_lower_a_candidates_score():
 
 
 def test_a_lone_seat_scores_the_same_whichever_seat_it_is():
-    """Every seat counts equally since n06 (2026-10-15): a lone macro read
-    and a lone technical read of identical strength score the same."""
+    """Every seat counts equally since n06 (2026-10-15): a lone news read
+    and a lone technical read score the same. Macro is the exception since
+    2026-10-19: its read is market-wide, so it is not counted at all."""
     tech = _tech("XLE", "buy", "high").to_verdict()
     [c] = rank_verdicts([tech])
     assert c.score == round(score_verdict(tech), 4) == 1.0
     macro_like = AnalystVerdict(
-        seat="macro",
+        seat="news",
         symbol="XLE",
         direction="bullish",
         magnitude=tech.magnitude,
@@ -590,6 +596,9 @@ def test_a_lone_seat_scores_the_same_whichever_seat_it_is():
     [m] = rank_verdicts([macro_like])
     assert m.score == round(score_verdict(macro_like), 4)
     assert c.score == m.score
+    macro = macro_like.model_copy(update={"seat": "macro"})
+    [mc] = rank_verdicts([macro])
+    assert mc.score == score_verdict(macro) == 0.0
 
 
 def test_a_seat_that_looked_and_had_no_lean_is_recorded_not_dropped():
@@ -684,7 +693,7 @@ def test_tied_score_does_not_break_on_risk_reward():
     falls in the alphabet."""
     aaa = _tech("AAA", "buy", "medium").to_verdict()  # R/R 2.4
     zzz = _tech("ZZZ", "buy", "medium", target=130).to_verdict()  # R/R 7.0
-    assert score_verdict(aaa) == score_verdict(zzz) == 0.5
+    assert score_verdict(aaa) == score_verdict(zzz) == 1.0
     ranked = rank_verdicts([aaa, zzz])
     assert [c.symbol for c in ranked] == ["AAA", "ZZZ"]
     # Still recorded, just not used to order.
@@ -806,10 +815,10 @@ def test_a_seat_that_states_no_strength_is_absent_from_the_strength_term():
     assert "magnitude" not in c.components
     assert c.strength_seats == []
     assert c.no_strength_seats == sorted(seats)
-    # The seats are still fully counted — on conviction, which is the whole
-    # of what they state, every seat equally: 1.0 * 4 seats = 4.0.
-    assert c.components["conviction_score"] == 4.0
-    assert c.score == 4.0
+    # The seats are still counted, 1 each — except macro, whose market-wide
+    # read is never counted (2026-10-19): 3 seats = 3.0.
+    assert c.components["agreeing_seats"] == 3.0
+    assert c.score == 3.0
 
 
 def test_a_seat_that_states_a_strength_carries_it_into_the_ranking():
@@ -824,7 +833,8 @@ def test_a_seat_that_states_a_strength_carries_it_into_the_ranking():
     # 1.0 (strong_buy) — and nothing else, because nothing else has a
     # strength to add.
     assert c.rung_tiebreak == 1.0
-    assert c.score == round(5 * 1.0, 4)
+    # Five leaning seats, macro uncounted: 4.
+    assert c.score == round(4 * 1.0, 4)
 
 
 def test_the_score_is_unchanged_by_the_absence_encoding():
@@ -841,7 +851,8 @@ def test_the_score_is_unchanged_by_the_absence_encoding():
         _no_strength("earnings", conviction="high"),
     ]  # 0 + 1.0
     [c] = rank_verdicts(group)
-    expected = 0.5 + 0.0 + 1.0
+    # 2026-10-19: one per leaning seat, conviction unread.
+    expected = 1.0 + 1.0 + 1.0
     assert c.score == round(expected, 4)
     # Same total through the per-verdict helper the rotation margin reuses.
     assert round(sum(score_verdict(v) for v in group), 4) == c.score
@@ -930,9 +941,9 @@ def test_pm_ranks_equally_eligible_candidates_deterministically():
     )
     assert blocked == {}
     assert [c.symbol for c in ranked] == ["AAA", "BBB", "CCC", "DDD"]
-    # Each is a lone technical read, scored at its own `score_verdict`
-    # (every seat counts equally since n06, 2026-10-15).
-    assert [c.score for c in ranked] == [1.0, 1.0, 0.5, 0.0]
+    # Each is a lone technical read counting 1 (2026-10-19); AAA's strong
+    # rung breaks the tie, the rest fall to symbol.
+    assert [c.score for c in ranked] == [1.0, 1.0, 1.0, 1.0]
 
 
 def test_the_real_ratio_orders_candidates_instead_of_admitting_them():
@@ -1346,33 +1357,12 @@ def test_production_eligibility_matches_the_item_18_audit_on_the_real_day():
     # rule and unscored. They fall to measured level touches; this fixture
     # carries none, so each tied group is alphabetical (the deterministic
     # stabiliser), with no unverifiable number deciding the order.
-    assert [c.symbol for c in ranked] == [
-        "SLB",
-        "VLO",
-        "XLE",
-        "AAPL",
-        "CMCSA",
-        "COP",
-        "CVX",
-        "DE",
-        "DIS",
-        "FLNC",
-        "JNJ",
-        "JPM",
-        "KO",
-        "MSFT",
-        "MU",
-        "NKE",
-        "NUE",
-        "NVDA",
-        "PATH",
-        "PFE",
-        "RSG",
-        "TSM",
-        "V",
-        "CHPX",
-        "CRM",
-    ]
+    # 2026-10-19: the score is the count of agreeing seats, so every lone
+    # technical read scores 1 and all 25 tie. SLB, the one strong rating,
+    # wins on the rung; the rest fall to symbol (the deterministic
+    # stabiliser) with no unverifiable number deciding the order.
+    assert {c.score for c in ranked} == {1.0}
+    assert [c.symbol for c in ranked] == ["SLB", *sorted(s for s in audit if s != "SLB")]
 
 
 def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
@@ -1417,11 +1407,11 @@ def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):
     section = msg.split("## Candidate Ranking")[1].split("\n## ")[0]
     lines = [ln for ln in section.splitlines() if ln[:2] in ("1.", "2.", "3.")]
     assert lines[0].startswith("1. AAA — bullish | score 2.00")
-    assert lines[1].startswith("2. CCC — bullish | score 1.50")
+    assert lines[1].startswith("2. CCC — bullish | score 2.00")
     # The prompt must say the aggregation is a SUM, or the PM reads the number
     # as a 0-2 fraction. Both survivors now carry two seats.
-    assert "summed over 2 seat(s)" in lines[0]
-    assert "an agreeing seat can never pull a name down" in section
+    assert "2 agreeing seat(s) counted of 2 leaning" in lines[0]
+    assert "An agreeing seat can never pull a name down" in section
     assert "technical: closes below MA50 on volume" in lines[0]
     assert "- ZZZ: R2 neutral rating" in section
     # Item 65, 2026-09-26. The strength half names the seats it is actually

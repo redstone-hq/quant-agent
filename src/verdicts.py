@@ -11,15 +11,27 @@ same reason as `src/nominations.py`. Which candidates are ELIGIBLE is not
 decided here; `PortfolioManagerAgent.candidate_eligibility` applies the
 desk's gates, and this module orders only what it is handed.
 
-**The score (n06, 2026-10-16).** One signal: `conviction_score` — the seat's
-declared conviction, low/medium/high placed at 0 / 0.5 / 1. Equal spacing: it
-is the same ordinal the `_CONVICTION_RANK` in `src/nominations.py` uses.
+**The score (archetype step C, 2026-10-19).** The COUNT of seats that agree
+in the trade direction. A seat's declared conviction (low/medium/high) is NOT
+part of the score any more: it is a number the model asserts about itself,
+nobody has checked whether its "high" beats its "medium", and an unverifiable
+number must never rank (owner archetype 2026-10-19, step 3; the n06 score that
+summed it at 0 / 0.5 / 1 is retired). Each seat that leans counts exactly 1 --
+equal weights, the published prior for a near-zero record (James-Stein /
+Efron-Morris shrinkage to the group mean; DeMiguel-Garlappi-Uppal 2009). A
+per-seat weight may come back only from this desk's own measured record.
+
+Macro is NOT counted (`UNCOUNTED_SEATS`). Its read is market-wide, not
+per-name: a sector row covers every name in the sector and, with no row, the
+broad `equity_outlook` is cast onto every name alike, so counting it would add
+the same vote to every name it reaches. The archetype has macro tilt size,
+not rank. Its verdict is still carried on the candidate (and still splits a
+group whose directions disagree, unchanged) -- it only adds nothing to `score`.
+
 `AnalystVerdict.magnitude` (Technical's rating rung; every other seat states
-none) is NOT added to the score: it used to be, which let Technical score up
-to 2.0 and every other seat 1.0, a double weight against the 25 Sep ruling
-that every seat counts the same, on a 0.5 spacing nobody measured. The rung
-now only BREAKS TIES between equal scores (strong over plain, in either
-direction), then `level_touches`, then `symbol`.
+none) is NOT added to the score either; it only BREAKS TIES between equal
+counts (strong over plain, in either direction), then `level_touches`, then
+`symbol` -- unchanged.
 
 No min-max normalisation across the candidate set: the input is absolute,
 so a candidate's score does not move when a different peer joins the list —
@@ -121,6 +133,7 @@ from src.risk.constants import reward_risk_floor_applies
 __all__ = [
     "CONVICTION_SCORE",
     "RANKING_SIGNALS",
+    "UNCOUNTED_SEATS",
     "RankedCandidate",
     "conviction_score",
     "score_verdict",
@@ -130,12 +143,19 @@ __all__ = [
 ]
 
 #: Ordinal encoding of the desk's own conviction scale onto 0..1. Equal
-#: spacing — nothing measured justifies anything else.
+#: spacing — nothing measured justifies anything else. NOT read by the score
+#: since 2026-10-19 (a self-declared number must never rank); kept for the
+#: callers that still describe a seat's stated conviction.
 CONVICTION_SCORE: dict[str, float] = {"low": 0.0, "medium": 0.5, "high": 1.0}
 
-#: The one verdict field the score reads. The rating rung (`magnitude`) only
-#: breaks ties; it is never summed in (n06).
-RANKING_SIGNALS: tuple[str, ...] = ("conviction_score",)
+#: What the score is: the count of seats agreeing in the trade direction
+#: (2026-10-19). Conviction is not read; the rating rung only breaks ties.
+RANKING_SIGNALS: tuple[str, ...] = ("agreeing_seats",)
+
+#: Seats whose verdict never adds to the count: macro's read is market-wide,
+#: cast onto every name alike, so it tilts size and never ranks (archetype
+#: 2026-10-19, step 3).
+UNCOUNTED_SEATS: frozenset[str] = frozenset({"macro"})
 
 
 def conviction_score(conviction: str) -> float:
@@ -143,13 +163,17 @@ def conviction_score(conviction: str) -> float:
 
 
 def score_verdict(verdict: AnalystVerdict) -> float:
-    """One verdict's score: its conviction_score, nothing else (n06).
+    """One verdict's contribution to the score: 1 if it leans, else 0.
 
-    The Technical rating rung (`magnitude`) is deliberately NOT added: only
-    one seat has one, so adding it gave that seat double weight. It breaks
-    ties between equal scores instead -- see `rank_verdicts`.
+    A directional verdict from a counted seat adds exactly one agreeing seat;
+    a neutral verdict, or one from an `UNCOUNTED_SEATS` seat, adds nothing.
+    Declared conviction is deliberately not read (2026-10-19): a
+    self-declared number nobody can check must never rank. The rating rung
+    breaks ties instead -- see `rank_verdicts`.
     """
-    return round(conviction_score(verdict.conviction), 4)
+    if verdict.direction == "neutral" or verdict.seat in UNCOUNTED_SEATS:
+        return 0.0
+    return 1.0
 
 
 def risk_reward_of(verdict: AnalystVerdict) -> float | None:
@@ -221,8 +245,8 @@ class RankedCandidate:
     #: The complement: seats that leaned but have no strength scale at all
     #: (news, macro, smart_money, earnings — see
     #: `src/models.py::NO_STATED_STRENGTH`). They are ABSENT from the
-    #: strength term, not present at zero, and they still contribute their
-    #: conviction to `score` exactly as before.
+    #: strength term, not present at zero, and they still count as one
+    #: agreeing seat in `score` (macro excepted, `UNCOUNTED_SEATS`).
     no_strength_seats: list[str] = field(default_factory=list)
     #: Summed rating-rung strength (strong over plain). Orders candidates that
     #: tie on `score`; never part of `score` itself (n06).
@@ -263,7 +287,7 @@ def rank_verdicts(
     **2026-10-10:** that ratio is now RECORDED ONLY — it no longer orders
     candidates (owner ruling 9 Oct; see the module docstring).
 
-    **THE SCORE IS A WEIGHTED SUM ACROSS SEATS, NOT A WEIGHTED AVERAGE —
+    **THE SCORE IS A SUM (since 2026-10-19 a COUNT) ACROSS SEATS, NOT AN AVERAGE —
     changed 2026-09-13 on adversarial review, before merge. Read this before
     changing it back.**
 
@@ -286,10 +310,10 @@ def rank_verdicts(
     choice (`qamc-no-arbitrary-numbers-principle`):
 
       * It introduces NO number. It deletes a divisor. Every constant in the
-        arithmetic afterwards — the conviction ordinal — is one that was
-        already ratified for this module and is unchanged.
+        arithmetic afterwards is a count of 1 per agreeing seat (2026-10-19;
+        the conviction ordinal it used to sum is retired).
       * It is monotone by construction. Every term is a
-        non-negative pair of signals, so an added seat can only ADD.
+        non-negative (0 or 1), so an added seat can only ADD.
         "Agreement can only add" stops being a property to test for and
         becomes a property of the arithmetic.
       * Consistency is already enforced upstream of it, not inside it: a
@@ -357,13 +381,14 @@ def rank_verdicts(
         # SUM, not mean — see the docstring. Adding an agreeing seat adds a
         # non-negative term and can never reduce the total.
         #
-        # Every seat counts once, unweighted (n06, 2026-10-15), and the score
-        # is conviction alone (n06, 2026-10-16). The rating rung is summed
-        # only over the seats that state one and is a tiebreak, not a score.
+        # Every counted seat adds exactly 1 (2026-10-19): the score is the
+        # number of seats agreeing in this direction. Declared conviction is
+        # not read; macro is not counted (`UNCOUNTED_SEATS`). The rating rung
+        # is summed only over the seats that state one and is a tiebreak.
         stated = [v for v in group if v.magnitude is not None]
         rung = sum(v.magnitude for v in stated)
-        conviction = sum(conviction_score(v.conviction) for v in group)
-        components = {"conviction_score": round(conviction, 4)}
+        agreeing = sum(score_verdict(v) for v in group)
+        components = {"agreeing_seats": round(agreeing, 4)}
         # RECORDED ONLY since 2026-10-10 (owner ruling 9 Oct): never added
         # into `score` and no longer used to order candidates — the target
         # it is built on is not a sell rule and is unscored. Kept because
@@ -403,7 +428,7 @@ def rank_verdicts(
             RankedCandidate(
                 symbol=symbol,
                 direction=directions.pop(),
-                score=components["conviction_score"],
+                score=components["agreeing_seats"],
                 verdicts=sorted(group, key=lambda v: v.seat),
                 components=components,
                 neutral_seats=sorted(neutral_by_symbol.get(symbol, {})),

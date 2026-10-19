@@ -361,9 +361,10 @@ def test_the_gate_never_raises_the_net_on_any_stance_combination():
 
 
 def test_the_stated_strength_weights_a_long_and_a_short_identically():
-    """The weight is READ from the seat's own `confidence`, the only strength
-    this reading states, and it is the same number on either side."""
-    for conviction, expected in (("low", 0.0), ("medium", 0.5), ("high", 1.0)):
+    """The seat's own `confidence` is carried verbatim, the same on either
+    side. Since 2026-10-19 macro adds nothing to the rank count at any
+    confidence: its read is market-wide, never per-name."""
+    for conviction, expected in (("low", 0.0), ("medium", 0.0), ("high", 0.0)):
         bull = _macro_analysis(equity_outlook="bullish", confidence=conviction)
         bear = _macro_analysis(equity_outlook="bearish", confidence=conviction)
         bull_v, bear_v = bull.to_verdict("XOM"), bear.to_verdict("XOM")
@@ -374,11 +375,30 @@ def test_the_stated_strength_weights_a_long_and_a_short_identically():
         assert bull_v.magnitude == bear_v.magnitude == NO_STATED_STRENGTH
 
 
-def test_a_stronger_macro_reading_weighs_more_than_a_weaker_one():
-    """ "Depending on how strong the data point is ... the data point should be
-    weighted." Measured from the reading, not chosen here."""
-    scores = [score_verdict(_macro_analysis(confidence=c).to_verdict("XOM")) for c in ("low", "medium", "high")]
-    assert scores == sorted(scores) and scores[0] < scores[-1]
+def test_macro_does_not_change_rank_order_at_any_confidence():
+    """2026-10-19 (archetype step C): macro is excluded from the rank count --
+    its read is market-wide, cast onto every name alike -- so adding a macro
+    verdict of any confidence never reorders the ranking."""
+    from src.models import AnalystVerdict, VerdictEvidence
+    from src.verdicts import rank_verdicts
+
+    def _seat(seat: str, symbol: str) -> AnalystVerdict:
+        return AnalystVerdict(
+            seat=seat,
+            symbol=symbol,
+            direction="bullish",
+            magnitude=None,
+            conviction="medium",
+            evidence=[VerdictEvidence(label="x", value=1.0)],
+            invalidation="x",
+        )
+
+    base = [_seat("news", "AAA"), _seat("earnings", "AAA"), _seat("news", "XOM")]
+    order = [(c.symbol, c.score) for c in rank_verdicts(base)]
+    for c in ("low", "medium", "high"):
+        macro_v = _macro_analysis(confidence=c).to_verdict("XOM")
+        assert score_verdict(macro_v) == 0.0
+        assert [(r.symbol, r.score) for r in rank_verdicts([*base, macro_v])] == order
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +603,7 @@ def test_the_two_sides_agree_on_a_genuine_broadcast_too():
 
 def test_the_agreement_tally_is_not_weighted_by_confidence():
     """Stated plainly so the record cannot claim otherwise. Confidence
-    reaches the RANKING only. The tally iterates plain stance strings, there
+    reaches neither the tally nor (since 2026-10-19) the ranking. The tally iterates plain stance strings, there
     is no conviction on a registry entry, and `rules.SEAT_WEIGHT` is a hard
     1 — a low-confidence macro read and a high-confidence one are the same
     +/-1. A real per-seat weight is barred today: it may only be DERIVED
@@ -603,6 +623,6 @@ def test_the_agreement_tally_is_not_weighted_by_confidence():
         low_reg["XOM"],
         "long",
     ) == signed_source_score("XOM", high_reg["XOM"], "long")
-    # The ranking, by contrast, does separate them — that is where the
-    # seat's own stated strength is read.
-    assert score_verdict(low.to_verdict("XOM")) < score_verdict(high.to_verdict("XOM"))
+    # The ranking does not separate them either (2026-10-19): macro is not
+    # counted in the rank at any confidence; it tilts size only.
+    assert score_verdict(low.to_verdict("XOM")) == score_verdict(high.to_verdict("XOM")) == 0.0
