@@ -154,6 +154,7 @@ def _mock_config():
     cfg.api_keys.alpaca_key = "alp-key"
     cfg.api_keys.alpaca_secret = "alp-secret"
     cfg.alpaca.paper = True
+    cfg.universe_screen.enabled = False  # a MagicMock attribute reads as screen-on
     cfg.llm.tech_analyst_model = _CONFIGURED_PRIMARY_MODEL
     cfg.llm.news_analyst_model = _CONFIGURED_PRIMARY_MODEL
     cfg.llm.macro_analyst_model = _CONFIGURED_PRIMARY_MODEL
