@@ -301,7 +301,7 @@ def test_reconcile_stop_out_fills_written_exactly_once_across_three_passes(tmp_p
     STOP_OUT row — not three."""
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
-    _filled_buy(db, "ONDS", 17, 8.53, "entry-onds")
+    _filled_buy(db, "ONDS", 17, 8.53, "entry-onds", ts="2026-08-27 14:31:55")
 
     broker = MagicMock()
     broker.get_positions.return_value = []
@@ -357,14 +357,14 @@ def test_reconcile_stop_out_fills_flags_unresolved_gap_without_guessing(tmp_path
     assert '"outcome": "stop_out_gap_unexplained"' in event["evidence_json"]
 
 
-def test_reconcile_stop_out_fills_flags_unmatched_pnl_without_guessing(tmp_path):
-    """The broker fill IS found and IS recorded (never dropped), but the
-    ledger's own BUY history can't cover the exited quantity — realized_pnl
-    must stay NULL and the anomaly must be flagged, not silently accepted
-    as if it were a normal, fully-priced exit."""
+def test_reconcile_stop_out_fills_refuses_a_sale_larger_than_the_gap(tmp_path):
+    """The broker fill IS found, but it is larger than the gap it would
+    close (15 sold vs 10 missing). Since 2026-10-19 only whole orders that
+    close the gap exactly are written back; this one is NOT written, and the
+    owner is paged instead of the ledger carrying an unpriceable row."""
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
-    _filled_buy(db, "XYZ", 10, 50.0, "entry-xyz")
+    _filled_buy(db, "XYZ", 10, 50.0, "entry-xyz", ts="2026-08-27 14:31:55")
 
     broker = MagicMock()
     broker.get_positions.return_value = []  # ledger sees 10 open, broker sees 0 → gap
@@ -380,19 +380,17 @@ def test_reconcile_stop_out_fills_flags_unmatched_pnl_without_guessing(tmp_path)
             "symbol": "XYZ",
             "ledger_qty": 10.0,
             "broker_qty": 0.0,
-            "matched": True,
-            "recorded": 1,
+            "matched": False,
+            "recorded": 0,
         }
     ]
-    row = next(r for r in db.get_trades(symbol="XYZ", executed_only=True) if r["action"] == "STOP_OUT")
-    assert row["fill_qty"] == 15.0
-    assert row["realized_pnl"] is None
+    assert not [r for r in db.get_trades(symbol="XYZ") if r["action"] == "STOP_OUT"]
 
     event = db.conn.execute(
         "SELECT evidence_json FROM specialist_evidence WHERE run_id='r1' AND symbol='XYZ' AND kind='pipeline_event'"
     ).fetchone()
     assert event is not None
-    assert '"outcome": "stop_out_pnl_unmatched"' in event["evidence_json"]
+    assert '"outcome": "stop_out_gap_no_exact_fit"' in event["evidence_json"]
 
 
 def test_reconcile_stop_out_fills_no_gap_is_a_no_op(tmp_path):
@@ -522,7 +520,7 @@ def test_reconcile_records_stop_fill_as_stop_out(tmp_path):
     protective stop — labelled STOP_OUT, exit_reason_category broker_stop_fill."""
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
-    _filled_buy(db, "ONDS", 17, 8.53, "entry-onds")
+    _filled_buy(db, "ONDS", 17, 8.53, "entry-onds", ts="2026-09-20 14:00:00")
 
     broker = MagicMock()
     broker.get_positions.return_value = []
@@ -547,7 +545,7 @@ def test_reconcile_records_market_sell_as_sell_not_stop_out(tmp_path):
     owner-facing P&L attribution does not invent a protective stop."""
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
-    _filled_buy(db, "EQNR", 10, 25.0, "entry-eqnr")
+    _filled_buy(db, "EQNR", 8.5962, 25.0, "entry-eqnr", ts="2026-09-20 14:00:00")
 
     broker = MagicMock()
     broker.get_positions.return_value = []
@@ -573,7 +571,7 @@ def test_reconcile_records_missing_order_type_as_unattributed_not_stop_out(tmp_p
     exit — never STOP_OUT — so attribution never claims a stop it can't prove."""
     db = Database(str(tmp_path / "t.db"))
     db.initialize()
-    _filled_buy(db, "AMD", 2.0, 549.11, "entry-amd")
+    _filled_buy(db, "AMD", 2.0, 549.11, "entry-amd", ts="2026-09-20 14:00:00")
 
     broker = MagicMock()
     broker.get_positions.return_value = []
@@ -1001,6 +999,8 @@ def test_reconciler_now_sees_a_stop_out_masked_by_a_resting_stop(tmp_path):
         "AMD", "BUY", 2.0, 549.11, "entry", "r1", broker_order_id="amd-buy", fill_status="filled", stop_loss=90.0
     )
     db.insert_trade("AMD", "TRAIL_STOP", 2.0, 500.0, "protect", "r1")
+    db.conn.execute("UPDATE trades SET timestamp = '2026-09-20 14:00:00' WHERE broker_order_id = 'amd-buy'")
+    db.conn.commit()
     _rest_the_stops(db, clear_order_id=True)
 
     broker = MagicMock()
