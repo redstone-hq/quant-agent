@@ -17,6 +17,16 @@ scenarios = importlib.import_module("ops.model_policy.scenarios")
 fixture_policy = importlib.import_module("ops.model_policy.fixture_policy")
 
 
+# Symbols the owner removed from `trading.universe` AFTER the 2026-09-14
+# recording. The fixtures stay a dated snapshot (regenerating them needs fresh
+# live data and model calls); this is the ONLY allowed difference between the
+# recorded universe and the live one. Add a row only on an owner decision.
+_REMOVED_AFTER_RECORDING: dict[str, str] = {
+    "SDS": "2026-10-19 owner decision: 2x inverse S&P fund dropped; SH kept",
+    "SQQQ": "2026-10-19 owner decision: 3x inverse Nasdaq fund dropped; PSQ kept",
+}
+
+
 def _chain(**overrides) -> ReasoningChain:
     fields = dict(
         macro_filter="Regime and target invested noted.",
@@ -78,8 +88,8 @@ def test_scenario_is_not_refused():
 
 def test_fixture_matches_real_day_scale():
     """2026-09-14 OWNER RULING: real-day scale and shape, not a 5/2
-    hand-pick. 62/47/15 are MEASURED against the live-derived 101-symbol
-    universe (config/settings.yaml:1192) and its live prefilter
+    hand-pick. 62/47/15 are MEASURED against the then-live 101-symbol
+    universe (SDS/SQQQ since removed, see _REMOVED_AFTER_RECORDING) and its live prefilter
     (`TradingPipeline._has_actionable_signal_fn`, src/pipeline.py:2694) on
     2026-09-14 — see test_fixture_scale_matches_live_derived_values below
     for the guard against this silently shrinking again."""
@@ -152,19 +162,28 @@ def test_fixture_scale_matches_live_derived_values():
         (fixture_policy.FIXTURES_DIR / ".." / ".." / ".." / "config" / "settings.yaml").resolve().read_text()
     )
     universe = settings["trading"]["universe"]
-    assert len(universe) == 101
+    live = set(universe)
+    assert len(live) == len(universe)  # no duplicate symbols
 
     tech_manifest = json.loads(
         (fixture_policy.FIXTURES_DIR / "yf_daily_bars_pm_public_day_2026-09-14.json").read_text()
     )
-    assert tech_manifest["_exam"]["universe_size"] == len(universe)
+    recorded = set(tech_manifest["symbols"])
+    removed = set(_REMOVED_AFTER_RECORDING)
+    # The fixture is a dated snapshot of the 2026-09-14 universe. Its symbols
+    # must equal today's universe PLUS exactly the owner-ruled removals listed
+    # in _REMOVED_AFTER_RECORDING -- any other add or drop fails here.
+    assert removed <= recorded, removed - recorded
+    assert not (removed & live), removed & live
+    assert recorded == live | removed, (recorded - live - removed, live - recorded)
+    assert tech_manifest["_exam"]["universe_size"] == len(recorded) == 101
     assert tech_manifest["_exam"]["lookback_days"] == settings["trading"]["lookback_days"]
 
     earnings_manifest = json.loads(
         (fixture_policy.FIXTURES_DIR / "sec_10q10k_pm_public_day_2026-09-14.json").read_text()
     )
     assert earnings_manifest["_exam"]["lookback_days"] == EarningsDataProvider().lookback_days
-    assert earnings_manifest["_exam"]["universe_size"] == len(universe)
+    assert earnings_manifest["_exam"]["universe_size"] == len(recorded)
 
     form4_manifest = json.loads((fixture_policy.FIXTURES_DIR / "sec_form4_pm_public_day_2026-09-14.json").read_text())
     assert form4_manifest["_exam"]["configured_lookback_days"] == settings["smart_money"]["lookback_days"]
