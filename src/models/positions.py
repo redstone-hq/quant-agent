@@ -1,5 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 from src.risk.exit_trigger import ExitTrigger, normalize_trigger
 from src.models.base import LLMOutputModel, _normalize_enum_case_fields, _normalize_symbol, logger
 
@@ -21,6 +22,36 @@ class Position(BaseModel):
     @classmethod
     def normalize_symbol(cls, value: str) -> str:
         return _normalize_symbol(value)
+
+
+class ObjectionAnswer(LLMOutputModel):
+    """One written answer to one seat's objection on one symbol.
+
+    Desk archetype (owner, 19 Oct 2026): a seat may object to a name; the
+    deciding AI either accepts the objection or overrules it IN WRITING.
+    This is the record of that written answer. Plumbing only: it is not yet
+    in the schema the AIs are handed (`SkipJsonSchema` on the carrying
+    fields) and nothing reads it to change a trade. Saved per symbol as
+    specialist evidence kind `OBJECTION_ANSWER_KIND` (src/stage_decision.py).
+    """
+
+    seat: str = Field(min_length=1)
+    objection_direction: str = Field(min_length=1)
+    answer_text: str = Field(min_length=1)
+    decision: Literal["overrule", "accept"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_case(cls, values):
+        return _normalize_enum_case_fields(values, lower_fields=("seat", "objection_direction", "decision"))
+
+    @field_validator("seat", "objection_direction", "answer_text")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
 
 
 class PositionAction(LLMOutputModel):
@@ -57,6 +88,10 @@ class PositionAction(LLMOutputModel):
     # it is a correct answer that triggers a re-ask, not a refusal.
     exit_trigger: ExitTrigger | None = None
     trigger_evidence: str = ""
+    # Desk archetype step A (19 Oct 2026): written answers to seat
+    # objections on this holding. Optional; hidden from the AI's schema
+    # until the wording step tells the reviewer about it.
+    objection_answers: Annotated[list[ObjectionAnswer], SkipJsonSchema()] = Field(default_factory=list)
 
     @field_validator("symbol")
     @classmethod

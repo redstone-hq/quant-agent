@@ -62,6 +62,74 @@ from src.velocity import candidate_velocity
 #: stops nothing; see `src.velocity`.
 VELOCITY_HOLD_SESSIONS = 10
 
+#: Desk archetype step A (owner, 19 Oct 2026): the specialist-evidence kind
+#: that holds a deciding AI's written answers to seat objections, one row
+#: per symbol per decision. Plumbing only; nothing reads it to trade yet.
+OBJECTION_ANSWER_KIND = "objection_answer"
+
+
+def record_objection_answers(
+    db,
+    *,
+    run_id: str,
+    agent_name: str,
+    symbol: str,
+    answers,
+    session: str | None,
+    decision_id: str | None = None,
+) -> bool:
+    """Save one symbol's written objection answers as one evidence row.
+
+    No row when there are no answers. Never raises (`_persist_evidence`).
+    Returns whether a row was attempted."""
+    import json as _json
+
+    rows = [a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in (answers or [])]
+    if not rows or not symbol:
+        return False
+    _persist_evidence(
+        db,
+        run_id=run_id,
+        agent_name=agent_name,
+        kind=OBJECTION_ANSWER_KIND,
+        scope="symbol",
+        symbol=str(symbol).strip().upper(),
+        decision_id=decision_id,
+        evidence_json=_json.dumps({"session": session, "decision_id": decision_id, "answers": rows}),
+    )
+    return True
+
+
+def objection_answer_for(db, symbol: str, seat: str, *, run_id: str | None = None) -> dict | None:
+    """The newest written answer on file for `symbol` to `seat`'s objection.
+
+    Reads the newest `OBJECTION_ANSWER_KIND` row for the symbol; with
+    `run_id`, only a row from that run counts. Returns the answer dict
+    (seat, objection_direction, answer_text, decision) plus the row's
+    run_id, session, decision_id and timestamp, or None."""
+    import json as _json
+
+    sym = str(symbol).strip().upper()
+    row = (db.get_latest_symbol_evidence(OBJECTION_ANSWER_KIND, [sym]) or {}).get(sym)
+    if not row or (run_id is not None and row.get("run_id") != run_id):
+        return None
+    try:
+        payload = _json.loads(row["evidence_json"])
+    except (TypeError, ValueError):
+        return None
+    want = str(seat).strip().lower()
+    for answer in payload.get("answers") or []:
+        if str(answer.get("seat", "")).strip().lower() == want:
+            return {
+                **answer,
+                "run_id": row.get("run_id"),
+                "session": payload.get("session"),
+                "decision_id": payload.get("decision_id"),
+                "timestamp": row.get("timestamp"),
+            }
+    return None
+
+
 if TYPE_CHECKING:
     from src.agents.earnings_analyst import EarningsAnalystAgent
     from src.agents.macro_analyst import MacroAnalystAgent
@@ -695,6 +763,15 @@ class DecisionStage:
                     symbol=target.symbol,
                     decision_id=decision_id,
                     evidence_json=target.model_dump_json(),
+                )
+                record_objection_answers(
+                    pipeline.db,
+                    run_id=run_id,
+                    agent_name="portfolio_manager",
+                    symbol=target.symbol,
+                    answers=target.objection_answers,
+                    session=str(getattr(ctx, "session", "") or "") or None,
+                    decision_id=decision_id,
                 )
             # Board item 163: cross-check the PM's whole-book sizing NARRATIVE
             # (`reasoning_chain.sizing_logic`) against each symbol's own emitted

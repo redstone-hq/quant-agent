@@ -830,6 +830,22 @@ class PositionReviewSession:
                 cost_usd=md_result.cost_usd,
                 **review_log_kwargs,
             )
+            # Desk archetype step A (19 Oct 2026): the reviewer's written
+            # answers to seat objections, saved per holding as written.
+            # Record only; never raises; changes no action.
+            if review is not None:
+                from src.stage_decision import record_objection_answers
+
+                for _action in review.actions:
+                    record_objection_answers(
+                        self._db,
+                        run_id=run_id,
+                        agent_name="position_reviewer",
+                        symbol=_action.symbol,
+                        answers=_action.objection_answers,
+                        session=session_type,
+                        decision_id=getattr(ctx, "decision_id", None),
+                    )
 
             # Substantiation pass on the exit side (2026-09-18). Heals the
             # structured trigger from the prose, RE-ASKS once for anything
