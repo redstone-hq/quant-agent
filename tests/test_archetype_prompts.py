@@ -109,7 +109,9 @@ def test_no_seat_is_told_the_25_sep_wording(seat):
     assert not found, f"{seat}: retired wording still present: {found}"
 
 
-@pytest.mark.parametrize("model_path", ("src.models.portfolio:PortfolioDecision", "src.models.positions:PositionReview"))
+@pytest.mark.parametrize(
+    "model_path", ("src.models.portfolio:PortfolioDecision", "src.models.positions:PositionReview")
+)
 def test_the_objection_answer_list_is_in_the_schema_the_model_is_sent(model_path):
     """Step D unhid the field: under strict output a field missing from the
     sent schema can never be filled in, so the prompt would describe a slot
