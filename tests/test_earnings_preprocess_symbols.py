@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 from src.data.earnings import EarningsReport, is_catch_up_read
 from src.pipeline_admission import AdmissionService
 from src.pipeline_parts.pnl_gaps import _earnings_preprocess_symbols
+from tests.test_earnings_catch_up_read import _Broker
 
 
 def _purchase(symbol, code="P", value=100_000.0):
@@ -72,8 +73,9 @@ def test_held_name_below_the_floor_is_still_included():
 
 def test_seat_evidence_carries_filing_date_and_catch_up_flag():
     today = date(2026, 10, 19)  # a Monday
-    assert is_catch_up_read("2026-09-08", today) is True
-    assert is_catch_up_read("2026-10-16", today) is False  # Friday is overnight for Monday
+    broker = _Broker()
+    assert is_catch_up_read("2026-09-08", today, broker) is True
+    assert is_catch_up_read("2026-10-16", today, broker) is False  # Friday is overnight for Monday
     report = EarningsReport(
         symbol="ZZZA",
         form_type="10-Q",
@@ -82,7 +84,7 @@ def test_seat_evidence_carries_filing_date_and_catch_up_flag():
         analysis_path=None,
         text_excerpt="",
         is_new=True,
-        catch_up_read=is_catch_up_read("2026-09-08", today),
+        catch_up_read=is_catch_up_read("2026-09-08", today, broker),
     )
     assert report.evidence_fields() == {
         "filing_date": "2026-09-08",
