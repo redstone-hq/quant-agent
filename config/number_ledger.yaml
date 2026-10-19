@@ -858,6 +858,8 @@ numbers:
       credit a target over, but no measurement of this desk's own closed
       trades picks the magnitude. Interacts with board item 91, the
       calendar-vs-trading-day defect.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence (docs/research/g1_target_horizon_reach.md; 316 symbols, entries every 10th session 2015-2025 on Yahoo daily bars, live level finder, ATR and target function, 2.5-ATR stop, 250-session first-touch outcome, symbol-resampled 95% intervals, halves 2015-19 and 2020-25) [measured]: of 215,645 targets hit before the stop, the median hit comes in 1-2 sessions and the 90th percentile in 10-12; only 1.7% [1.4-2.1] (2015-19) and 1.0% [0.9-1.2] (2020-25) land after session 60. The cap never clipped a horizon in the sample (horizons 5-60), and at 60 the reach test cannot fail because the level finder keeps only levels within 1.5 x sqrt(60) = 11.62 ATR (largest seen 11.60). Outcome: inert for targets; its one live job is that level-finder window, which this data cannot test because no level beyond 11.62 ATR is kept. If kept as an input guard it is unmeasured. Value and status unchanged; nothing here supports a replacement value. Unknown: which horizons the analysts state live (no live database read).
     open_question: >-
       BARRED AND REPLACED 2026-10-01 (found by board item 185's sweep; this was
       the FOURTH copy of a question that can only be answered by a study over
@@ -895,6 +897,8 @@ numbers:
       instead of _derive_target, as its own docstring states. The number still governs live, so
       the status stays arbitrary; settling it needs the travel measurement this row already
       specifies, not a backtest.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence (docs/research/g1_target_horizon_reach.md; same sample and method as max_target_horizon_sessions) [measured]: hit rate before the stop and within the horizon falls smoothly with distance in measured moves (ATR x sqrt(H)) and shows no cliff at 1.5; the change across 1.5 (1.5-1.625 minus 1.375-1.5) is +0.07 [-0.04, +0.17] in 2015-19 and +0.03 [-0.05, +0.12] in 2020-25, the wrong sign for a cliff and no different from neighbouring steps (-0.01, -0.06). The rule rarely bites: distance of 1.5 or more occurs in 0.9% of 5-session entries, 0.19% at 20 and 0% at 60. Outcome: inert and unmeasured; the evidence cannot settle a value without choosing a quantile, which is an appetite choice. Owner-ruled status (2026-10-04) and value 1.5 unchanged; nothing here supports a replacement value.
     open_question: >-
       What multiple of ATR x sqrt(sessions) does this instrument class
       actually travel at the stated horizon?
