@@ -24,6 +24,7 @@ raises.
 from __future__ import annotations
 
 from src.notifier.base import logger
+from src.notifier.category import resolve_category
 from src.notifier.owner_alert_delivery import MAX_ATTEMPTS, deliver_with_outcome
 from src.notifier.transport import TelegramNotifier
 
@@ -119,7 +120,9 @@ def send_owner_alert_with_outcome(
         return False, False
     if pnl_header:
         text = _with_pnl_header(text)
-    logger.critical("OWNER ALERT [%s]\n%s", kind, text)
+    # The resolved category rides on the line so the health report can tell a
+    # routine report from a risk alarm without matching text.
+    logger.critical("OWNER ALERT [%s|%s]\n%s", kind, resolve_category(category, kind), text)
     try:
         if notifier is None:
             notifier = TelegramNotifier()

@@ -128,6 +128,19 @@ def test_an_owner_alert_is_not_counted_twice():
     assert finding.count == 1
 
 
+def test_a_new_kind_of_owner_alert_is_not_swallowed():
+    """The echo skip is fail-closed: an alert this module cannot place still
+    reaches the owner, as an unrecognised fault."""
+    novel = L.LogRecord(
+        datetime(2026, 9, 18, 13, 0, tzinfo=UTC),
+        "CRITICAL",
+        "src.notifier",
+        "OWNER ALERT\nSomething nobody has written a family for yet.",
+    )
+    report = _report(records=[novel])
+    assert [f.family.key for f in report.reported] == [L.UNRECOGNISED_KEY]
+
+
 # --- the severity rule ------------------------------------------------------
 
 

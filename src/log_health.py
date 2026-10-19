@@ -765,17 +765,29 @@ def read_window(start: datetime, end: datetime, log_dir: Path | None = None) -> 
     return out
 
 
-def _is_owner_alert_echo(record: LogRecord) -> bool:
-    """True for the funnel's own CRITICAL line announcing an owner report.
+_OPERATIONAL_ECHO = re.compile(r"^OWNER ALERT \[[^\]|]*\|operational\]")
 
-    An owner report is not a fault: a real condition is counted where it is
-    logged, and routine reports (half-hourly safety check, morning/midday/close
-    reviews) are healthy. The source is matched as the `src.notifier` package,
-    because the 1 Oct split (#1037) made the logger names `src.notifier.base`,
-    `src.notifier.owner_alert_funnel` and so on.
+
+def _in_notifier_package(record: LogRecord) -> bool:
+    # The 1 Oct split (#1037) made the logger names src.notifier.<module>.
+    return record.source == "src.notifier" or record.source.startswith("src.notifier.")
+
+
+def _is_owner_alert_echo(record: LogRecord) -> bool:
+    """True for an owner alert whose body is already counted at its own site."""
+    if not _in_notifier_package(record) or not record.message.startswith("OWNER ALERT"):
+        return False
+    body = record.message.split("\n", 1)[1] if "\n" in record.message else ""
+    return classify(body, record.level) is not None
+
+
+def _is_routine_owner_report(record: LogRecord) -> bool:
+    """An owner report the notifier category module resolved as operational.
+
+    The funnel stamps `[kind|operational]` using `resolve_category`, which
+    fails closed to risk, so only an explicitly routine report matches.
     """
-    in_notifier = record.source == "src.notifier" or record.source.startswith("src.notifier.")
-    return in_notifier and record.message.startswith("OWNER ALERT")
+    return _in_notifier_package(record) and _OPERATIONAL_ECHO.match(record.message) is not None
 
 
 def classify(message: str, level: str | None = None) -> FaultFamily | None:
@@ -861,15 +873,19 @@ def analyse(
                     finding.dollars_uncovered = float(m.group(1).replace(",", ""))
 
     for record in records:
+        if _is_routine_owner_report(record):
+            continue  # routine report, not a fault
         if _is_owner_alert_echo(record):
             # An owner alert is a RESTATEMENT of a condition that was already
             # logged where it happened — the evidence gate writes its own line
             # and then alerts; the credential check does the same. Counting
             # both would tell the owner five lost decisions were ten.
             #
-            # Every echo is skipped, whether or not its body classifies: a
-            # routine report ("nothing to report") never classifies and is
-            # not a fault. Delivery failures are counted at their own site.
+            # An owner alert is a RESTATEMENT of a condition already logged
+            # where it happened. Fail-closed, deliberately: it is skipped
+            # only when its body matches a family we already count at its own
+            # site; an alert this module cannot place falls through to the
+            # unrecognised bucket rather than disappearing.
             continue
         family = classify(record.message, record.level)
         if family is not None:
