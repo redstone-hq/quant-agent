@@ -110,18 +110,28 @@ def _run_position_review_body(pipeline, session_type: str) -> dict:
 
 
 def run_earnings_preprocess(pipeline) -> dict:
-    """Pre-market earnings analysis, plus the one true sentence its
-    P&L block can say.
+    """Pre-market earnings analysis, plus the owner-facing P&L block.
 
-    This mode runs before the open and makes no broker account read at
-    all, so its message genuinely has no figure. It says so explicitly
-    rather than letting the renderer guess from absent keys — the guess
-    is what produced the false "built without an account read" line on
-    trading sessions that HAD read the account (2026-09-23).
+    Owner ruling 18 Sep: every owner message shows P&L or says WHY not.
+    The account is read here (read-only) and recorded/attached through
+    the same `_record_account_snapshot` / `_attach_pnl` path the
+    midday/close/intra-day sessions use. A failed read states its kind.
     """
+    pipeline._last_account_snapshot = None
     result = pipeline._run_earnings_preprocess_body()
-    if isinstance(result, dict):
-        result.setdefault("pnl_unavailable_reason", "no_account_read")
+    if not isinstance(result, dict):
+        return result
+    try:
+        account = pipeline._collab("broker").get_account()
+        pipeline._record_account_snapshot(
+            account["portfolio_value"],
+            account.get("last_equity", account["portfolio_value"]),
+        )
+    except Exception as exc:  # noqa: BLE001 — a P&L fault must not cost the push
+        logger.warning("pre-market account read failed (non-fatal): %s", exc)
+        result.setdefault("pnl_unavailable_reason", f"account_read_failed:{type(exc).__name__}")
+        return result
+    pipeline._attach_pnl(result)
     return result
 
 

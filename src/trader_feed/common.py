@@ -1362,4 +1362,6 @@ _PNL_UNAVAILABLE_FALLBACK = "No P&L figure was recorded with this message."
 
 def _pnl_unavailable_sentence(result: dict) -> str:
     code = result.get("pnl_unavailable_reason")
+    if str(code or "").startswith("account_read_failed:"):
+        return f"Account read failed ({str(code).split(':', 1)[1]}), so there is no figure yet."
     return _PNL_UNAVAILABLE_REASONS.get(str(code or ""), _PNL_UNAVAILABLE_FALLBACK)

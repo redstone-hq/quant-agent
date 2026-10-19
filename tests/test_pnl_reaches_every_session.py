@@ -26,6 +26,8 @@ sentence follows from the recorded reason, never from a guess.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from src import trader_feed
@@ -188,12 +190,15 @@ def test_every_session_wrapper_attaches_the_pnl(wrapper, body_name, kwargs):
     assert result["total_pnl_since"] == "2026-08-14"
 
 
-def test_earnings_preprocess_labels_its_own_genuinely_absent_read():
-    p = build_pipeline(_run_earnings_preprocess_body=lambda: {"status": "nothing_new", "count": 0})
+def test_earnings_preprocess_names_a_failed_account_read():
+    """Pre-market now reads the account (19 Oct); a failed read is named."""
+    broker = MagicMock()
+    broker.get_account.side_effect = ConnectionError("down")
+    p = build_pipeline(broker=broker, _run_earnings_preprocess_body=lambda: {"status": "nothing_new", "count": 0})
 
     result = p.run_earnings_preprocess()
 
-    assert result["pnl_unavailable_reason"] == "no_account_read"
+    assert result["pnl_unavailable_reason"] == "account_read_failed:ConnectionError"
 
 
 # --- 4. The evening block is untouched ---------------------------------
