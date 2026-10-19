@@ -220,6 +220,14 @@ ETF_QUOTE_TYPE = "ETF"
 #: ("Trading--Leveraged Equity", "Trading--Inverse Equity", ...).
 LEVERAGED_CATEGORY_WORDS = ("trading--", "leveraged", "inverse")
 
+#: Category that marks an option-income fund (YieldMax, JEPI, QYLD, ...).
+#: Owner ruling 2026-10-19 (checklist q20): excluded from the daily screen --
+#: same odds as the stock it tracks with less upside, and a weekly payout
+#: drop that reads as a fall on the chart. Confirmed 2026-10-19 against
+#: Yahoo's own Morningstar category (yfinance Ticker.info["category"]):
+#: MSTY, AMDY, CONY, MRNY, CRCO, JEPI, JEPQ and QYLD all report this string.
+OPTION_INCOME_CATEGORY_WORDS = ("derivative income",)
+
 #: Category words that mark a fund that is not an equity fund: fixed
 #: income, cash and the other non-stock families. The owner's 2026-10-09
 #: mandate (docs/OUTCOME.md): equity funds only, no parking in bonds or
@@ -321,6 +329,7 @@ PLAIN_REASON = {
     "fund_category_unknown": "a fund with no category on record",
     "leveraged_or_inverse_fund": "a leveraged or inverse fund",
     "not_equity_fund": "a bond, cash or other non-stock fund",
+    "option_income_fund": "an option-income fund (owner ruling 2026-10-19: less upside, payout drop)",
     "liquidity_below_sp_ratio": "trades too little for its size (S&P: a year's trading under 0.75x its market value)",
     "liquidity_history_short": "under a year of trading to measure its trading-to-size ratio",
     # No longer screen criteria (2026-10-09); kept so older recorded
@@ -713,6 +722,8 @@ def check_fund(category) -> tuple[list[str], dict]:
         return ["leveraged_or_inverse_fund"], measured
     if any(word in lowered for word in NON_EQUITY_CATEGORY_WORDS):
         return ["not_equity_fund"], measured
+    if any(word in lowered for word in OPTION_INCOME_CATEGORY_WORDS):
+        return ["option_income_fund"], measured
     measured["sector"] = text
     return [], measured
 
