@@ -193,6 +193,12 @@ all the minds."
    chart plus a fresh catalyst is a tradeable idea even when macro is
    lukewarm. The weights are NOT picked: they come from each seat's measured
    record against chance (the voters-vs-random scoring) and are re-measured.
+   This is a READING, not FITTING (see "No arbitrary numbers"): the record is
+   re-read every session over a rolling window, never calibrated once and
+   held, and with a thin record every seat stays at the group average (the
+   published shrinkage standard: James-Stein, DeMiguel 2009 equal weights).
+   A seat earns more weight only when its record beats random picks on the
+   same shortlist, including shorts.
 4. **The head trader decides.** The planning AI hears every view, settles
    disagreements, and must answer the strongest dissent in writing when it
    overrules it. That combining step is the synergy. Specialists do not
@@ -756,7 +762,7 @@ The vision board intentionally uses donors for proven interaction/design ideas w
 - Do not adopt: its trading engine/gateway, command-chat control path, or internal data models.
 
 **Oralexa — agent/decision visualization donor**
-- Keep/adapt as first-class QAMC concepts: **agent cards**, debate/signal-fusion presentation, Portfolio Manager decision cards, scoreboards where backed by real metrics, and bias/self-correction presentation for the Learning Center.
+- Keep/adapt as first-class QAMC concepts: **agent cards**, disagreement/signal-fusion presentation (the dissent the head trader answers, never a free AI debate), Portfolio Manager decision cards, scoreboards where backed by real metrics, and bias/self-correction presentation for the Learning Center.
 - The agent cards should make each specialist's stance, important evidence, disagreements and confidence/calibration visible without requiring raw-log reading.
 - The chain should visually show how specialist views combine into PM intent, how Risk modifies/rejects it, what deterministic Python does next, and what actually reaches the broker.
 - Do not adopt Oralexa mock-data layers or its trading logic.
