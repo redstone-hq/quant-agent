@@ -713,8 +713,9 @@ class ExecutionStage:
                 # Owner ruling 2026-10-09: entries are plain DAY MARKET orders
                 # (src/stage_execution_parts/entry_order_type.py holds the one
                 # switch that puts the marketable-limit path back for go-live
-                # testing). The quote is read for the RISK DIVISOR — the ask a
-                # BUY pays, the bid a SHORT pays — and recorded on the order.
+                # testing). The quote is read and recorded on the order event as
+                # DATA ONLY: it is IEX-only, so a market entry sizes, risks and
+                # records off the arrival print (entry_order_pricing.py).
                 try:
                     quote = pipeline.broker.get_latest_quote(decision.symbol)
                 except Exception as e:  # noqa: BLE001
@@ -1006,8 +1007,8 @@ class ExecutionStage:
                 # leaves a fill_status='pending_submit' row the operator
                 # (or a periodic cleanup) can reconcile against the
                 # broker's order list.
-                # A market entry's recorded price is the quote side it pays (the
-                # risk divisor); the fill's own average lands via reconciliation.
+                # A market entry's recorded price is the arrival print (the risk divisor);
+                # the fill lands in fill_price, so slippage reads as fill against arrival.
                 executed_price = limit_price if limit_price is not None else risk_sizing_price
                 # Phase 3.1 — pin the analyst's stated horizon and setup type to
                 # the trade row at entry. Everything downstream that asks "is

@@ -21,7 +21,7 @@ reintroduced (owner ruling 2026-10-04: a short is treated exactly like a
 long).
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
@@ -61,6 +61,8 @@ def _exec_pipeline_with_print(price: float):
         is_today=True,
         is_today_print=True,
     )
+    # The arrival print must be from this session: the open sits before it.
+    pipeline.broker.get_session_open.return_value = now - timedelta(hours=1)
     pipeline.broker.get_latest_price.return_value = price
     pipeline.broker.get_latest_quote.return_value = {
         "bid_price": price - 1.0,
@@ -132,16 +134,17 @@ def test_realised_limit_to_stop_risk_matches_the_sized_risk(
         reasoning="the market order pays the quote, away from the analysis price",
     )
     captured = _run_exec(pipeline, decision, monkeypatch)
-    # A plain market order (owner ruling 2026-10-09): the worst price it can
-    # fill at is the quote side it pays — the ask for a BUY, the bid for a SHORT.
+    # A plain market order (owner ruling 2026-10-09): the risk divides by the
+    # arrival print (this session's latest trade), never the IEX quote side.
     assert captured["limit_price"] is None
     quote = pipeline.broker.get_latest_quote.return_value
-    limit = quote["bid_price"] if action == "SHORT" else quote["ask_price"]
+    side = quote["bid_price"] if action == "SHORT" else quote["ask_price"]
+    limit = pipeline.broker.get_latest_price_stamped.return_value.price
     sized_risk_per_share = abs(captured["sizing_price"] - captured["stop_price"])
     realised_risk_per_share = abs(limit - stop)
     # Pre-fix the realised distance is the WIDER one and the size was
     # computed from the narrower: every share carries more than authorised.
     assert realised_risk_per_share == pytest.approx(sized_risk_per_share)
-    # And the submitted limit really is away from the analysis price, so the
+    # And the quote side really is away from the arrival print, so the
     # test is not passing because the two prices happened to coincide.
-    assert limit != pytest.approx(entry)
+    assert side != pytest.approx(limit)

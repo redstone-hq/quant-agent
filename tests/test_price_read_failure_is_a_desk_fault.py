@@ -20,7 +20,7 @@ is bounded by the slot and logged.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
@@ -126,6 +126,7 @@ def _pipeline(stamped_reader, positions=None):
     pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
     pipeline.broker.get_latest_price_stamped = stamped_reader
     pipeline.broker.get_latest_price = lambda s: stamped_reader(s).price
+    pipeline.broker.get_session_open.return_value = datetime.now(ET) - timedelta(hours=1)  # arrival print is in-session
     pipeline.broker.get_latest_quote.return_value = {"bid_price": 99.0, "ask_price": 101.0}
     pipeline.broker.get_intraday_snapshots = lambda syms: {}
     pipeline.broker.submit_order.return_value = {"id": "o1", "status": "accepted"}
