@@ -269,8 +269,8 @@ def test_cash_sweep_config_uppercases_symbol():
 # 2026-08-31 fix: `run_position_review` (shared by run_midday/run_close) built
 # its `held_symbols` list for `_run_news_update` straight from the broker's
 # UNFILTERED position snapshot — the SGOV/cash-sweep vehicle rode along and
-# could consume one of `config.news.per_symbol_max_symbols`' capped slots that
-# would otherwise go to a real position. `run_evening` already filtered via
+# could take a per-symbol news request (then a capped slot) that would
+# otherwise go to a real position. `run_evening` already filtered via
 # `sweeper.split_positions` before this point; midday/close did not. Both now
 # go through the single shared `TradingPipeline._news_held_symbols` helper —
 # same mechanism (`CashSweeper.split_positions`, keyed on `cash_sweep.symbol`,

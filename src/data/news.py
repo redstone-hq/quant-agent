@@ -1,7 +1,8 @@
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from urllib.request import urlopen, Request
@@ -10,6 +11,7 @@ from xml.etree import ElementTree
 import feedparser
 
 from src.data.news_dedup import NewsCluster, cluster_news, normalize_link
+from src.session_calendar import SessionCalendarUnavailable, session_for
 from src.trading_calendar import et_now, utc_now
 
 logger = logging.getLogger(__name__)
@@ -157,9 +159,10 @@ RSS_FEEDS = {
 #     (13-20 items/symbol across the 6 symbols in the live book that day —
 #     see the PR description for the full per-symbol measurement). Wired in
 #     below as `YAHOO_PER_SYMBOL_URL_TEMPLATE` /
-#     `NewsDataProvider.fetch_news(symbols=...)`; caller-side selection and
-#     all caps live in `config.news.per_symbol_*`
-#     (src/config.py::NewsConfig). Seeking Alpha per-symbol remains
+#     `NewsDataProvider.fetch_news(symbols=...)`. 2026-10-19: the name-count
+#     and headline-count caps were removed — every shortlisted name is read,
+#     each for the headlines since the previous session's close; only the
+#     request throttle stays (`config.news.per_symbol_requests_per_second`). Seeking Alpha per-symbol remains
 #     verified-available but is deliberately NOT enabled alongside it — one
 #     request per symbol, not two, keeps the added request count halved.
 #     This is a scope choice, not a disabled feature; flip it on only with
@@ -274,6 +277,11 @@ class NewsCoverage:
     configured: int
     succeeded: int
     failed: list[FeedFailure]
+    # Shortlisted names that reach the seat with no headline of their own,
+    # each with WHY (2026-10-19): "fetch failed: ...", "no headlines since
+    # ...", or "headlines merged into a wire copy". Insertion order is the
+    # caller's name order. Empty for a run with no per-symbol pass.
+    per_symbol_gaps: dict[str, str] = field(default_factory=dict)
 
     @property
     def failed_count(self) -> int:
@@ -311,14 +319,19 @@ class NewsCoverage:
         if self.configured == 0:
             return "News coverage: NO feeds configured (misconfiguration)."
         if not self.failed:
-            return f"News coverage: {self.succeeded}/{self.configured} feeds returned data. Full coverage."
-        names = ", ".join(f"{f.name} ({f.reason})" for f in self.failed)
-        return (
-            f"News coverage: {self.succeeded}/{self.configured} feeds returned data "
-            f"this run. FAILED: {names}. Treat this as a coverage GAP, not "
-            f"confirmed silence — do not conclude a topic is quiet solely "
-            f"because a failed feed would normally cover it."
-        )
+            text = f"News coverage: {self.succeeded}/{self.configured} feeds returned data. Full coverage."
+        else:
+            names = ", ".join(f"{f.name} ({f.reason})" for f in self.failed)
+            text = (
+                f"News coverage: {self.succeeded}/{self.configured} feeds returned data "
+                f"this run. FAILED: {names}. Treat this as a coverage GAP, not "
+                f"confirmed silence — do not conclude a topic is quiet solely "
+                f"because a failed feed would normally cover it."
+            )
+        if self.per_symbol_gaps:
+            gaps = "; ".join(f"{sym}: {why}" for sym, why in self.per_symbol_gaps.items())
+            text += f" Names with no headline of their own: {gaps}."
+        return text
 
 
 @dataclass
@@ -341,11 +354,34 @@ class NewsItem:
     source_count: int = 1
     # True when this item (or, after dedup, its cluster's representative)
     # came from a per-symbol fetch (see NewsDataProvider.fetch_news) rather
-    # than a general wire feed. Drives the per_symbol_max_prompt_items cap —
-    # see _cap_per_symbol_items — so a flood of single-name headlines cannot
-    # crowd out general wire coverage. Defaults False so every pre-existing
-    # NewsItem (and every general-feed item today) is unaffected.
+    # than a general wire feed. format_for_prompt bounds only general-wire
+    # items by count; per-symbol items are bounded by their time window.
+    # Defaults False so every general-feed item is unaffected.
     per_symbol: bool = False
+    # The ticker whose per-symbol feed produced this item ("" for a wire).
+    symbol: str = ""
+
+
+@dataclass
+class _PerSymbolPass:
+    """What one per-symbol pass fetched, for coverage and gap reasons."""
+
+    configured: int = 0
+    items: list = field(default_factory=list)
+    fetched: dict[str, int] = field(default_factory=dict)  # name -> headlines in window
+    failed: dict[str, str] = field(default_factory=dict)  # name -> failure reason
+    window_label: str = ""
+
+    def gaps(self, deduped: list) -> dict[str, str]:
+        """Why each name reaches the seat with no headline of its own."""
+        surviving = {item.symbol for item in deduped if item.per_symbol and item.symbol}
+        out: dict[str, str] = {sym: f"fetch failed: {why}" for sym, why in self.failed.items()}
+        for sym, count in self.fetched.items():
+            if count == 0:
+                out[sym] = f"no headlines since {self.window_label}"
+            elif sym not in surviving:
+                out[sym] = "headlines merged into a wire copy of the same story"
+        return out
 
 
 class NewsDataProvider:
@@ -356,9 +392,8 @@ class NewsDataProvider:
         sec_user_agent: str = SEC_USER_AGENT,
         per_symbol_enabled: bool = True,
         per_symbol_feed_template: str = YAHOO_PER_SYMBOL_URL_TEMPLATE,
-        per_symbol_max_symbols: int = 15,
-        per_symbol_max_prompt_items: int = 15,
         per_symbol_requests_per_second: float = 2.0,
+        session_broker: Callable[[], object] | None = None,
     ):
         self.feeds = feeds or RSS_FEEDS
         self.lookback_hours = lookback_hours
@@ -377,12 +412,11 @@ class NewsDataProvider:
         # (src/config.py) so the two never silently drift apart.
         self.per_symbol_enabled = bool(per_symbol_enabled)
         self.per_symbol_feed_template = per_symbol_feed_template
-        # Clamped defensively (not just relying on NewsConfig's Field
-        # bounds) so a NewsDataProvider built directly — bypassing config
-        # validation entirely — still cannot be pointed at a negative or
-        # absurdly large per-symbol fetch count.
-        self.per_symbol_max_symbols = max(0, int(per_symbol_max_symbols))
-        self.per_symbol_max_prompt_items = max(0, int(per_symbol_max_prompt_items))
+        # Returns the broker whose exchange calendar fixes the per-symbol
+        # window (headlines since the previous session's close). A callable,
+        # not the broker, because pipeline.py builds this provider before
+        # its broker. None (tests, scripts) falls back to the lookback.
+        self.session_broker = session_broker
         per_symbol_rps = min(10.0, max(0.1, float(per_symbol_requests_per_second)))
         self.per_symbol_request_interval_s = 1.0 / per_symbol_rps
 
@@ -409,10 +443,11 @@ class NewsDataProvider:
         pipeline, which knows held positions and the run's admitted
         candidates) decides WHICH symbols and in what order — positions
         before candidates is the documented convention, see
-        TradingPipeline._run_news_update — and this method only decides HOW
-        MANY, via `self.per_symbol_max_symbols`. That cap is enforced here
-        regardless of how long `symbols` is, so a caller bug can never turn
-        into a live request storm. Pass `None` or `[]` (or set
+        TradingPipeline._run_news_update. Every name given is fetched, one
+        throttled request each (2026-10-19: the old 15-name cap starved the
+        seat of names the chart seat had rated), and each name keeps every
+        headline published since the previous trading session's close — see
+        `_per_symbol_cutoff`. Pass `None` or `[]` (or set
         `per_symbol_enabled=False`) for zero added requests and byte-identical
         behavior to a NewsDataProvider that has never heard of per-symbol
         fetching.
@@ -474,54 +509,11 @@ class NewsDataProvider:
                     )
                 )
 
-        # Per-symbol pass (2026-08-30). `capped_symbols` is the hard safety
-        # net described in the docstring: even if `symbols` somehow arrived
-        # with the whole ~101-symbol universe in it, this provider physically
-        # cannot issue more than `per_symbol_max_symbols` requests for it.
-        # dict.fromkeys dedupes while preserving the caller's order (never a
-        # bare set — the whole point is a reproducible, not incidental,
-        # selection).
-        per_symbol_configured = 0
-        if self.per_symbol_enabled and symbols:
-            capped_symbols = list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))[
-                : self.per_symbol_max_symbols
-            ]
-            for symbol in capped_symbols:
-                source_name = f"Yahoo Finance ({symbol})"
-                url = self.per_symbol_feed_template.format(symbol=symbol)
-                per_symbol_configured += 1
-                try:
-                    self._throttle_per_symbol()
-                    items = self._fetch_feed(source_name, url, cutoff)
-                    for item in items:
-                        item.per_symbol = True
-                    all_items.extend(items)
-                    succeeded += 1
-                except Exception as e:
-                    # Same visibility contract as the general-feed loop
-                    # above — this is NOT a separate reporting path, it
-                    # feeds the exact same `failures` list and therefore the
-                    # exact same NewsCoverage the operator-facing "Data
-                    # degraded" banner reads (see data_status["news"] in
-                    # pipeline_stages.py).
-                    logger.warning(
-                        "Failed to fetch per-symbol feed %s: %s",
-                        source_name,
-                        e,
-                    )
-                    reason = str(e) or type(e).__name__
-                    failures.append(
-                        FeedFailure(
-                            name=source_name,
-                            reason=reason[:_FAILURE_REASON_MAX_LEN],
-                        )
-                    )
-
-        coverage = NewsCoverage(
-            configured=len(self.feeds) + per_symbol_configured,
-            succeeded=succeeded,
-            failed=failures,
-        )
+        # Per-symbol pass — every shortlisted name is read (2026-10-19).
+        per_symbol = self._fetch_per_symbol(symbols, cutoff, failures)
+        all_items.extend(per_symbol.items)
+        succeeded += len(per_symbol.fetched)
+        per_symbol_configured = per_symbol.configured
 
         # Deduplicate by title similarity and sort by time (newest first).
         # Per-symbol items flow through the SAME dedup as everything else —
@@ -530,7 +522,13 @@ class NewsDataProvider:
         # reading as independent confirmation. See src/data/news_dedup.py.
         deduped = self._deduplicate(all_items)
         deduped.sort(key=lambda x: x.published or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-        deduped = self._cap_per_symbol_items(deduped, self.per_symbol_max_prompt_items)
+
+        coverage = NewsCoverage(
+            configured=len(self.feeds) + per_symbol_configured,
+            succeeded=succeeded,
+            failed=failures,
+            per_symbol_gaps=per_symbol.gaps(deduped),
+        )
 
         logger.info(
             "Fetched %d news items from %d/%d sources (%d per-symbol; after dedup from %d); coverage=%s%s",
@@ -559,32 +557,70 @@ class NewsDataProvider:
                 time.sleep(wait)
             _PER_SYMBOL_LAST_REQUEST_AT = time.monotonic()
 
-    @staticmethod
-    def _cap_per_symbol_items(items: list[NewsItem], cap: int) -> list[NewsItem]:
-        """Keep every general-wire item; keep at most `cap` per-symbol items.
+    def _fetch_per_symbol(
+        self, symbols: list[str] | None, cutoff: datetime, failures: list[FeedFailure]
+    ) -> "_PerSymbolPass":
+        """Fetch every name given, in the caller's order, one throttled
+        request each. The throttle bounds the request RATE; the caller's
+        shortlist bounds the count. dict.fromkeys dedupes while preserving
+        the caller's order. A failure is appended to `failures` — the SAME
+        list (and so the same NewsCoverage the "Data degraded" banner reads)
+        as the general wires — and recorded as that name's gap reason."""
+        result = _PerSymbolPass()
+        if not (self.per_symbol_enabled and symbols):
+            return result
+        ordered = list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))
+        per_symbol_cutoff, result.window_label = self._per_symbol_cutoff(cutoff)
+        for symbol in ordered:
+            source_name = f"Yahoo Finance ({symbol})"
+            url = self.per_symbol_feed_template.format(symbol=symbol)
+            result.configured += 1
+            try:
+                self._throttle_per_symbol()
+                items = self._fetch_feed(source_name, url, per_symbol_cutoff)
+            except Exception as e:
+                logger.warning("Failed to fetch per-symbol feed %s: %s", source_name, e)
+                reason = (str(e) or type(e).__name__)[:_FAILURE_REASON_MAX_LEN]
+                failures.append(FeedFailure(name=source_name, reason=reason))
+                result.failed[symbol] = reason
+                continue
+            for item in items:
+                item.per_symbol = True
+                item.symbol = symbol
+            result.items.extend(items)
+            result.fetched[symbol] = len(items)
+        return result
 
-        `items` is already sorted newest-first, so "the first `cap`
-        per-symbol items encountered" means the most recent ones — the rest
-        are dropped, not the general-wire items around them. This is what
-        keeps a flood of single-name headlines from crowding out the
-        general wire feeds in the analyst's prompt (see
-        NewsConfig.per_symbol_max_prompt_items).
+    def _per_symbol_cutoff(self, fallback: datetime) -> tuple[datetime, str]:
+        """Start of each name's headline window: the close of the most recent
+        trading session before today's ET date, read from the broker's
+        exchange calendar (`src.session_calendar.session_for`). Morning and
+        midday therefore read since the last close; evening reads all of today.
 
-        A no-op whenever nothing here is per-symbol-sourced — including
-        every call where `fetch_news(symbols=...)` was never used — so
-        today's behavior is unperturbed by this cap's existence.
+        The walk back stops at the first day of the previous calendar month —
+        the same structural bound `session_calendar._calendar_is_answering`
+        uses (an exchange always trades within a month). With no broker, or a
+        calendar that is not answering, the general `fallback` lookback is
+        used and the label says so, so the gap reasons stay truthful.
         """
-        if cap < 0:
-            return items
-        kept: list[NewsItem] = []
-        per_symbol_kept = 0
-        for item in items:
-            if getattr(item, "per_symbol", False):
-                if per_symbol_kept >= cap:
-                    continue
-                per_symbol_kept += 1
-            kept.append(item)
-        return kept
+        broker = self.session_broker() if self.session_broker is not None else None
+        if broker is None:
+            return fallback, f"{fallback:%Y-%m-%d %H:%M} UTC (lookback; no exchange calendar)"
+        today = et_now().date()
+        floor = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        probe = today - timedelta(days=1)
+        try:
+            while probe >= floor:
+                session = session_for(broker, probe)
+                if session.is_trading_day and session.close_at is not None:
+                    close_utc = session.close_at.astimezone(timezone.utc)
+                    return close_utc, f"previous close {close_utc:%Y-%m-%d %H:%M} UTC"
+                probe -= timedelta(days=1)
+        except SessionCalendarUnavailable as exc:
+            logger.warning("per-symbol news window: exchange calendar unreadable (%s); using lookback", exc)
+            return fallback, f"{fallback:%Y-%m-%d %H:%M} UTC (lookback; exchange calendar unreadable)"
+        logger.warning("per-symbol news window: no session close found back to %s; using lookback", floor)
+        return fallback, f"{fallback:%Y-%m-%d %H:%M} UTC (lookback; no session close found)"
 
     def _fetch_feed(self, source_name: str, url: str, cutoff: datetime) -> list[NewsItem]:
         """Fetch and parse a single RSS feed.
@@ -720,11 +756,24 @@ class NewsDataProvider:
         return result
 
     def format_for_prompt(self, items: list[NewsItem], max_items: int = 50) -> str:
-        """Format news items into a text block for the LLM prompt."""
+        """Format news items into a text block for the LLM prompt.
+
+        `max_items` bounds the GENERAL-wire items only. Per-symbol items are
+        all kept: each name's set is already bounded by its time window (since
+        the previous close) and by the feed's own length, and a count shared
+        across names would let one busy name starve the rest (2026-10-19).
+        """
         if not items:
             return "No recent news available."
 
-        limited = items[:max_items]
+        limited: list[NewsItem] = []
+        general_kept = 0
+        for item in items:
+            if not getattr(item, "per_symbol", False):
+                if general_kept >= max_items:
+                    continue
+                general_kept += 1
+            limited.append(item)
         lines = []
         for item in limited:
             time_str = item.published.strftime("%Y-%m-%d %H:%M UTC") if item.published else "unknown"

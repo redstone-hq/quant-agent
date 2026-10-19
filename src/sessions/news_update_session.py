@@ -50,11 +50,10 @@ class NewsUpdateSession:
         individually via Yahoo Finance's per-symbol RSS — see
         NewsDataProvider.fetch_news. The deterministic selection rule lives
         HERE, not in the provider: held positions first, then the run's
-        admitted candidates, each list in the caller's own stable order
+        shortlisted candidates, each list in the caller's own stable order
         (never raw set iteration — see the callers of this method), deduped
-        while preserving that order. NewsDataProvider itself enforces the
-        symbol-count cap (config.news.per_symbol_max_symbols); this method
-        only decides ordering and priority.
+        while preserving that order. Every name is fetched (no count cap
+        since 2026-10-19); this method only decides ordering.
 
         Returns `(intel_report, coverage)`. `coverage` (src.data.news.
         NewsCoverage) is the 2026-08-28 fix for a dead feed vanishing

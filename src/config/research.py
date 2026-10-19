@@ -171,35 +171,14 @@ class NewsConfig(BaseModel):
     # state threaded into the fetch call, which was a scope decision for the
     # owner rather than something to bolt on silently. The owner has now
     # made that call: free sources only, scoped to held positions + this
-    # run's admitted candidates. These four settings are the caps that make
-    # that safe — see `src/data/news.py::NewsDataProvider.fetch_news`.
+    # run's admitted candidates. 2026-10-19: the name-count and
+    # headline-count caps were removed (they starved the seat of names the
+    # chart seat had rated); every shortlisted name is read, each for its
+    # headlines since the previous session's close, and only the request
+    # throttle below remains — see `src/data/news.py::NewsDataProvider.fetch_news`.
     per_symbol_enabled: bool = True
     """Master switch. False disables per-symbol fetching entirely (zero
-    added requests) regardless of the caps below — an operator emergency-off
-    that doesn't require also zeroing out per_symbol_max_symbols."""
-
-    per_symbol_max_symbols: int = Field(default=15, ge=0, le=30)
-    """Hard cap on how many symbols get an individual per-symbol RSS fetch in
-    one run. This is the one knob standing between this feature and the
-    101-request hammering risk the 2026-08-29 audit flagged and refused to
-    ship without — and it is enforced a second time inside
-    NewsDataProvider itself (not only by the caller's symbol selection), so
-    a future caller bug that passes the whole ~101-symbol universe still
-    cannot regress to anywhere near 101 requests. Default 15: the live book
-    measured 2026-08-30 held 6 positions, and the run's candidate budgets
-    (smart_money.max_external_candidates=3 and the nomination
-    responder, bounded by the daily AI spend cap) bound how many more can be admitted in
-    one run — 15 covers that combined worst case with headroom for the book
-    to grow, at one request per symbol per run. The ge=0/le=30 bounds keep an
-    operator typo from silently reopening the 101-request risk (le=30 is
-    already generous — it is under a third of the ~101-symbol universe)."""
-
-    per_symbol_max_prompt_items: int = Field(default=15, ge=0, le=100)
-    """Of the items that make it into the analyst's prompt (bounded overall
-    by `max_prompt_items`), at most this many may be per-symbol-sourced.
-    Keeps a flood of single-name headlines (e.g. every held position
-    publishing something the same morning) from crowding out the general
-    wire feeds that the rest of `max_prompt_items` exists to carry."""
+    added requests) — an operator emergency-off."""
 
     per_symbol_requests_per_second: float = Field(default=2.0, ge=0.2, le=10.0)
     """Politeness throttle for per-symbol Yahoo Finance requests, same

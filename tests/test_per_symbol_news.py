@@ -49,16 +49,18 @@ def _item(title="Headline", source="X", link="", per_symbol=False, published=Non
 
 
 # ===========================================================================
-# Symbol cap — the hard safety net against the 101-request hammering risk.
+# Every name given is fetched (2026-10-19: the 15-name cap was removed — it
+# starved the news seat of names the chart seat had rated). The throttle
+# bounds the request rate; the run's shortlist bounds the count.
 # ===========================================================================
 
 
-def test_per_symbol_fetch_respects_the_configured_symbol_cap():
+def test_per_symbol_fetch_reads_every_name_given():
     # NewsDataProvider(feeds=...) falls back to the real RSS_FEEDS on a
     # falsy (empty-dict) override — `self.feeds = feeds or RSS_FEEDS` — so
     # these tests count against `provider.feeds` rather than assuming zero
     # general feeds.
-    provider = NewsDataProvider(per_symbol_max_symbols=3)
+    provider = NewsDataProvider()
     calls = []
 
     def fake_fetch(name, url, cutoff):
@@ -66,32 +68,19 @@ def test_per_symbol_fetch_respects_the_configured_symbol_cap():
         return []
 
     provider._fetch_feed = MagicMock(side_effect=fake_fetch)
-    symbols = [f"SYM{i}" for i in range(10)]
+    symbols = [f"SYM{i}" for i in range(40)]
 
     items, coverage = provider.fetch_news(symbols=symbols)
 
     per_symbol_calls = [c for c in calls if c.startswith("Yahoo Finance (SYM")]
-    assert len(per_symbol_calls) == 3
-    assert coverage.configured == len(provider.feeds) + 3
-
-
-def test_per_symbol_cap_is_a_hard_safety_net_even_if_caller_passes_the_whole_universe():
-    """Even a caller bug that passes the whole ~101-symbol universe cannot
-    turn into anywhere near 101 requests — the provider enforces its own
-    cap regardless of input length, independent of caller selection logic."""
-    provider = NewsDataProvider(per_symbol_max_symbols=5)
-    provider._fetch_feed = MagicMock(return_value=[])
-    universe = [f"SYM{i}" for i in range(101)]
-
-    provider.fetch_news(symbols=universe)
-
-    assert provider._fetch_feed.call_count == len(provider.feeds) + 5
+    assert len(per_symbol_calls) == 40
+    assert coverage.configured == len(provider.feeds) + 40
 
 
 def test_per_symbol_disabled_makes_zero_requests_regardless_of_symbols():
     """The master switch (config.news.per_symbol_enabled) is an
-    operator emergency-off independent of the numeric caps."""
-    provider = NewsDataProvider(per_symbol_enabled=False, per_symbol_max_symbols=15)
+    operator emergency-off."""
+    provider = NewsDataProvider(per_symbol_enabled=False)
     provider._fetch_feed = MagicMock(return_value=[])
 
     items, coverage = provider.fetch_news(symbols=["AAPL", "MSFT"])
@@ -105,12 +94,12 @@ def test_per_symbol_disabled_makes_zero_requests_regardless_of_symbols():
 # ===========================================================================
 
 
-def test_per_symbol_fetch_preserves_caller_order_when_truncating_to_the_cap():
-    """The provider keeps the FIRST `per_symbol_max_symbols` symbols in the
-    caller's own order — it must not resort/shuffle them. Ordering
+def test_per_symbol_fetch_preserves_caller_order():
+    """The provider fetches in the caller's own order — it must not
+    resort/shuffle them. Ordering
     (positions before candidates) is the caller's responsibility
     (TradingPipeline._run_news_update); the provider must not undo it."""
-    provider = NewsDataProvider(per_symbol_max_symbols=2)
+    provider = NewsDataProvider()
     fetched = []
 
     def fake_fetch(name, url, cutoff):
@@ -122,7 +111,7 @@ def test_per_symbol_fetch_preserves_caller_order_when_truncating_to_the_cap():
     provider.fetch_news(symbols=["ZEBRA", "APPLE", "MANGO"])
 
     per_symbol_fetched = [n for n in fetched if n.startswith("Yahoo Finance (")]
-    assert per_symbol_fetched == ["Yahoo Finance (ZEBRA)", "Yahoo Finance (APPLE)"]
+    assert per_symbol_fetched == ["Yahoo Finance (ZEBRA)", "Yahoo Finance (APPLE)", "Yahoo Finance (MANGO)"]
 
 
 def test_run_news_update_orders_held_positions_before_candidates_deterministically():
@@ -228,7 +217,8 @@ def test_morning_research_stage_passes_held_positions_and_admitted_candidates():
     stage.run(ctx)
 
     assert captured["held_symbols"] == ["MSFT", "ABT"]
-    assert captured["candidate_symbols"] == ["MSFT", "RSG"]
+    # Since 2026-10-19 the news seat reads the whole shortlist (held, admitted, configured).
+    assert captured["candidate_symbols"] == ["MSFT", "ABT", "RSG", "SPY"]
 
 
 # ===========================================================================
@@ -263,7 +253,7 @@ def test_all_per_symbol_feeds_failing_is_partial_when_general_feeds_still_succee
     """Every per-symbol fetch fails, but the general wires are fine — this
     must read as 'partial' (real coverage came in), not 'failed' (which
     implies nothing came back at all)."""
-    provider = NewsDataProvider(per_symbol_max_symbols=5)
+    provider = NewsDataProvider()
 
     def fake_fetch(name, url, cutoff):
         if name.startswith("Yahoo Finance ("):
@@ -284,7 +274,7 @@ def test_all_per_symbol_feeds_failing_is_partial_when_general_feeds_still_succee
 
 
 def test_everything_failing_general_and_per_symbol_reports_failed():
-    provider = NewsDataProvider(per_symbol_max_symbols=2)
+    provider = NewsDataProvider()
     provider._fetch_feed = MagicMock(side_effect=Exception("boom"))
 
     items, coverage = provider.fetch_news(symbols=["A", "B"])
@@ -397,75 +387,18 @@ def test_zero_symbols_with_per_symbol_disabled_is_also_a_no_op():
 
 
 # ===========================================================================
-# Per-symbol prompt item cap — general wire items must never be crowded out.
+# Prompt bound — max_items bounds general wires only; per-symbol items are
+# window-bounded and never share a count across names (2026-10-19).
 # ===========================================================================
 
 
-def test_cap_per_symbol_items_keeps_all_general_and_first_n_per_symbol():
-    items = [
-        _item(
-            title="General 1", source="CNBC", per_symbol=False, published=datetime(2026, 8, 30, 12, tzinfo=timezone.utc)
-        ),
-        _item(
-            title="PerSym 1",
-            source="Yahoo Finance (AAA)",
-            per_symbol=True,
-            published=datetime(2026, 8, 30, 11, tzinfo=timezone.utc),
-        ),
-        _item(
-            title="PerSym 2",
-            source="Yahoo Finance (BBB)",
-            per_symbol=True,
-            published=datetime(2026, 8, 30, 10, tzinfo=timezone.utc),
-        ),
-        _item(
-            title="PerSym 3",
-            source="Yahoo Finance (CCC)",
-            per_symbol=True,
-            published=datetime(2026, 8, 30, 9, tzinfo=timezone.utc),
-        ),
-        _item(
-            title="General 2", source="BBC", per_symbol=False, published=datetime(2026, 8, 30, 8, tzinfo=timezone.utc)
-        ),
+def test_format_for_prompt_bounds_general_wires_and_keeps_every_per_symbol_item():
+    items = [_item(title=f"General {i}", source="CNBC") for i in range(5)] + [
+        _item(title=f"PerSym {i}", source=f"Yahoo Finance (S{i})", per_symbol=True) for i in range(5)
     ]
-    capped = NewsDataProvider._cap_per_symbol_items(items, cap=2)
-    titles = [i.title for i in capped]
-    assert titles == ["General 1", "PerSym 1", "PerSym 2", "General 2"]
-
-
-def test_fetch_news_per_symbol_prompt_item_cap_holds_end_to_end():
-    provider = NewsDataProvider(
-        feeds={"CNBC Top News": "http://alive"},
-        per_symbol_max_symbols=5,
-        per_symbol_max_prompt_items=1,
-    )
-
-    def fake_fetch(name, url, cutoff):
-        if name == "CNBC Top News":
-            return [
-                _item(
-                    title="General wire story",
-                    source="CNBC Top News",
-                    published=datetime(2026, 8, 30, 6, tzinfo=timezone.utc),
-                )
-            ]
-        # Each per-symbol feed returns one distinct (non-duplicate) item.
-        return [
-            _item(
-                title=f"{name} exclusive story",
-                source=name,
-                link=f"https://example.com/{name}",
-                published=datetime(2026, 8, 30, 12, tzinfo=timezone.utc),
-            )
-        ]
-
-    provider._fetch_feed = MagicMock(side_effect=fake_fetch)
-    items, coverage = provider.fetch_news(symbols=["AAA", "BBB", "CCC"])
-
-    per_symbol_items = [i for i in items if i.per_symbol]
-    general_items = [i for i in items if not i.per_symbol]
-    assert len(per_symbol_items) == 1  # capped from 3 -> 1
-    assert len(general_items) == 1  # general item untouched by the cap
+    text = NewsDataProvider().format_for_prompt(items, max_items=2)
+    assert [t for t in (f"General {i}" for i in range(5)) if t in text] == ["General 0", "General 1"]
+    assert all(f"PerSym {i}" in text for i in range(5))
 
 
 # ===========================================================================
@@ -483,8 +416,6 @@ def test_news_config_per_symbol_defaults_match_provider_defaults():
     cfg = NewsConfig()
     provider = NewsDataProvider()
     assert provider.per_symbol_enabled == cfg.per_symbol_enabled
-    assert provider.per_symbol_max_symbols == cfg.per_symbol_max_symbols
-    assert provider.per_symbol_max_prompt_items == cfg.per_symbol_max_prompt_items
     assert provider.per_symbol_request_interval_s == pytest.approx(1.0 / cfg.per_symbol_requests_per_second)
 
 
@@ -520,8 +451,6 @@ storage:
 news:
   max_prompt_items: 12
   per_symbol_enabled: false
-  per_symbol_max_symbols: 7
-  per_symbol_max_prompt_items: 4
   per_symbol_requests_per_second: 1.5
 """
     config_file = tmp_path / "settings.yaml"
@@ -532,18 +461,14 @@ news:
     cfg = load_config(config_file)
 
     assert cfg.news.per_symbol_enabled is False
-    assert cfg.news.per_symbol_max_symbols == 7
-    assert cfg.news.per_symbol_max_prompt_items == 4
     assert cfg.news.per_symbol_requests_per_second == 1.5
-    assert cfg.news.per_symbol_max_symbols != NewsConfig().per_symbol_max_symbols
+    assert cfg.news.per_symbol_requests_per_second != NewsConfig().per_symbol_requests_per_second
 
 
-def test_news_config_per_symbol_max_symbols_bounds_reject_absurd_values():
-    """le=30 keeps an operator typo from silently reopening the
-    101-request hammering risk the 2026-08-29 audit flagged."""
-    from pydantic import ValidationError
-
+def test_removed_count_caps_are_gone_from_config():
+    """2026-10-19: the name-count and headline-count caps were removed; a
+    leftover key would read as a live knob that no code honours."""
     from src.config import NewsConfig
 
-    with pytest.raises(ValidationError):
-        NewsConfig(per_symbol_max_symbols=101)
+    assert "per_symbol_max_symbols" not in NewsConfig.model_fields
+    assert "per_symbol_max_prompt_items" not in NewsConfig.model_fields
