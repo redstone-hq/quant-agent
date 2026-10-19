@@ -142,6 +142,10 @@ ROTATION_REFUSAL_POINTS: tuple[str, ...] = (
     "no_ranked_holdings",
     "score_noise_unmeasured",
     "full_composite_margin_not_cleared",
+    # Archetype step C (2026-10-19): the score is a plain count of agreeing
+    # seats, so the like-for-like check always ties; refused until seat
+    # weights are measured.
+    "awaiting_measured_seat_weights",
     "no_shared_scoring_seat",
     "shared_composite_margin_not_cleared",
 )

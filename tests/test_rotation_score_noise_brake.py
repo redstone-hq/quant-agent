@@ -34,6 +34,21 @@ def _cand(symbol: str, magnitude: float, conviction: str = "low", as_of: date | 
     return rank_verdicts([verdict])[0]
 
 
+def _two_seat(symbol: str, magnitude: float = 1.0, conviction: str = "low"):
+    """Technical plus news agreeing: count 2, one more than a lone read."""
+    tech = AnalystVerdict(
+        seat="technical",
+        symbol=symbol,
+        direction="bullish",
+        magnitude=magnitude,
+        conviction=conviction,
+        evidence=[VerdictEvidence(label="trend", value=1.0)],
+        invalidation="breaks support",
+    )
+    news = tech.model_copy(update={"seat": "news", "magnitude": None})
+    return rank_verdicts([tech, news])[0]
+
+
 def _run(new, held, brake):
     return evaluate_rotation(
         ranked=[new, held],
@@ -46,15 +61,18 @@ def _run(new, held, brake):
 
 
 def test_gap_equal_to_measured_noise_does_not_swap_and_larger_does():
-    new, held = _cand("NEW", 1.0, "medium"), _cand("OLD", 0.75)
+    """The brake still binds on the full composite. A gap that clears it now
+    reaches the like-for-like step, which refuses on the count basis until
+    seat weights are measured (2026-10-19) -- fail safe, no swap."""
+    new, held = _two_seat("NEW"), _cand("OLD", 0.75)
     gap = new.score - held.score
+    assert gap == 1.0
     equal = _run(new, held, gap)
     assert equal.opportunity is None
     assert equal.refusal.point == "full_composite_margin_not_cleared"
     larger = _run(new, held, gap / 2)
-    assert larger.opportunity is not None
-    assert larger.opportunity.tier == "ranked_margin"
-    assert larger.opportunity.noise_brake == gap / 2
+    assert larger.opportunity is None
+    assert larger.refusal.point == "awaiting_measured_seat_weights"
 
 
 def test_unmeasured_noise_refuses_with_a_recorded_reason():
@@ -67,11 +85,20 @@ def test_unmeasured_noise_refuses_with_a_recorded_reason():
     assert row["held_evidence_key"] and row["new_evidence_key"]
 
 
-def test_prompt_shows_the_measured_value():
+def test_prompt_shows_the_measured_value(monkeypatch):
+    """The render of a surfaced swap, exercised under a measured-weights
+    stand-in basis: on the live count basis no swap is ever surfaced
+    (2026-10-19), so there would be nothing to render."""
+    import src.rotation as rotation_mod
     from src.agents.portfolio_manager import PortfolioManagerAgent
+    from src.rotation_parts import score_noise as score_noise_mod
+    from src.verdicts import CONVICTION_SCORE
+
+    monkeypatch.setattr(score_noise_mod, "SCORE_BASIS", "measured_weights_test_basis")
+    monkeypatch.setattr(rotation_mod, "score_verdict", lambda v: CONVICTION_SCORE.get(v.conviction, 0.0))
 
     kwargs = dict(
-        ranked=[_cand("NEW", 1.0, "high"), _cand("HELD", 0.75)],
+        ranked=[_two_seat("NEW", conviction="high"), _cand("HELD", 0.75)],
         blocked={},
         held_symbols={"HELD"},
         existing_risk_pct={"HELD": 24.9},

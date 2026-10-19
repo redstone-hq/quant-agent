@@ -5,6 +5,10 @@ multiplier changes nothing and only seat RATIOS carry information. No ratio
 has been measured, so the per-seat weights are deleted and the rule needs no
 constant. The swap brake's evidence key carries the score basis, so a score
 recorded under the old weights never pairs with a new one.
+
+2026-10-19 (archetype step C): each counted seat adds exactly 1 -- the score
+is the count of agreeing seats, conviction unread, macro uncounted because
+its read is market-wide.
 """
 
 from __future__ import annotations
@@ -39,11 +43,11 @@ def test_the_seat_weight_table_no_longer_exists():
 
 
 def test_two_seats_with_opposite_verdicts_of_equal_magnitude_cancel():
-    """A bullish technical and a bearish macro read of the same strength
-    weigh the same: per-name, each scores identically, so neither outranks
-    the other on seat identity alone."""
+    """A bullish technical and a bearish news read weigh the same: per-name,
+    each scores identically, so neither outranks the other on seat identity
+    alone."""
     bull = _v("technical", "AAA", "bullish", "high", magnitude=1.0)
-    bear = _v("macro", "BBB", "bearish", "high", magnitude=1.0)
+    bear = _v("news", "BBB", "bearish", "low")
     ranked = {c.symbol: c.score for c in rank_verdicts([bull, bear])}
     assert ranked["AAA"] - ranked["BBB"] == 0.0
     # Signed sum of the two votes is zero.
@@ -51,8 +55,11 @@ def test_two_seats_with_opposite_verdicts_of_equal_magnitude_cancel():
 
 
 def test_every_seat_alone_scores_the_same_for_the_same_reading():
-    scores = {rank_verdicts([_v(seat, "XLE", "bullish", "medium")])[0].score for seat in SEATS}
-    assert scores == {0.5}
+    counted = [seat for seat in SEATS if seat != "macro"]
+    scores = {rank_verdicts([_v(seat, "XLE", "bullish", "medium")])[0].score for seat in counted}
+    assert scores == {1.0}
+    # Macro's market-wide read is not counted (2026-10-19).
+    assert rank_verdicts([_v("macro", "XLE", "bullish", "medium")])[0].score == 0.0
 
 
 def test_ranking_order_equals_the_unweighted_sum():
@@ -67,7 +74,11 @@ def test_ranking_order_equals_the_unweighted_sum():
     by_symbol: dict[str, float] = {}
     for v in verdicts_in:
         by_symbol[v.symbol] = by_symbol.get(v.symbol, 0.0) + score_verdict(v)
-    expected = sorted(by_symbol, key=lambda s: (-round(by_symbol[s], 4), s))
+    rung: dict[str, float] = {}
+    for v in verdicts_in:
+        rung[v.symbol] = rung.get(v.symbol, 0.0) + (v.magnitude or 0.0)
+    # Equal counts fall to the summed rating rung, then symbol (unchanged).
+    expected = sorted(by_symbol, key=lambda s: (-round(by_symbol[s], 4), -rung[s], s))
     ranked = rank_verdicts(verdicts_in)
     assert [c.symbol for c in ranked] == expected
     assert {c.symbol: c.score for c in ranked} == {s: round(t, 4) for s, t in by_symbol.items()}
@@ -76,7 +87,8 @@ def test_ranking_order_equals_the_unweighted_sum():
 def test_three_agreeing_lower_rated_seats_now_outrank_one_technical_read():
     """Under the deleted weights a lone technical 2.0 read scored 2.4 and
     beat macro high + smart money high + news medium (0.8 + 0.8 + 0.5 = 2.1).
-    Every seat counted equally, the three seats score 2.5 and rank first."""
+    Counted (2026-10-19), smart money and news are 2 agreeing seats -- macro
+    is uncounted -- and still rank first over one technical read."""
     ranked = rank_verdicts(
         [
             _v("technical", "AAA", "bullish", "high", magnitude=1.0),
@@ -85,13 +97,13 @@ def test_three_agreeing_lower_rated_seats_now_outrank_one_technical_read():
             _v("news", "CCC", "bullish", "medium"),
         ]
     )
-    assert [(c.symbol, c.score) for c in ranked] == [("CCC", 2.5), ("AAA", 1.0)]
+    assert [(c.symbol, c.score) for c in ranked] == [("CCC", 2.0), ("AAA", 1.0)]
 
 
 def test_the_evidence_key_names_the_score_basis():
     [c] = rank_verdicts([_v("technical", "AAA", "bullish", "high", magnitude=1.0)])
     key = json.loads(evidence_key(c))
-    assert key["score_basis"] == SCORE_BASIS == "conviction_only"
+    assert key["score_basis"] == SCORE_BASIS == "agreeing_seat_count"
 
 
 def test_an_old_basis_key_never_pairs_with_a_new_one():
