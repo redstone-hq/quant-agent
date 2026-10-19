@@ -96,6 +96,9 @@ def test_preprocess_unions_form4_hot_names_without_an_invented_cap(tmp_path):
         ],
         None,
     )
+    # 2026-10-19: the list is whatever the morning's own admission rule admits
+    # (tests/test_earnings_preprocess_symbols.py covers the rule itself).
+    pipeline.admission = SimpleNamespace(_admit_transient_smart_money_symbols=lambda obs: ({"FTK", "RSG"}, {}))
     pipeline.smart_money_provider.refresh.return_value = {"status": "ok"}
     symbols = pipeline._earnings_preprocess_symbols()
     assert symbols == ["NVDA", "AAPL", "FTK", "RSG"]

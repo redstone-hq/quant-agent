@@ -11,6 +11,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Any
 
 from src.util.time import et_now, et_today
 from pathlib import Path
@@ -18,6 +19,7 @@ from urllib.error import HTTPError, URLError  # noqa: F401 — handed to the SEC
 from urllib.request import urlopen, Request
 
 from src.data.filing_text import extract_text
+from src.session_calendar import SessionCalendarUnavailable, session_for
 from src.data.sec_client import (  # noqa: F401 — re-exported for existing callers
     REQUEST_DELAY,
     SEC_ARCHIVES,
@@ -91,6 +93,44 @@ class EarningsReport:
     # latest periodic report, and this is the latest legal filing date of the
     # next one (`periodic_report_current_until`). "" = unknown = stale.
     current_until: str = ""
+    # True when this run is the first read of a filing filed BEFORE the
+    # overnight window (see `is_catch_up_read`). "New" only means first
+    # downloaded within `lookback_days`, so a name first checked today can
+    # bring a weeks-old filing (AVO/ZUMZ/LSAK, 8-10 Sep filings read on
+    # 19 Oct); this keeps it from being shown as overnight news.
+    catch_up_read: bool = False
+
+    def evidence_fields(self) -> dict:
+        """Structured read facts that travel with the analysis to the seat and the owner message."""
+        return {
+            "filing_date": self.filing_date,
+            "first_read_today": bool(self.is_new),
+            "catch_up_read": bool(self.catch_up_read),
+        }
+
+
+def is_catch_up_read(filing_date: str, today: date, broker: Any = None) -> bool:
+    """A filing dated before the previous trading session is not overnight news.
+
+    The previous session comes from the desk's own exchange calendar
+    (`src.session_calendar.session_for`), so a holiday is skipped: a filing
+    from the last session before a holiday is NOT catch-up the next session.
+    With no broker, or an unreadable calendar, the previous session is
+    unknown and the read is flagged catch-up (the cautious side; the seat
+    still receives the filing date and judges staleness itself).
+    """
+    if broker is None:
+        return True
+    floor = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    probe = today - timedelta(days=1)
+    try:
+        while probe >= floor:
+            if session_for(broker, probe).is_trading_day:
+                return str(filing_date) < probe.isoformat()
+            probe -= timedelta(days=1)
+    except SessionCalendarUnavailable:
+        return True
+    return True
 
 
 class EarningsDataProvider:
@@ -101,6 +141,8 @@ class EarningsDataProvider:
         self._manifest_lock = threading.Lock()
         self.manifest = self._load_manifest()
         self.lookback_days = lookback_days
+        # Exchange-calendar source for `is_catch_up_read`; the pipeline sets it.
+        self.broker = None
         # The opener resolves `urlopen` in THIS module on every call, so the
         # rehearsal recording that rebinds `src.data.earnings.urlopen` still
         # intercepts SEC traffic.
@@ -410,6 +452,7 @@ class EarningsDataProvider:
             is_new=True,
             xbrl_facts=xbrl_comparable_values(xbrl_raw),
             current_until=current_until,
+            catch_up_read=is_catch_up_read(latest.filing_date, et_today(), self.broker),
         )
 
     def _lookup_cik(self, symbol: str) -> tuple[str | None, bool]:

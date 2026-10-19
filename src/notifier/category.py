@@ -64,6 +64,13 @@ _KIND_CATEGORY: dict[str, str] = {
     "close": CATEGORY_OPERATIONAL,
     "evening": CATEGORY_OPERATIONAL,
     "intra_check": CATEGORY_OPERATIONAL,
+    # intra_safety is intra_check's free twin (src/session_calendar.py aliases
+    # it). Its summary is routine by construction: main.py sends the
+    # naked-position alarm FIRST as its own `no_stop_at_all` owner alert
+    # (send_naked_position_alert) and only then the summary under
+    # kind=args.mode. Same shape as intra_check above. Live log Fri 16 Oct:
+    # 13 "nothing to report" summaries were paged as CRITICAL.
+    "intra_safety": CATEGORY_OPERATIONAL,
     "earnings_preprocess": CATEGORY_OPERATIONAL,
 }
 

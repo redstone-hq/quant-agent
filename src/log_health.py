@@ -766,11 +766,16 @@ def read_window(start: datetime, end: datetime, log_dir: Path | None = None) -> 
 
 
 def _is_owner_alert_echo(record: LogRecord) -> bool:
-    """True for an owner alert whose body is already counted at its own site."""
-    if record.source != "src.notifier" or not record.message.startswith("OWNER ALERT"):
-        return False
-    body = record.message.split("\n", 1)[1] if "\n" in record.message else ""
-    return classify(body, record.level) is not None
+    """True for the funnel's own CRITICAL line announcing an owner report.
+
+    An owner report is not a fault: a real condition is counted where it is
+    logged, and routine reports (half-hourly safety check, morning/midday/close
+    reviews) are healthy. The source is matched as the `src.notifier` package,
+    because the 1 Oct split (#1037) made the logger names `src.notifier.base`,
+    `src.notifier.owner_alert_funnel` and so on.
+    """
+    in_notifier = record.source == "src.notifier" or record.source.startswith("src.notifier.")
+    return in_notifier and record.message.startswith("OWNER ALERT")
 
 
 def classify(message: str, level: str | None = None) -> FaultFamily | None:
@@ -862,11 +867,9 @@ def analyse(
             # and then alerts; the credential check does the same. Counting
             # both would tell the owner five lost decisions were ten.
             #
-            # Fail-closed, deliberately: the echo is skipped only when its body
-            # matches a family we already count at its own site. An alert this
-            # module cannot place falls through to the unrecognised bucket
-            # rather than disappearing, so a NEW kind of owner alert can never
-            # be silently swallowed by this optimisation.
+            # Every echo is skipped, whether or not its body classifies: a
+            # routine report ("nothing to report") never classifies and is
+            # not a fault. Delivery failures are counted at their own site.
             continue
         family = classify(record.message, record.level)
         if family is not None:
