@@ -3562,6 +3562,14 @@ numbers:
       src/data/levels.py, but the recent-bar window itself still shapes
       what the seat reads for micro-structure, and no derivation sets 40
       rather than another figure.
+    evidence_2026_10_19: >-
+      2026-10-19 evidence: (1) reformulating to "bars back to the nearest
+      level's newest swing" was measured on 14 frozen symbols x 294 dates:
+      median 14 / max 787 bars, 58% under the seat's 20-bar neutral floor,
+      ~5% over 3x prompt size -- rejected. (2) Published: Lo, Mamaysky &
+      Wang (2000) J. Finance 55(4) s.II.B use 35-day windows (+3 lag) as an
+      authors' choice for short-horizon traders -- supports roughly this
+      size but is not a derivation, so the value stays open (outcome 3).
     open_question: >-
       What lookback do swing-pivot and micro-structure reads actually need
       on this desk's traded universe, measured rather than assumed
@@ -6959,6 +6967,16 @@ numbers:
       estimation and base duration are the same market quantity. The
       range/breakout flag drives backtest stops and reward:risk, so it cannot
       be dropped as text-only (adversary 2026-10-16).
+    evidence_2026_10_19: >-
+      2026-10-19 evidence: (1) reformulating to a pure swing-sequence base
+      was measured on 14 frozen symbols x 294 dates: 196 vs 97 bases, median
+      base 5 sessions -- rejected. (2) Published candidates do not measure
+      this quantity: LMW 2000 Def. 5 (22 days between double tops, after
+      Edwards & Magee) is a peak separation, not a base length; O'Neil's
+      ~5-week flat base was only reachable second-hand. Moving 14->22 flips
+      the range/breakout label on 242 of 714 snapshots (stops unchanged;
+      it switches the reward:risk gate on/off), so the window is a driver
+      and stays an owned open question (outcome 3).
     open_question: >-
       How can the start of the current base be read from the instrument's own
       price structure without imposing a flat minimum duration?
