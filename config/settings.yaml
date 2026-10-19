@@ -1125,9 +1125,7 @@ trading:
     - CHPX   # AI Semiconductor & Quantum (Global X — narrower than SMH/SOXX; ASML/TSMC/NVDA top weights)
     # Inverse / Short ETF
     - SH     # Short S&P 500
-    - SDS    # 2x Short S&P 500
     - PSQ    # Short Nasdaq 100
-    - SQQQ   # 3x Short Nasdaq 100
     # Tech
     - AAPL
     - MSFT
