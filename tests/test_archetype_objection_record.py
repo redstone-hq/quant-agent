@@ -36,7 +36,7 @@ _REVIEW_RC = {
     "execution_rationale": "n/a",
 }
 _ANSWER = {
-    "seat": "Tech_Analyst",
+    "seat": "News",
     "objection_direction": "Bearish",
     "answer_text": "Breakdown was on thin volume; the daily close held support.",
     "decision": "OVERRULE",
@@ -59,7 +59,7 @@ def test_planning_output_carries_objection_answers():
     decision = PortfolioDecision.model_validate_json(json.dumps(raw))
     (answer,) = decision.targets[0].objection_answers
     assert answer == ObjectionAnswer(
-        seat="tech_analyst",
+        seat="news",
         objection_direction="bearish",
         answer_text=_ANSWER["answer_text"],
         decision="overrule",
@@ -97,10 +97,10 @@ def test_decision_must_be_overrule_or_accept_and_text_not_blank():
         ObjectionAnswer(**{**_ANSWER, "answer_text": "   "})
 
 
-def test_field_is_not_yet_in_the_schema_the_ais_are_handed():
-    # Step D changes what the AIs are told; step A must not.
-    assert "objection_answers" not in json.dumps(PortfolioDecision.model_json_schema())
-    assert "objection_answers" not in json.dumps(PositionReview.model_json_schema())
+def test_field_is_in_the_schema_the_ais_are_handed():
+    # Step D unhid it so strict output can fill it in.
+    assert "objection_answers" in json.dumps(PortfolioDecision.model_json_schema())
+    assert "objection_answers" in json.dumps(PositionReview.model_json_schema())
 
 
 def test_round_trip_save_and_read(db):
@@ -114,7 +114,7 @@ def test_round_trip_save_and_read(db):
         session="morning",
         decision_id="run-1-dec-abc",
     )
-    got = objection_answer_for(db, "ZZZA", "TECH_ANALYST")
+    got = objection_answer_for(db, "ZZZA", "NEWS")
     assert got["decision"] == "overrule"
     assert got["answer_text"] == _ANSWER["answer_text"]
     assert got["objection_direction"] == "bearish"
@@ -128,7 +128,7 @@ def test_reader_misses_other_seat_other_run_and_no_answers(db):
     assert not record_objection_answers(
         db, run_id="run-1", agent_name="position_reviewer", symbol="ZZZC", answers=[], session="midday"
     )
-    assert objection_answer_for(db, "ZZZC", "tech_analyst") is None
+    assert objection_answer_for(db, "ZZZC", "news") is None
     record_objection_answers(
         db,
         run_id="run-2",
@@ -138,5 +138,5 @@ def test_reader_misses_other_seat_other_run_and_no_answers(db):
         session="midday",
     )
     assert objection_answer_for(db, "ZZZC", "news_analyst") is None
-    assert objection_answer_for(db, "ZZZC", "tech_analyst", run_id="run-1") is None
-    assert objection_answer_for(db, "ZZZC", "tech_analyst", run_id="run-2")["session"] == "midday"
+    assert objection_answer_for(db, "ZZZC", "news", run_id="run-1") is None
+    assert objection_answer_for(db, "ZZZC", "news", run_id="run-2")["session"] == "midday"

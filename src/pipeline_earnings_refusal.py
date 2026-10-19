@@ -45,8 +45,8 @@ def refuse_queued_earnings_buys(
     REASONING, not a quoted rule: the entry bar already refuses a name
     whose technical read is merely ABSENT, so requiring the filing to
     have been read before buying is consistent with how this desk
-    already treats evidence it does not have, and the standing doctrine
-    that all five seats must be right to ENTER is what makes an entry
+    already treats evidence it does not have, and the desk archetype's rule
+    that a fresh catalyst is required to ENTER is what makes an entry
     the right thing to withhold.
 
     BUY-ONLY, and silent about everything else. A SELL is untouched, a

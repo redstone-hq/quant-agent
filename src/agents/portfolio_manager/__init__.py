@@ -42,7 +42,7 @@ from src.risk.rules import (
     count_aligned_sources,
     count_opposing_sources,
     position_weight_pct,
-    signed_source_score,
+    entry_floor_score,
     stance_is_aligned,
     weight_pct_of,
 )
@@ -205,8 +205,9 @@ class PortfolioManagerAgent(
         # of a different number. See 2026-08-20/Phase 2b's incident class:
         # a silent clamp the PM's own stated reasoning disagreed with.
         #
-        # The NET of the two counts is what sizes the trade (2026-09-02, see
-        # `src/risk/rules.py::signed_source_score`). Both halves are shown
+        # The entry backstop score (`src/risk/seat_agreement.py::
+        # entry_floor_score`, the constructor's refusal) is shown with both
+        # counts. Both halves are shown
         # anyway: "3 aligned, 1 opposed" and "net +2" are different facts, and
         # a PM that only saw the net could not tell a thin unanimous idea from
         # a broad contested one. Showing the net is not optional — a ceiling
@@ -244,27 +245,19 @@ class PortfolioManagerAgent(
             stale_note = f"; {'; '.join(notes)}" if notes else ""
             # The ALIGNED side drops both; the OPPOSED side drops only the
             # stale stance. That asymmetry is the whole point of item 109's
-            # one-sided gate, and these displayed counts are the same ones
-            # `signed_source_score` nets below.
+            # one-sided gate. The backstop score below is computed by
+            # `entry_floor_score`, exactly as the constructor computes it.
             for_ignored = frozenset(ignored or ()) | frozenset(broadcast or ())
             long_for = count_aligned_sources(symbol, sources, "long", ignored_sources=for_ignored)
             long_against = count_opposing_sources(symbol, sources, "long", ignored_sources=ignored)
             short_for = count_aligned_sources(symbol, sources, "short", ignored_sources=for_ignored)
             short_against = count_opposing_sources(symbol, sources, "short", ignored_sources=ignored)
-            long_net = signed_source_score(
-                symbol,
-                sources,
-                "long",
-                ignored_sources=ignored,
-                non_corroborating_sources=broadcast,
-            )
-            short_net = signed_source_score(
-                symbol,
-                sources,
-                "short",
-                ignored_sources=ignored,
-                non_corroborating_sources=broadcast,
-            )
+            # The SAME function and arguments the constructor refuses on
+            # (`PortfolioConstructor._plan_risk_targets`), so the score the
+            # AI reads is the score that decides. Macro and opposing
+            # name-level seats are not in it (`entry_floor_score`).
+            long_net = entry_floor_score(symbol, sources, "long", ignored_sources=ignored)
+            short_net = entry_floor_score(symbol, sources, "short", ignored_sources=ignored)
             if not any((long_for, long_against, short_for, short_against)):
                 if broadcast_here:
                     omitted_broadcast.append(symbol)
@@ -274,10 +267,10 @@ class PortfolioManagerAgent(
                     omitted_plain.append(symbol)
                 return None
             return (
-                f"- {symbol}: {long_for} aligned / {long_against} opposed = "
-                f"net {long_net:+d} if long, "
-                f"{short_for} aligned / {short_against} opposed = "
-                f"net {short_net:+d} if short "
+                f"- {symbol}: if long {long_for} seat(s) for / {long_against} against, "
+                f"entry backstop {long_net:+d}; "
+                f"if short {short_for} seat(s) for / {short_against} against, "
+                f"entry backstop {short_net:+d} "
                 f"(of {len(sources)} source(s) with current coverage{stale_note})"
             )
 
@@ -1229,34 +1222,35 @@ For every target, cite only source/stance pairs present for that exact symbol
 in this registry and copy the stance string exactly. Omit unavailable sources.
 Memory and narrative sections are context, never current specialist coverage.
 
-## Independent Source Agreement (deterministic refusal — Step 5)
+## Independent Source Agreement (deterministic entry backstop — Step 5)
 {agreement_text}
-The NET score above — independent sources ALIGNED with the direction you
-propose, MINUS those opposed to it, computed from this registry and not from
-what you write in provenance — is a GO/NO-GO, not a size dial. A source whose
-stance is marked stale is in neither count: an old filing is still worth
-reading, but it has not confirmed anything about today, and it has not
-contradicted anything either.
+Each row shows how many seats point FOR and AGAINST each direction, and the
+entry backstop score the constructor computes from this registry (not from
+what you write in provenance). It is not a vote count and not a size dial:
+weighing the views is your job as head trader. A source whose stance is
+marked stale is in neither count: an old filing is still worth reading, but
+it has not confirmed anything about today, and it has not contradicted
+anything either.
 
-A source marked `broadcast` above is one-sided, and the rule is the same for
-every name that carries the mark: that stance is the market-wide outlook, not
-a read on this name's sector, so it cannot count FOR the trade — it still
-counts AGAINST one it opposes.
-
-A seat arguing the OTHER way SUBTRACTS from the net.
-**A net score of zero or below produces NO ORDER AT ALL** — not a small
+The backstop score is the chart for, plus name-level seats (news, earnings,
+smart money) for, minus the chart against. Macro is not counted: a
+`broadcast` stance is the market-wide outlook, the backdrop that tilts size
+and direction, not a read on this name, so it never counts FOR a trade and is
+not subtracted. An opposing name-level seat is not subtracted either: it is
+an objection you answer in writing in `objection_answers` (overrule or
+accept).
+**A backstop score of zero or below produces NO ORDER AT ALL** — not a small
 position, no position. Anything already held is left alone; refusing to open
 is not a decision to sell.
 
-**A net of +1 or more imposes no size restriction of its own** (the graduated
-ceiling was retired 2026-09-14: it scaled size by the square root of the seat
-count, which is the statistics of INDEPENDENT estimates, and these seats read
-overlapping evidence). Size the idea on its own merits and the risk side,
-within the ratified per-trade envelope. Do NOT shrink an idea because it has
-fewer agreeing seats — but a name with one seat for and one against is not
-tradeable today at any size. If you believe a dissenting seat is wrong, say
-why in your reasoning; the constructor computes this from the registry and
-cannot read your argument.
+**A backstop score of +1 or more imposes no size restriction of its own** (the
+graduated ceiling was retired 2026-09-14: it scaled size by the square root of
+the seat count, which is the statistics of INDEPENDENT estimates, and these
+seats read overlapping evidence). Size the idea on its own merits and the risk
+side, within the ratified per-trade envelope. Do NOT shrink an idea because it
+has fewer agreeing seats. If you believe a dissenting seat is wrong, answer it
+in writing in `objection_answers`; the constructor computes this score from
+the registry and cannot read your argument.
 
 Based on all the above (memory of past decisions + environment trajectory + today's signals), what trades should we execute? Respond as JSON."""
 

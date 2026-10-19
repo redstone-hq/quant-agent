@@ -237,8 +237,8 @@ class MorningResearchStage:
         # is full against its OWN ratified ceilings, the research surface
         # narrows to the names already held plus this run's free,
         # deterministic admissions. The REVIEW of every holding keeps its
-        # normal cadence, because all five seats must be right to stay, not
-        # only to enter. Fails open: any problem here runs the full hunt.
+        # normal cadence, because a holding is judged on the same weighed
+        # view as a buy, not only at entry. Fails open: any problem here runs the full hunt.
         ctx.search_throttled_reason = None
         try:
             from src.research_throttle import full_book_reason, narrow_to_held

@@ -158,9 +158,9 @@ class TargetPosition(LLMOutputModel):
 
     # Desk archetype step A (19 Oct 2026): written answers to seat
     # objections on this symbol (`ObjectionAnswer`). Optional, so old
-    # outputs parse unchanged; hidden from the schema the PM is handed until
-    # the wording step (D) tells the PM about it.
-    objection_answers: Annotated[list[ObjectionAnswer], SkipJsonSchema()] = Field(default_factory=list)
+    # outputs parse unchanged. In the schema the PM is handed since step D
+    # (its prompt describes it); an empty list means no objection answered.
+    objection_answers: list[ObjectionAnswer] = Field(default_factory=list)
 
     # --- Risk-narrative cross-check (item 163) -----------------------------
     # `risk_allocation_pct` is authoritative for anything the desk acts on;

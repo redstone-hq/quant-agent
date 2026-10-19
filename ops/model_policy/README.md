@@ -257,7 +257,8 @@ file stays only because three older audits pin their numbers to it.
 The admitted set comes from `deterministic_selection.evaluate`, the desk's
 own current admission rules: 25 of the 64 read names, exactly one of them a
 short (FLNC). Ten bearish names were on offer; the other nine — including
-UNH, the one short the live PM proposed — are refused on net evidence. The
+UNH, the one short the live PM proposed — are refused on net evidence (a record
+of the pre-archetype rules: the net-vote admission was retired 2026-10-19). The
 live PM proposed nine targets and the risk seat approved them, yet the funnel
 recorded zero proposed orders and zero fills; why is not established by the
 pull, and nothing here grades against the live output. The grader stopped

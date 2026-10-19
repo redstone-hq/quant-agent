@@ -423,7 +423,7 @@ def test_f5_independence_is_not_framed_as_disagreeing_more() -> None:
         # old "**Veto is nuclear.**" and "≥ 5 separate `modifications`" anchors were
         # REMOVED with the veto itself — the seat may only drop named NEW entries
         # and shrink sizing. These anchors pin the new contract.
-        "You have NO veto. There is no whole-batch reject.",
+        "You have no whole-plan veto. There is no whole-batch reject.",
         "no `approved: false` lever",
         # "R/R discipline is non-negotiable" was an anchor here until
         # 2026-09-11. It was REMOVED deliberately, by owner decision

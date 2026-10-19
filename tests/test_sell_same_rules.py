@@ -840,7 +840,7 @@ def test_option_a_new_buy_still_needs_timing_confirmed():
     assert eligibility["HELD"][0].startswith("R2 neutral rating")  # adding to a holding is a buy: refused too
     assert not any(r.startswith("R5") for r in eligibility["HELD"])  # R5 retired 2026-10-19
     neutral_chart = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bullish")]
-    assert "does not confirm timing" in own_bar_block_reason(neutral_chart, direction="bullish")
+    assert "does not back the trade's direction" in own_bar_block_reason(neutral_chart, direction="bullish")
 
 
 # ---------------------------------------------------------------------------

@@ -911,7 +911,7 @@ def test_a_net_score_at_or_below_zero_leaves_a_durable_machine_readable_reason()
     assert decisions == []
     refusals = constructor.drain_refusals()
     assert refusals["NVDA"]["refusal"] == STOP_REFUSAL_AGREEMENT_NET
-    assert "net" in refusals["NVDA"]["detail"]
+    assert "entry backstop" in refusals["NVDA"]["detail"]
     # And the log-scrape fallback now matches it too (via `_note_refusal`'s
     # own "refused" wording), so neither record path is silent on this
     # symbol any more.
@@ -1017,7 +1017,7 @@ def test_a_gated_stance_is_not_shown_to_the_pm_as_corroborating():
     # The tally the PM is quoted, the agreement line's own caveat, the
     # registry block, and the earnings section must ALL say the same thing —
     # each is asserted separately because each is written separately.
-    assert "- NVDA: 1 aligned / 0 opposed = net +1 if long" in msg
+    assert "- NVDA: if long 1 seat(s) for / 0 against, entry backstop +1" in msg
     assert "earnings stance NOT counted either way — filing superseded or past the next report's deadline" in msg
     assert "STALE (still real coverage, still citable as provenance" in msg
     assert "does NOT count toward the agreement score" in msg
@@ -1025,7 +1025,7 @@ def test_a_gated_stance_is_not_shown_to_the_pm_as_corroborating():
 
 def test_a_fresh_stance_is_shown_as_corroborating():
     msg = _pm_message(age_days=10)
-    assert "- NVDA: 2 aligned / 0 opposed = net +2 if long" in msg
+    assert "- NVDA: if long 2 seat(s) for / 0 against, entry backstop +2" in msg
     assert "NOT counted" not in msg
     assert "STALE" not in msg
 
@@ -1042,11 +1042,11 @@ def test_the_pm_is_shown_the_opposing_count_and_the_net():
         cash_balance=100_000.0,
         total_value=100_000.0,
     )
-    assert "- NVDA: 1 aligned / 1 opposed = net +0 if long" in msg
-    assert "1 aligned / 1 opposed = net +0 if short" in msg
+    assert "- NVDA: if long 1 seat(s) for / 1 against, entry backstop +1" in msg
+    assert "if short 1 seat(s) for / 1 against, entry backstop +0" in msg
 
 
 def test_the_pm_is_told_a_non_positive_net_produces_no_order():
     """Standing rule of this desk: the PM is never sized against silently."""
     msg = _pm_message(age_days=10)
-    assert "net score of zero or below produces NO ORDER AT ALL" in msg
+    assert "backstop score of zero or below produces NO ORDER AT ALL" in msg

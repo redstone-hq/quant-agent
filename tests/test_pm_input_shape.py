@@ -237,8 +237,8 @@ def test_dissent_and_the_net_agreement_arithmetic_are_untouched(rendered):
     assert registry
     for symbol in registry:
         assert re.search(
-            rf"^- {re.escape(symbol)}: \d+ aligned / \d+ opposed = net [+-]\d+ if long, "
-            rf"\d+ aligned / \d+ opposed = net [+-]\d+ if short",
+            rf"^- {re.escape(symbol)}: if long \d+ seat\(s\) for / \d+ against, entry backstop [+-]\d+; "
+            rf"if short \d+ seat\(s\) for / \d+ against, entry backstop [+-]\d+",
             agreement,
             re.M,
         ), symbol

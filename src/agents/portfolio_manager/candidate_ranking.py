@@ -24,8 +24,8 @@ logger = logging.getLogger("src.agents.portfolio_manager")
 
 #: R2 for a neutral rating on a name the desk HOLDS (owner Option A, 14 Oct
 #: 2026). It still refuses the name as a NEW buy, but R3-R6 are then read in
-#: the holding's own direction, so the same-rules gate judges a sale on every
-#: buy rule except timing (`src/exits/same_rules_gate.py`).
+#: the holding's own direction, so the same-rules gate judges a sale on the
+#: same weighed view as a buy (`src/exits/same_rules_gate.py`).
 HELD_NEUTRAL_R2 = "R2 neutral rating — held, so R3-R6 are read in the holding's direction"
 
 

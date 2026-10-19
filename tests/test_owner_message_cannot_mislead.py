@@ -364,7 +364,9 @@ def test_no_spec_section_number_is_cited_in_the_refusal_the_owner_reads():
     from src.portfolio_constructor import PortfolioConstructor
 
     source = inspect.getsource(PortfolioConstructor._plan_risk_targets)
-    refusal_strings = [line for line in source.splitlines() if "net at or below" in line or "net out in favour" in line]
+    refusal_strings = [
+        line for line in source.splitlines() if "net at or below" in line or "position nobody backs" in line
+    ]
     assert refusal_strings, "the agreement-net refusal text moved; re-point this guard"
     for line in refusal_strings:
         assert "§9.4" not in line
