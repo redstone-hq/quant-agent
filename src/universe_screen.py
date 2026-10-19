@@ -51,13 +51,11 @@ THE CRITERIA, and where each threshold comes from (every number is in
   price       last close >= `min_price_usd` ($5, SEC Rule 3a51-1(d): a
               security priced at five dollars or more is not a penny stock).
   spread      the Corwin & Schultz (J. Finance 2012) high-low spread
-              estimate over that year of bars. Half of it — the cost of
-              crossing from mid to the far side — must not exceed the
-              desk's own entry-slippage belt (`execution.
-              max_entry_slippage_bps`): a name whose ordinary half-spread
-              is already past the belt is one the execution stage would
-              refuse to cross. Replaces the $10M dollar-volume floor, as the
-              design required. Estimated from bars, not quotes, because
+              estimate over that year of bars. The name fails when the
+              round-trip spread eats the move expected over the owner-ruled
+              hold (`net_edge` at or below zero, the same edge the morning
+              score K multiplies by); a break-even floor, not a chosen line.
+              Replaces the $10M dollar-volume floor, as the design required. Estimated from bars, not quotes, because
               this account sees IEX quotes only and those are routinely
               absurd (src/pipeline_stages.py, the CCJ 15%-spread note).
   traded      the name TRADED on every session of that screening year: no
