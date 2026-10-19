@@ -16,7 +16,7 @@ from src.models import (
     TechAnalysisResult,
     news_verdict_for_symbol,
 )
-from src.risk.rules import own_bar_block_reason, own_bar_opposition_reason, signed_source_score
+from src.risk.rules import own_bar_block_reason, own_bar_opposition_reason, seat_objections
 from src.verdicts import RankedCandidate, rank_verdicts
 
 # Same logger object the monolith used, so log capture by name is unchanged.
@@ -116,10 +116,11 @@ class CandidateRanking:
               ranking information. A breakout is not measured on
               reward:risk. The floor argument is deleted. Catalyst is not an
               admission door.
-          R5  net independent source score ≥ 1 for the proposed direction
-              (`signed_source_score`; §9.4 refuses net ≤ 0 outright —
-              `agreement_refuses_trade`, a refusal gate with no schedule
-              and no config behind it since 2026-09-14)
+          R5  **retired 2026-10-19** (desk archetype). Was "net source
+              score >= 1". Without opposing name-level seats and macro it
+              is implied by R7 for an entry and is a catalyst test a
+              holding must not face. The constructor keeps the narrowed
+              floor (`entry_floor_score`) as an entry backstop.
           R6  the constructor's own preview REFUSED this name by code
               (`constructor_refusals_by_symbol`, a snapshot of
               `PortfolioConstructor.last_refusals` taken after
@@ -160,12 +161,9 @@ class CandidateRanking:
         """
         _ = (active_state_changes, asof, real_reward_risk_by_symbol)
         allowed = {str(s).strip().upper() for s in (allowed_buy_symbols or set()) if str(s).strip()}
-        stale = stale_sources or {}
-        # Item 109: a macro stance broadcast onto a name whose sector this
-        # read never mentioned may not CORROBORATE the name; its dissent
-        # still counts. One-sided on purpose — see
-        # `broadcast_macro_sources`.
-        non_corroborating = non_corroborating_sources or {}
+        # The registry, stale and broadcast maps fed R5, retired 2026-10-19;
+        # kept in the signature so every caller keeps its call shape.
+        _ = (evidence_registry, stale_sources, non_corroborating_sources)
 
         verdicts: dict[str, list[str]] = {}
         for analysis in analyses:
@@ -186,20 +184,13 @@ class CandidateRanking:
             # R4 is retired. Reward:risk — computed, thin, or unmeasurable —
             # does not admit or refuse. Ranking still consumes the number
             # when it exists. Catalyst rows are not a door.
-            sources = evidence_registry.get(symbol, {})
-            net = (
-                signed_source_score(
-                    symbol,
-                    sources,
-                    direction,
-                    ignored_sources=stale.get(symbol),
-                    non_corroborating_sources=non_corroborating.get(symbol),
-                )
-                if sources
-                else 0
-            )
-            if net <= 0:
-                blocked.append(f"R5 net evidence {net:+d} if {direction} — no rung")
+            # R5 retired 2026-10-19 (desk archetype). With opposing
+            # name-level seats and macro out of the net, it reduced to "the
+            # chart or a name-level seat backs it": always true for a rated
+            # entry (the chart rating sets the direction) and, on a holding,
+            # a catalyst requirement the keep rule does not have. Admission
+            # (R7) is the entry rule; the constructor keeps the floor as a
+            # backstop (`entry_floor_score`).
             # R6 — the constructor's preview refused this name by code
             # (item 54). Read from the snapshot, never recomputed here: the
             # width gate and the history gate live in the one funnel the
@@ -519,51 +510,32 @@ class CandidateRanking:
         held_symbols: set[str],
         all_verdicts: list[AnalystVerdict],
     ) -> tuple[list[RankedCandidate], dict[str, list[str]]]:
-        """The 2026-09-25 owner conviction bar (R7), applied to the ranking.
+        """The conviction bar (R7), applied to the ranking — desk archetype,
+        owner 2026-10-19 (`src/risk/conviction_bar.py`).
 
-        A NEW governance overlay on top of `candidate_eligibility`'s R2-R6
-        pre-decision gates: the ROLE-BASED conviction bar
-        (`own_bar_block_reason`). A name is admitted only if the technical seat
-        confirms timing (a timing VETO, no positive weight), NO seat is opposed,
-        and at least one NON-technical seat took a supported directional side
-        (`_has_supported_directional_thesis` — not a genuine specificity or
-        falsifiability test; News and Smart-money always synthesise their
-        invalidation). Deliberately OUTSIDE
-        `candidate_eligibility` so the audit shadow
-        (`ops/model_policy/deterministic_selection.py`) keeps mirroring those
-        gates exactly.
+        A governance overlay on top of `candidate_eligibility`'s R2-R6, kept
+        OUTSIDE it so the audit shadow (`ops/model_policy/
+        deterministic_selection.py`) keeps mirroring those gates.
 
-        ENTRY vs STAY — two verdicts from ONE bar (owner ruling 2026-09-25):
+          * ENTRY (not in `held_symbols`): admitted only when the chart
+            confirms AND a name-level seat (news, earnings, smart money)
+            supports the direction (`own_bar_block_reason`). A failure moves
+            the name OUT of `ranked` and INTO `blocked`.
+          * STAY (in `held_symbols`): culled into `blocked` (rotation's
+            `ineligible_hold` tier) only when the CHART is against the held
+            direction (`own_bar_opposition_reason`). A soft miss drops it
+            from the ranked survivors with no cull reason.
+          * OBJECTIONS: an opposing name-level seat blocks neither. Each
+            surviving or held name's objections (`seat_objections`: seat,
+            direction, reason) are kept on `self.last_objections` and shown
+            beside the row; a buy over one is refused as
+            `objection_unanswered` unless the planning AI overrules it in
+            writing (`_drop_unanswered_objections`).
 
-          * ENTRY (a candidate NOT in `held_symbols`): full-strict. Any R7
-            failure — technical veto, opposition, OR a soft miss (no supported
-            directional thesis) — moves the name OUT of `ranked` and INTO
-            `blocked` under `CONVICTION_BAR_REASON_PREFIX`. Unchanged.
-          * STAY (a candidate IN `held_symbols`): OPPOSITION-ONLY. A held name
-            is culled into `blocked` (which rotation's `ineligible_hold` tier
-            reads) ONLY when a seat is ACTIVELY OPPOSED to the held direction
-            (`own_bar_opposition_reason` non-None). A held name that fails the
-            entry bar on SOFT grounds — no technical read this review, a
-            neutral/non-confirming technical read, or support that faded to
-            neutral — is dropped from the ranked survivors (it does not belong
-            in the fresh-entry budget order) but gets NO cull reason: it earns
-            its right to STAY. The price-thesis-break exit
-            (`src.risk.exit_guard`) handles genuine deterioration separately.
-
-        Supportive/opposed are read from the SEAT VERDICTS
-        (`AnalystVerdict`), one source of "which seat took which side" — a long
-        is supported by a bullish verdict, a short by a bearish one — so this
-        never introduces a second notion of "aligned".
-
-        SAFETY INVARIANT this relies on (not enforced by the type system): every
-        symbol in `ranked` is expected to already carry a technical verdict in
-        `by_symbol`, because ranking itself is derived from technical reads (see
-        `_render_candidate_ranking`: "no Technical reads this session -> nothing
-        to rank"). So the "absent technical read" branch is expected to never
-        fire for a real ranked name — a ranked name with no technical verdict at
-        all would mean that upstream invariant broke. It is logged loudly below
-        when it does; the name is still handled safely (an entry candidate is
-        refused, a held name drops from survivors without a spurious cull).
+        SAFETY INVARIANT (not enforced by the type system): every ranked
+        symbol carries a technical verdict, because ranking is derived from
+        technical reads. A ranked name with none is logged loudly and handled
+        by the absent-technical branch (entry refused, holding not culled).
         """
         by_symbol: dict[str, list[AnalystVerdict]] = {}
         for v in all_verdicts:
@@ -571,6 +543,7 @@ class CandidateRanking:
         held = {str(s).strip().upper() for s in held_symbols if str(s).strip()}
         blocked = {s: list(why) for s, why in blocked.items()}
         survivors: list[RankedCandidate] = []
+        objections: dict[str, list[dict]] = {}
         for c in ranked:
             sym = c.symbol.upper()
             sym_verdicts = by_symbol.get(sym, [])
@@ -587,11 +560,16 @@ class CandidateRanking:
                 sym_verdicts,
                 direction=c.direction,
             )
+            if reason is None or sym in held:
+                found = seat_objections(sym_verdicts, direction=c.direction)
+                if found:
+                    objections[sym] = found
             if reason is None:
                 survivors.append(c)
             elif sym in held:
-                # STAY: opposition-only. A soft miss drops the name from the
-                # entry budget order but never adds a cull reason.
+                # STAY: the chart against the holding is the only cull. A
+                # soft miss drops the name from the entry budget order but
+                # never adds a cull reason.
                 opposition = own_bar_opposition_reason(
                     sym_verdicts,
                     direction=c.direction,
@@ -601,6 +579,7 @@ class CandidateRanking:
             else:
                 # ENTRY: full-strict.
                 blocked.setdefault(sym, []).append(reason)
+        self.last_objections = objections
         return survivors, blocked
 
     def _render_candidate_ranking(
@@ -616,9 +595,9 @@ class CandidateRanking:
             return "\n".join(lines)
         lines += [
             "The names below passed every rule that can be checked before you "
-            "decide (actionable rating; longs BUY-eligible; net independent "
-            "evidence ≥ 1; not refused by the order constructor's own "
-            "preview). They are ORDERED by the COUNT of seats that agree "
+            "decide (actionable rating; longs BUY-eligible; chart confirms "
+            "and a name-level seat agrees; not refused by the order "
+            "constructor's own preview). They are ORDERED by the COUNT of seats that agree "
             "on the name's direction — each agreeing seat adds 1, "
             "whatever conviction it stated (a seat's own confidence is not "
             "checked, so it does not rank). Macro is not counted: its read "
@@ -657,12 +636,20 @@ class CandidateRanking:
                 else:
                     strength = "no rating rung stated by any seat on this name"
                 no_strength = f" | no strength scale: {', '.join(c.no_strength_seats)}" if c.no_strength_seats else ""
+                # Desk archetype (19 Oct 2026): an opposing name-level seat
+                # is an objection, shown as data beside the row it is about.
+                found = (getattr(self, "last_objections", None) or {}).get(c.symbol.upper()) or []
+                objection_note = (
+                    " | objections: " + "; ".join(f"{o['seat']} {o['direction']} — {o['reason']}" for o in found)
+                    if found
+                    else ""
+                )
                 lines.append(
                     f"{i}. {c.symbol} — {c.direction} | score {c.score:.2f} "
                     f"({c.components['agreeing_seats']:.0f} agreeing seat(s) "
                     f"counted of {len(c.verdicts)} leaning; {strength}) | seats: {seats} "
                     f"(stated conviction, not scored: {convictions}){no_strength}{no_lean} | invalid if "
-                    f"— {invalidation}"
+                    f"— {invalidation}{objection_note}"
                 )
         else:
             lines.append("(no name passes every pre-decision rule today)")

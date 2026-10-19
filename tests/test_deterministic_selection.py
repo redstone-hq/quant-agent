@@ -89,9 +89,12 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
     the rules now permit twenty-five names and still choose none of them."""
     summary = summarise(rows)
     assert summary["analysed"] == 59
-    assert summary["eligible"] == 25
+    assert summary["eligible"] == 38  # 25 -> 38 2026-10-19: desk archetype ruling retired R5 (net evidence)
     assert summary["clears_rr_floor_alone"] == [
         "AAPL",
+        "AGX",
+        "AVGO",
+        "CAT",
         "CHPX",
         "CMCSA",
         "COP",
@@ -99,23 +102,33 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
         "CVX",
         "DE",
         "DIS",
+        "DLR",
         "FLNC",
+        "GEV",
+        "GOOGL",
+        "HON",
         "JNJ",
         "JPM",
+        "KLAR",
         "KO",
         "MSFT",
+        "MTZ",
         "MU",
+        "NEE",
         "NKE",
         "NUE",
         "NVDA",
         "PATH",
         "PFE",
+        "RKLB",
         "RSG",
         "SLB",
         "TSM",
+        "UNH",
         "V",
         "VLO",
         "XLE",
+        "XLU",
     ]
     # The catalyst door is closed on this day: MSFT and TSM used to enter
     # through it on a sub-1.5 analyst ratio; with the 1.5 floor deleted
@@ -147,7 +160,8 @@ def test_rules_admit_twentyfive_names_and_rank_none_of_them(rows):
     # normalisation is unchanged by an affine rescale of the encoding. What
     # moves is how far past the budget the admitted names ask, which makes the
     # finding stronger, not different.
-    assert summary["total_max_risk_pct"] == 64.0  # 60.0 -> 64.0 2026-10-15: MSFT, TSM no longer starter-capped
+    # 64.0 -> 98.0 2026-10-19: R5 retired (desk archetype), 13 more names permitted.
+    assert summary["total_max_risk_pct"] == 98.0  # 60.0 -> 64.0 2026-10-15: MSFT, TSM no longer starter-capped
     assert summary["total_max_risk_pct"] > 25.0
     assert summary["rules_name_a_single_pick"] is False
 
@@ -174,22 +188,14 @@ def test_subfloor_catalyst_door_is_reachable_only_by_news_covered_names(rows):
 
 
 def test_three_of_the_five_qualified_shorts_are_refused_by_the_net_rule(rows):
-    """GEV/UNH/NEE clear the retired 1.5 floor and are still refused
-    deterministically: the §9.4 signed score nets a bullish earnings stance
-    off the bearish technical one. The benchmark USED to fault a model for
-    passing them over — it credited picks production would never place. Fixed
-    2026-09-14: `takes_an_eligible_short` counts only NKE and FLNC."""
-    refused = {}
-    for symbol in ("GEV", "UNH", "NEE"):
+    """GEV/UNH/NEE were refused by the §9.4 net score (a bullish earnings
+    stance netted off the bearish chart). R5 is retired 2026-10-19 (desk
+    archetype ruling): the opposed earnings seat is now an objection for the
+    planning AI to answer, so the audit copy, like production, admits them."""
+    for symbol in ("GEV", "UNH", "NEE", "NKE", "FLNC"):
         row = next(r for r in rows if r["symbol"] == symbol)
-        assert row["rr"] >= 1.5
-        assert row["eligible"] is False
-        assert any(b.startswith("R5") for b in row["blocked_by"]), row["blocked_by"]
-        refused[symbol] = row["net_sources"]
-    assert refused == {"GEV": -1, "UNH": 0, "NEE": 0}
-    # NKE and FLNC survive, so `takes_an_eligible_short` remains satisfiable.
-    for symbol in ("NKE", "FLNC"):
-        assert next(r for r in rows if r["symbol"] == symbol)["eligible"] is True
+        assert row["eligible"] is True, row["blocked_by"]
+        assert not any(b.startswith("R5") for b in row["blocked_by"])
 
 
 def test_block_reason_census(rows):
@@ -201,7 +207,8 @@ def test_block_reason_census(rows):
     # R4 41 -> 20 (item 1(d)): 21 of the 41 R4 blocks on this day were the
     # reward:risk floor refusing a measurable payoff. What remains is the
     # unmeasurable half, which still fails closed.
-    assert census == {"R2": 21, "R4": 20, "R5": 14}
+    # R5 14 -> 0 2026-10-19: desk archetype ruling retired R5.
+    assert census == {"R2": 21, "R4": 20}
 
 
 # --------------------------------------------------------------------------
@@ -229,60 +236,86 @@ def test_equal_weight_ranking_order_is_pinned(rows):
     """THE deterministic output on run-64290730. If this moves, the write-up
     in docs/WORK.md item 18 is stale and must be re-derived."""
     ranked = rank_eligible(rows)
-    assert len(ranked) == 25
+    assert len(ranked) == 38  # 25 -> 38 2026-10-19: desk archetype ruling retired R5 (net evidence)
     assert [r["symbol"] for r in ranked] == [
         "VLO",
         "XLE",
         "NUE",
+        "SLB",
+        "CHPX",
         "NVDA",
         "AAPL",
+        "NKE",
         "JPM",
         "COP",
-        "JNJ",
-        "CHPX",
         "RSG",
         "KO",
         "V",
         "PATH",
         "DIS",
-        "SLB",
+        "JNJ",
         "CMCSA",
+        "FLNC",
         "DE",
-        "NKE",
         "MSFT",
+        "AGX",
+        "PFE",
         "TSM",
         "MU",
-        "FLNC",
+        "UNH",
+        "NEE",
         "CVX",
-        "PFE",
+        "GEV",
+        "KLAR",
+        "DLR",
+        "XLU",
+        "HON",
+        "RKLB",
         "CRM",
+        "AVGO",
+        "MTZ",
+        "CAT",
+        "GOOGL",
     ]
     assert [r["composite_score"] for r in ranked] == [
-        2.3674,
-        1.9848,
-        1.8977,
-        1.7424,
-        1.7386,
-        1.6477,
-        1.6402,
-        1.5795,
-        1.5,
-        1.3902,
-        1.3788,
-        1.3674,
-        1.3523,
-        1.3371,
-        1.3371,
-        1.3068,
-        1.2614,
-        1.2159,
-        1.1742,
-        1.1667,
-        1.1477,
-        1.0492,
-        1.0,
-        0.9205,
-        0.5341,
+        2.3698,
+        2.2368,
+        1.9,
+        1.8396,
+        1.75,
+        1.7453,
+        1.7415,
+        1.717,
+        1.6509,
+        1.6434,
+        1.6425,
+        1.6311,
+        1.6198,
+        1.6047,
+        1.5896,
+        1.583,
+        1.5594,
+        1.5509,
+        1.5142,
+        1.4274,
+        1.4236,
+        1.4226,
+        1.4198,
+        1.4009,
+        1.3236,
+        1.3009,
+        1.2538,
+        1.1566,
+        1.1349,
+        1.1009,
+        1.033,
+        1.0028,
+        0.8292,
+        0.7877,
+        0.7802,
+        0.75,
+        0.7038,
+        0.5792,
     ]
 
 
@@ -302,9 +335,9 @@ def test_ranking_components_are_normalised_and_sum_to_the_score(rows):
 def test_ranking_scores_only_eligible_names_and_is_pure(rows):
     ranked = rank_eligible(rows)
     assert all(r["eligible"] for r in ranked)
-    # GEV/UNH/NEE are refused upstream and must never receive a score.
+    # Only eligible names are scored: the R2/R4-refused ones never are.
     scored = {r["symbol"] for r in ranked}
-    assert scored.isdisjoint({"GEV", "UNH", "NEE"})
+    assert scored == {r["symbol"] for r in rows if r["eligible"]}
     # Pure: re-running on the same rows gives an identical order, and the
     # input rows are not mutated with score fields.
     assert [r["symbol"] for r in rank_eligible(rows)] == [r["symbol"] for r in ranked]

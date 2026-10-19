@@ -87,12 +87,12 @@ def _rotation_ranked_margin_enabled(pipeline) -> bool:
     return getattr(execution_cfg, "rotation_ranked_margin_enabled", None) is True
 
 
-#: The one entry-bar reason that is a SUM over seat evidence (R5, net
-#: independent source score). A seat that failed contributes nothing to that
-#: sum, so a failure can push a sound holding to "net <= 0". R2 (neutral
-#: technical), R3 (not BUY-eligible), R6 (constructor refusal) and R7 (a seat
-#: actively opposed) are each a positive reading that a missing seat cannot
-#: manufacture.
+#: The one entry-bar reason that was a SUM over seat evidence (R5, net
+#: independent source score), retired 2026-10-19 (desk archetype): a record
+#: written before then may still carry it, and it never sells. R2 (neutral
+#: technical), R3 (not BUY-eligible), R6 (constructor refusal) and R7 (the
+#: chart against the holding) are each a positive reading that a missing seat
+#: cannot manufacture.
 _NET_EVIDENCE_REASON_PREFIX = "R5 "
 
 

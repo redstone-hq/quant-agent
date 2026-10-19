@@ -849,9 +849,11 @@ class PortfolioConstructor:
         ceiling before any of them is converted to a size, so the
         book is bounded by construction rather than by a later veto.
 
-        Spec §9.4, as of 2026-09-14: the SIGNED source score — aligned seats
-        minus opposed ones (`evidence_registry` + `signed_source_score`) — is
-        a REFUSAL GATE and nothing more. A score at or below zero refuses the
+        Spec §9.4, as of 2026-09-14, narrowed 2026-10-19 (desk archetype):
+        the net-evidence floor (`evidence_registry` + `entry_floor_score`:
+        seats for other than macro, minus the chart when it is against;
+        opposing name-level seats are objections, not subtractions) is a
+        REFUSAL GATE and nothing more. A score at or below zero refuses the
         request entirely, so the target produces no order at all; a held
         position is left exactly where it is, because refusing to BUY is not
         a decision to SELL. A score of 1 or more imposes no size restriction:
@@ -868,7 +870,7 @@ class PortfolioConstructor:
             agreement_refuses_trade,
             count_aligned_sources,
             count_opposing_sources,
-            signed_source_score,
+            entry_floor_score,
         )
         from src.risk.size_override import SizeOverride
 
@@ -1054,20 +1056,19 @@ class PortfolioConstructor:
                     target.direction,
                     ignored_sources=ignored,
                 )
-                # 2026-09-02: the ceiling reads the SIGNED score, not the
-                # aligned count. Before this, a seat that stayed silent, a
-                # seat that rated neutral and a seat that actively disagreed
-                # all contributed the same zero, so the desk could fund a
-                # name on "3 aligned" while one of its own analysts argued
-                # the other way. Netting the dissent off is the whole change —
-                # there is deliberately NO separate veto rule, because that
-                # would charge the same dissenter twice.
-                source_score = signed_source_score(
+                # 2026-10-19 (desk archetype): the floor no longer nets off
+                # an opposing name-level seat (that is an objection the
+                # planning AI must overrule in writing, enforced per target
+                # as `objection_unanswered` before this stage) or macro
+                # (it tilts size only). `entry_floor_score` says what is
+                # left: chart for + name-level seats for - chart against.
+                # `agreement_count` / `opposing_count` above stay the full
+                # displayed split for the dissent note.
+                source_score = entry_floor_score(
                     sym,
                     sources,
                     target.direction,
                     ignored_sources=ignored,
-                    non_corroborating_sources=non_corroborating,
                 )
                 # 2026-09-14: agreement is a REFUSAL, not a ceiling. Net at
                 # or below zero drops the target; anything above it imposes
@@ -1104,16 +1105,16 @@ class PortfolioConstructor:
                             "Constructor: %s — %s stance(s) present and "
                             "current, but market-wide rather than a read on "
                             "this name's sector, so they cannot count FOR "
-                            "the trade (they still count against one they "
-                            "oppose); %d aligned, %d opposed",
+                            "the trade (macro is never in the entry floor; "
+                            "it tilts size only); %d aligned, %d opposed",
                             sym,
                             ", ".join(broad),
                             agreement_count,
                             opposing_count,
                         )
                 logger.info(
-                    "Constructor: %s agreement %d aligned / %d opposed = "
-                    "net %+d (direction=%s, %d source(s) with coverage)",
+                    "Constructor: %s agreement %d aligned / %d opposed; "
+                    "entry floor %+d (direction=%s, %d source(s) with coverage)",
                     sym,
                     agreement_count,
                     opposing_count,

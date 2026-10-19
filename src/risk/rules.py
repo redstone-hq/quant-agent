@@ -1015,6 +1015,9 @@ from src.risk.seat_agreement import (  # noqa: E402,F401
     count_aligned_sources,
     count_opposing_sources,
     agreement_refuses_trade,
+    entry_floor_score,
+    FLOOR_NOT_SUBTRACTED,
+    FLOOR_NOT_SUPPORTING,
 )
 from src.risk.unread_filing import (  # noqa: E402,F401
     UNREAD_FILING_REASON_PREFIX,
@@ -1024,8 +1027,14 @@ from src.risk.conviction_bar import (  # noqa: E402,F401
     OWN_BAR_REASON_PREFIX,
     _has_supported_directional_thesis,
     _is_broadcast_macro_verdict,
+    NAME_LEVEL_SEATS,
+    OBJECTION_UNANSWERED,
+    objection_is_overruled,
     own_bar_block_reason,
+    own_bar_hold_reason,
     own_bar_opposition_reason,
+    seat_objections,
+    unanswered_objections,
 )
 from src.risk.book_exposure import (  # noqa: E402,F401
     _positive_float,

@@ -129,8 +129,8 @@ def _record_seat_stances(
                 if source in gated:
                     note = (
                         "market-wide stance, not a read on this name's "
-                        "sector — did not count toward agreement for the "
-                        "trade (still counted against one it opposed)"
+                        "sector — macro never counts for or against a "
+                        "trade; it tilts size only"
                     )
                     observation = f"{observation} [{note}]".strip()
                 stances.append(

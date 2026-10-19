@@ -124,6 +124,13 @@ class PortfolioManagerAgent(
     #: `DecisionStage` journals one `candidate_refused` event per name.
     last_blocked: dict[str, str] | None = None
 
+    #: Desk archetype (owner 2026-10-19): {SYMBOL: [objection]} — every
+    #: opposing name-level seat on a ranked or held name (`seat_objections`),
+    #: and the seat verdicts they were read from, so a target bought over an
+    #: objection the AI did not overrule is dropped as `objection_unanswered`.
+    last_objections: dict[str, list[dict]] | None = None
+    last_seat_verdicts: list | None = None
+
     @property
     def name(self) -> str:
         return "portfolio_manager"
@@ -354,6 +361,8 @@ class PortfolioManagerAgent(
         # session's budget against.
         self.last_candidate_ranking = None
         self.last_blocked = None
+        self.last_objections = None
+        self.last_seat_verdicts = None
         ranked, blocked = self.rank_candidates(
             analyses=analyses,
             evidence_registry=evidence_registry,
@@ -387,28 +396,32 @@ class PortfolioManagerAgent(
         # continuous ranking score. `_apply_conviction_bar` moves any ENTRY
         # candidate that fails the bar out of `ranked` and into `blocked`, so the
         # constructor's budget ordering (`last_candidate_ranking`) can never
-        # fund a name the bar refused. For a currently-HELD name the STAY side
-        # is OPPOSITION-ONLY (owner ruling 2026-09-25): it is culled into
-        # `blocked` only when a seat is actively opposed; a held name that fails
-        # the ENTRY bar on soft grounds (no technical read, neutral technical,
-        # support faded to neutral) is simply dropped from the ranked survivors
-        # with no cull reason — it earns its right to STAY.
+        # fund a name the bar refused. For a currently-HELD name (desk archetype,
+        # owner 2026-10-19) it is culled into `blocked` only when the CHART is
+        # against it; an opposing name-level seat is an objection
+        # (`last_objections`) for the AI to answer, never a cull, and a held
+        # name that fails the ENTRY bar on soft grounds is dropped from the
+        # ranked survivors with no cull reason.
         _held_now = {(p.symbol or "").strip().upper() for p in positions if (p.symbol or "").strip()}
+        self.last_seat_verdicts = self._collect_seat_verdicts(
+            analyses=analyses,
+            news_intel=news_intel,
+            macro_analysis=macro_analysis,
+            earnings_analyses=earnings_analyses or [],
+            smart_money_findings=smart_money_findings,
+            symbol_sectors=kwargs.get("symbol_sectors") or {},
+            positions=positions,
+            asof=kwargs.get("asof"),
+        )
         ranked, blocked = self._apply_conviction_bar(
             ranked=ranked,
             blocked=blocked,
             held_symbols=_held_now,
-            all_verdicts=self._collect_seat_verdicts(
-                analyses=analyses,
-                news_intel=news_intel,
-                macro_analysis=macro_analysis,
-                earnings_analyses=earnings_analyses or [],
-                smart_money_findings=smart_money_findings,
-                symbol_sectors=kwargs.get("symbol_sectors") or {},
-                positions=positions,
-                asof=kwargs.get("asof"),
-            ),
+            all_verdicts=self.last_seat_verdicts,
         )
+        # The bar's objections live on the held ranking part (it renders
+        # them); copied here so this session's record is on the agent.
+        self.last_objections = dict(getattr(getattr(self, "_candidate_ranking", None), "last_objections", None) or {})
         self.last_candidate_ranking = list(ranked)
         self.last_blocked = {str(k): str(v) for k, v in dict(blocked).items()}
 
@@ -1496,6 +1509,16 @@ Based on all the above (memory of past decisions + environment trajectory + toda
                 existing_risk_pct=existing_risk_pct,
                 dropped=self.last_dropped_targets,
             )
+            # Desk archetype (19 Oct 2026): a target opening or adding over
+            # an objection the AI did not overrule in writing is dropped.
+            decision = self._drop_unanswered_objections(
+                decision,
+                positions=positions,
+                total_value=total_value,
+                existing_risk_pct=existing_risk_pct,
+                dropped=self.last_dropped_targets,
+                seat_verdicts=self.last_seat_verdicts,
+            )
             # The sub-floor catalyst gate. Same per-target-prune contract as
             # the conflict drop above and applied in the same place, before
             # grounding: a target this rule removes must not be able to fail
@@ -1612,6 +1635,16 @@ Based on all the above (memory of past decisions + environment trajectory + toda
                         total_value=total_value,
                         existing_risk_pct=existing_risk_pct,
                         dropped=self.last_dropped_targets,
+                    )
+                    # Desk archetype (19 Oct 2026): a target opening or adding over
+                    # an objection the AI did not overrule in writing is dropped.
+                    decision = self._drop_unanswered_objections(
+                        decision,
+                        positions=positions,
+                        total_value=total_value,
+                        existing_risk_pct=existing_risk_pct,
+                        dropped=self.last_dropped_targets,
+                        seat_verdicts=self.last_seat_verdicts,
                     )
                     # Same sub-floor catalyst gate as the first-attempt path.
                     # A schema repair must not be a way around it.

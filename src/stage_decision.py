@@ -15,6 +15,10 @@ from src.pipeline_risk_budget_recording import _record_realised_concentration
 from src.rotation_dispositions import apply_rotation_recording_dispositions, below_bar_sale_without_pm
 from src.soft_exit_never_blank import add_constructor_dropped
 from src.risk.min_risk import MinRiskFloor
+
+# Desk archetype (19 Oct 2026): the objection-answer kind and its reader live
+# with the objection rules, below both this stage and the keep rule.
+from src.risk.conviction_bar import OBJECTION_ANSWER_KIND, objection_answer_for  # noqa: F401
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
     FAULT_NO_PRICE,
     FAULT_STALE_PRICE,
@@ -62,11 +66,6 @@ from src.velocity import candidate_velocity
 #: stops nothing; see `src.velocity`.
 VELOCITY_HOLD_SESSIONS = 10
 
-#: Desk archetype step A (owner, 19 Oct 2026): the specialist-evidence kind
-#: that holds a deciding AI's written answers to seat objections, one row
-#: per symbol per decision. Plumbing only; nothing reads it to trade yet.
-OBJECTION_ANSWER_KIND = "objection_answer"
-
 
 def record_objection_answers(
     db,
@@ -98,36 +97,6 @@ def record_objection_answers(
         evidence_json=_json.dumps({"session": session, "decision_id": decision_id, "answers": rows}),
     )
     return True
-
-
-def objection_answer_for(db, symbol: str, seat: str, *, run_id: str | None = None) -> dict | None:
-    """The newest written answer on file for `symbol` to `seat`'s objection.
-
-    Reads the newest `OBJECTION_ANSWER_KIND` row for the symbol; with
-    `run_id`, only a row from that run counts. Returns the answer dict
-    (seat, objection_direction, answer_text, decision) plus the row's
-    run_id, session, decision_id and timestamp, or None."""
-    import json as _json
-
-    sym = str(symbol).strip().upper()
-    row = (db.get_latest_symbol_evidence(OBJECTION_ANSWER_KIND, [sym]) or {}).get(sym)
-    if not row or (run_id is not None and row.get("run_id") != run_id):
-        return None
-    try:
-        payload = _json.loads(row["evidence_json"])
-    except (TypeError, ValueError):
-        return None
-    want = str(seat).strip().lower()
-    for answer in payload.get("answers") or []:
-        if str(answer.get("seat", "")).strip().lower() == want:
-            return {
-                **answer,
-                "run_id": row.get("run_id"),
-                "session": payload.get("session"),
-                "decision_id": payload.get("decision_id"),
-                "timestamp": row.get("timestamp"),
-            }
-    return None
 
 
 if TYPE_CHECKING:

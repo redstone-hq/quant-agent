@@ -847,8 +847,9 @@ reason when K is None. A held passer is coverage and is never capped. No complet
 session is a morning fault and no screened name. `nominations.max_per_seat_per_run` still caps each
 nominating seat and no longer caps screened names. All of it sits behind `universe_screen.enabled`.
 
-Screened names reach a thesis seat (2026-10-19). The conviction bar needs a non-technical seat with a
-directional thesis, so a screened name the chart seat likes is refused unless news or earnings read it.
+Screened names reach a thesis seat (2026-10-19). The conviction bar needs a name-level seat (news,
+earnings or smart money) with a directional thesis, so a screened name the chart seat likes is refused
+unless one of them reads it.
 Macro, technical, earnings and smart money run in parallel; the news seat starts once the technical seat
 has answered, still as one call. Its per-symbol list (capped at `news.per_symbol_max_symbols`) is held
 names first, then names the chart seat rated buy/strong_buy that are not SEC Form 4 admissions, then the
@@ -856,6 +857,27 @@ rest of the admitted names in research order. The pre-market earnings pass check
 universe, Form 4 admission-eligible names, then the screened names this morning will admit (held
 passers plus the top `morning_top_n` others), so a new filing for one is analysed before the open; only
 new filings are analysed. Witness: `tests/test_screened_names_reach_thesis_seats.py`.
+
+**Admission and the keep rule follow the desk archetype (owner ruling 2026-10-19, docs/OUTCOME.md).**
+- Admission (R7, `src/risk/conviction_bar.py`): the chart seat confirms the direction AND at least one
+  name-level seat (news, earnings, smart money) took a supported side in it. Shorts mirror longs.
+- Macro is never a supporter and never opposition; it tilts size only. The 9 Oct sector-macro vote is gone.
+- An opposed name-level seat no longer blocks: `seat_objections` turns it into an objection (seat,
+  direction, reason) shown to the planning AI. A buy or short over an objection is dropped with gate
+  `objection_unanswered` unless the target carries an `ObjectionAnswer` with decision "overrule"
+  (`_drop_unanswered_objections`, decision grounding). Until the AI is told about the field, every
+  opposed name stays refused.
+- R5 (net source score) is retired from eligibility. The constructor's §9.4 floor is now
+  `entry_floor_score`: chart for + name-level seats for - chart against (macro and opposed name-level
+  seats are not subtracted). Its refusal never sells a holding.
+- Keep rule (`src/exits/same_rules_gate.py`): a holding is kept while the chart is not against it AND
+  every opposing name-level seat has a written overrule on record (`objection_answers_from_db`). A
+  catalyst is needed at entry only. An unanswered objection is the position reviewer's call (answer
+  or sell), never a mechanical sale. Broker stops and the confirmed-structure-break exit never pass
+  through this gate.
+- `scripts/replay_hold_rule.py DB` replays both rules over the current book read-only.
+- Witnesses: `tests/test_archetype_admission.py`, `tests/test_archetype_keep_rule.py`,
+  `tests/test_replay_hold_rule.py`.
 
 Where N comes from. B = `morning_budget_usd` = the owner's $7 a month (2026-10-14) / 21 sessions = $0.33,
 NEW money added to `llm_cost_circuit.daily_cost_limit_usd` (2.75 -> 3.08).

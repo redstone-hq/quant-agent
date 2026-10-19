@@ -16,8 +16,8 @@ it.
 The bar is the desk's existing entry bar minus timing, CALLED here, never
 restated:
 
-  * R2-R6 — `candidate_eligibility` (rating, BUY-eligible universe, net
-    independent evidence, constructor refusal), read from THIS run's
+  * R2-R6 — `candidate_eligibility` (rating, BUY-eligible universe,
+    constructor refusal; R5 net evidence retired 2026-10-19), read from THIS run's
     `ctx.held_bar_record` — built from the decision stage's DETERMINISTIC
     prompt assembly (`build_user_message`: candidate ranking, the conviction
     bar, the rotation pre-check), in the HOLDING's direction, on every run
@@ -26,11 +26,16 @@ restated:
     failed) means no judgement sale. R2 fails only on a rating AGAINST the holding
     (sell for a long, buy for a short); a neutral rating holds, and the
     manager then reads R3-R6 in the holding's direction (`HELD_NEUTRAL_R2`).
-  * R7 — `own_bar_hold_reason`: the role-based conviction bar without its
-    technical timing veto (technical AGAINST the holding, NO name-level seat
-    opposed — the 25 Sep rule that a bearish news seat refuses a buy — and a
-    supported non-technical thesis). A new buy still needs timing confirmed
-    (`own_bar_block_reason`, unchanged).
+  * R7 — the KEEP rule (desk archetype, owner 2026-10-19,
+    `src/risk/conviction_bar.py`): a holding is kept while the chart is not
+    against it (`own_bar_hold_reason`) AND every opposing name-level seat
+    (news, earnings, smart money) has a written "overrule" on record
+    (`unanswered_objections`, read through `objection_answer_for`). A
+    catalyst is entry-only: a quiet news seat never sells. An UNANSWERED
+    objection is not a mechanical sale: it goes to the position reviewer
+    (`judge_holding(reviewer=True)`), who answers it or sells; every other
+    judgement seller is refused (`BASIS_OBJECTION_UNANSWERED`). Macro never
+    supports, objects or sells.
   * A CONFIRMED chart-structure break is the protective sale below, never
     gated.
 
@@ -41,14 +46,11 @@ shape, book risk unknown) and target / profit-taking reasons NEVER sell; a
 missing measurement, or a code nobody classified, is UNKNOWN and never sells.
 
 Two readings of "unknown", each used where it means something:
-  * the net evidence sum (R5, and its constructor twin
-    `agreement_net_at_or_below_zero`) is unknown when a seat feeding it has
-    no reading for the name this run — `failed_evidence_seats`, the ONE rule
-    the half-hour check has always used (a seat that ran and holds no view
-    on the name contributes nothing, which is a reading);
-  * the supported-side part of R7 is unknown unless every non-technical seat
-    produced a verdict for that stock this run (a missing supporter could
-    undo it).
+  * a seat with no reading for the name this run
+    (`failed_evidence_seats`, the ONE rule the half-hour check has always
+    used) raises no objection and supports nothing; since 2026-10-19 no
+    part of the keep rule needs a supporter, so a missing seat can never
+    turn a keep into a sale.
 A failure a missing reading could undo is not definite.
 
 A PROTECTIVE sale is not judgement: a holding whose structural-protection
@@ -89,9 +91,12 @@ from dataclasses import dataclass
 
 from src.exits.evidence_seats import failed_evidence_seats
 from src.risk.conviction_bar import (
+    NAME_LEVEL_SEATS,
+    OBJECTION_UNANSWERED,
     OWN_BAR_REASON_PREFIX,
     own_bar_hold_reason,
-    own_bar_opposition_reason,
+    objection_answer_for,
+    unanswered_objections,
 )
 
 logger = logging.getLogger("src.pipeline")
@@ -107,6 +112,9 @@ BASIS_PASSES_BAR = "passes_bar"
 BASIS_EVIDENCE_MISSING = "evidence_missing"
 BASIS_BOUGHT_TODAY = "bought_today"
 BASIS_PROTECTIVE = "protective_structure_broken"
+#: A holding the keep rule cannot keep because an opposing name-level seat
+#: has no written overrule on record: the position reviewer's call.
+BASIS_OBJECTION_UNANSWERED = OBJECTION_UNANSWERED
 
 #: The ONLY `protected=False` bases that are a PROTECTIVE sale and sell
 #: UNGATED: a structure break confirmed on its required closes is a chart
@@ -124,24 +132,20 @@ def is_protective(unprotected_basis: str | None) -> bool:
     return unprotected_basis in PROTECTIVE_BREAK_BASES
 
 
-#: Non-technical seats; each is `known` per stock only with a verdict this run.
-NON_TECHNICAL_SEATS = ("earnings", "macro", "news", "smart_money")
-#: The seats that speak about the NAME (macro speaks about its sector).
-NAME_LEVEL_SEATS = ("earnings", "news", "smart_money")
-
 # Refusal classification: every constructor refusal code exactly once
 # (enumerated by `tests/test_sell_same_rules.py`).
 #: A definite failure about the stock itself.
 COUNTS_CODES = frozenset(
     {
         "no_valid_stop_against_entry",  # a stop MEASURED on the wrong side of entry
-        "agreement_net_at_or_below_zero",  # = R5; counts only when every seat is known
     }
 )
-_COUNTS_ONLY_IF_ALL_KNOWN = frozenset({"agreement_net_at_or_below_zero"})
 #: Not about the stock: the account, the order's shape, or profit-taking.
 NEVER_CODES = frozenset(
     {
+        # The entry floor (desk archetype, 2026-10-19): a catalyst is an
+        # ENTRY requirement; a holding is never sold for lacking one.
+        "agreement_net_at_or_below_zero",
         "risk_budget_exhausted",
         "gross_exposure_ceiling_refused",
         "position_sized_to_zero",
@@ -226,6 +230,10 @@ class HoldingViews:
     #: Basis of a `protected=False` structural read (None when protected or
     #: unread); only a confirmed break (`is_protective(basis)`) sells ungated.
     protection_basis: str | None = None
+    #: The written objection answers on record for this name (dicts with
+    #: seat, objection_direction, decision), newest per seat first
+    #: (`objection_answers_from_db`). Empty = none on record.
+    objection_answers: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -256,27 +264,15 @@ def fresh_verdicts(verdicts, symbol: str, stale_earnings=frozenset()) -> list:
     return out
 
 
-def seat_readings(verdicts, symbol: str, extra_unknown=()) -> dict[str, str]:
-    """`{seat: "known"|"unknown"}` for every non-technical seat, per stock.
-
-    Known only when the seat produced a verdict for THIS stock this run; a
-    feed status alone is never enough."""
-    sym = str(symbol or "").strip().upper()
-    have = {getattr(v, "seat", None) for v in verdicts or () if str(getattr(v, "symbol", "")).strip().upper() == sym}
-    extra = {str(s) for s in extra_unknown or ()}
-    return {s: ("known" if s in have and s not in extra else "unknown") for s in NON_TECHNICAL_SEATS}
-
-
-def _classify_reason(text: str, all_known: bool, sum_known: bool = True, names_known: bool = True) -> str | None:
-    """One recorded reason as CLASS_*. An R7 reason the assembly recorded is
-    an OPPOSITION (the held side of `_apply_conviction_bar` records nothing
-    else): a positive reading a missing seat cannot erase, except a macro vote
-    while a name-level seat is unread. `sum_known` = no seat feeding the
-    evidence sum is without a reading for this name this run."""
+def _classify_reason(text: str) -> str | None:
+    """One recorded reason as CLASS_*. An R7 reason the assembly recorded for
+    a holding is the CHART against it (the held side of
+    `_apply_conviction_bar` records nothing else): a positive reading a
+    missing seat cannot erase."""
     if text.startswith(OWN_BAR_REASON_PREFIX):
         if "opposed" not in text:
-            return CLASS_UNKNOWN  # fail closed: only an opposition is recorded here
-        return CLASS_UNKNOWN if "macro opposed" in text and not names_known else CLASS_COUNTS
+            return CLASS_UNKNOWN  # fail closed: only the chart against is recorded here
+        return CLASS_COUNTS
     if text.startswith("R2 neutral rating"):
         return CLASS_NEVER  # Option A: a neutral rating never sells a holding
     if text.startswith("R2"):
@@ -284,58 +280,51 @@ def _classify_reason(text: str, all_known: bool, sum_known: bool = True, names_k
     if text.startswith("R3"):
         return CLASS_NEVER  # the desk's list, not the stock
     if text.startswith("R5"):
-        return CLASS_COUNTS if sum_known else CLASS_UNKNOWN
+        return CLASS_NEVER  # retired 2026-10-19; a catalyst is entry-only
     if text.startswith("R6"):
         code = text.split("[", 1)[1].split("]", 1)[0] if "[" in text and "]" in text else ""
-        klass = classify_refusal(code)
-        if code in _COUNTS_ONLY_IF_ALL_KNOWN and not sum_known:
-            return CLASS_UNKNOWN
-        return klass
+        return classify_refusal(code)
     return CLASS_UNKNOWN  # fail closed
 
 
-def _judge_bar(views: HoldingViews, verdicts: list, has_tech: bool, readings: dict[str, str]):
+def _judge_bar(views: HoldingViews, verdicts: list):
     """`(definite failures, readings that could not be judged)`."""
     direction = "bearish" if views.is_short else "bullish"
-    all_known = all(r == "known" for r in readings.values())
-    names_known = all(readings[s] == "known" for s in NAME_LEVEL_SEATS)
-    sum_known = not views.unknown_seats
     definite: list[str] = []
     unknown: list[str] = []
     # A record entry exists only for a name the assembly evaluated on this
     # run's technical read, so its presence is the "entry rules were read".
     for reason in views.eligibility_reasons or ():
         text = str(reason)
-        klass = _classify_reason(text, all_known, sum_known, names_known)
+        klass = _classify_reason(text)
         if klass == CLASS_COUNTS:
             definite.append(text)
         elif klass == CLASS_UNKNOWN:
             unknown.append(text)
-    opposition = own_bar_opposition_reason(verdicts, direction=direction)
-    if opposition and opposition in definite + unknown:
-        return definite, unknown  # the assembly already recorded this reading
-    if opposition:
-        # A macro vote is weighed against name-level supporters, so a missing
-        # supporter could outweigh it; every other opposition is a positive
-        # reading a missing seat cannot erase.
-        if "macro opposed" in opposition and not names_known:
-            unknown.append(opposition)
-        else:
-            definite.append(opposition)
-    elif has_tech:
-        # Option A: every part of the bar but timing (no opposition here, so
-        # only a missing supported side can fail; it counts when all known).
-        held = own_bar_hold_reason(verdicts, direction=direction)
-        if held and all_known:
-            definite.append(held)
-        elif held:
-            unknown.append(held)
+    # The keep rule's definite part: the chart against the holding.
+    against = own_bar_hold_reason(verdicts, direction=direction)
+    if against and against not in definite + unknown:
+        definite.append(against)
     return definite, unknown
 
 
-def judge_holding(views: HoldingViews) -> SameRulesVerdict:
-    """Would a buy of this holding be REFUSED right now? Only then may it be
-    sold by judgement. A confirmed chart break passes ungated."""
+def _answer_lookup(views: HoldingViews):
+    by_seat = {}
+    for answer in views.objection_answers or ():
+        seat = str((answer or {}).get("seat", "")).strip().lower()
+        if seat and seat not in by_seat:
+            by_seat[seat] = answer
+    return by_seat.get
+
+
+def judge_holding(views: HoldingViews, *, reviewer: bool = False) -> SameRulesVerdict:
+    """Does this holding fail the KEEP rule right now? Only then may it be
+    sold by judgement. A confirmed chart break passes ungated.
+
+    `reviewer=True` only for the position reviewer: a holding whose only
+    failure is an objection with no written overrule on record is ITS call
+    (answer or sell); for every other seller it is refused, so an unanswered
+    objection is never a mechanical sale."""
     sym = str(views.symbol or "").strip().upper()
     if is_protective(views.protection_basis):
         return SameRulesVerdict(
@@ -353,12 +342,21 @@ def judge_holding(views: HoldingViews) -> SameRulesVerdict:
         return SameRulesVerdict(sym, False, BASIS_BOUGHT_TODAY, (), "bought today — never sold by judgement")
     verdicts = fresh_verdicts(views.seat_verdicts, sym, views.stale_earnings)
     has_tech = any(v.seat == "technical" for v in verdicts)
-    readings = seat_readings(verdicts, sym, views.unknown_seats)
-    definite, unknown = _judge_bar(views, verdicts, has_tech, readings)
+    definite, unknown = _judge_bar(views, verdicts)
     if definite:
         return SameRulesVerdict(
             sym, True, BASIS_FAILS_BAR, tuple(definite), "fails a buy rule other than timing: " + "; ".join(definite)
         )
+    direction = "bearish" if views.is_short else "bullish"
+    open_ = unanswered_objections(verdicts, direction=direction, answer_for=_answer_lookup(views))
+    if open_:
+        reasons = tuple(f"{OBJECTION_UNANSWERED}: {o['seat']} {o['direction']} — {o['reason']}" for o in open_)
+        who = ", ".join(o["seat"] for o in open_)
+        if reviewer:
+            detail = f"{who} objected with no written overrule on record — the reviewer may answer it or sell"
+        else:
+            detail = f"{who} objected with no written overrule on record — the position reviewer's call"
+        return SameRulesVerdict(sym, reviewer, BASIS_OBJECTION_UNANSWERED, reasons, detail)
     missing = list(unknown)
     if not has_tech:
         missing.append("no technical read this run")
@@ -488,6 +486,18 @@ def held_bar_record_from_assembly(pm, positions, analyses) -> dict[str, tuple[st
     return build_held_bar_record(positions, analyses, blocked)
 
 
+def objection_answers_from_db(db, symbol: str) -> tuple:
+    """Every name-level seat's newest written objection answer on record for
+    `symbol` (desk archetype step A's reader, `objection_answer_for`). No
+    evidence store or a malformed answer row reads as no answer: the objection then
+    stays open, which only ever routes the holding to the reviewer, never
+    sells it. A database fault is not caught here; it propagates."""
+    if getattr(db, "get_latest_symbol_evidence", None) is None:  # no evidence store: nothing on record
+        return ()
+    found = (objection_answer_for(db, symbol, seat) for seat in NAME_LEVEL_SEATS)
+    return tuple(a for a in found if a)
+
+
 def views_from_pipeline(
     pipeline, ctx, symbol: str, *, is_short: bool, protection_basis: str | None = None
 ) -> HoldingViews:
@@ -517,6 +527,7 @@ def views_from_pipeline(
         bought_today=bought_today_from_db(pipeline.db, sym),
         stale_earnings=stale_earnings,
         protection_basis=protection_basis,
+        objection_answers=objection_answers_from_db(pipeline.db, sym),
     )
 
 
@@ -535,7 +546,7 @@ def gate_review_actions(review, views_by_symbol: dict[str, HoldingViews]):
             continue
         sym = str(item.symbol or "").strip().upper()
         views = views_by_symbol.get(sym) or HoldingViews(symbol=sym, is_short=False, bought_today=None)
-        verdict = judge_holding(views)
+        verdict = judge_holding(views, reviewer=True)
         verdicts.append(verdict)
         if verdict.sell_allowed:
             out.append(item)

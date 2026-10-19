@@ -1223,7 +1223,7 @@ def test_pm_never_orders_a_name_a_gate_refused():
         # but has the same thin payoff, so `symbol` separates them).
         _tech("SUBF", "strong_buy", "high", target=104),
         _tech("NVDA", "strong_buy", "high", target=104),
-        _tech("OPPO", "strong_buy", "high"),  # R5 — net 0
+        _tech("OPPO", "strong_buy", "high"),  # net 0: R5 retired 2026-10-19
     ]
     registry = _registry(analyses, extra={"OPPO": {"macro": "bearish"}})
     ranked, blocked = PortfolioManagerAgent.rank_candidates(
@@ -1236,11 +1236,13 @@ def test_pm_never_orders_a_name_a_gate_refused():
     # Every name a gate REFUSED is still absent from the order. What changed
     # 2026-09-11 (item 1(d)) is which gates refuse: a weak-but-measurable
     # payoff is not one of them any more.
-    assert [c.symbol for c in ranked] == ["NVDA", "SUBF", "GOOD"]
-    assert set(blocked) == {"NEUT", "NOTU", "OPPO"}
+    # Desk archetype (2026-10-19): R5 is retired, so OPPO (chart buy, macro
+    # bearish, net 0) is no longer refused before the decision; macro tilts
+    # size only and never refuses a name.
+    assert [c.symbol for c in ranked] == ["NVDA", "OPPO", "SUBF", "GOOD"]
+    assert set(blocked) == {"NEUT", "NOTU"}
     assert blocked["NEUT"] == ["R2 neutral rating"]
     assert blocked["NOTU"] == ["R3 not BUY-eligible"]
-    assert blocked["OPPO"] == ["R5 net evidence +0 if long — no rung"]
 
 
 def test_an_unmeasurable_payoff_is_not_refused_by_r4():
@@ -1340,14 +1342,17 @@ def test_production_eligibility_matches_the_item_18_audit_on_the_real_day():
         active_state_changes=sel["memory"]["active_state_changes"],
         asof=SESSION,
     )
-    assert sorted(c.symbol for c in ranked) == audit
+    # Desk archetype (2026-10-19): R5 is retired in production AND in the
+    # item-18 audit copy, so the two admit the identical set again.
+    admitted = audit
+    assert sorted(c.symbol for c in ranked) == admitted
     # **12 -> 25, 2026-09-11 (docs/WORK.md item 1(d)).** Removing the
     # reward:risk floor from R4 more than doubles the eligible set on this
     # exact real production day: 13 of these 25 names were being refused for
     # a thin-but-real payoff alone. That is the measured size of the change
     # on the day item 1 was originally written about.
-    assert len(audit) == 25
-    assert not (set(blocked) & set(audit))
+    assert len(audit) == 38  # 25 -> 38 2026-10-19: desk archetype ruling retired R5
+    assert not (set(blocked) & set(admitted))
     # The pinned order at equal weight over Technical's verdicts alone. Nine
     # of the twelve tie at 1.00 (all `buy`/`sell` at `medium`) and two more
     # tie at 0.5 — see docs/WORK.md item 18 for why the coarse composite
@@ -1362,7 +1367,7 @@ def test_production_eligibility_matches_the_item_18_audit_on_the_real_day():
     # wins on the rung; the rest fall to symbol (the deterministic
     # stabiliser) with no unverifiable number deciding the order.
     assert {c.score for c in ranked} == {1.0}
-    assert [c.symbol for c in ranked] == ["SLB", *sorted(s for s in audit if s != "SLB")]
+    assert [c.symbol for c in ranked] == ["SLB", *sorted(s for s in admitted if s != "SLB")]
 
 
 def test_the_ranking_is_rendered_into_the_pm_prompt(monkeypatch):

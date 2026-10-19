@@ -159,18 +159,33 @@ def test_b_reviewer_session_routes_sales_through_the_gate(monkeypatch):
 
 # (c) A bearish news seat fails the bar (a buy would be refused), so it sells.
 def test_c_bearish_news_seat_fails_bar_and_sells():
+    """Desk archetype keep rule (2026-10-19): a bearish news seat on a
+    holding is an OBJECTION. With no written overrule on record it is not a
+    mechanical sale; only the position reviewer may sell on it."""
     verdicts = (_v("technical", "XYZ", "bullish"), _v("news", "XYZ", "bearish"))
     v = judge_holding(HoldingViews("XYZ", False, verdicts, eligibility_reasons=()))
-    assert v.sell_allowed is True
-    assert v.basis == BASIS_FAILS_BAR
-    assert any("news" in r for r in v.reasons)
-    # The reviewer session holds no technical read; an opposed news seat is a
-    # failure no missing view can undo, so the reviewer sale still goes.
+    assert v.sell_allowed is False
+    assert v.basis == _g.BASIS_OBJECTION_UNANSWERED
+    assert any(r.startswith("objection_unanswered: news bearish") for r in v.reasons)
+    as_reviewer = judge_holding(HoldingViews("XYZ", False, verdicts, eligibility_reasons=()), reviewer=True)
+    assert as_reviewer.sell_allowed is True and as_reviewer.basis == _g.BASIS_OBJECTION_UNANSWERED
+    # The reviewer session holds no technical read; the open objection is
+    # still its call, so the reviewer sale goes.
     review = _review("XYZ", "SELL", "bearish news")
     gated, _ = gate_review_actions(
         review, {"XYZ": HoldingViews("XYZ", False, (_v("news", "XYZ", "bearish"),), eligibility_reasons=None)}
     )
     assert gated.actions[0].action == "SELL"
+    # A written overrule on record keeps it: the reviewer's sale is refused.
+    answered = HoldingViews(
+        "XYZ",
+        False,
+        verdicts,
+        eligibility_reasons=(),
+        objection_answers=({"seat": "news", "objection_direction": "bearish", "decision": "overrule"},),
+    )
+    kept = judge_holding(answered, reviewer=True)
+    assert kept.sell_allowed is False and kept.basis == BASIS_PASSES_BAR
 
 
 # (d) A missing technical view gives no sale, with the reason recorded.
@@ -179,14 +194,15 @@ def test_d_missing_tech_view_gives_no_sale_and_records_reason():
     assert v.sell_allowed is False
     assert v.basis == BASIS_EVIDENCE_MISSING
     assert "no technical read" in v.detail
-    # A failed seat that feeds R5 makes an R5-only failure unknown, not fail.
+    # R5 is retired (2026-10-19): a recorded R5 reason never sells, with or
+    # without a seat outage.
     pipeline, ctx = _pipeline_ctx(
         _passing("XYZ"),
         last_blocked={"XYZ": str(["R5 net evidence +0 if long — no rung"])},
         data_status={"tech": "ok", "news": "failed"},
     )
     v2 = judge_holding(views_from_pipeline(pipeline, ctx, "XYZ", is_short=False))
-    assert v2.sell_allowed is False and v2.basis == BASIS_EVIDENCE_MISSING
+    assert v2.sell_allowed is False and v2.basis == BASIS_PASSES_BAR
 
 
 # (e) A name bought today is never sold by judgement, even if it fails the bar.
@@ -219,23 +235,27 @@ def test_f_stop_and_mechanical_exits_bypass_the_gate():
 # 14 Oct): a neutral chart (technical not confirming) is KEPT; a name-level
 # seat turned against the holding is culled; a passing name is kept.
 def test_half_hour_check_uses_every_rule_but_timing():
+    """The half-hour check sells only on a definite keep-rule failure (the
+    chart against the holding); an open news objection is the reviewer's."""
     from src.pipeline_rotation_exec import _same_rules_opportunity
 
     verdicts = list(_passing("KEEP")) + [_v("technical", "SOFT", "neutral"), _v("news", "SOFT", "bullish")]
-    verdicts += [_v("technical", "GONE", "neutral"), _v("news", "GONE", "bearish")]
+    verdicts += [_v("technical", "GONE", "bearish"), _v("news", "GONE", "bullish")]
+    verdicts += [_v("technical", "OBJ", "neutral"), _v("news", "OBJ", "bearish")]
     pipeline, ctx = _pipeline_ctx(verdicts)
-    positions = [SimpleNamespace(symbol=s, qty=5) for s in ("KEEP", "SOFT", "GONE")]
+    positions = [SimpleNamespace(symbol=s, qty=5) for s in ("KEEP", "SOFT", "GONE", "OBJ")]
     opp = _same_rules_opportunity(pipeline, ctx, None, positions)
     assert opp is not None and opp.tier == "ineligible_hold"
     assert [s for s, _ in opp.ineligible_candidates] == ["GONE"]
 
 
 def opposed_for_exits(decisions):
-    """A news seat opposed on every judgement sale in `decisions`, so each
-    holding FAILS the entry bar and the same-rules gate lets the sale through.
+    """The chart seat against every judgement sale in `decisions`, so each
+    holding FAILS the keep rule (desk archetype, 2026-10-19: only the chart
+    against sells by judgement) and the same-rules gate lets the sale through.
     Shared by older RiskStage tests whose subject is not the gate."""
     return [
-        _v("news", d.symbol, "bullish" if d.action == "COVER" else "bearish")
+        _v("technical", d.symbol, "bullish" if d.action == "COVER" else "bearish")
         for d in decisions
         if d.action in ("SELL", "REDUCE", "COVER")
     ]
@@ -290,10 +310,15 @@ def test_a_risk_stage_refuses_pm_sell_of_holding_that_passes_bar():
 def test_c_risk_stage_lets_pm_sell_of_holding_that_fails_bar_through():
     from tests.test_item96_morning_exit_contradiction import _buy, _sell
 
+    decisions = [_sell("ETN", "Chart broke down."), _buy("CHPX")]
+    result, ctx = _risk_stage_run(decisions, (_v("technical", "ETN", "bearish"), _v("news", "ETN", "bullish")))
+    assert result is None
+    assert _symbols(ctx) == ["ETN", "CHPX"]
+    # An open news objection alone is the reviewer's call, not the PM's.
     decisions = [_sell("ETN", "Bearish guidance cut."), _buy("CHPX")]
     result, ctx = _risk_stage_run(decisions, (_v("technical", "ETN", "bullish"), _v("news", "ETN", "bearish")))
     assert result is None
-    assert _symbols(ctx) == ["ETN", "CHPX"]
+    assert _symbols(ctx) == ["CHPX"]
 
 
 # (d) at the call site: no technical read for the holding -> no sale.
@@ -357,12 +382,16 @@ def test_half_hour_rotation_closes_holding_that_fails_the_held_bar(tmp_path):
     pipeline, _db, _probe = _rot_pipeline(tmp_path, precheck=_precheck(None))
     pipeline.portfolio_manager.last_blocked = {}
     ctx = RunContext(run_id="run-1", session="morning")
-    ctx.seat_verdicts = [_v("technical", "OLD", "neutral"), _v("news", "OLD", "bearish"), *_passing("KEEP")]
+    # OLD: the chart turned against it (sold). OBJ: an open news objection
+    # (kept for the reviewer, not a mechanical sale).
+    ctx.seat_verdicts = [_v("technical", "OLD", "bearish"), _v("news", "OLD", "bullish"), *_passing("KEEP")]
     ctx.seat_verdicts += [_v("technical", "NEUT", "neutral"), _v("news", "NEUT", "bullish")]
+    ctx.seat_verdicts += [_v("technical", "OBJ", "neutral"), _v("news", "OBJ", "bearish")]
     # The manager ran this run: its record, in each holding's direction.
-    ctx.held_bar_record = {"OLD": ("R2 neutral rating",), "KEEP": (), "NEUT": ("R2 neutral rating",)}
+    ctx.held_bar_record = {"OLD": (), "KEEP": (), "NEUT": ("R2 neutral rating",), "OBJ": ("R2 neutral rating",)}
     decision = _decision(_buy_new())
-    _apply_rotation_execution(pipeline, ctx, decision, [_pos("OLD"), _pos("KEEP"), _pos("NEUT")], HISTORY)
+    positions = [_pos("OLD"), _pos("KEEP"), _pos("NEUT"), _pos("OBJ")]
+    _apply_rotation_execution(pipeline, ctx, decision, positions, HISTORY)
     assert [t.symbol for t in decision.targets if t.is_close] == ["OLD"]
 
 
@@ -476,35 +505,35 @@ def test_t5_empty_stop_backstop_is_its_own_unknown_code():
 
 def test_t6_stale_earnings_stance_is_dropped_before_any_rule_reads_it():
     verdicts = (*_all_known("ACME")[:2], _v("earnings", "ACME", "bearish"), *_all_known("ACME")[3:])
-    fresh = _g.judge_holding(_held_views("ACME", verdicts, {"ACME": ()}))
-    assert fresh.sell_allowed  # a fresh bearish earnings seat opposes
+    fresh = _g.judge_holding(_held_views("ACME", verdicts, {"ACME": ()}), reviewer=True)
+    assert fresh.sell_allowed  # a fresh bearish earnings seat is an open objection
+    assert fresh.basis == _g.BASIS_OBJECTION_UNANSWERED
     stale = _g.judge_holding(
-        _held_views("ACME", verdicts, {"ACME": ()}, evidence_stale_sources={"ACME": frozenset({"earnings"})})
+        _held_views("ACME", verdicts, {"ACME": ()}, evidence_stale_sources={"ACME": frozenset({"earnings"})}),
+        reviewer=True,
     )
-    assert not stale.sell_allowed
+    assert not stale.sell_allowed and stale.basis == BASIS_PASSES_BAR
 
 
 def test_t8_ok_but_empty_feed_is_unknown_and_never_sells():
-    # News status "ok", but no seat other than technical said anything on ACME.
+    """Desk archetype (2026-10-19): a holding no name-level seat spoke about
+    is KEPT — a catalyst is entry-only, so silence is not a sale."""
     record = {"ACME": ()}
     verdict = _g.judge_holding(_held_views("ACME", (_v("technical", "ACME", "bullish"),), record))
     assert not verdict.sell_allowed
-    assert verdict.basis == _g.BASIS_EVIDENCE_MISSING
+    assert verdict.basis == BASIS_PASSES_BAR
 
 
 def test_r5_counts_unless_a_seat_feeding_the_sum_has_no_reading():
-    """The evidence sum is unknown only when a seat feeding it has no reading
-    for the name this run (`failed_evidence_seats`, the one rule the half-hour
-    check uses; owner-ruling test `test_net_evidence_below_bar_still_sells_
-    when_every_seat_read`). A seat that ran and holds no view on the name adds
-    nothing to the sum, which is a reading."""
+    """R5 is retired (desk archetype, 2026-10-19): a recorded R5 reason never
+    sells a holding, whatever the seat readings."""
     record = {"ACME": ("R5 net evidence +0 if long — no rung",)}
     partial = (_v("technical", "ACME", "bullish"), _v("news", "ACME", "bullish"))
     outage = _held_views("ACME", partial, record, data_status={"tech": "ok", "news": "ok", "macro": "failed"})
     assert not _g.judge_holding(outage).sell_allowed, "a seat outage never sells"
     read = _held_views("ACME", partial, record, data_status={"tech": "ok", "news": "ok", "macro": "ok"})
-    assert _g.judge_holding(read).sell_allowed
-    assert _g.judge_holding(_held_views("ACME", _all_known("ACME"), record)).sell_allowed
+    assert not _g.judge_holding(read).sell_allowed
+    assert _g.judge_holding(_held_views("ACME", _all_known("ACME"), record)).basis == BASIS_PASSES_BAR
 
 
 def test_r3_not_on_the_buy_list_never_sells():
@@ -649,6 +678,8 @@ def _sector_macro(symbol, direction):
 
 
 def test_t10_sector_macro_opposition_sells_only_when_every_name_seat_is_known():
+    """Desk archetype (2026-10-19): macro tilts size only, so a bearish
+    sector-macro stance never sells a holding, known seats or not."""
     names = (
         _v("technical", "ACME", "bullish"),
         _v("news", "ACME", "neutral"),
@@ -656,7 +687,7 @@ def test_t10_sector_macro_opposition_sells_only_when_every_name_seat_is_known():
         _v("smart_money", "ACME", "neutral"),
     )
     known = _g.judge_holding(_held_views("ACME", (*names, _sector_macro("ACME", "bearish")), {"ACME": ()}))
-    assert known.sell_allowed and "macro opposed" in known.detail
+    assert not known.sell_allowed and known.basis == BASIS_PASSES_BAR
     missing = _g.judge_holding(_held_views("ACME", (*names[:3], _sector_macro("ACME", "bearish")), {"ACME": ()}))
     assert not missing.sell_allowed
 
@@ -779,16 +810,18 @@ def test_option_a_held_short_buy_rating_is_covered_and_neutral_is_kept():
 
 
 def test_option_a_held_neutral_still_fails_the_other_buy_rules():
-    # Every buy rule except timing still applies: a name-level seat opposed sells.
+    # A neutral chart plus an opposed name-level seat: an objection for the
+    # reviewer (sellable only by it), never a mechanical sale.
     verdicts = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bearish")]
     verdicts += [_v(s, "ACME", "bullish") for s in ("earnings", "smart_money", "macro")]
     views = _g.HoldingViews(symbol="ACME", is_short=False, seat_verdicts=tuple(verdicts), eligibility_reasons=())
-    assert _g.judge_holding(views).sell_allowed
-    # ...and R5, read in the holding's direction with every seat known, sells.
+    assert not _g.judge_holding(views).sell_allowed
+    assert _g.judge_holding(views, reviewer=True).sell_allowed
+    # ...and a recorded R5 reason (retired) no longer sells.
     from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2
 
     blocked = {"ACME": str([HELD_NEUTRAL_R2, "R5 net evidence -1 if long — no rung"])}
-    assert _held_verdict("ACME", "neutral", qty=10, blocked=blocked).sell_allowed
+    assert not _held_verdict("ACME", "neutral", qty=10, blocked=blocked).sell_allowed
 
 
 def test_option_a_new_buy_still_needs_timing_confirmed():
@@ -805,7 +838,7 @@ def test_option_a_new_buy_still_needs_timing_confirmed():
     )
     assert eligibility["ACME"] == ["R2 neutral rating"]  # not held: a new buy, refused on R2
     assert eligibility["HELD"][0].startswith("R2 neutral rating")  # adding to a holding is a buy: refused too
-    assert "R5 net evidence +0 if long — no rung" in eligibility["HELD"]  # read in the holding's direction
+    assert not any(r.startswith("R5") for r in eligibility["HELD"])  # R5 retired 2026-10-19
     neutral_chart = [_v("technical", "ACME", "neutral"), _v("news", "ACME", "bullish")]
     assert "does not confirm timing" in own_bar_block_reason(neutral_chart, direction="bullish")
 
