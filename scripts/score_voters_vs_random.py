@@ -3,7 +3,8 @@
 Answers one question: do the AI voters pick better than chance? For each
 session since the clean-record start, the stocks a voter favoured (and the
 stocks the desk actually bought) are compared with 1,000 random draws of the
-same number of stocks from the same session's eligible list. Changes no trade;
+same number of stocks from the list THAT voter was graded on, both directions
+(a sell stance is a short pick on the negated return). Changes no trade;
 reads the desk database read-only. See docs/research/voters_vs_random.md.
 
 Run as the desk user so the database and the market-data keys are readable:
@@ -25,58 +26,83 @@ import pandas as pd
 EVIDENCE_FROM_UTC = "2026-10-12 13:30"
 N_DRAWS = 1000
 DEFAULT_WINDOWS = (5, 10, 21)
-BULLISH = {"buy", "strong_buy", "bullish"}
+# The seats' own stance vocabulary (the one the desk's agreement rule uses), not a copy.
+for _p in (Path.cwd(), Path(__file__).resolve().parents[1]):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+from src.risk.seat_agreement import _BEARISH_STANCES as BEARISH  # noqa: E402
+from src.risk.seat_agreement import _BULLISH_STANCES as BULLISH  # noqa: E402
+
 COMBINED = "combined_buys"
 
 
-def load_votes(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> tuple[dict, dict]:
-    """Per session date: the eligible list and each voter's favoured stocks.
+def load_votes(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> tuple[dict, dict, dict]:
+    """Per session date: each voter's own list, its picks (with side) and list source.
 
-    Eligible = every stock the technical analyst was shown that session (it
-    rates every candidate). Voters: the technical analyst's rating, each
-    decision seat's recorded stance, and the combined decision (filled BUYs).
+    Returns `(shown, picks, list_source)`:
+    - `shown[day][voter]`: the stocks THAT voter answered about. The technical
+      analyst: every symbol it rated. A decision seat: every symbol it recorded
+      a stance on (the seat's shown list itself is not recorded). `combined_buys`:
+      the technical analyst's rated list that session, since nothing is bought
+      without a chart reading (docs/OUTCOME.md, the desk archetype).
+    - `picks[day][voter]`: `{symbol: (side, conviction)}`; side +1 for a buy
+      stance, -1 for a sell stance (short pick). Neutral stances are not picks.
+      `conviction` is the seat's recorded `conviction`, or None if it records none.
+    - `list_source[voter]`: plain-words description of what `shown` is for that voter.
     """
-    eligible: dict[str, set[str]] = {}
-    picks: dict[str, dict[str, set[str]]] = {}
+    shown: dict[str, dict[str, set[str]]] = {}
+    picks: dict[str, dict[str, dict[str, tuple[int, str | None]]]] = {}
+    list_source = {
+        "tech_analyst": "every symbol the technical analyst rated that session",
+        COMBINED: "the technical analyst's rated list that session (nothing is bought without a chart reading)",
+    }
 
-    def add_pick(day: str, voter: str, sym: str) -> None:
-        picks.setdefault(day, {}).setdefault(voter, set()).add(sym)
-        eligible.setdefault(day, set()).add(sym)
+    def side_of(stance: str) -> int:
+        return 1 if stance in BULLISH else -1 if stance in BEARISH else 0
 
     rows = conn.execute(
-        "SELECT substr(timestamp,1,10), symbol, json_extract(evidence_json,'$.rating') "
+        "SELECT substr(timestamp,1,10), symbol, json_extract(evidence_json,'$.rating'), "
+        "json_extract(evidence_json,'$.conviction') "
         "FROM specialist_evidence WHERE agent_name='tech_analyst' AND kind='analysis' "
         "AND symbol IS NOT NULL AND timestamp >= ? ORDER BY timestamp",
         (since,),
     ).fetchall()
-    last_rating: dict[tuple[str, str], str] = {}
-    for day, sym, rating in rows:
-        eligible.setdefault(day, set()).add(sym)
-        last_rating[(day, sym)] = str(rating or "")
-    for (day, sym), rating in last_rating.items():
-        picks.setdefault(day, {}).setdefault("tech_analyst", set())
-        if rating in BULLISH:
-            add_pick(day, "tech_analyst", sym)
+    last: dict[tuple[str, str], tuple[str, str | None]] = {}
+    for day, sym, rating, conv in rows:
+        last[(day, sym)] = (str(rating or ""), str(conv) if conv else None)
+    for (day, sym), (rating, conv) in last.items():
+        shown.setdefault(day, {}).setdefault("tech_analyst", set()).add(sym)
+        picks.setdefault(day, {}).setdefault("tech_analyst", {})
+        if side_of(rating):
+            picks[day]["tech_analyst"][sym] = (side_of(rating), conv)
 
-    for day, sym, seat, stance in conn.execute(
+    for day, sym, seat, stance, conv in conn.execute(
         "SELECT substr(timestamp,1,10), symbol, json_extract(evidence_json,'$.seat'), "
-        "json_extract(evidence_json,'$.stance') FROM specialist_evidence "
-        "WHERE kind='seat_stance' AND symbol IS NOT NULL AND timestamp >= ?",
+        "json_extract(evidence_json,'$.stance'), json_extract(evidence_json,'$.conviction') "
+        "FROM specialist_evidence WHERE kind='seat_stance' AND symbol IS NOT NULL AND timestamp >= ?",
         (since,),
     ):
         voter = f"seat_{seat}"
-        picks.setdefault(day, {}).setdefault(voter, set())
-        eligible.setdefault(day, set()).add(sym)
-        if str(stance) in BULLISH:
-            add_pick(day, voter, sym)
+        list_source[voter] = (
+            "the symbols the seat recorded a stance on (its shown list is not recorded, "
+            "so this is the answered list, which can differ from what it saw)"
+        )
+        shown.setdefault(day, {}).setdefault(voter, set()).add(sym)
+        picks.setdefault(day, {}).setdefault(voter, {})
+        side = side_of(str(stance).strip().lower())
+        if side:
+            picks[day][voter][sym] = (side, str(conv).lower() if conv else None)
 
     for day, sym in conn.execute(
         "SELECT substr(timestamp,1,10), symbol FROM trades WHERE action='BUY' "
         "AND fill_status='filled' AND timestamp >= ?",
         (since,),
     ):
-        add_pick(day, COMBINED, sym)
-    return eligible, picks
+        picks.setdefault(day, {}).setdefault(COMBINED, {})[sym] = (1, None)
+    for day, by_voter in picks.items():
+        if COMBINED in by_voter:
+            shown.setdefault(day, {})[COMBINED] = set(shown.get(day, {}).get("tech_analyst", set()))
+    return shown, picks, list_source
 
 
 def load_exits(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> dict:
@@ -123,54 +149,86 @@ def percentile(actual: float, null: np.ndarray) -> float:
     return float(100.0 * np.mean([(null < actual).mean(), (null <= actual).mean()]))
 
 
-def score(eligible: dict, picks: dict, returns_by_day: dict, rng: np.random.Generator, n_draws: int = N_DRAWS) -> dict:
-    """Per voter: per-session percentile, pooled percentile and permutation p-value.
+def _score_voter(voter, shown, picks, returns_by_day, rng, n_draws, conviction=None):
+    """One voter (optionally only its picks of one conviction) against its own list.
 
-    `returns_by_day[day]` maps symbol -> forward return. Sessions and voters are
-    walked in sorted order so a saved seed reproduces every draw.
+    A long pick scores its forward return, a short pick the negated return; the
+    random draws take the same number of longs and shorts from the same list.
+    """
+    sessions, actual_means, null_means, n_picks = [], [], [], 0
+    for day in sorted(picks):
+        own = shown.get(day, {}).get(voter)
+        chosen_all = picks[day].get(voter, {})
+        rets = returns_by_day.get(day, {})
+        if own is None:
+            continue
+        pool = sorted(s for s in own if np.isfinite(rets.get(s, np.nan)))
+        chosen = sorted(
+            (s for s, (_, c) in chosen_all.items() if s in pool and (conviction is None or c == conviction)),
+            key=lambda s: (-chosen_all[s][0], s),
+        )
+        if not chosen or len(chosen) >= len(pool):
+            continue
+        vec = np.array([rets[s] for s in pool])
+        signs = np.array([chosen_all[s][0] for s in chosen], dtype=float)
+        actual = float(np.mean([sg * rets[s] for sg, s in zip(signs, chosen)]))
+        null = (vec[random_draws(rng, len(pool), len(chosen), n_draws)] * signs).mean(axis=1)
+        sessions.append(
+            {
+                "day": day,
+                "n_eligible": len(pool),
+                "n_picks": len(chosen),
+                "n_short": int((signs < 0).sum()),
+                "pick_mean_return": actual,
+                "random_mean_return": float(null.mean()),
+                "percentile": percentile(actual, null),
+            }
+        )
+        actual_means.append(actual)
+        null_means.append(null)
+        n_picks += len(chosen)
+    if not sessions:
+        return {"n_sessions": 0, "n_picks": 0, "sessions": []}
+    pooled_actual = float(np.mean(actual_means))
+    pooled_null = np.vstack(null_means).mean(axis=0)
+    exceed = int((pooled_null >= pooled_actual).sum())
+    lo, hi = np.percentile(pooled_null, [2.5, 97.5])
+    null_mean = float(pooled_null.mean())
+    return {
+        "n_sessions": len(sessions),
+        "n_picks": n_picks,
+        "pooled_pick_mean_return": pooled_actual,
+        "pooled_random_mean_return": null_mean,
+        "excess_over_random": pooled_actual - null_mean,
+        # What chance alone does to the excess: 2.5th-97.5th percentile of the 1,000
+        # random pooled means (numpy.percentile), minus their mean. An excess inside
+        # this band is indistinguishable from luck.
+        "chance_band_95": [float(lo) - null_mean, float(hi) - null_mean],
+        "pooled_percentile": percentile(pooled_actual, pooled_null),
+        "permutation_p_value": (1 + exceed) / (1 + n_draws),
+        "sessions": sessions,
+    }
+
+
+def score(shown: dict, picks: dict, returns_by_day: dict, rng: np.random.Generator, n_draws: int = N_DRAWS) -> dict:
+    """Per voter: per-session percentile, pooled percentile, p-value, chance band, by conviction.
+
+    `shown[day][voter]` is that voter's own list; `picks[day][voter]` maps
+    symbol -> (side, conviction). `returns_by_day[day]` maps symbol -> forward
+    return. Sessions and voters are walked in sorted order so a saved seed
+    reproduces every draw.
     """
     voters = sorted({v for d in picks.values() for v in d})
     result: dict[str, dict] = {}
     for voter in voters:
-        sessions, actual_means, null_means, n_picks = [], [], [], 0
-        for day in sorted(picks):
-            chosen = picks[day].get(voter, set())
-            rets = returns_by_day.get(day, {})
-            pool = sorted(s for s in eligible.get(day, set()) if np.isfinite(rets.get(s, np.nan)))
-            chosen = sorted(s for s in chosen if s in pool)
-            if not chosen or len(chosen) >= len(pool):
-                continue
-            vec = np.array([rets[s] for s in pool])
-            actual = float(np.mean([rets[s] for s in chosen]))
-            null = vec[random_draws(rng, len(pool), len(chosen), n_draws)].mean(axis=1)
-            sessions.append(
-                {
-                    "day": day,
-                    "n_eligible": len(pool),
-                    "n_picks": len(chosen),
-                    "pick_mean_return": actual,
-                    "random_mean_return": float(null.mean()),
-                    "percentile": percentile(actual, null),
-                }
-            )
-            actual_means.append(actual)
-            null_means.append(null)
-            n_picks += len(chosen)
-        if not sessions:
-            result[voter] = {"n_sessions": 0, "n_picks": 0, "sessions": []}
-            continue
-        pooled_actual = float(np.mean(actual_means))
-        pooled_null = np.vstack(null_means).mean(axis=0)
-        exceed = int((pooled_null >= pooled_actual).sum())
-        result[voter] = {
-            "n_sessions": len(sessions),
-            "n_picks": n_picks,
-            "pooled_pick_mean_return": pooled_actual,
-            "pooled_random_mean_return": float(pooled_null.mean()),
-            "pooled_percentile": percentile(pooled_actual, pooled_null),
-            "permutation_p_value": (1 + exceed) / (1 + n_draws),
-            "sessions": sessions,
-        }
+        r = _score_voter(voter, shown, picks, returns_by_day, rng, n_draws)
+        convs = sorted({c for d in picks.values() for (_, c) in d.get(voter, {}).values() if c})
+        r["by_conviction"] = (
+            {c: _score_voter(voter, shown, picks, returns_by_day, rng, n_draws, c) for c in convs}
+            if convs
+            else "this voter records no conviction"
+        )
+        result[voter] = r
     return result
 
 
@@ -222,21 +280,43 @@ def fetch_closes(symbols: list[str], first_day: str) -> pd.DataFrame:
     return pd.DataFrame(frames).sort_index()
 
 
-def summarise(res: dict, windows: list[str], seed: int) -> str:
-    lines = [f"AI voters vs 1,000 same-day random picks (seed {seed})"]
+def summarise(res: dict, windows: list[str], seed: int, list_source: dict | None = None) -> str:
+    list_source = list_source or {}
+    lines = [f"AI voters vs 1,000 random picks from each voter's own list (seed {seed})"]
     for w in windows:
         lines.append(f"Window {w}:")
         for voter, r in res[w].items():
             if not r["n_sessions"]:
-                lines.append(f"  {voter}: no matured sessions yet")
+                why = list_source.get(voter, "")
+                lines.append(
+                    f"  {voter}: no matured sessions yet" + (f" [{why}]" if why.startswith("NOT RECORDED") else "")
+                )
                 continue
+            lo, hi = r["chance_band_95"]
             lines.append(
                 f"  {voter}: percentile {r['pooled_percentile']:.0f}, "
                 f"p={r['permutation_p_value']:.3f}, picks {r['pooled_pick_mean_return']:+.2%} "
-                f"vs random {r['pooled_random_mean_return']:+.2%} "
+                f"vs random {r['pooled_random_mean_return']:+.2%}, excess {r['excess_over_random']:+.2%} "
+                f"(chance band {lo:+.2%} to {hi:+.2%}) "
                 f"({r['n_sessions']} sessions, {r['n_picks']} picks)"
             )
-    lines.append("Thin evidence: a few weeks of sessions cannot separate skill from luck; read the p-value.")
+            by = r["by_conviction"]
+            if isinstance(by, str):
+                lines.append(f"    conviction: {by}")
+                continue
+            for c, cr in by.items():
+                if cr["n_sessions"]:
+                    clo, chi = cr["chance_band_95"]
+                    lines.append(
+                        f"    conviction {c}: excess {cr['excess_over_random']:+.2%} "
+                        f"(chance band {clo:+.2%} to {chi:+.2%}, "
+                        f"{cr['n_sessions']} sessions, {cr['n_picks']} picks)"
+                    )
+                else:
+                    lines.append(f"    conviction {c}: no matured sessions yet")
+    for voter, why in sorted(list_source.items()):
+        lines.append(f"List for {voter}: {why}")
+    lines.append("Thin evidence: a few weeks of sessions cannot separate skill from luck; read the chance band.")
     return "\n".join(lines)
 
 
@@ -252,15 +332,15 @@ def main(argv: list[str] | None = None) -> int:
     rng = np.random.default_rng(seed)
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
-        eligible, picks = load_votes(conn)
+        shown, picks, list_source = load_votes(conn)
         exits = load_exits(conn)
     finally:
         conn.close()
-    days = sorted(eligible)
+    days = sorted(picks)
     if not days:
         print("No sessions recorded since", EVIDENCE_FROM_UTC)
         return 0
-    symbols = sorted(set().union(*eligible.values()))
+    symbols = sorted(set().union(*(lst for d in shown.values() for lst in d.values())))
     first = (date.fromisoformat(days[0]) - timedelta(days=7)).isoformat()
     closes = fetch_closes(symbols, first)
 
@@ -268,19 +348,20 @@ def main(argv: list[str] | None = None) -> int:
     res = {}
     for w in windows:
         rets = {d: forward_returns(closes, d, w).dropna().to_dict() for d in days}
-        res[str(w)] = score(eligible, picks, rets, rng)
+        res[str(w)] = score(shown, picks, rets, rng)
     payload = {
         "seed": seed,
         "n_draws": N_DRAWS,
         "evidence_from_utc": EVIDENCE_FROM_UTC,
         "latest_close": str(closes.index[-1].date()) if len(closes) else None,
         "sessions": days,
-        "eligible_counts": {d: len(eligible[d]) for d in days},
+        "list_source": list_source,
+        "list_counts": {d: {v: len(x) for v, x in shown.get(d, {}).items()} for d in days},
         "windows": res,
         "bought_to_actual_exit": realised_exits(exits, closes),
     }
     Path(args.out).write_text(json.dumps(payload, indent=2, default=str))
-    print(summarise(res, [str(w) for w in windows], seed))
+    print(summarise(res, [str(w) for w in windows], seed, list_source))
     print(f"Written: {args.out}")
     return 0
 
