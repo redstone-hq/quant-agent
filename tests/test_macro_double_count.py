@@ -418,7 +418,8 @@ def test_macro_alone_cannot_admit_a_name():
         reason = own_bar_block_reason(verdicts, direction="bullish")
         assert reason is not None
         assert reason.startswith(OWN_BAR_REASON_PREFIX)
-        assert "macro is the only seat supporting" in reason
+        # Desk archetype (2026-10-19): macro never counts as a supporter.
+        assert "no name-level seat" in reason
 
 
 def test_macro_alone_cannot_admit_a_short_either():
@@ -427,7 +428,7 @@ def test_macro_alone_cannot_admit_a_short_either():
         _macro_verdict(direction="bearish", sector_specific=True),
     ]
     reason = own_bar_block_reason(verdicts, direction="bearish")
-    assert reason is not None and "macro is the only seat supporting" in reason
+    assert reason is not None and "no name-level seat" in reason
 
 
 def test_macro_plus_another_seat_still_clears_the_bar():

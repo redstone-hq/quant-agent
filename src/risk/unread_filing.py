@@ -13,8 +13,9 @@ ledger-pinned number and the re-export mirror, so every existing
 #
 # NOT THE CONVICTION BAR, AND DELIBERATELY NOT ROUTED THROUGH IT (board item
 # 186, 2026-10-01). The R7 bar below grades what the seats SAID: one
-# supportive seat with a real directional thesis, no seat opposed, the chart
-# confirming. A queued-but-unread filing is none of those things — it is a
+# name-level seat with a real directional thesis and the chart confirming
+# (an opposed name-level seat is an objection to answer, desk archetype
+# 19 Oct 2026). A queued-but-unread filing is none of those things — it is a
 # seat that was never asked, and `agreement_refuses_trade` above names
 # exactly that distinction ("the seats disagreed" vs "the seats had nothing
 # to look at") as the confusion it exists to avoid. Treating an unread filing

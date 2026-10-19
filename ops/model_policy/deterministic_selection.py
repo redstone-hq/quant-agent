@@ -18,9 +18,9 @@ The rules replayed here, and where each one is stated:
       dated Active News
       State Change row naming the symbol (then capped 0.5% risk)
                                          Rule Priority row 7 / Step 5
-  R5  net independent source score >= 1  Step 5 agreement refusal (§9.4);
-      `src/risk/rules.py::agreement_refuses_trade` refuses net <= 0. It is a
-      refusal ONLY — the graduated ceiling was retired 2026-09-14.
+  R5  RETIRED 2026-10-19 (desk archetype ruling): the net source score is
+      still computed and reported, but refuses nothing, matching
+      `candidate_eligibility` in production.
   R6  conviction sizing band, capped by  Step 5 "Base RISK allocation"
       max_position_risk_pct
 
@@ -201,8 +201,9 @@ def evaluate(selection: dict, analyses, positions, news_intel) -> list[dict]:
                 symbol, sources, direction, ignored_sources=ignored)
             net = signed_source_score(
                 symbol, sources, direction, ignored_sources=ignored)
-        if agreement_refuses_trade(net):
-            blocked.append(f"R5 net evidence {net:+d} — refused")
+        # R5 retired 2026-10-19 (desk archetype ruling): production no longer
+        # refuses on the net score, so the audit copy reports it and refuses
+        # nothing on it.
 
         band = CONVICTION_BANDS.get(a.conviction, (0.0, 0.0))  # R6
         max_risk = min(band[1], MAX_POSITION_RISK_PCT)

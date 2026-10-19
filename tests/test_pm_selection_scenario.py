@@ -129,7 +129,7 @@ def test_the_admitted_set_is_the_desks_own_rules_not_a_ratio():
         scenarios._SELECTION_NEWS,
     )
     assert scenarios._SELECTION_ELIGIBLE == {r["symbol"] for r in rows if r["eligible"]}
-    assert len(scenarios._SELECTION_ELIGIBLE) == 25
+    assert len(scenarios._SELECTION_ELIGIBLE) == 34  # 25 -> 34 2026-10-19: desk archetype ruling retired R5
 
 
 def test_fixture_carries_the_levels_the_live_gate_reads():
@@ -221,15 +221,15 @@ def test_a_thin_but_admitted_pick_costs_nothing():
 
 
 def test_the_admitted_short_is_the_one_the_desk_would_actually_place():
-    """Ten bearish candidates, one admitted. UNH — the short the live PM
-    actually proposed — and CAT / GEV are refused by the §9.4 net-evidence
-    rule, so crediting them would credit trades production would never
-    place."""
-    assert scenarios._SELECTION_ELIGIBLE_SHORTS == {"FLNC"}
+    """Ten bearish candidates. UNH — the short the live PM actually
+    proposed — and CAT / GEV were refused by the §9.4 net-evidence rule (R5);
+    the desk archetype ruling (2026-10-19) retired R5 in production, so the
+    audit copy admits all ten and credits exactly what production admits."""
+    assert scenarios._SELECTION_ELIGIBLE_SHORTS == set(scenarios._SELECTION_BEARISH)  # 1 -> 10 2026-10-19
     assert len(scenarios._SELECTION_BEARISH) == 10
     for symbol in ("UNH", "CAT", "GEV"):
-        assert symbol not in scenarios._SELECTION_ELIGIBLE
-        assert "R5" in scenarios._selection_blocked_by(symbol, "short")
+        assert symbol in scenarios._SELECTION_ELIGIBLE
+        assert not any(r.startswith("R5") for r in scenarios._selection_blocked_by(symbol, "short"))
 
 
 def test_every_covered_mega_cap_is_admitted_which_is_why_it_is_not_scored():
@@ -268,10 +268,10 @@ def test_evidence_led_selection_scores_full_marks():
 
 
 def test_a_book_of_refused_names_fails_the_selection_check():
-    """Five real candidates the model was genuinely offered and the desk
-    deterministically refuses — the §9.4 net-evidence rule on every one. This
-    is the trap check now: a selector that reads ratings without reading
-    agreement trips it immediately."""
+    """Five real candidates the desk USED to refuse on the §9.4 net-evidence
+    rule (R5). The desk archetype ruling (2026-10-19) retired R5: an opposed
+    name-level seat is now an objection the planning AI answers, so the audit
+    copy admits all five, exactly as production does."""
     decision = _decision(
         _target("UNH", direction="short"),  # net  0
         _target("HON", direction="short"),  # net  0
@@ -280,10 +280,10 @@ def test_a_book_of_refused_names_fails_the_selection_check():
         _target("GEV", direction="short"),  # net -1
     )
     checks = _by_name(scenarios._pm_selection_grade(decision))
-    assert checks["selection_from_eligible_set"].passed is False
-    assert checks["takes_an_eligible_short"].passed is False
-    assert "R5" in checks["selection_from_eligible_set"].detail
-    assert _score(list(checks.values())) == pytest.approx(0.20 / _TOTAL_WEIGHT)
+    assert checks["selection_from_eligible_set"].passed is True  # was False: R5 retired 2026-10-19
+    assert checks["takes_an_eligible_short"].passed is True
+    assert "R5" not in checks["selection_from_eligible_set"].detail
+    assert _score(list(checks.values())) > 0.20 / _TOTAL_WEIGHT
 
 
 def test_a_pick_in_a_direction_the_desk_does_not_admit_is_refused():
@@ -390,10 +390,12 @@ def test_the_live_desks_own_targets_do_not_score_well():
         _target("UNH", direction="short"),
     )
     checks = _by_name(scenarios._pm_selection_grade(decision))
-    assert checks["selection_from_eligible_set"].passed is False
-    assert "UNH(R5" in checks["selection_from_eligible_set"].detail
-    assert checks["takes_an_eligible_short"].passed is False  # the real gap
-    assert _score(list(checks.values())) == pytest.approx(0.20 / _TOTAL_WEIGHT)
+    # Was refused on UNH(R5); the desk archetype ruling (2026-10-19) retired R5,
+    # so the live desk's book is now admitted, UNH short included.
+    assert checks["selection_from_eligible_set"].passed is True
+    assert "UNH(R5" not in checks["selection_from_eligible_set"].detail
+    assert checks["takes_an_eligible_short"].passed is True
+    assert _score(list(checks.values())) > 0.20 / _TOTAL_WEIGHT
 
 
 def test_unparsed_decision_scores_zero():

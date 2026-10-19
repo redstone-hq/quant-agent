@@ -30,6 +30,7 @@ from src.risk.rules import (
     OWN_BAR_REASON_PREFIX,
     own_bar_block_reason,
     own_bar_opposition_reason,
+    seat_objections,
 )
 from src.rotation import (
     CONVICTION_BAR_REASON_PREFIX,
@@ -148,23 +149,26 @@ def test_neutral_chart_does_not_confirm_timing_is_refused():
 
 
 def test_one_opposed_seat_blocks_even_with_confirming_chart_and_thesis():
+    """Desk archetype (2026-10-19): an opposed name-level seat no longer
+    blocks; the name is admitted and the seat becomes an objection."""
     verdicts = [
         _v("technical"),
         _v("news"),
         _v("earnings", direction="bearish"),
     ]
-    reason = own_bar_block_reason(verdicts, direction="bullish")
-    assert reason is not None and "opposed" in reason.lower()
+    assert own_bar_block_reason(verdicts, direction="bullish") is None
+    objections = seat_objections(verdicts, direction="bullish")
+    assert [(o["seat"], o["direction"]) for o in objections] == [("earnings", "bearish")]
+    assert objections[0]["reason"] == "a checkable observed fact"
 
 
 def test_technical_alone_carries_no_positive_weight():
-    """Technical confirming is necessary but NOT sufficient: with no supportive
-    NON-technical seat carrying a thesis, the bar refuses. This is the exact
-    'HIGH gate collapses to Technical-must-be-HIGH' failure the design avoids."""
+    """Technical confirming is necessary but NOT sufficient: with no
+    name-level seat carrying a supported side, the bar refuses."""
     verdicts = [_v("technical", conviction="high")]
     reason = own_bar_block_reason(verdicts, direction="bullish")
     assert reason is not None
-    assert "non-technical" in reason.lower()
+    assert "no name-level seat" in reason.lower()
 
 
 def test_supportive_thesis_must_be_directional_not_a_neutral_shrug():
@@ -181,9 +185,12 @@ def test_short_side_uses_bearish_as_supportive():
         _v("news", direction="bearish"),
     ]
     assert own_bar_block_reason(verdicts, direction="bearish") is None
-    # a bullish seat is OPPOSED to a short
+    # a bullish name-level seat is an OBJECTION to a short, not a block
     verdicts.append(_v("earnings", direction="bullish"))
-    assert own_bar_block_reason(verdicts, direction="bearish") is not None
+    assert own_bar_block_reason(verdicts, direction="bearish") is None
+    assert [(o["seat"], o["direction"]) for o in seat_objections(verdicts, direction="bearish")] == [
+        ("earnings", "bullish")
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +243,9 @@ def test_entry_thinly_covered_single_seat_refused():
 
 
 def test_ranked_names_with_technical_verdicts_never_hit_absent_technical_branch():
-    """Every symbol here HAS a technical verdict (mixed outcomes: one clears,
-    one is opposed, one has no supportive thesis). None of the blocked
-    reasons may be the "no technical read this review" text — that text only
-    comes from the absent-technical branch, and it must never fire when a
-    technical verdict is actually present in by_symbol."""
+    """Every symbol here HAS a technical verdict (one clears, one clears with
+    an objection, one has no supportive thesis). None of the blocked reasons
+    may be the "no technical read this review" text."""
     ranked = [_rank("CLEAR"), _rank("OPPOSED"), _rank("NOTHESIS")]
     verdicts = [
         _v("technical", "CLEAR"),
@@ -251,7 +256,8 @@ def test_ranked_names_with_technical_verdicts_never_hit_absent_technical_branch(
         _v("technical", "NOTHESIS"),
     ]
     survivors, blocked = _apply(ranked, verdicts)
-    assert [c.symbol for c in survivors] == ["CLEAR"]
+    assert [c.symbol for c in survivors] == ["CLEAR", "OPPOSED"]
+    assert set(blocked) == {"NOTHESIS"}
     absent_technical_text = "no technical read this review"
     for reasons in blocked.values():
         for r in reasons:
@@ -323,11 +329,12 @@ def test_opposition_reason_fires_only_on_active_opposition():
     # technical opposed
     r = own_bar_opposition_reason([_v("technical", direction="bearish"), _v("news")], direction="bullish")
     assert r is not None and "technical" in r.lower() and r.startswith(OWN_BAR_REASON_PREFIX)
-    # a non-technical seat opposed (chart confirming)
+    # a name-level seat opposed with the chart confirming: an objection for
+    # the reviewer, not a cull (desk archetype, 2026-10-19)
     r = own_bar_opposition_reason(
         [_v("technical"), _v("news"), _v("earnings", direction="bearish")], direction="bullish"
     )
-    assert r is not None and "opposed" in r.lower()
+    assert r is None
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +394,8 @@ def test_stay_technical_opposed_is_culled_on_first_review():
 
 
 def test_stay_nontechnical_seat_opposed_is_culled_on_first_review():
-    """A HELD name with a confirming chart but a non-technical seat actively
-    opposed IS culled on the first review."""
+    """A HELD name with a confirming chart but a name-level seat opposed is
+    NOT culled any more: the objection is carried for the reviewer."""
     survivors, blocked = _apply(
         [_rank("HELD")],
         [
@@ -398,9 +405,10 @@ def test_stay_nontechnical_seat_opposed_is_culled_on_first_review():
         ],
         held={"HELD"},
     )
-    assert survivors == []
-    assert any(r.startswith(CONVICTION_BAR_REASON_PREFIX) for r in blocked["HELD"])
-    assert holdings_below_entry_bar(blocked, {"HELD"}) == ("HELD",)
+    assert [c.symbol for c in survivors] == ["HELD"]
+    assert blocked == {}
+    assert holdings_below_entry_bar(blocked, {"HELD"}) == ()
+    assert [o["seat"] for o in PortfolioManagerAgent._candidate_ranking.last_objections["HELD"]] == ["earnings"]
 
 
 def test_stay_intact_thesis_held_name_is_kept_and_not_culled():
@@ -467,17 +475,17 @@ def test_broadcast_bearish_macro_is_not_opposition():
 
 
 def test_sector_specific_bearish_macro_is_opposition():
-    """A sector-SPECIFIC bearish macro stance (carries a sector_stance label) IS
-    genuine name-level opposition and culls the held name on the first review."""
+    """Desk archetype (2026-10-19): a sector-specific bearish macro stance is
+    no longer opposition — macro tilts size only — so it never culls."""
     verdicts = [_v("technical"), _v("news"), _macro(sector_specific=True)]
-    r = own_bar_opposition_reason(verdicts, direction="bullish")
-    assert r is not None and "macro" in r.lower()
+    assert own_bar_opposition_reason(verdicts, direction="bullish") is None
+    assert seat_objections(verdicts, direction="bullish") == []
     survivors, blocked = _apply(
         [_rank("HELD")],
         [_v("technical", "HELD"), _v("news", "HELD"), _macro("HELD", sector_specific=True)],
         held={"HELD"},
     )
-    assert holdings_below_entry_bar(blocked, {"HELD"}) == ("HELD",)
+    assert holdings_below_entry_bar(blocked, {"HELD"}) == ()
 
 
 def test_broadcast_bearish_macro_does_not_block_entry():
@@ -490,29 +498,23 @@ def test_broadcast_bearish_macro_does_not_block_entry():
 
 
 def test_sector_specific_bearish_macro_blocks_entry():
-    """A sector-specific bearish macro DOES refuse entry (name-level opposition),
-    proving the carve-out is broadcast-only, not a blanket macro exemption."""
+    """Desk archetype (2026-10-19): a sector-specific bearish macro does NOT
+    refuse entry any more; with chart and news for, the name is admitted."""
     verdicts = [_v("technical", "NEW"), _v("news", "NEW"), _macro("NEW", sector_specific=True)]
-    reason = own_bar_block_reason(verdicts, direction="bullish")
-    assert reason is not None and "opposed" in reason.lower()
+    assert own_bar_block_reason(verdicts, direction="bullish") is None
 
 
 def test_name_specific_opposition_culls_regardless_of_structure_or_capital():
-    """Residual edge the adversary flagged, pinned as INTENDED: the conviction
-    bar's opposition cull is a pure function of the seat verdicts. It has no
-    notion of whether the name has a readable protective stop or whether the
-    book is capital-constrained — so a held name with a genuinely name-specific
-    opposed seat lands in the cull set (`blocked`) even when price gave no exit
-    and structure is unreadable. This is deliberate: a name with no readable
-    stop should not be held anyway, and the actual sell still passes through
-    rotation's ineligible_hold path downstream. Broadcast macro is excluded (see
-    above), so this fires only on genuine name-level opposition."""
+    """Desk archetype (2026-10-19): a held name whose news seat turned
+    against it is not culled by the bar; it stays out of `blocked` and its
+    objection goes to the position reviewer (the keep rule)."""
     survivors, blocked = _apply(
         [_rank("HELD")],
         [_v("technical", "HELD"), _v("news", "HELD", direction="bearish")],
         held={"HELD"},
     )
-    assert holdings_below_entry_bar(blocked, {"HELD"}) == ("HELD",)
+    assert holdings_below_entry_bar(blocked, {"HELD"}) == ()
+    assert "HELD" not in blocked
 
 
 def test_sector_macro_is_one_vote_outweighed_by_two_name_level_supporters():
@@ -525,9 +527,11 @@ def test_sector_macro_is_one_vote_outweighed_by_two_name_level_supporters():
 
 
 def test_sector_macro_vote_still_blocks_when_not_outweighed():
-    """One supporter against one sector-macro vote is a tie: not outweighed, so
-    it still blocks — and a name-level opposed seat remains an outright block."""
+    """The retired 9 Oct majority vote: a sector-macro stance against one
+    supporter no longer blocks, and an opposed name-level seat is an
+    objection, not a block."""
     tie = [_v("technical"), _v("news"), _macro(sector_specific=True)]
-    assert "macro opposed" in (own_bar_block_reason(tie, direction="bullish") or "")
+    assert own_bar_block_reason(tie, direction="bullish") is None
     name_opposed = [_v("technical"), _v("news"), _v("earnings"), _v("smart_money", direction="bearish")]
-    assert "opposed" in (own_bar_block_reason(name_opposed, direction="bullish") or "")
+    assert own_bar_block_reason(name_opposed, direction="bullish") is None
+    assert [o["seat"] for o in seat_objections(name_opposed, direction="bullish")] == ["smart_money"]

@@ -17,6 +17,9 @@ distance, in the unit each is really measured in:
                            `candidate_eligibility` removes them). The rule
                            fails at 0 or below, so the value IS the number of
                            independent-source points above failing.
+                           R5 is retired as a GATE (desk archetype, owner
+                           19 Oct 2026): nothing refuses or sells on it;
+                           the margin is kept only as a ranking measure.
   R3 BUY-eligible, R6 constructor refusal and R7 conviction bar are
   membership tests with no distance; their failures stay in the existing
   `precheck` reasons and are not restated here.

@@ -851,8 +851,10 @@ _SELECTION_SHAPE_EXPECTED = {
     "analysed": 64,
     "actionable": 34,
     "breakout_actionable": 14,
-    "eligible": 25,
-    "eligible_shorts": 1,
+    # 25 -> 34 and 1 -> 10, 2026-10-19: the desk archetype ruling retired R5
+    # (net evidence) in production and in the audit copy.
+    "eligible": 34,
+    "eligible_shorts": 10,
     "bearish_actionable": 10,
     "famous_eligible": 3,
     "positions_held": 5,

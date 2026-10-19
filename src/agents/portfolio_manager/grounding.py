@@ -30,6 +30,7 @@ DELEGATED = (
     "validate_grounding",
     "_conflict_is_named",
     "_drop_unadjudicated_conflicts",
+    "_drop_unanswered_objections",
     "_state_change_symbols_by_date",
     "_catalyst_cites_state_change",
     "_apply_subfloor_catalyst_rule",

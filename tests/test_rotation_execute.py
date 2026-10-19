@@ -63,7 +63,9 @@ from src.exits.pm_claim_check import holding_discipline_claim_check
 from src.rotation import RotationOpportunity, RotationPrecheck, rotation_sell_reason
 from src.storage.db import Database
 
-HELD_REASONS = ("R5 net evidence -1 if long — no rung",)
+# Desk archetype (2026-10-19): the chart turned against the holding — the
+# keep rule's definite failure (R5 net evidence was retired).
+HELD_REASONS = ("R2 rating sell vs long",)
 BROKEN_DETAIL = (
     "structural level 100.0 backing the stop has closed beyond it on two "
     "consecutive trading days: close 95.0 vs level 100.0 (break margin 0.05)"
@@ -351,8 +353,9 @@ def test_protection_check_failure_fails_closed(tmp_path):
 # Board item 39 — the cull walk does not give up on the first protected name
 # ---------------------------------------------------------------------------
 
-WORST_REASONS = ("R2 rating below bar", "R5 net evidence -1 if long — no rung")
-NEXT_REASONS = ("R5 net evidence -1 if long — no rung",)
+_CHART_AGAINST = "R7 conviction bar — technical opposed; chart hostile to the trade (right name, wrong time)"
+WORST_REASONS = ("R2 rating below bar", _CHART_AGAINST)
+NEXT_REASONS = (_CHART_AGAINST,)
 MULTI_HISTORY = {
     "WORST": {"thesis_invalid_if": "closes below 50", "entry_price": 50.0, "stop_loss": 46.0},
     "NEXT": {"thesis_invalid_if": "closes below 100", "entry_price": 100.0, "stop_loss": 92.0},
@@ -621,7 +624,7 @@ def _reason() -> str:
 def test_reason_names_every_measured_fact():
     reason = _reason()
     assert "OLD" in reason and "NEW" in reason
-    assert "R5 net evidence -1 if long" in reason
+    assert "R2 rating sell vs long" in reason
     assert "structural_level_broken" in reason
     assert "structural level 100.0" in reason
     assert "stopped earning its place" in reason
@@ -753,7 +756,7 @@ def test_owner_alert_fires_with_the_sale_and_the_measured_reason(monkeypatch):
     assert text.startswith("POSITION CLOSED AUTOMATICALLY")
     assert "OLD" in text and "NEW" in text
     assert "10 share(s)" in text and "$94.53" in text and "brk-42" in text
-    assert "R5 net evidence -1 if long" in text
+    assert "R2 rating sell vs long" in text
     assert "structural_level_broken" in text
     assert "score 1.80" in text
     assert symbols == ["OLD", "NEW"]

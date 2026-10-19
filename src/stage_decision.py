@@ -64,7 +64,8 @@ VELOCITY_HOLD_SESSIONS = 10
 
 #: Desk archetype step A (owner, 19 Oct 2026): the specialist-evidence kind
 #: that holds a deciding AI's written answers to seat objections, one row
-#: per symbol per decision. Plumbing only; nothing reads it to trade yet.
+#: per symbol per decision. Read (step B) by the keep rule: an objection
+#: with a written overrule on record does not send a holding to review.
 OBJECTION_ANSWER_KIND = "objection_answer"
 
 

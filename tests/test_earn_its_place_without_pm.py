@@ -269,15 +269,17 @@ def _run_with_registry(pipeline, data_status, registry):
 
 
 def test_a_partial_news_seat_with_the_holdings_own_news_read_still_sells():
-    """News is `partial` on most runs (one source down): an answer WAS read.
-    A holding whose own news evidence is present is judged on it."""
+    """Desk archetype (2026-10-19): a holding whose own news seat turned
+    against it is no longer a mechanical sale (R5 net evidence is retired and
+    the bearish news is an objection for the position reviewer), so the
+    half-hour check does not sell it; the seat outage is not the reason."""
     pipeline = _pipeline(_r5_only_precheck())
     ctx, events = _run_with_registry(
         pipeline,
         {"tech": "ok", "news": "partial", "macro": "low_confidence", "smart_money": "degraded"},
         {"OLD": {"technical": "neutral", "news": "bearish", "macro": "neutral", "smart_money": "neutral"}},
     )
-    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+    assert ctx.rotation is None
     assert not [e for e in events if e[1] == "rotation" and e[3] == "evidence_incomplete_seat_failed"]
 
 
@@ -294,9 +296,11 @@ def test_a_partial_news_seat_missing_the_holdings_own_news_is_not_judged():
 
 
 def test_net_evidence_below_bar_still_sells_when_every_seat_read():
+    """Desk archetype (2026-10-19): R5 is retired and never sells, even with
+    every seat read — a quiet news seat never sells a holding."""
     pipeline = _pipeline(_r5_only_precheck())
     ctx, _ = _run_recorded(pipeline, {"tech": "ok", "news": "ok", "macro": "ok"})
-    assert ctx.rotation is not None and ctx.rotation["held_symbol"] == "OLD"
+    assert ctx.rotation is None
 
 
 def test_an_active_opposition_still_sells_through_a_seat_failure():

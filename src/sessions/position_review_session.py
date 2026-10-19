@@ -186,7 +186,12 @@ class PositionReviewSession:
         """Route every proposed reviewer sale through the same-rules gate and
         record each verdict per symbol. Returns the gated review. `ctx` is
         this review's run context; without it R2-R6 are unread (held)."""
-        from src.exits.same_rules_gate import HoldingViews, bought_today_from_db, gate_review_actions
+        from src.exits.same_rules_gate import (
+            HoldingViews,
+            bought_today_from_db,
+            gate_review_actions,
+            objection_answers_from_db,
+        )
 
         self._same_rules_allowed = set()
         if review is None:
@@ -248,6 +253,9 @@ class PositionReviewSession:
                 bought_today=bought_today_from_db(self._db, sym),
                 stale_earnings=stale_earnings,
                 protection_basis=protection_bases.get(sym),
+                # Desk archetype (19 Oct 2026): the written overrules on
+                # record. An objection with none is this reviewer's call.
+                objection_answers=objection_answers_from_db(self._db, sym),
             )
         gated, outcomes = gate_review_actions(review, views)
         self._same_rules_allowed = {v.symbol for v in outcomes if v.sell_allowed}

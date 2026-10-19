@@ -156,6 +156,40 @@ def count_opposing_sources(
     )
 
 
+#: Desk archetype (owner, 2026-10-19): seats the net-evidence floor no longer
+#: counts FOR a trade (macro tilts size only) ...
+FLOOR_NOT_SUPPORTING = frozenset({"macro"})
+#: ... and seats it no longer subtracts: an opposing name-level seat is an
+#: objection the planning AI answers in writing, and macro never dissents.
+FLOOR_NOT_SUBTRACTED = frozenset({"macro", "news", "earnings", "smart_money"})
+
+
+def entry_floor_score(
+    symbol: str,
+    sources: dict[str, str],
+    direction: str,
+    *,
+    ignored_sources: frozenset[str] | set[str] | None = None,
+) -> int:
+    """The §9.4 net-evidence floor as ruled 19 Oct 2026, derived from the
+    desk archetype: aligned seats other than macro, minus the CHART when it
+    points the other way. Nothing else is subtracted.
+
+    WHAT IT REDUCES TO. `(chart for) + (name-level seats for) - (chart
+    against)`. A name the admission bar admits (chart for AND a name-level
+    seat for) always scores 2 or more, so for an admitted entry this floor
+    can never refuse; it is not a duplicate of admission because it still
+    refuses a target nobody backs (chart neutral, no name-level seat for) or
+    one the chart is against with fewer than two name-level seats for. It
+    is an ENTRY backstop only: on a holding a catalyst is never required
+    (`src/exits/same_rules_gate.py` classifies its code as never-sells).
+    `ignored_sources` (stale stances) comes off both sides, as before."""
+    ignored = frozenset(ignored_sources or ())
+    return count_aligned_sources(
+        symbol, sources, direction, ignored_sources=ignored | FLOOR_NOT_SUPPORTING
+    ) - count_opposing_sources(symbol, sources, direction, ignored_sources=ignored | FLOOR_NOT_SUBTRACTED)
+
+
 def agreement_refuses_trade(score: int) -> bool:
     """Does the net evidence REFUSE this trade outright? Not a ceiling.
 

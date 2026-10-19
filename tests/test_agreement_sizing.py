@@ -842,15 +842,18 @@ def test_every_surviving_net_sizes_the_same_contested_or_not():
 
 
 def test_a_net_score_of_zero_produces_no_order_at_all():
-    """One for, one against is not a small idea — it is not an idea. There
-    is no standalone dissent veto anywhere in the constructor to charge the
-    seat twice; the sign of the net IS the rule."""
+    """The entry floor as ruled 19 Oct 2026 (`entry_floor_score`): one
+    name-level seat for against a chart pointing the other way nets 0 and is
+    refused. An opposing NAME-LEVEL seat no longer subtracts (it is an
+    objection the planning AI answers), so chart for + earnings against
+    now builds an order."""
+    assert _dissent_decisions(_registry(NVDA={"technical": "bullish", "earnings": "bearish"})) != []
     assert (
         _dissent_decisions(
             _registry(
                 NVDA={
-                    "technical": "bullish",
-                    "earnings": "bearish",
+                    "technical": "bearish",
+                    "earnings": "bullish",
                 }
             )
         )
@@ -863,9 +866,9 @@ def test_a_net_score_below_zero_produces_no_order_at_all():
         _dissent_decisions(
             _registry(
                 NVDA={
-                    "technical": "bullish",
-                    "earnings": "bearish",
-                    "macro": "bearish",
+                    # chart against, macro for: macro never counts, so -1
+                    "technical": "bearish",
+                    "macro": "bullish",
                 }
             )
         )
@@ -900,8 +903,8 @@ def test_a_net_score_at_or_below_zero_leaves_a_durable_machine_readable_reason()
         price_map={"NVDA": 100.0},
         evidence_registry=_registry(
             NVDA={
-                "technical": "bullish",
-                "earnings": "bearish",
+                "technical": "bearish",
+                "earnings": "bullish",
             }
         ),
     )
@@ -943,7 +946,8 @@ def test_blocking_a_target_leaves_a_held_position_alone():
         price_map={"NVDA": 100.0},
         evidence_registry=_registry(
             NVDA={
-                "technical": "bullish",
+                # nobody backs the add: chart neutral, earnings against
+                "technical": "neutral",
                 "earnings": "bearish",
             }
         ),

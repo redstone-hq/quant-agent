@@ -404,6 +404,75 @@ class DecisionGrounding:
         aliases = self._CONFLICT_SOURCE_ALIASES.get(source, (source,))
         return any(alias in text_lower for alias in aliases)
 
+    def _drop_unanswered_objections(
+        self,
+        decision: PortfolioDecision,
+        *,
+        positions: list[Position],
+        total_value: float,
+        existing_risk_pct: dict[str, float] | None = None,
+        dropped: list[dict] | None = None,
+        seat_verdicts: list | None = None,
+    ) -> PortfolioDecision:
+        """Desk archetype (owner 2026-10-19): a target that OPENS or ADDS to a
+        name over a name-level seat's objection proceeds only when the target
+        itself carries an `ObjectionAnswer` with decision "overrule" for that
+        seat and direction (the answer step A records per symbol); otherwise
+        THAT target is dropped with gate `objection_unanswered`.
+
+        Objections are read in the TARGET's direction from this session's seat
+        verdicts (`seat_verdicts`: the manager's `last_seat_verdicts`), so
+        a name blocked for another reason is still checked. No verdicts this
+        session = no objections known = nothing dropped here (the
+        constructor's entry floor still applies). Exits and reductions are
+        exempt: cutting risk is never harder than adding it.
+
+        Until the AI is told about `objection_answers` (desk archetype step D)
+        it never writes one, so every opposed name is still refused — fail
+        safe, the same outcome the retired outright block gave."""
+        from src.risk.conviction_bar import OBJECTION_UNANSWERED, seat_objections, objection_is_overruled
+
+        verdicts = seat_verdicts
+        if not verdicts:
+            return decision
+        held = {p.symbol.upper(): p for p in positions}
+        kept: list[TargetPosition] = []
+        for target in decision.targets:
+            intent = self._target_intent(target, held, total_value, existing_risk_pct=existing_risk_pct)
+            if intent not in ("buy", "short"):
+                kept.append(target)
+                continue
+            sym = target.symbol.upper()
+            mine = [v for v in verdicts if str(getattr(v, "symbol", "")).strip().upper() == sym]
+            open_ = [
+                o
+                for o in seat_objections(mine, direction=target.direction)
+                if not any(objection_is_overruled(o, a) for a in (getattr(target, "objection_answers", None) or ()))
+            ]
+            if not open_:
+                kept.append(target)
+                continue
+            seats = [o["seat"] for o in open_]
+            objected = ", ".join(o["seat"] + " " + o["direction"] for o in open_)
+            reason = (
+                f"{target.symbol} target ({intent}) DROPPED [{OBJECTION_UNANSWERED}]: "
+                f"{objected} objected and the decision carries no written overrule for it."
+            )
+            logger.warning("%s", reason)
+            if dropped is not None:
+                dropped.append(
+                    {
+                        "symbol": target.symbol,
+                        "gate": OBJECTION_UNANSWERED,
+                        "intent": intent,
+                        "objecting_seats": seats,
+                        "objections": open_,
+                        "reason": reason,
+                    }
+                )
+        decision.targets = kept
+        return decision
+
     def _drop_unadjudicated_conflicts(
         self,
         decision: PortfolioDecision,
