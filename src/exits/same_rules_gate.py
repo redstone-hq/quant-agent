@@ -95,6 +95,7 @@ from src.risk.conviction_bar import (
     OBJECTION_UNANSWERED,
     OWN_BAR_REASON_PREFIX,
     own_bar_hold_reason,
+    objection_answer_for,
     unanswered_objections,
 )
 
@@ -487,17 +488,14 @@ def held_bar_record_from_assembly(pm, positions, analyses) -> dict[str, tuple[st
 
 def objection_answers_from_db(db, symbol: str) -> tuple:
     """Every name-level seat's newest written objection answer on record for
-    `symbol` (desk archetype step A's reader, `objection_answer_for`). An
-    unreadable record reads as no answer: the objection then stays open,
-    which only ever routes the holding to the reviewer, never sells it."""
-    try:
-        from src.stage_decision import objection_answer_for
-
-        found = (objection_answer_for(db, symbol, seat) for seat in NAME_LEVEL_SEATS)
-        return tuple(a for a in found if a)
-    except Exception as exc:  # noqa: BLE001 — a record read must never break a run
-        logger.warning("same-rules gate: objection answers for %s unreadable (%s)", symbol, exc)
+    `symbol` (desk archetype step A's reader, `objection_answer_for`). No
+    evidence store or a malformed answer row reads as no answer: the objection then
+    stays open, which only ever routes the holding to the reviewer, never
+    sells it. A database fault is not caught here; it propagates."""
+    if getattr(db, "get_latest_symbol_evidence", None) is None:  # no evidence store: nothing on record
         return ()
+    found = (objection_answer_for(db, symbol, seat) for seat in NAME_LEVEL_SEATS)
+    return tuple(a for a in found if a)
 
 
 def views_from_pipeline(

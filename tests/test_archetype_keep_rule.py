@@ -10,6 +10,8 @@ never sells. A confirmed chart break still sells ungated.
 Every test here fails on the pre-archetype trunk.
 """
 
+from types import SimpleNamespace
+
 from src.exits import same_rules_gate as g
 from tests.test_conviction_bar import _macro, _v
 
@@ -66,7 +68,6 @@ def test_confirmed_chart_break_still_sells_ungated_over_an_answer():
 
 
 def test_answers_are_read_from_the_record(monkeypatch):
-    import src.stage_decision as sd
 
     seen = []
 
@@ -74,6 +75,8 @@ def test_answers_are_read_from_the_record(monkeypatch):
         seen.append(seat)
         return _OVERRULE if seat == "news" else None
 
-    monkeypatch.setattr(sd, "objection_answer_for", fake)
-    assert g.objection_answers_from_db(object(), "ACME") == (_OVERRULE,)
+    monkeypatch.setattr(g, "objection_answer_for", fake)
+    store = SimpleNamespace(get_latest_symbol_evidence=lambda kind, symbols: {})
+    assert g.objection_answers_from_db(store, "ACME") == (_OVERRULE,)
+    assert g.objection_answers_from_db(None, "ACME") == ()  # no evidence store: nothing on record
     assert sorted(seen) == ["earnings", "news", "smart_money"]

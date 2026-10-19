@@ -47,6 +47,12 @@ NAME_LEVEL_SEATS = ("earnings", "news", "smart_money")
 #: in writing, and the basis for a holding with an objection not answered.
 OBJECTION_UNANSWERED = "objection_unanswered"
 
+#: Desk archetype step A (owner, 19 Oct 2026): the specialist-evidence kind
+#: that holds a deciding AI's written answers to seat objections, one row
+#: per symbol per decision. Read (step B) by the keep rule: an objection
+#: with a written overrule on record does not send a holding to review.
+OBJECTION_ANSWER_KIND = "objection_answer"
+
 
 def _sides(direction: str) -> tuple[str, str]:
     """(aligned, opposed) verdict directions for a trade direction. A long is
@@ -207,3 +213,33 @@ def own_bar_hold_reason(
     The other half of the keep rule — every objection answered — is
     `unanswered_objections`, and an unanswered one goes to the reviewer."""
     return own_bar_opposition_reason(seat_verdicts, direction=direction)
+
+
+def objection_answer_for(db, symbol: str, seat: str, *, run_id: str | None = None) -> dict | None:
+    """The newest written answer on file for `symbol` to `seat`'s objection.
+
+    Reads the newest `OBJECTION_ANSWER_KIND` row for the symbol; with
+    `run_id`, only a row from that run counts. Returns the answer dict
+    (seat, objection_direction, answer_text, decision) plus the row's
+    run_id, session, decision_id and timestamp, or None."""
+    import json as _json
+
+    sym = str(symbol).strip().upper()
+    row = (db.get_latest_symbol_evidence(OBJECTION_ANSWER_KIND, [sym]) or {}).get(sym)
+    if not row or (run_id is not None and row.get("run_id") != run_id):
+        return None
+    try:
+        payload = _json.loads(row["evidence_json"])
+    except (TypeError, ValueError):
+        return None
+    want = str(seat).strip().lower()
+    for answer in payload.get("answers") or []:
+        if str(answer.get("seat", "")).strip().lower() == want:
+            return {
+                **answer,
+                "run_id": row.get("run_id"),
+                "session": payload.get("session"),
+                "decision_id": payload.get("decision_id"),
+                "timestamp": row.get("timestamp"),
+            }
+    return None

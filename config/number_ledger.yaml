@@ -6347,7 +6347,7 @@ numbers:
       different value changes a benchmark score and nothing the desk places.
       Enforced by tests/test_pm_selection_scenario.py::test_fixture_is_the_real_run_and_has_the_documented_shape, which asserts the fixture's shape equals _SELECTION_SHAPE_EXPECTED.
   - id: ops.model_policy.scenarios._SELECTION_SHAPE_EXPECTED['eligible']
-    value: 25.0
+    value: 34.0
     site: ops/model_policy/scenarios.py
     status: not-trade-governing
     note: >-
@@ -6357,8 +6357,9 @@ numbers:
       models are scored on, not a desk threshold; the model seat choice is a closed owner ruling, so a
       different value changes a benchmark score and nothing the desk places.
       Enforced by tests/test_pm_selection_scenario.py::test_fixture_is_the_real_run_and_has_the_documented_shape, which asserts the fixture's shape equals _SELECTION_SHAPE_EXPECTED.
+      Re-measured 2026-10-19 (25 -> 34): the desk archetype owner ruling of 2026-10-19 (docs/OUTCOME.md, section "The desk archetype") retired R5 in production and in the audit copy ops/model_policy/deterministic_selection.py; the value is what the audit copy now measures on the fixture.
   - id: ops.model_policy.scenarios._SELECTION_SHAPE_EXPECTED['eligible_shorts']
-    value: 1.0
+    value: 10.0
     site: ops/model_policy/scenarios.py
     status: not-trade-governing
     note: >-
@@ -6368,6 +6369,7 @@ numbers:
       models are scored on, not a desk threshold; the model seat choice is a closed owner ruling, so a
       different value changes a benchmark score and nothing the desk places.
       Enforced by tests/test_pm_selection_scenario.py::test_fixture_is_the_real_run_and_has_the_documented_shape, which asserts the fixture's shape equals _SELECTION_SHAPE_EXPECTED.
+      Re-measured 2026-10-19 (1 -> 10): the desk archetype owner ruling of 2026-10-19 (docs/OUTCOME.md, section "The desk archetype") retired R5 in production and in the audit copy ops/model_policy/deterministic_selection.py; the value is what the audit copy now measures on the fixture.
   - id: ops.model_policy.scenarios._SELECTION_SHAPE_EXPECTED['famous_eligible']
     value: 3.0
     site: ops/model_policy/scenarios.py
