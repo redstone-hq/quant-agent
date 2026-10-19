@@ -278,13 +278,19 @@ FAMILIES: tuple[FaultFamily, ...] = (
             # analysis"; macro/earnings/risk/news/portfolio_manager/etc. use
             # the same wording).
             r"returned non-json",
-            # The technical seat inventing a row for a symbol nobody asked
-            # about (real production line: "Tech analyst emitted 1 row(s)
-            # for symbols not in the submitted chunk — dropped: ['CHP']").
-            # The row is thrown away just like a malformed one, so it is the
-            # same kind of paid-for-and-discarded answer.
-            r"emitted \d+ row\(s\) for symbols not in the submitted chunk",
         ),
+    ),
+    FaultFamily(
+        key="extra_company_in_answer_ignored",
+        short_name="answers that included a company nobody asked about",
+        sentence="{n} answer{plural} included a company nobody asked about; that line was ignored",
+        reason=HANDLED,
+        # Real line: "Tech analyst emitted 1 row(s) for symbols not in the
+        # submitted chunk — dropped: ['SPX']". The answer WAS read and every
+        # requested company kept; only the unrequested row was discarded, so
+        # nothing was paid for and lost (it was wrongly filed under
+        # unreadable answers until 19 Oct 2026).
+        patterns=_p(r"emitted \d+ row\(s\) for symbols not in the submitted chunk"),
     ),
     FaultFamily(
         key="names_dropped_from_answer",
@@ -315,6 +321,20 @@ FAMILIES: tuple[FaultFamily, ...] = (
             r"[1-9]\d* remain explicit failures",
             r"dropping malformed \w+ entry",
         ),
+    ),
+    FaultFamily(
+        key="research_seat_partial",
+        short_name="a research desk that answered only partly",
+        sentence=(
+            "A research desk answered only partly on {n} occasion{plural}; the "
+            "items it left out are counted separately where the desk named them"
+        ),
+        reason=COST_A_DECISION,
+        # Same event as the seat's own "unresolved after ..." line, so it is
+        # worded as a partial answer, never as a second outage. Matches only
+        # when the single seat named as degraded has status 'partial'; any
+        # other status falls through to research_seat_unavailable below.
+        patterns=_p(r"Morning research degraded: (\w+) \| full status=.*'\1': 'partial'"),
     ),
     FaultFamily(
         key="research_seat_unavailable",
@@ -539,6 +559,25 @@ FAMILIES: tuple[FaultFamily, ...] = (
         patterns=(),  # populated by exclusion — see `analyse`
     ),
     # --- informational from here down: correct behaviour, never a bullet ----
+    FaultFamily(
+        key="safety_check_refused_idea",
+        short_name="trade ideas the safety check refused",
+        sentence=(
+            "The safety check refused {n} trade idea{plural} that contradicted the chart reading; it worked as intended"
+        ),
+        reason=HANDLED,
+        patterns=_p(r"failed deterministic grounding"),
+    ),
+    FaultFamily(
+        key="records_disagree_with_broker",
+        short_name="holdings where the desk's records and the broker disagree",
+        sentence=(
+            "The desk's records and the broker disagreed on a holding {n} time{plural}; "
+            "in the worst case the broker holds more than the desk recorded"
+        ),
+        reason=SILENTLY_FAILING,
+        patterns=_p(r"stop-out reconcile: .*stop_out_(?:pnl_unmatched|ledger_short)"),
+    ),
     FaultFamily(
         key="order_blocked_by_a_rule",
         short_name="orders a rule stopped before they reached the market",
