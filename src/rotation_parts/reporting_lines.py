@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+
+from src.pm_accounting import plain_reason
 from src.rotation_parts.constraints import funding_view_measured
 from src.rotation_parts.reporting import (
     ROTATION_FULL_NOTHING_BETTER,
@@ -12,6 +15,24 @@ from src.rotation_parts.reporting import (
     _pct,
 )
 from src.rotation_unrecorded import empty_pass_lines
+
+
+def _plain_held_reasons(raw: object) -> list[str]:
+    """The recorded ranking reasons as the owner reads them: the plain-word
+    sentence `pm_accounting` already uses for the passed-names list, never
+    the rule code. The record joins reasons with commas and the held-neutral
+    text itself contains one, so it is swapped out whole before splitting.
+    Display only: the AI is still told the original text."""
+    from src.agents.portfolio_manager.candidate_ranking import HELD_NEUTRAL_R2  # lazy: import cycle
+
+    text = str(raw or "").replace(HELD_NEUTRAL_R2, "R2 neutral rating")
+    out: list[str] = []
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        match = re.match(r"R(\d+)\b", part)
+        out.append(plain_reason(f"ranking_r{match.group(1)}") if match else part)
+    return out
 
 
 def _full_book_cause(record: dict, *, headroom: str, ceiling: str, floor: str) -> str:
@@ -133,7 +154,7 @@ def owner_precheck_lines(record: dict | None) -> list[str]:
 
     if outcome == ROTATION_HOLDING_BELOW_BAR:
         held = str(record.get("held_symbol") or "").upper()
-        reasons = [s for s in str(record.get("held_reasons") or "").split(",") if s]
+        reasons = _plain_held_reasons(record.get("held_reasons"))
         why = "; ".join(reasons) if reasons else ("it no longer clears the desk's own entry bar")
         subject = held if held else "A holding"
         lines = [
@@ -211,7 +232,7 @@ def pruning_pass_lines(record: dict | None) -> list[str]:
     examined = [s for s in str(record.get("held_examined") or "").split(",") if s]
     count = int(record.get("held_examined_count") or 0)
     below = [s for s in str(record.get("held_below_entry_bar") or "").split(",") if s]
-    reasons = [s for s in str(record.get("held_reasons") or "").split(",") if s]
+    reasons = _plain_held_reasons(record.get("held_reasons"))
     cut = str(record.get("held_symbol") or "").upper()
     tier = str(record.get("tier") or "")
 

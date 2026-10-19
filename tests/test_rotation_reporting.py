@@ -132,7 +132,8 @@ def test_below_bar_holding_with_room_and_no_replacement_tells_the_truth():
     # And what is actually true.
     assert "has room" in text
     assert "OLD" in text
-    assert "R2 rating below bar" in text
+    assert "the chart reading was neutral" in text
+    assert "R2" not in text
     assert "would not be bought today" in text
     assert "nothing was ready to replace it" in text
 
