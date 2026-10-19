@@ -316,6 +316,7 @@ class EarningsPreprocessSession:
                 "form_type": r.form_type,
                 "filing_date": r.filing_date,
                 "outcome": "analyzed" if key in successful_keys else "failed",
+                **r.evidence_fields(),
             }
             row.update(verdict_by_key.get(key) or {})
             filings.append(row)

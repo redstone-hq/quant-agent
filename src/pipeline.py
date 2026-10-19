@@ -586,6 +586,8 @@ class TradingPipeline(
         # blackout the technical analyst. Alpaca's daily bars cover the same
         # universe we trade on, so fallback coverage is effectively 100%.
         self.market.set_fallback_bars(self.broker.get_bars)
+        # Exchange calendar for the earnings catch-up flag (`is_catch_up_read`).
+        self.earnings_provider.broker = self.broker
         self.db = Database(self._storage_db_path)
         self.db.initialize()
         from src.sentinel.cancel_attempts import install_cancel_recording as _count_cancels

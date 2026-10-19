@@ -5,6 +5,8 @@ Moved verbatim from the former src/notifier.py; the package re-exports it.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from src.notifier.base import (
     _DB_PATH,
     _SWEEP_SYMBOLS,
@@ -102,6 +104,15 @@ def _append_position_snapshot(lines: list[str], total_value: float | None) -> No
             lines.append(_row_line(r))
 
 
+def _short_date(iso: object) -> str:
+    """'2026-09-08' -> 'Sep 8'; anything unparseable is shown as recorded."""
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d")
+    except ValueError:
+        return str(iso or "date not recorded")
+    return f"{d.strftime('%b')} {d.day}"
+
+
 def _append_earnings_body(lines: list[str], result: dict) -> None:
     """Fallback body only — the owner-facing pre-earnings message is
     `src.trader_feed._format_earnings`. This names each filing when the
@@ -129,9 +140,12 @@ def _append_earnings_body(lines: list[str], result: dict) -> None:
     if filings:
         for row in filings:
             outcome = "read" if row.get("outcome") == "analyzed" else "could not be read"
+            tail = ""
+            if row.get("catch_up_read"):
+                tail = f" — catch-up read (filed {_short_date(row.get('filing_date'))})"
             lines.append(
                 f"{row.get('symbol', '?')} {row.get('form_type', '')} filed "
-                f"{row.get('filing_date', 'date not recorded')}: {outcome}"
+                f"{row.get('filing_date', 'date not recorded')}: {outcome}{tail}"
             )
         return
     analyzed = result.get("analyzed", 0)
