@@ -15,6 +15,7 @@ from src.pipeline_risk_budget_recording import _record_realised_concentration
 from src.rotation_dispositions import apply_rotation_recording_dispositions, below_bar_sale_without_pm
 from src.soft_exit_never_blank import add_constructor_dropped
 from src.risk.min_risk import MinRiskFloor
+from src.universe_membership import buy_eligible_universe
 
 # Desk archetype (19 Oct 2026): the objection-answer kind and its reader live
 # with the objection rules, below both this stage and the keep rule.
@@ -398,8 +399,10 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         score_noise_brake=_score_noise_brake(pipeline),
         symbol_sectors=dict(ctx.symbol_sectors or {}),
         session_type=ctx.session,
-        allowed_buy_symbols={str(symbol).strip().upper() for symbol in configured_universe if str(symbol).strip()}
-        | set(ctx.admitted_symbols),
+        # Configured + today's admissions + every held name, assembled in
+        # one place (`buy_eligible_universe`) so later runs keep held
+        # insider admits in the universe; the entry rules still apply.
+        allowed_buy_symbols=buy_eligible_universe(configured_universe, ctx.admitted_symbols, positions),
         transient_admitted_symbols=set(ctx.admitted_symbols),
         # The unmeasurable-payoff gate reads the SAME starter size the
         # risk budget will actually grant.

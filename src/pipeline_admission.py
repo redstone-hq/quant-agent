@@ -11,6 +11,7 @@ from datetime import date
 from src.sector_reference import _get_sector
 from src.models import TechAnalysisResult, TradeDecision
 from src.ports.event_journal import EventJournal
+from src.universe_membership import buy_eligible_universe
 
 #: Logged under `src.pipeline`, as before the move (log records stay identical).
 logger = logging.getLogger("src.pipeline")
@@ -46,10 +47,7 @@ class AdmissionService:
         positions,
         admitted_symbols: set[str] | None = None,
     ) -> tuple[list[TradeDecision], list[str]]:
-        universe = {symbol.strip().upper() for symbol in self.config.trading.universe}
-        buy_allowlist = universe | {
-            str(symbol).strip().upper() for symbol in (admitted_symbols or set()) if str(symbol).strip()
-        }
+        buy_allowlist = buy_eligible_universe(self.config.trading.universe, admitted_symbols, positions)
         analyzed_symbols = {analysis.symbol.strip().upper() for analysis in analyses}
         held_symbols = {position.symbol.strip().upper() for position in positions}
 
