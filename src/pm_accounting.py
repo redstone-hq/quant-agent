@@ -66,6 +66,7 @@ ground. The set of keys can only grow, and a streak can only shorten.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from src.models import CANDIDATE_REJECTION_CODES
@@ -85,12 +86,15 @@ OUTCOME_UNACCOUNTED = "unaccounted"  # the seat would not say at all
 REASON_REJECTED = "pm_rejected_candidate"
 REASON_HELD = "pm_left_holding_unchanged"
 REASON_UNACCOUNTED = "pm_would_not_account_for_candidate"
+#: A name the candidate ranking had already refused before the seat decided.
+REASON_RANKING_BLOCKED = "candidate_ranking_blocked"
 
 #: The named code for a name the seat still would not account for after the
 #: one re-ask. Sits in the same `refusal=` slot as a stated rejection code,
 #: so it is comparable with them and distinguishable from them.
 CODE_UNACCOUNTED = "unaccounted_after_reask"
 CODE_HELD_UNCHANGED = "held_unchanged"
+CODE_RANKING_BLOCKED = "ranking_blocked"
 
 #: The seat used to be given no chance to answer this at all, so the re-ask
 #: says what is wanted and says plainly that "I am not taking it, and here
@@ -138,6 +142,14 @@ _PLAIN_BY_CODE: dict[str, str] = {
     "already_sized_correctly": "it is already held at the size the desk thinks it deserves",
     "other": "the desk gave a reason that does not fit any of its standard "
     "categories — the detail below is that reason",
+    # Candidate-ranking blocks (src/agents/portfolio_manager/candidate_ranking.py).
+    # The code is "ranking_" + the rule's own id; the wording is what the rule means.
+    "ranking_r2": "the chart reading was neutral — no buy or sell signal",
+    "ranking_r3": "it was not on the list of names the desk is allowed to buy today",
+    "ranking_r6": "the desk's own portfolio builder had already refused it before the portfolio manager decided",
+    "ranking_r7": "too few of the desk's analysts agreed on it to clear the conviction bar",
+    CODE_RANKING_BLOCKED: "the desk's candidate ranking had already blocked it before the "
+    "portfolio manager decided — the detail below is that block",
     CODE_HELD_UNCHANGED: "it is already held and the desk decided to leave it exactly as it is",
     CODE_UNACCOUNTED: "the desk's portfolio manager would not say. It was asked once more "
     "and still did not give a ground. This is a fault in the desk, not a "
@@ -219,11 +231,15 @@ def account_for_candidates(
     analyses,
     decision,
     positions=None,
+    blocked=None,
 ) -> AccountingResult:
     """Classify every analysed candidate the decision does not target.
 
     Pure and side-effect free — it reads, it never writes, never calls a
-    model and never touches the broker. `unaccounted` is what step 2 (the
+    model and never touches the broker. `blocked` is the candidate ranking's
+    own `{symbol: [reasons]}` refusals: a blocked, non-held name the seat did
+    not target is recorded with the block's OWN reason, never one the seat is
+    asked to restate (it used to pick an unrelated code for them). `unaccounted` is what step 2 (the
     one re-ask) is for; everything in `accounted` already has a real,
     per-candidate ground behind it.
     """
@@ -240,6 +256,10 @@ def account_for_candidates(
         if sym:
             stated.setdefault(sym, rejection)
 
+    blocks = {
+        _norm(sym): [str(r) for r in (why if isinstance(why, (list, tuple)) else [why]) if str(r).strip()]
+        for sym, why in (blocked or {}).items()
+    }
     result = AccountingResult()
     seen: set[str] = set()
     for analysis in analyses or []:
@@ -248,6 +268,22 @@ def account_for_candidates(
             continue
         seen.add(symbol)
         rejection = stated.get(symbol)
+        if blocks.get(symbol) and symbol not in held:
+            why = blocks[symbol]
+            match = re.match(r"R(\d+)\b", why[0])
+            code = f"ranking_r{match.group(1)}" if match else CODE_RANKING_BLOCKED
+            if code not in _PLAIN_BY_CODE:
+                code = CODE_RANKING_BLOCKED
+            result.accounted.append(
+                AccountedCandidate(
+                    symbol=symbol,
+                    outcome=OUTCOME_NOT_SELECTED,
+                    reason=REASON_RANKING_BLOCKED,
+                    code=code,
+                    note="; ".join(why)[:400],
+                )
+            )
+            continue
         if rejection is not None:
             result.accounted.append(
                 AccountedCandidate(

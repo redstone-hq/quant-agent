@@ -169,10 +169,14 @@ def _account_for_pm_candidates(
         record_paid_retry,
     )
 
+    # The ranking's own refusals (R2-R7) for this session, read BEFORE any
+    # re-ask (a second decide() resets them).
+    blocked = dict(getattr(pipeline.portfolio_manager, "last_blocked", None) or {})
     result = account_for_candidates(
         analyses=analyses,
         decision=decision,
         positions=positions,
+        blocked=blocked,
     )
     for accounted in result.accounted:
         _record_accounted_candidate(pipeline, ctx, accounted)
@@ -323,6 +327,7 @@ def _account_for_pm_candidates(
         analyses=[a for a in analyses if str(getattr(a, "symbol", "") or "").strip().upper() in challenged],
         decision=decision,
         positions=positions,
+        blocked=blocked,
     )
     for accounted in second.accounted:
         _record_accounted_candidate(pipeline, ctx, accounted)
