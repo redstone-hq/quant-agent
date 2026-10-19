@@ -20,6 +20,7 @@ def _mk_pipeline(tmp_path, earnings_provider, earnings_analyst):
     pipeline.config = MagicMock()
     pipeline.config.trading.universe = ["NVDA", "AAPL"]
     pipeline.config.llm.earnings_analyst_model = "test-model"
+    pipeline.config.universe_screen.enabled = False
     return pipeline
 
 

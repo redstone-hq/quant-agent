@@ -847,6 +847,16 @@ reason when K is None. A held passer is coverage and is never capped. No complet
 session is a morning fault and no screened name. `nominations.max_per_seat_per_run` still caps each
 nominating seat and no longer caps screened names. All of it sits behind `universe_screen.enabled`.
 
+Screened names reach a thesis seat (2026-10-19). The conviction bar needs a non-technical seat with a
+directional thesis, so a screened name the chart seat likes is refused unless news or earnings read it.
+Macro, technical, earnings and smart money run in parallel; the news seat starts once the technical seat
+has answered, still as one call. Its per-symbol list (capped at `news.per_symbol_max_symbols`) is held
+names first, then names the chart seat rated buy/strong_buy that are not SEC Form 4 admissions, then the
+rest of the admitted names in research order. The pre-market earnings pass checks the configured
+universe, Form 4 admission-eligible names, then the screened names this morning will admit (held
+passers plus the top `morning_top_n` others), so a new filing for one is analysed before the open; only
+new filings are analysed. Witness: `tests/test_screened_names_reach_thesis_seats.py`.
+
 Where N comes from. B = `morning_budget_usd` = the owner's $7 a month (2026-10-14) / 21 sessions = $0.33,
 NEW money added to `llm_cost_circuit.daily_cost_limit_usd` (2.75 -> 3.08).
 Per-name cost c = $0.0033 is the slope of settled cost against names analysed over the 26 paid morning

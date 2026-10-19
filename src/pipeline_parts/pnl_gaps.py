@@ -175,7 +175,7 @@ def _load_earnings_analyses(
 
 
 def _earnings_preprocess_symbols(pipeline) -> list[str]:
-    """Configured universe plus Form-4 admission-eligible names.
+    """Configured universe, Form-4 admission-eligible names, then last night's screened morning names.
 
     2026-09-16: preprocess returned `nothing_new` against the configured
     universe while FTK/RSG were already Form-4 hot. Morning then saw
@@ -183,10 +183,28 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
     already-refreshed provider marks `admission_eligible` — not an
     invented "preprocess N names" cap. Morning's broker-quality gate
     and `max_external_candidates` still decide who actually trades.
+
+    2026-10-19: the screened names the morning admits (see
+    `_screened_morning_symbols`) are checked too, so a new filing for one
+    is analysed before the open instead of being downloaded and left
+    unread (ASAN's 10-Q, 16 Oct). Only NEW filings are analysed, so the
+    added cost is bounded by how many of those names filed overnight.
     """
     configured = [
         str(symbol).strip().upper() for symbol in (pipeline.config.trading.universe or []) if str(symbol).strip()
     ]
+    base = _form4_hot_symbols(pipeline, configured)
+    screened = _screened_morning_symbols(pipeline, set(base))
+    if screened:
+        logger.info(
+            "Earnings preprocess: adding %d screened morning symbol(s) to the filing check",
+            len(screened),
+        )
+    return list(dict.fromkeys(base + screened))
+
+
+def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
+    """Configured universe plus Form-4 admission-eligible names (the pre-2026-10-19 list, unchanged)."""
     hot: list[str] = []
     try:
         if not getattr(pipeline.config.smart_money, "enabled", False):
@@ -217,3 +235,37 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
             ", ".join(hot),
         )
     return configured + hot
+
+
+def _screened_morning_symbols(pipeline, already: set[str]) -> list[str]:
+    """The screened names this morning will admit.
+
+    Calls the morning's own rule, `src.stage_morning_research.choose_screened_names`,
+    on last night's passers (`_admit_screened_universe_symbols`) and ignores
+    its dropped names (the morning records those). Empty, explicitly, when
+    the screen is off or last session has no complete nightly record (the
+    same two conditions `_admit_screened_universe_symbols` checks before it
+    raises); any other error propagates to the preprocess session's own
+    fetch-error handling.
+    """
+    from src.stage_morning_research import choose_screened_names
+    from src.trading_calendar import et_today, utc_now
+    from src.universe_daily import _screen_day, already_recorded
+
+    cfg = getattr(pipeline.config, "universe_screen", None)
+    if not bool(getattr(cfg, "enabled", False)):
+        return []
+    day = _screen_day(pipeline.broker, et_today(), utc_now())
+    if day is None or not already_recorded(cfg.data_dir, day):
+        logger.info("Earnings preprocess: no complete nightly screen record for %s — no screened names", day)
+        return []
+    ranked, details = pipeline.admission._admit_screened_universe_symbols()
+    held = {str(getattr(p, "symbol", "")).strip().upper() for p in pipeline.broker.get_positions() or []}
+    held_passers, sent, _dropped = choose_screened_names(
+        ranked=ranked,
+        screened_details=details,
+        already=already,
+        held=held,
+        top_n=int(cfg.morning_top_n),
+    )
+    return held_passers + sent
