@@ -14,6 +14,8 @@ substitute there would be a fabricated audit value.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from src.models import TradeDecision
 from src.storage.db import Database
 from tests.test_e2e_morning_session import _run_session
@@ -80,6 +82,10 @@ def _add_to_held_name(monkeypatch, prior_row):
     pipeline = _exec_pipeline_with_print(100.0)
     pipeline.db.get_symbol_last_buy.return_value = prior_row
     pipeline.broker.list_open_orders_checked.return_value = (True, [])  # listing read, nothing open
+    # The arrival print must be from this session: the open sits before it.
+    pipeline.broker.get_session_open.return_value = (
+        pipeline.broker.get_latest_price_stamped.return_value.trade_at - timedelta(hours=1)
+    )
     buy = TradeDecision(
         action="BUY",
         symbol="TSLA",

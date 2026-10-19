@@ -131,7 +131,7 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 
 **Tier 1 sizes positions or prices/places live orders.** Entry slippage ceiling: should be the live quoted spread at the order, not 40 bps.
 
-- `config.ExecutionConfig.max_entry_slippage_bps` = 40 (2026-10-09: entries are plain DAY MARKET orders sized against the live ask/bid they pay; the limit ceiling is reachable only behind `execution.entry_order_type` set to `limit`, and since 2026-10-15 the universe screen no longer reads the 40: a name fails on spread only when its own round-trip spread eats its expected move over the hold, so the 40 now governs only dormant limit-mode pricing)
+- `config.ExecutionConfig.max_entry_slippage_bps` = 40 (2026-10-09: entries are plain DAY MARKET orders; since 2026-10-19 they size, risk and record off the arrival print (this session's latest trade), never the IEX ask/bid; the limit ceiling is reachable only behind `execution.entry_order_type` set to `limit`, and since 2026-10-15 the universe screen no longer reads the 40: a name fails on spread only when its own round-trip spread eats its expected move over the hold, so the 40 now governs only dormant limit-mode pricing)
 
 **Tier 1 sizes positions or prices/places live orders.** Limit pads on exits, entries and stop-limits: should come from the live bid-ask spread, tick size and the name's own gap distribution.
 
