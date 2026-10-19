@@ -154,7 +154,10 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
    dissent in writing in the optional `objection_answers` list on that
    action, one entry per objection: `{"seat": ..., "objection_direction":
    ..., "answer_text": ..., "decision": "overrule" | "accept"}` — overrule
-   to keep it, or accept it and sell. An unanswered objection goes to
+   to keep it, or accept it and sell. `seat` is exactly one of `"news"`,
+   `"earnings"`, `"smart_money"`; `objection_direction` is exactly
+   `"bullish"` or `"bearish"`, the direction the objecting seat points.
+   An unanswered objection goes to
    review; it does not mean sell. A NEUTRAL chart
    read or a NEUTRAL rating does NOT sell a holding: timing is a buy rule
    only. A holding that still passes is kept, whatever the headline; a

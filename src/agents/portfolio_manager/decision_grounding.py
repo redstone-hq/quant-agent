@@ -427,9 +427,10 @@ class DecisionGrounding:
         constructor's entry floor still applies). Exits and reductions are
         exempt: cutting risk is never harder than adding it.
 
-        Until the AI is told about `objection_answers` (desk archetype step D)
-        it never writes one, so every opposed name is still refused — fail
-        safe, the same outcome the retired outright block gave."""
+        Since desk archetype step D the AI is told about `objection_answers`
+        and it is in the schema the AI is sent; a name it does not answer
+        is refused — fail safe, the same outcome the retired outright
+        block gave."""
         from src.risk.conviction_bar import OBJECTION_UNANSWERED, seat_objections, objection_is_overruled
 
         verdicts = seat_verdicts

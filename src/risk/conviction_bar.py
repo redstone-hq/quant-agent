@@ -29,7 +29,10 @@ checks only: "at least one" is existence, "every objection answered" is all,
 the chart veto is a boolean. Shorts mirror longs exactly.
 """
 
+from typing import get_args
+
 from src.models import AnalystVerdict
+from src.models.positions import ObjectionSeat
 
 
 #: Reasons these functions emit all start with this tag, the SAME string
@@ -41,7 +44,7 @@ OWN_BAR_REASON_PREFIX = "R7 conviction bar"
 #: The seats that speak about the NAME itself (macro speaks about the market
 #: or a sector; technical is the chart). Only these can support an entry, and
 #: only these can object.
-NAME_LEVEL_SEATS = ("earnings", "news", "smart_money")
+NAME_LEVEL_SEATS = get_args(ObjectionSeat)
 
 #: Refusal code for a buy over an objection the planning AI did not overrule
 #: in writing, and the basis for a holding with an objection not answered.

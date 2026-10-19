@@ -23,6 +23,14 @@ class Position(BaseModel):
         return _normalize_symbol(value)
 
 
+#: The seats that can object (name-level seats) and the directions an
+#: objection can point. `src.risk.conviction_bar.NAME_LEVEL_SEATS` is
+#: derived from `ObjectionSeat`, so the schema the AI is sent and the
+#: matcher read one list.
+ObjectionSeat = Literal["earnings", "news", "smart_money"]
+ObjectionDirection = Literal["bullish", "bearish"]
+
+
 class ObjectionAnswer(LLMOutputModel):
     """One written answer to one seat's objection on one symbol.
 
@@ -33,8 +41,8 @@ class ObjectionAnswer(LLMOutputModel):
     specialist evidence kind `OBJECTION_ANSWER_KIND` (src/stage_decision.py).
     """
 
-    seat: str = Field(min_length=1)
-    objection_direction: str = Field(min_length=1)
+    seat: ObjectionSeat
+    objection_direction: ObjectionDirection
     answer_text: str = Field(min_length=1)
     decision: Literal["overrule", "accept"]
 
@@ -43,7 +51,7 @@ class ObjectionAnswer(LLMOutputModel):
     def _normalize_case(cls, values):
         return _normalize_enum_case_fields(values, lower_fields=("seat", "objection_direction", "decision"))
 
-    @field_validator("seat", "objection_direction", "answer_text")
+    @field_validator("answer_text")
     @classmethod
     def _strip(cls, value: str) -> str:
         value = value.strip()

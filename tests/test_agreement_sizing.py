@@ -1042,7 +1042,7 @@ def test_the_pm_is_shown_the_opposing_count_and_the_net():
         cash_balance=100_000.0,
         total_value=100_000.0,
     )
-    assert "- NVDA: if long 1 seat(s) for / 1 against, entry backstop +0" in msg
+    assert "- NVDA: if long 1 seat(s) for / 1 against, entry backstop +1" in msg
     assert "if short 1 seat(s) for / 1 against, entry backstop +0" in msg
 
 

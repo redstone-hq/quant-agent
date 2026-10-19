@@ -52,11 +52,11 @@ _EMPTY_ROW_REGISTRY = {
 _EMPTY_ROW_BROADCAST = {"EEE": {"macro"}}
 _EMPTY_ROW_STALE = {"FFF": {"earnings"}}
 _INFORMATIVE_ROWS = (
-    "- AAA: if long 1 seat(s) for / 1 against, entry backstop +0; "
+    "- AAA: if long 1 seat(s) for / 1 against, entry backstop +1; "
     "if short 1 seat(s) for / 1 against, entry backstop +0 "
     "(of 2 source(s) with current coverage)",
     "- DDD: if long 1 seat(s) for / 0 against, entry backstop +1; "
-    "if short 0 seat(s) for / 1 against, entry backstop -1 "
+    "if short 0 seat(s) for / 1 against, entry backstop +0 "
     "(of 1 source(s) with current coverage)",
 )
 
@@ -149,3 +149,15 @@ def test_no_omission_line_when_every_row_says_something(monkeypatch):
     assert "further symbol(s)" not in agreement
     for row in _INFORMATIVE_ROWS:
         assert row in agreement
+
+
+def test_the_ai_is_shown_the_constructors_entry_backstop(monkeypatch):
+    """Chart for, news against: the constructor's backstop (`entry_floor_score`)
+    is +1 for a long, because an opposing news seat is an objection to answer,
+    not a subtraction. The row the AI reads must say +1, not the old net 0."""
+    from src.risk.seat_agreement import entry_floor_score
+
+    registry = {"ZZZ": {"technical": "bullish", "news": "bearish"}}
+    assert entry_floor_score("ZZZ", registry["ZZZ"], "long") == 1
+    message = _render_with_registry(monkeypatch, registry)
+    assert "- ZZZ: if long 1 seat(s) for / 1 against, entry backstop +1;" in message

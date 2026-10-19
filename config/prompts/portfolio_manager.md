@@ -112,7 +112,8 @@ The requirement here is procedural: **the gap must be ANSWERED, not left implici
 disagreements. When a name-level seat (news, earnings, smart money) points against a name you buy or
 short, answer it per symbol in the optional `objection_answers` list on that target, one entry per
 objection: `{"seat": ..., "objection_direction": ..., "answer_text": ..., "decision": "overrule" | "accept"}`.
-`seat` and `objection_direction` name the objecting seat and the direction it points; `answer_text` is
+`seat` is exactly one of `"news"`, `"earnings"`, `"smart_money"`; `objection_direction` is exactly
+`"bullish"` or `"bearish"`, the direction the objecting seat points. `answer_text` is
 your written answer on the evidence; `decision` is `overrule` (you trade over it) or `accept` (the
 objection stands). A new entry over an objection you did not overrule in writing is refused. On a
 holding, an unanswered objection goes to the position reviewer for review; it does not mean sell.

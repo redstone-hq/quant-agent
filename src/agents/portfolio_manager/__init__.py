@@ -42,7 +42,7 @@ from src.risk.rules import (
     count_aligned_sources,
     count_opposing_sources,
     position_weight_pct,
-    signed_source_score,
+    entry_floor_score,
     stance_is_aligned,
     weight_pct_of,
 )
@@ -205,8 +205,9 @@ class PortfolioManagerAgent(
         # of a different number. See 2026-08-20/Phase 2b's incident class:
         # a silent clamp the PM's own stated reasoning disagreed with.
         #
-        # The NET of the two counts is what sizes the trade (2026-09-02, see
-        # `src/risk/rules.py::signed_source_score`). Both halves are shown
+        # The entry backstop score (`src/risk/seat_agreement.py::
+        # entry_floor_score`, the constructor's refusal) is shown with both
+        # counts. Both halves are shown
         # anyway: "3 aligned, 1 opposed" and "net +2" are different facts, and
         # a PM that only saw the net could not tell a thin unanimous idea from
         # a broad contested one. Showing the net is not optional — a ceiling
@@ -244,27 +245,19 @@ class PortfolioManagerAgent(
             stale_note = f"; {'; '.join(notes)}" if notes else ""
             # The ALIGNED side drops both; the OPPOSED side drops only the
             # stale stance. That asymmetry is the whole point of item 109's
-            # one-sided gate, and these displayed counts are the same ones
-            # `signed_source_score` nets below.
+            # one-sided gate. The backstop score below is computed by
+            # `entry_floor_score`, exactly as the constructor computes it.
             for_ignored = frozenset(ignored or ()) | frozenset(broadcast or ())
             long_for = count_aligned_sources(symbol, sources, "long", ignored_sources=for_ignored)
             long_against = count_opposing_sources(symbol, sources, "long", ignored_sources=ignored)
             short_for = count_aligned_sources(symbol, sources, "short", ignored_sources=for_ignored)
             short_against = count_opposing_sources(symbol, sources, "short", ignored_sources=ignored)
-            long_net = signed_source_score(
-                symbol,
-                sources,
-                "long",
-                ignored_sources=ignored,
-                non_corroborating_sources=broadcast,
-            )
-            short_net = signed_source_score(
-                symbol,
-                sources,
-                "short",
-                ignored_sources=ignored,
-                non_corroborating_sources=broadcast,
-            )
+            # The SAME function and arguments the constructor refuses on
+            # (`PortfolioConstructor._plan_risk_targets`), so the score the
+            # AI reads is the score that decides. Macro and opposing
+            # name-level seats are not in it (`entry_floor_score`).
+            long_net = entry_floor_score(symbol, sources, "long", ignored_sources=ignored)
+            short_net = entry_floor_score(symbol, sources, "short", ignored_sources=ignored)
             if not any((long_for, long_against, short_for, short_against)):
                 if broadcast_here:
                     omitted_broadcast.append(symbol)
