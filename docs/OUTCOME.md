@@ -169,6 +169,45 @@ The operator should be able to understand, without reading raw logs:
 - what meaningful bullish or bearish opportunities the system missed;
 - whether model/prompt choices appear to add measurable value over time.
 
+## The desk archetype: specialists, weighed, then one head trader
+
+**Owner, 2026-10-19: this is the picture every rule must follow.** When a
+smaller rule is unclear, derive it from this section; do not ask the owner
+to settle a detail this section already settles. His words: each agent "is
+supposed to be a specialist in its own right. But some agents' decisions
+weigh heavier than others ... there's a synergy there that takes place of
+all the minds."
+
+1. **One shared shortlist.** Ideas come from the market scan, the
+   permanent list, held positions and seat nominations. Every specialist
+   looks at the SAME shortlist; a name no specialist examined cannot be
+   judged, and a scan whose names no specialist reads is a defect.
+2. **Specialists, each an expert in one thing.** Chart (setup and timing),
+   earnings (the business), news (the reason to act now), insider and
+   congressional buying (where informed money goes), macro (the backdrop).
+   Each gives its own view and how sure it is, and may say "I don't know".
+3. **Views are weighed, not counted as votes.** For a days-to-weeks hold
+   the chart carries the most weight; a fresh news or earnings catalyst is
+   the "why now"; macro is the backdrop that tilts size and direction but
+   rarely blocks a name, because single stocks can buck the market. A strong
+   chart plus a fresh catalyst is a tradeable idea even when macro is
+   lukewarm. The weights are NOT picked: they come from each seat's measured
+   record against chance (the voters-vs-random scoring) and are re-measured.
+4. **The head trader decides.** The planning AI hears every view, settles
+   disagreements, and must answer the strongest dissent in writing when it
+   overrules it. That combining step is the synergy. Specialists do not
+   debate freely among themselves: free AI debate drifts to agreement and
+   costs a call per round. Disagreement is surfaced to the head trader, and
+   the risk seat is the independent challenger.
+5. **Risk is independent.** It sizes every trade from the stock's own
+   volatility and the account's limits, caps total exposure, and can shrink
+   or veto a trade. It never picks stocks.
+6. **Both directions.** A short is judged exactly like a long.
+7. **Then deterministic execution, protection and review.** Orders, stops,
+   the half-hourly checks and the reviews run as fixed code and AI
+   reviewers; every outcome feeds the seats' measured records, which feed
+   the weights in step 3.
+
 ## No arbitrary numbers, ever
 
 **Owner correction, 2026-09-04, restated after recurring on the same
