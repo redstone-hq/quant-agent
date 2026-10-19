@@ -97,10 +97,10 @@ def test_decision_must_be_overrule_or_accept_and_text_not_blank():
         ObjectionAnswer(**{**_ANSWER, "answer_text": "   "})
 
 
-def test_field_is_not_yet_in_the_schema_the_ais_are_handed():
-    # Step D changes what the AIs are told; step A must not.
-    assert "objection_answers" not in json.dumps(PortfolioDecision.model_json_schema())
-    assert "objection_answers" not in json.dumps(PositionReview.model_json_schema())
+def test_field_is_in_the_schema_the_ais_are_handed():
+    # Step D unhid it so strict output can fill it in.
+    assert "objection_answers" in json.dumps(PortfolioDecision.model_json_schema())
+    assert "objection_answers" in json.dumps(PositionReview.model_json_schema())
 
 
 def test_round_trip_save_and_read(db):

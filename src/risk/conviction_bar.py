@@ -123,15 +123,15 @@ def own_bar_block_reason(
     if not tech:
         return (
             f"{OWN_BAR_REASON_PREFIX} — no technical read this review; "
-            "timing cannot be confirmed (right name, wrong time)"
+            "the chart is the heaviest-weighted view for this hold and nothing is bought without it"
         )
     against = _chart_against_reason(tech, opposed)
     if against:
         return against
     if not any(v.direction == aligned for v in tech):
         return (
-            f"{OWN_BAR_REASON_PREFIX} — technical does not confirm timing; "
-            "chart neutral/broken (right name, wrong time)"
+            f"{OWN_BAR_REASON_PREFIX} — chart neutral/broken: the heaviest-weighted view "
+            "does not back the trade's direction, and nothing is bought without it"
         )
     if not any(v.seat in NAME_LEVEL_SEATS and _has_supported_directional_thesis(v, aligned) for v in seat_verdicts):
         return (

@@ -3,18 +3,19 @@
 Owner, verbatim: "selling is not set up the same as buying and it should be.
 Same rules should apply."
 
-Owner ruling Option A, 14 Oct 2026: a stock the desk already HOLDS is kept
-while it passes every buy rule EXCEPT timing. It is sold by judgement only when
-its chart turns BROKEN or turns AGAINST the holding (or another buy rule
-fails). A NEUTRAL chart read or a NEUTRAL rating does NOT sell it.
+Owner ruling Option A, 14 Oct 2026, restated by the desk archetype (owner
+2026-10-19): a stock the desk already HOLDS is judged on the same weighed view
+as a buy. It is sold by judgement only when its chart turns BROKEN or turns
+AGAINST the holding (or another buy rule fails). A NEUTRAL chart read or a
+NEUTRAL rating does NOT sell it, and a catalyst is an entry requirement only.
 
 A holding may be sold, reduced or covered BY JUDGEMENT (the portfolio manager,
 the midday/close position reviewer, the half-hour "earn its place" check) only
 when it FAILS that bar. Seats may still PROPOSE a sale; only this gate decides
 it.
 
-The bar is the desk's existing entry bar minus timing, CALLED here, never
-restated:
+The bar is the desk's existing entry bar with the entry-only parts removed,
+CALLED here, never restated:
 
   * R2-R6 — `candidate_eligibility` (rating, BUY-eligible universe,
     constructor refusal; R5 net evidence retired 2026-10-19), read from THIS run's
@@ -371,7 +372,7 @@ def judge_holding(views: HoldingViews, *, reviewer: bool = False) -> SameRulesVe
             "entry bar cannot be evaluated (" + "; ".join(missing) + ") — not sold by judgement; the stop stays",
         )
     return SameRulesVerdict(
-        sym, False, BASIS_PASSES_BAR, (), "still passes every buy rule except timing — not sold by judgement"
+        sym, False, BASIS_PASSES_BAR, (), "still passes the keep rule (same view as a buy) — not sold by judgement"
     )
 
 

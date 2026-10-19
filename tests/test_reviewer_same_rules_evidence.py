@@ -148,7 +148,7 @@ def test_a_no_level_loser_that_fails_r2_on_the_reviewer_path_is_sold():
 def test_a_no_level_loser_that_passes_the_assembled_bar_is_held_on_passes_bar():
     gated = _gate(_pipeline(_assembled({})), "buy")
     assert gated.actions[0].action == "HOLD"
-    assert "still passes every buy rule except timing" in gated.actions[0].reason
+    assert "still passes the keep rule" in gated.actions[0].reason
 
 
 def test_without_the_wiring_r2_is_unread_and_the_failing_loser_is_held():

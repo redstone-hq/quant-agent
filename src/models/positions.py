@@ -1,6 +1,5 @@
-from typing import Annotated, Literal
+from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic.json_schema import SkipJsonSchema
 from src.risk.exit_trigger import ExitTrigger, normalize_trigger
 from src.models.base import LLMOutputModel, _normalize_enum_case_fields, _normalize_symbol, logger
 
@@ -29,9 +28,8 @@ class ObjectionAnswer(LLMOutputModel):
 
     Desk archetype (owner, 19 Oct 2026): a seat may object to a name; the
     deciding AI either accepts the objection or overrules it IN WRITING.
-    This is the record of that written answer. Plumbing only: it is not yet
-    in the schema the AIs are handed (`SkipJsonSchema` on the carrying
-    fields) and nothing reads it to change a trade. Saved per symbol as
+    This is the record of that written answer. Since step D it is in the
+    schema the planning AI and the position reviewer are handed. Saved per symbol as
     specialist evidence kind `OBJECTION_ANSWER_KIND` (src/stage_decision.py).
     """
 
@@ -89,9 +87,9 @@ class PositionAction(LLMOutputModel):
     exit_trigger: ExitTrigger | None = None
     trigger_evidence: str = ""
     # Desk archetype step A (19 Oct 2026): written answers to seat
-    # objections on this holding. Optional; hidden from the AI's schema
-    # until the wording step tells the reviewer about it.
-    objection_answers: Annotated[list[ObjectionAnswer], SkipJsonSchema()] = Field(default_factory=list)
+    # objections on this holding. Optional; in the reviewer's schema since
+    # step D (its prompt describes it); an empty list means none answered.
+    objection_answers: list[ObjectionAnswer] = Field(default_factory=list)
 
     @field_validator("symbol")
     @classmethod

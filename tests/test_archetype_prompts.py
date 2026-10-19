@@ -107,3 +107,20 @@ def test_no_seat_is_told_the_25_sep_wording(seat):
     text = _rendered(seat).lower()
     found = [p for p in RETIRED if p in text]
     assert not found, f"{seat}: retired wording still present: {found}"
+
+
+@pytest.mark.parametrize("model_path", ("src.models.portfolio:PortfolioDecision", "src.models.positions:PositionReview"))
+def test_the_objection_answer_list_is_in_the_schema_the_model_is_sent(model_path):
+    """Step D unhid the field: under strict output a field missing from the
+    sent schema can never be filled in, so the prompt would describe a slot
+    the AI cannot write to."""
+    import importlib
+    import json
+
+    from src.agents.llm_schema import _response_format_for
+
+    module, cls = model_path.split(":")
+    sent = json.dumps(_response_format_for(getattr(importlib.import_module(module), cls)))
+    assert '"objection_answers"' in sent
+    for key in ('"objection_direction"', '"answer_text"', '"overrule"', '"accept"'):
+        assert key in sent

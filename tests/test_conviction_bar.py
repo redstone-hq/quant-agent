@@ -145,7 +145,7 @@ def test_strong_fundamental_but_broken_chart_is_refused():
 def test_neutral_chart_does_not_confirm_timing_is_refused():
     verdicts = [_v("news"), _v("technical", direction="neutral")]
     reason = own_bar_block_reason(verdicts, direction="bullish")
-    assert reason is not None and "confirm" in reason.lower()
+    assert reason is not None and "does not back the trade's direction" in reason
 
 
 def test_one_opposed_seat_blocks_even_with_confirming_chart_and_thesis():

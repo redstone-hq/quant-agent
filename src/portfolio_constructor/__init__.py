@@ -1178,12 +1178,12 @@ class PortfolioConstructor:
                     # without touching this file. Nothing about the gate,
                     # the threshold or the decision changes here; only what
                     # the owner is told about it.
-                    f"{agreement_count} aligned / {opposing_count} opposed = "
-                    f"net {source_score:+d} independent source(s) for this "
-                    f"{target.direction}. The desk does not open a position "
-                    f"when the independent sources do not net out in favour "
-                    f"of it, and here they do not. Any existing position is "
-                    f"left untouched.",
+                    f"{agreement_count} seat(s) for / {opposing_count} against this "
+                    f"{target.direction}, entry backstop {source_score:+d}. The desk "
+                    f"does not open a position nobody backs: the chart and the "
+                    f"news, earnings and smart-money seats do not back it, or "
+                    f"the chart is against it. Any existing position is left "
+                    f"untouched.",
                 )
                 del priced[sym]
                 del directions[sym]

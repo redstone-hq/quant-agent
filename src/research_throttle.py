@@ -10,8 +10,8 @@ So this module throttles the SEARCH, never the REVIEW:
 * When the book is full, the research fan-out is narrowed to the names the
   desk already holds (plus this run's free, deterministic admissions —
   see below). Every holding still gets its full five-seat read on every
-  normal session, because doctrine requires all five seats to be right to
-  STAY, not only to enter.
+  normal session, because a holding is kept or sold on the same weighed
+  view as a buy, not only judged at entry.
 * The midday / close position-review sessions and the intraday check are
   untouched by this module. They do not hunt.
 
