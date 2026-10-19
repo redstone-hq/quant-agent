@@ -319,7 +319,7 @@ DONE WHEN:
 - [ ] the put-back is seen working on a real refused sale in production
     live since 2026-10-14 17:05 UTC; no sale has happened since, so not yet seen working; before the fix 4 sales were refused in 2 sessions [measured, desk records]
 
-**235. Entries are market orders sized off the ask/bid — filed 2026-10-09. [1 of 1 ticked; merged 2026-10-09 in PR #1605 with tests/test_entry_market_orders.py. Awaiting the owner's closure.]** Entries go in as market orders, sized off the ask for a buy and the bid for a short.
+**235. Entries are market orders sized off the arrival print — filed 2026-10-09. [1 of 1 ticked; merged 2026-10-09 in PR #1605 with tests/test_entry_market_orders.py. Awaiting the owner's closure.]** Entries go in as market orders, sized off this session's latest trade print (the arrival price) for a buy and a short alike; the IEX ask/bid is recorded on the order event as data only, because it ran 4-5% above real trades near the open (PR 1873, 2026-10-19).
 
 DONE WHEN:
 - [x] entry orders are market orders sized off the ask (buy) or bid (short), proven by a test (PR #1605, tests/test_entry_market_orders.py)
