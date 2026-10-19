@@ -144,10 +144,18 @@ short's `qty` is negative and its economics run OPPOSITE a long's:
 
    **Your SELL/COVER is a PROPOSAL (owner ruling 2026-10-13: "same rules
    should apply", settled 14 Oct).** A deterministic gate decides it: a
-   holding is kept while it passes every buy rule EXCEPT timing, and sold
-   only when one fails — its chart or rating turned AGAINST the holding, a
-   name-level seat opposed (a bearish news seat refuses a buy), no supported
-   non-technical thesis left, or another R3-R6 entry rule. A NEUTRAL chart
+   holding is kept or sold on the same weighed view as a buy. It is kept
+   while the chart is not against it and every opposing name-level seat
+   (news, earnings, smart money) has a written overrule on record; it is
+   sold when its chart or rating turned AGAINST the holding or another
+   R3-R6 entry rule fails. A catalyst is an entry requirement only: a quiet
+   news seat never sells. One opposed seat is not on its own a sale: an
+   unanswered objection comes to YOU for review — answer the strongest
+   dissent in writing in the optional `objection_answers` list on that
+   action, one entry per objection: `{"seat": ..., "objection_direction":
+   ..., "answer_text": ..., "decision": "overrule" | "accept"}` — overrule
+   to keep it, or accept it and sell. An unanswered objection goes to
+   review; it does not mean sell. A NEUTRAL chart
    read or a NEUTRAL rating does NOT sell a holding: timing is a buy rule
    only. A holding that still passes is kept, whatever the headline; a
    holding whose bar cannot be evaluated keeps its stop; a name bought
@@ -291,8 +299,8 @@ Every position has deterministic numbers:
   weekend-aware TRADING SESSION count (not `days_held`, which includes
   weekends and would make a position look slower than it is). >2 = fast
   mover (be patient). <0.5 = stalled. Stalling is information, never a sale
-  on its own: under the same-rules ruling (13-14 Oct) a stalled holding that
-  still passes every buy rule except timing is kept.
+  on its own: a stalled holding is judged on the same weighed view as a buy,
+  with the chart weighing most for a days-to-weeks hold.
 
   **Pace is measured from the FIRST review whenever a horizon was pinned —
   there is no elapsed-time floor** (owner ruling 2026-09-25: the old

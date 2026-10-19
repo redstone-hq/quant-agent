@@ -41,6 +41,40 @@
 retired:
 
 
+  - name: the 25-Sep seat-vote entry bar
+    retired: 2026-10-19
+    why: >-
+      Owner desk archetype (docs/OUTCOME.md, "The desk archetype"): views are
+      weighed, not counted as votes, and the planning AI decides and answers
+      the strongest dissent in writing. The role-based bar, the chart as a
+      timing veto, "all five seats right", "no single seat green-lights",
+      seats entering a tally at plus-or-minus one, and ranking by each seat's
+      self-declared conviction were replaced by admission with written
+      objection answers, the keep rule, and the agreeing-seat-count ranking.
+    symbols: []
+    phrases:
+      - "role-based bar"
+      - "timing veto"
+      - "all five seats right"
+      - "all five seats are right"
+      - "single seat green-light"
+      - "no single seat may green-light"
+      - "enters it at ±1"
+      - "counts as a ±1 vote"
+      - "self-declared conviction"
+      - "multi-seat conviction"
+      - "hard sell trigger"
+      - "every buy rule except timing"
+      - "net of zero or below produces no order"
+    allowed_in:
+      - config/retired_mechanisms.yaml
+      - docs/INCIDENT_HISTORY.md
+      - docs/WORK.md
+      - docs/board_notes/
+      - src/retired_mechanisms.py
+      - tests/test_retired_mechanisms.py
+      - tests/test_archetype_prompts.py
+
   - name: planning AI's past-decision and risk-verdict memory
     retired: 2026-10-18
     why: >-
