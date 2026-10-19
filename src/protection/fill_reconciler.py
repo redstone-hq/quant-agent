@@ -655,25 +655,29 @@ class FillReconciler:
                     broker_qty=held,
                     lookback_days=lookback_days,
                 )
-                # PAGE the owner. Until 2026-09-17 this wrote an ERROR line
-                # and an evidence flag and nothing else, which is the same
-                # silence that let the 2026-08-28 ONDS/CCJ stop-outs sit
-                # unnoticed for a trading day. The desk's record and the
-                # broker's record disagree and no sale explains it: that is
-                # fill confirmation having failed somewhere upstream, and it
-                # is the owner's P&L that is wrong because of it.
-                try:
-                    from src.notifier import alert_records_disagree_with_broker
+                # PAGE the owner (once per unchanged state). Until 2026-09-17
+                # this wrote an ERROR line and an evidence flag and nothing
+                # else, which is the same silence that let the 2026-08-28
+                # ONDS/CCJ stop-outs sit unnoticed for a trading day. The
+                # desk's record and the broker's record disagree and no sale
+                # explains it: fill confirmation failed somewhere upstream,
+                # and it is the owner's P&L that is wrong because of it.
+                # The evidence flag was written above, so _page_owner is
+                # told not to write it again.
+                from src.notifier import alert_records_disagree_with_broker
 
-                    alert_records_disagree_with_broker(
-                        symbol,
-                        desk_qty=ledger_open,
-                        broker_qty=held,
-                        lookback_days=lookback_days,
-                    )
-                    record_fill_pass(self.db, "stop_out.disagree_alert", context={"symbol": symbol})
-                except Exception as exc:  # noqa: BLE001
-                    record_fill_pass(self.db, "stop_out.disagree_alert", exc, context={"symbol": symbol})
+                self._page_owner(
+                    symbol,
+                    "stop_out_gap_unexplained",
+                    "",
+                    run_id,
+                    flag=False,
+                    send=lambda: alert_records_disagree_with_broker(
+                        symbol, desk_qty=ledger_open, broker_qty=held, lookback_days=lookback_days
+                    ),
+                    ledger_qty=ledger_open,
+                    broker_qty=held,
+                )
                 results.append(
                     {
                         "symbol": symbol,
@@ -793,7 +797,9 @@ class FillReconciler:
             return None
         return broker_fill_time(open_row.get("filled_at") or open_row.get("timestamp"))
 
-    def _page_owner(self, symbol: str, outcome: str, body: str, run_id: str | None, **evidence) -> None:
+    def _page_owner(
+        self, symbol: str, outcome: str, body: str, run_id: str | None, *, flag: bool = True, send=None, **evidence
+    ) -> None:
         """Flag the evidence row every pass; page the owner once per unchanged (outcome, ledger, broker) state.
 
         The reconciler runs every session and every ~30 min intra-day, so an
@@ -802,7 +808,8 @@ class FillReconciler:
         `stop_out_owner_page` evidence row; the next pass re-pages only when
         that newest row's state differs (a changed gap), or no page landed.
         """
-        self._flag_stop_out_anomaly(run_id=run_id, symbol=symbol, outcome=outcome, detail=body, **evidence)
+        if flag:
+            self._flag_stop_out_anomaly(run_id=run_id, symbol=symbol, outcome=outcome, detail=body, **evidence)
         state = {"outcome": outcome, "ledger_qty": evidence["ledger_qty"], "broker_qty": evidence["broker_qty"]}
         if self._already_paged(symbol, state):
             record_fill_pass(self.db, f"stop_out.{outcome}_alert_repeat", context={"symbol": symbol})
@@ -810,7 +817,7 @@ class FillReconciler:
         try:
             from src.notifier import send_owner_alert
 
-            landed = send_owner_alert(body, symbols=[symbol])
+            landed = send() if send else send_owner_alert(body, symbols=[symbol])
             record_fill_pass(self.db, f"stop_out.{outcome}_alert", context={"symbol": symbol})
         except Exception as exc:  # noqa: BLE001
             record_fill_pass(self.db, f"stop_out.{outcome}_alert", exc, context={"symbol": symbol})
