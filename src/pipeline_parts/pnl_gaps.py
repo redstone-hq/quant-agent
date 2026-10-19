@@ -193,25 +193,25 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
     configured = [
         str(symbol).strip().upper() for symbol in (pipeline.config.trading.universe or []) if str(symbol).strip()
     ]
-    hot = _form4_hot_symbols(pipeline, configured)
-    screened = _screened_morning_symbols(pipeline, set(configured) | set(hot))
+    base = _form4_hot_symbols(pipeline, configured)
+    screened = _screened_morning_symbols(pipeline, set(base))
     if screened:
         logger.info(
             "Earnings preprocess: adding %d screened morning symbol(s) to the filing check",
             len(screened),
         )
-    return configured + hot + screened
+    return list(dict.fromkeys(base + screened))
 
 
 def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
-    """Form-4 admission-eligible names outside the configured universe (empty on any failure)."""
+    """Configured universe plus Form-4 admission-eligible names (the pre-2026-10-19 list, unchanged)."""
     hot: list[str] = []
     try:
         if not getattr(pipeline.config.smart_money, "enabled", False):
-            return []
+            return configured
         provider = getattr(pipeline, "smart_money_provider", None)
         if provider is None or not hasattr(provider, "fetch"):
-            return []
+            return configured
         observations, _err = provider.fetch(configured)
         seen = set(configured)
         for item in observations or []:
@@ -227,41 +227,45 @@ def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
             "Earnings preprocess: hot-admit symbol union failed (%s) — falling back to the configured universe",
             exc,
         )
-        return []
+        return configured
     if hot:
         logger.info(
             "Earnings preprocess: adding %d Form-4 admission-eligible symbol(s) to the filing check: %s",
             len(hot),
             ", ".join(hot),
         )
-    return hot
+    return configured + hot
 
 
 def _screened_morning_symbols(pipeline, already: set[str]) -> list[str]:
-    """The screened names this morning will admit (empty on any failure).
+    """The screened names this morning will admit.
 
     Calls the morning's own rule, `src.stage_morning_research.choose_screened_names`,
     on last night's passers (`_admit_screened_universe_symbols`) and ignores
-    its dropped names (the morning records those).
+    its dropped names (the morning records those). Empty, explicitly, when
+    the screen is off or last session has no complete nightly record (the
+    same two conditions `_admit_screened_universe_symbols` checks before it
+    raises); any other error propagates to the preprocess session's own
+    fetch-error handling.
     """
     from src.stage_morning_research import choose_screened_names
+    from src.trading_calendar import et_today, utc_now
+    from src.universe_daily import _screen_day, already_recorded
 
-    try:
-        ranked, details = pipeline.admission._admit_screened_universe_symbols()
-        if not details:
-            return []
-        try:
-            held = {str(getattr(p, "symbol", "")).strip().upper() for p in pipeline.broker.get_positions() or []}
-        except Exception:  # noqa: BLE001 — held passers are a bonus, ranked names still go
-            held = set()
-        held_passers, sent, _dropped = choose_screened_names(
-            ranked=ranked,
-            screened_details=details,
-            already=already,
-            held=held,
-            top_n=int(pipeline.config.universe_screen.morning_top_n),
-        )
-        return held_passers + sent
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Earnings preprocess: screened morning names unavailable (%s) — not added", exc)
+    cfg = getattr(pipeline.config, "universe_screen", None)
+    if not bool(getattr(cfg, "enabled", False)):
         return []
+    day = _screen_day(pipeline.broker, et_today(), utc_now())
+    if day is None or not already_recorded(cfg.data_dir, day):
+        logger.info("Earnings preprocess: no complete nightly screen record for %s — no screened names", day)
+        return []
+    ranked, details = pipeline.admission._admit_screened_universe_symbols()
+    held = {str(getattr(p, "symbol", "")).strip().upper() for p in pipeline.broker.get_positions() or []}
+    held_passers, sent, _dropped = choose_screened_names(
+        ranked=ranked,
+        screened_details=details,
+        already=already,
+        held=held,
+        top_n=int(cfg.morning_top_n),
+    )
+    return held_passers + sent

@@ -13,6 +13,7 @@ it. 16 Oct: 100 screened, 8 chart-buy, 0 ranked. Two causes, two pins:
 Hermetic: ZZZ tickers, no network, no model.
 """
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -125,7 +126,18 @@ def test_held_names_still_come_first_and_the_cap_holds(monkeypatch):
     assert fetched[:2] == ["Yahoo Finance (ZZZH)", f"Yahoo Finance ({CHART_BUY})"]
 
 
-def test_screened_name_with_a_new_filing_is_in_the_earnings_premarket_list(tmp_path):
+@pytest.fixture
+def screen_record(monkeypatch):
+    """Last session's nightly screen record: present unless a test says otherwise."""
+    import src.universe_daily as daily_mod
+
+    state = {"recorded": True}
+    monkeypatch.setattr(daily_mod, "_screen_day", lambda broker, today, now: date(2026, 10, 16))
+    monkeypatch.setattr(daily_mod, "already_recorded", lambda data_dir, day: state["recorded"])
+    return state
+
+
+def test_screened_name_with_a_new_filing_is_in_the_earnings_premarket_list(tmp_path, screen_record):
     pipeline = build_pipeline(db=Database(str(tmp_path / "t.db")))
     pipeline.broker = MagicMock()
     pipeline.broker.get_positions.return_value = []
@@ -144,7 +156,21 @@ def test_screened_name_with_a_new_filing_is_in_the_earnings_premarket_list(tmp_p
     assert symbols == ["ZZZC", "ZZZA", "ZZZB"]
 
 
-def test_morning_and_earnings_pick_the_same_screened_names(tmp_path, monkeypatch):
+def test_no_screen_record_today_adds_no_screened_names(tmp_path, screen_record):
+    """No complete nightly record: explicit empty result, configured list intact, ranking never read."""
+    screen_record["recorded"] = False
+    pipeline = build_pipeline(db=Database(str(tmp_path / "t.db")))
+    pipeline.broker = MagicMock()
+    pipeline.config = MagicMock()
+    pipeline.config.trading.universe = ["ZZZC"]
+    pipeline.config.smart_money.enabled = False
+    reader = MagicMock(side_effect=AssertionError("ranking read without a record"))
+    pipeline.admission = SimpleNamespace(_admit_screened_universe_symbols=reader)
+    assert pipeline._earnings_preprocess_symbols() == ["ZZZC"]
+    reader.assert_not_called()
+
+
+def test_morning_and_earnings_pick_the_same_screened_names(tmp_path, monkeypatch, screen_record):
     """One ranking rule: the morning's admitted screened names equal the earnings pass's list."""
     import src.intraday.candidates as candidates_mod
     from src.pipeline_parts.pnl_gaps import _screened_morning_symbols
