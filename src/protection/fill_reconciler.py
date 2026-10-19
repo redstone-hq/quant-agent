@@ -22,6 +22,10 @@ logger = logging.getLogger("src.pipeline")
 from src.protection.fill_reconciler_helpers import _finite_float_or_none, _reconciled_exit_action  # noqa: F401
 
 
+#: Evidence kind of a LANDED reconciler owner page; its state is what later passes dedupe against.
+_OWNER_PAGE_KIND = "stop_out_owner_page"
+
+
 class FillReconciler:
     """Broker-fill reconciliation: entry fills, orphaned pending submits, stop-out fills and the surfacing of what the reconciler found."""
 
@@ -501,6 +505,13 @@ class FillReconciler:
         SELL this process placed but never logged, without needing to
         enumerate every code path that can place one.
 
+        WHAT COUNTS AS A MISSED SELL (2026-10-19 XOM phantom): only a sell
+        that filled AFTER the current position opened (the ledger's own
+        earliest BUY of that position chain), and only the one set of WHOLE
+        broker orders whose total equals the gap exactly (1e-6). Otherwise
+        nothing is written and the owner is paged with the candidates. A
+        ledger SHORT of the broker is paged too, never passed silently.
+
         Scoped to LONGS only (a positive ledger/broker qty gap): a short's
         protective stop is a BUY-to-cover, which is deliberately deferred —
         no order path in this repo can open a short's exit position yet
@@ -576,15 +587,19 @@ class FillReconciler:
                 continue  # ledger already believes it's flat — nothing to reconcile
             held = broker_qty.get(symbol, 0.0)
             gap = ledger_open - held
-            if gap <= 1e-6:
-                # Broker holds AT LEAST what the ledger expects. A broker
-                # showing MORE than the ledger (gap negative) is a
-                # different defect class — an untracked BUY — and not
-                # something this reconciler invents a fix for; it is
-                # visibly a short scenario too (ledger_open is a LONG-only
-                # count so a negative-qty broker position also lands here
-                # with gap << 0 and is correctly skipped).
+            if gap < -1e-6:
+                # The ledger is SHORT of the broker: the broker holds more
+                # than the desk recorded. Not something this reconciler can
+                # write back (it only records sells), but never silent — on
+                # 2026-10-19 a phantom write-back left XOM at 31 vs the
+                # broker's 36 and this branch passed it without a word.
+                self._alert_ledger_short(run_id, symbol, ledger_open, held)
+                results.append(
+                    {"symbol": symbol, "ledger_qty": ledger_open, "broker_qty": held, "matched": False, "recorded": 0}
+                )
                 continue
+            if gap <= 1e-6:
+                continue  # ledger and broker agree within the qty tolerance
 
             try:
                 known_ids = self.db.get_known_broker_order_ids(symbol)
@@ -612,7 +627,18 @@ class FillReconciler:
                 )
                 continue
 
-            new_fills = [f for f in fills if f.get("id") and f["id"] not in known_ids]
+            # A sell the ledger missed can only be one that closed THIS
+            # position, so it must have filled after this position opened
+            # (its own earliest BUY since the ledger was last flat). On
+            # 2026-10-19 a 24 Aug desk sale from before the current XOM
+            # position was written back as if it had closed it. Unknown open
+            # time -> nothing is eligible -> the owner is paged below.
+            opened_at = self._current_position_opened_at(symbol)
+            new_fills = [
+                f
+                for f in fills
+                if f.get("id") and f["id"] not in known_ids and _filled_after(f.get("filled_at"), opened_at)
+            ]
             if not new_fills:
                 self._flag_stop_out_anomaly(
                     run_id=run_id,
@@ -621,8 +647,9 @@ class FillReconciler:
                     detail=(
                         f"ledger believes {ledger_open:.4f} sh open, broker "
                         f"shows {held:.4f}, but no untracked filled SELL "
-                        f"order was found in the last {lookback_days} "
-                        f"day(s) — recording nothing rather than guessing"
+                        f"order filled after this position opened "
+                        f"({opened_at or 'open time unknown'}) in the last "
+                        f"{lookback_days} day(s) — recording nothing rather than guessing"
                     ),
                     ledger_qty=ledger_open,
                     broker_qty=held,
@@ -658,8 +685,18 @@ class FillReconciler:
                 )
                 continue
 
+            # Write back only WHOLE broker orders whose total closes the
+            # measured gap exactly; anything else is the owner's call.
+            chosen = _whole_orders_closing_gap(new_fills, gap)
+            if chosen is None:
+                self._alert_gap_without_exact_fit(run_id, symbol, ledger_open, held, new_fills, opened_at)
+                results.append(
+                    {"symbol": symbol, "ledger_qty": ledger_open, "broker_qty": held, "matched": False, "recorded": 0}
+                )
+                continue
+
             recorded = 0
-            for fill in new_fills:
+            for fill in chosen:
                 # item 173(a): record the action the broker fill actually was,
                 # never a blanket STOP_OUT. The broker reports each fill's
                 # order_type; a market/limit sell must not be attributed to a
@@ -690,9 +727,11 @@ class FillReconciler:
                     # contract, not an error.
                     continue
                 recorded += 1
-                row = self.db.get_trades(symbol=symbol, limit=1)
+                # Read back THE ROW JUST WRITTEN by its id. The newest row by
+                # timestamp is the wrong row whenever the broker fill is older
+                # than the latest ledger row (2026-10-19 XOM: mislabelled).
                 realized = None
-                for r in row:
+                for r in self.db.get_trades(symbol=symbol, limit=-1):
                     if r.get("id") == row_id:
                         realized = r.get("realized_pnl")
                         break
@@ -734,6 +773,117 @@ class FillReconciler:
                 }
             )
         return record_reconciliation(db=self.db, kind="stop_out_fills", result=results, run_id=run_id)
+
+    def _current_position_opened_at(self, symbol: str) -> str | None:
+        """When the position the ledger holds in `symbol` opened, as fixed-width UTC text, or None if unknown.
+
+        The ledger's own record: the earliest executed BUY of the current
+        position chain (`get_position_open_row`, the same lookup the trail
+        uses), timed by its broker fill, else by when it was written. None
+        when the chain is unknown — the caller then treats no sale as
+        eligible, never a guessed date.
+        """
+        try:
+            open_row = self.db.get_position_open_row(self.db.get_symbol_last_buy(symbol))
+            record_fill_pass(self.db, "stop_out.position_open", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, "stop_out.position_open", exc, context={"symbol": symbol})
+            return None
+        if not open_row:
+            return None
+        return broker_fill_time(open_row.get("filled_at") or open_row.get("timestamp"))
+
+    def _page_owner(self, symbol: str, outcome: str, body: str, run_id: str | None, **evidence) -> None:
+        """Flag the evidence row every pass; page the owner once per unchanged (outcome, ledger, broker) state.
+
+        The reconciler runs every session and every ~30 min intra-day, so an
+        unresolved disagreement (XOM 31 vs 36, 2026-10-19) would otherwise
+        page each pass until the owner decides. A landed page is recorded as a
+        `stop_out_owner_page` evidence row; the next pass re-pages only when
+        that newest row's state differs (a changed gap), or no page landed.
+        """
+        self._flag_stop_out_anomaly(run_id=run_id, symbol=symbol, outcome=outcome, detail=body, **evidence)
+        state = {"outcome": outcome, "ledger_qty": evidence["ledger_qty"], "broker_qty": evidence["broker_qty"]}
+        if self._already_paged(symbol, state):
+            record_fill_pass(self.db, f"stop_out.{outcome}_alert_repeat", context={"symbol": symbol})
+            return
+        try:
+            from src.notifier import send_owner_alert
+
+            landed = send_owner_alert(body, symbols=[symbol])
+            record_fill_pass(self.db, f"stop_out.{outcome}_alert", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, f"stop_out.{outcome}_alert", exc, context={"symbol": symbol})
+            return
+        if not landed:
+            return  # not delivered: the next pass pages again
+        try:
+            self.db.insert_specialist_evidence(
+                run_id=run_id or "stop_out_reconciler",
+                agent_name="pipeline",
+                kind=_OWNER_PAGE_KIND,
+                scope="symbol",
+                symbol=symbol,
+                evidence_json=_json.dumps(state, sort_keys=True),
+            )
+            record_fill_pass(self.db, "stop_out.owner_page_record", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, "stop_out.owner_page_record", exc, context={"symbol": symbol})
+
+    def _already_paged(self, symbol: str, state: dict) -> bool:
+        """True when the newest landed page for `symbol` was for this same state (qty within 1e-6)."""
+        try:
+            row = self.db.get_latest_symbol_evidence(_OWNER_PAGE_KIND, [symbol]).get(symbol.strip().upper())
+            record_fill_pass(self.db, "stop_out.owner_page_read", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, "stop_out.owner_page_read", exc, context={"symbol": symbol})
+            return False
+        if not row:
+            return False
+        try:
+            last = _json.loads(row["evidence_json"])
+            return (
+                last.get("outcome") == state["outcome"]
+                and abs(float(last["ledger_qty"]) - float(state["ledger_qty"])) <= 1e-6
+                and abs(float(last["broker_qty"]) - float(state["broker_qty"])) <= 1e-6
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    def _alert_ledger_short(self, run_id: str | None, symbol: str, ledger_open: float, held: float) -> None:
+        """Page: the broker holds MORE shares than the desk recorded."""
+        fq = self._format_qty
+        body = (
+            "RECORDS DISAGREE — the broker holds more than the desk recorded\n"
+            f"{symbol}: the desk's records say {fq(ledger_open)} share(s); the broker shows {fq(held)}, "
+            f"{fq(held - ledger_open)} more. Nothing was written back or changed. "
+            f"Treat the desk's profit-and-loss for {symbol} as unreliable until this is resolved."
+        )
+        self._page_owner(symbol, "stop_out_ledger_short", body, run_id, ledger_qty=ledger_open, broker_qty=held)
+
+    def _alert_gap_without_exact_fit(self, run_id, symbol, ledger_open, held, candidates, opened_at) -> None:
+        """Page: unrecorded broker sales exist, but no single set of whole orders equals the gap."""
+        fq = self._format_qty
+        listed = "; ".join(
+            f"{fq(f.get('qty'))} sh @ ${float(f.get('price') or 0):.2f} on {broker_fill_time(f.get('filled_at'))}"
+            for f in candidates
+        )
+        body = (
+            "RECORDS DISAGREE — unrecorded broker sales do not add up to the difference\n"
+            f"{symbol}: the desk's records say {fq(ledger_open)} share(s); the broker shows {fq(held)}, "
+            f"a gap of {fq(ledger_open - held)}. Unrecorded broker sales since this position opened "
+            f"({opened_at}): {listed}. No single set of these whole orders equals the gap exactly, "
+            "so nothing was written back."
+        )
+        self._page_owner(
+            symbol,
+            "stop_out_gap_no_exact_fit",
+            body,
+            run_id,
+            ledger_qty=ledger_open,
+            broker_qty=held,
+            candidates=[f.get("id") for f in candidates],
+        )
 
     def _surface_reconcile_outcomes(
         self,
@@ -816,3 +966,27 @@ class FillReconciler:
             record_fill_pass(self.db, "surface.outer")
         except Exception as exc:  # noqa: BLE001
             record_fill_pass(self.db, "surface.outer", exc)
+
+
+def _filled_after(raw_fill_time, opened_at: str | None) -> bool:
+    """True only when the broker fill is provably later than the position's open (both fixed-width UTC text)."""
+    filled = broker_fill_time(raw_fill_time)
+    return bool(opened_at and filled and filled > opened_at)
+
+
+def _whole_orders_closing_gap(fills: list[dict], gap: float) -> list[dict] | None:
+    """The ONE set of whole broker orders whose quantities sum to `gap` (within 1e-6), else None.
+
+    None when no set fits or more than one distinct set does — either way the
+    write-back would be a guess. Standard-library `itertools.combinations`.
+    """
+    from itertools import combinations
+
+    fits: list[tuple] = []
+    for size in range(1, len(fills) + 1):
+        for combo in combinations(fills, size):
+            if abs(sum(float(f.get("qty") or 0) for f in combo) - gap) <= 1e-6:
+                fits.append(combo)
+                if len(fits) > 1:
+                    return None
+    return list(fits[0]) if fits else None
