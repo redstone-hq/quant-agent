@@ -454,6 +454,28 @@ def _symbol_stop(symbol: str, snap: dict[str, Any]) -> float | None:
     return stop
 
 
+def is_stop_raise(row: dict[str, Any]) -> bool:
+    """True for a TRAIL_STOP row that has not filled: the desk moved a
+    resting stop, it sent no order to fill. 2026-10-19, XOM: a stop raised
+    $169.14 -> $173.60 was printed as an order "Not filled in time". A
+    TRAIL_STOP the fill sweep marked filled is a stop-out and is a fill."""
+    return str(row.get("action") or "").upper() == "TRAIL_STOP" and str(row.get("fill_status") or "").lower() not in {
+        "filled",
+        "partially_filled",
+    }
+
+
+def stop_raise_line(row: dict[str, Any], profiles: dict[str, Any] | None) -> str:
+    """The owner-feed line for a stop raise. The trade row carries the new
+    stop level (`price`); it has no column for the old one."""
+    symbol = str(row.get("symbol", "?")).upper()
+    level = _number(row.get("price"))
+    level_text = f" to ${level:,.2f}" if level is not None and level > 0 else ""
+    reason = _first_sentence(row.get("reasoning"))
+    reason_text = f" — {reason}" if reason else ""
+    return f"   • {_ticker_co(symbol, profiles)} stop raised{level_text} — nothing sold{reason_text}"
+
+
 def _trade_reached_broker(fill_status: Any) -> bool:
     """True once an order is live at the broker — filled, or still working
     ('submitted'/'pending_submit'/'partially_filled'/'accepted'/'new'/
@@ -486,7 +508,9 @@ def _classify_trades(snap: dict[str, Any]) -> tuple[list[dict], list[dict]]:
     reached: list[dict] = []
     stalled: list[dict] = []
     for row in real:
-        (reached if _trade_reached_broker(row.get("fill_status")) else stalled).append(row)
+        # A stop raise amends a resting order; it is never an order waiting
+        # to fill, so it is never filed under "Not filled in time".
+        (reached if is_stop_raise(row) or _trade_reached_broker(row.get("fill_status")) else stalled).append(row)
     return reached, stalled
 
 
@@ -661,6 +685,8 @@ def _traded_word(done_rows: list[dict] | None) -> str:
         for row in (done_rows or [])
         if isinstance(row, dict) and str(row.get("fill_status") or "").lower() in {"filled", "partially_filled"}
     ]
+    if done_rows and not filled and all(is_stop_raise(row) for row in done_rows if isinstance(row, dict)):
+        return "STOP RAISED"
     if done_rows and not filled:
         return "ORDERED"
     actions = {str(row.get("action", "")).upper() for row in filled}

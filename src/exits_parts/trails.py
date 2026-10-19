@@ -427,6 +427,13 @@ def _apply_deterministic_trails(owner, positions, *, run_id: str) -> list[dict]:
                 reasoning=proposal.reason,
                 run_id=run_id,
                 stop_loss=proposal.new_stop,
+                # Same row shape as the midday and ex-dividend TRAIL_STOP
+                # writers (see `src/trade_actions.is_filled_trail_stop`): the
+                # amended stop's order id, 'submitted' until the fill sweep
+                # sees it fill. A multi-leg amend returns the first amended
+                # leg's new id as `id`, which is exactly what midday stores.
+                broker_order_id=(order.get("id") or None) if isinstance(order, dict) else None,
+                fill_status="submitted",
             )
             record_exit_guard(owner, "trail.trade_row_write")
         except Exception as e:  # noqa: BLE001

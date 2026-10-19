@@ -42,6 +42,8 @@ from src.trader_feed.common import (
     _clip as _clip_raw,
     _first_sentence as _first_sentence_raw,
     _done_rows,
+    is_stop_raise,
+    stop_raise_line,
     _empty_snapshot,
     _execution_rows,
     _fault_count,
@@ -697,6 +699,9 @@ def _append_done(lines: list[str], rows: list[dict], snap: dict, profiles: dict)
         return
     lines.append(_b("✅ DONE"))
     for row in rows:
+        if is_stop_raise(row):
+            lines.append(stop_raise_line(row, profiles))
+            continue
         action = str(row.get("action", "?")).upper()
         symbol = str(row.get("symbol", "?")).upper()
         qty = _number(row.get("fill_qty")) or _number(row.get("qty"))
