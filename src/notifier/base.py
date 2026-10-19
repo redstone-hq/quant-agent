@@ -152,7 +152,7 @@ def _malformed_numeric_reason(token: str) -> str | None:
     structurally impossible as a number, or None if it's fine.
 
     Deliberately conservative: only shapes that can NEVER be a correctly
-    written figure are flagged. Three checks, all direct restatements of
+    written figure are flagged. Two checks, both direct restatements of
     the bug report ("$10,21.36") and its named siblings:
 
     1. More than one decimal point in one token ("12.34.56") — no numeric
@@ -161,10 +161,8 @@ def _malformed_numeric_reason(token: str) -> str | None:
        ("10,21" — the second group is 2 digits, not 3) — this is the exact
        shape of the reported defect. A LEADING group of 1-3 digits is fine
        ("1,021"); every group after the first must be exactly 3.
-    3. A `$` amount that has a decimal point but not exactly 2 digits after
-       it ("$10.5", "$10.567") — dollars-and-cents has exactly one valid
-       decimal length; percentages, multipliers and share counts are NOT
-       constrained this way because they aren't `$` amounts.
+    One decimal place on a dollar figure ("$450.0 million", "$341.9") is
+    ordinary financial shorthand and is deliberately NOT flagged.
     """
     body = token[1:] if token.startswith("-") else token
     is_money = body.startswith("$")
@@ -174,7 +172,6 @@ def _malformed_numeric_reason(token: str) -> str | None:
     if len(parts) > 2:
         return "multiple decimal points"
     integer_part = parts[0]
-    decimal_part = parts[1] if len(parts) == 2 else None
 
     if "," in integer_part:
         groups = integer_part.split(",")
@@ -183,9 +180,6 @@ def _malformed_numeric_reason(token: str) -> str | None:
         for group in groups[1:]:
             if len(group) != 3 or not group.isdigit():
                 return "malformed thousands separator"
-
-    if is_money and decimal_part is not None and len(decimal_part) != 2:
-        return "dollar amount without exactly 2 decimal places"
 
     return None
 

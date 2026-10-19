@@ -2725,13 +2725,6 @@ def test_finds_multiple_decimal_points():
     assert ("12.34.56", "multiple decimal points") in found
 
 
-def test_finds_dollar_amount_with_wrong_decimal_places():
-    from src.notifier import _find_malformed_numeric_tokens
-
-    found = _find_malformed_numeric_tokens("cost basis was $10.567 per share")
-    assert ("$10.567", "dollar amount without exactly 2 decimal places") in found
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
