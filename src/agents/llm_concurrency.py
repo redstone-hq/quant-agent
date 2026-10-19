@@ -109,8 +109,10 @@ _GOVERNOR_MAX_WAIT_S = float(_int_env("QUANT_AGENT_TPM_MAX_WAIT_S", 120))
 # request's wait decision, never the window's accuracy.
 _GOVERNOR_CHARS_PER_TOKEN = 1.5
 
-_unfitted_seen: set[tuple[str, str]] = set()
-_unfitted_lock = threading.Lock()
+# Connect-phase failures: raised before a byte of the request is written.
+# Matched by class name, as `llm_retry._RETRYABLE_EXC_NAMES` does, so the
+# transport library is never imported here.
+_NEVER_SENT_EXC_NAMES = frozenset({"ConnectError", "ConnectTimeout", "ConnectionRefusedError"})
 
 
 def _governed_input_estimate(agent, model: str, user_message: str) -> int:
@@ -121,22 +123,17 @@ def _governed_input_estimate(agent, model: str, user_message: str) -> int:
     same model that already sizes the chart seat's chunks. The fit's x is
     the user-message bytes and its intercept absorbs the system prompt, so
     it is applied to the message alone. A pair with no fit falls back to
-    `_GOVERNOR_CHARS_PER_TOKEN` over prompt + message, said once in the log.
+    `_GOVERNOR_CHARS_PER_TOKEN` over prompt + message (logged at debug).
     """
     fitted = size_model_for_agent(agent, default_model=model)
     if fitted.measured:
         return fitted.predict(len(user_message.encode("utf-8")))
-    key = (str(getattr(agent, "name", "?")), str(model))
-    with _unfitted_lock:
-        first = key not in _unfitted_seen
-        _unfitted_seen.add(key)
-    if first:
-        logger.info(
-            "token governor: no fitted size model for %s/%s yet; estimating input at %.1f chars/token",
-            key[0],
-            key[1],
-            _GOVERNOR_CHARS_PER_TOKEN,
-        )
+    logger.debug(
+        "token governor: no fitted size model for %s/%s; estimating input at %.1f chars/token",
+        getattr(agent, "name", "?"),
+        model,
+        _GOVERNOR_CHARS_PER_TOKEN,
+    )
     chars = len(agent.system_prompt) + len(user_message)
     return int(chars / _GOVERNOR_CHARS_PER_TOKEN)
 
@@ -145,21 +142,15 @@ def _never_left_process(exc: BaseException) -> bool:
     """True when the request provably never reached the provider.
 
     Only a failure to open the connection qualifies (refused, DNS, connect
-    timeout): httpx raises `ConnectError`/`ConnectTimeout` before a byte of
-    the request is written, and the SDKs wrap it as the cause. Anything
+    timeout): the transport raises `ConnectError`/`ConnectTimeout` before a
+    byte of the request is written, and the SDKs wrap it as the cause. Anything
     later — a read timeout, a stream cut, a 5xx — may have reached the
     provider and keeps its input charge.
     """
-    try:
-        import httpx
-
-        connect_types: tuple[type, ...] = (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError)
-    except Exception:  # pragma: no cover - httpx ships with every provider SDK
-        connect_types = (ConnectionRefusedError,)
     seen: set[int] = set()
     cur: BaseException | None = exc
     while cur is not None and id(cur) not in seen:
-        if isinstance(cur, connect_types):
+        if type(cur).__name__ in _NEVER_SENT_EXC_NAMES:
             return True
         seen.add(id(cur))
         cur = cur.__cause__ or cur.__context__

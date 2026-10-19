@@ -9,7 +9,6 @@ and only the successful attempt was reconciled, so every refusal left a
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
 import src.agents.base as base
@@ -78,7 +77,7 @@ def test_two_busy_refusals_then_success_leave_only_real_usage_plus_refused_input
 
 def test_a_request_that_never_left_the_process_reconciles_to_zero(governor):
     refused = _Busy("connection refused")
-    refused.__cause__ = httpx.ConnectError("[Errno 111] Connection refused")
+    refused.__cause__ = ConnectionRefusedError(111, "Connection refused")
     agent, _ = _seat([refused])
     agent.run()
     assert governor.snapshot()["tokens_in_window"] == REAL_IN + REAL_OUT
