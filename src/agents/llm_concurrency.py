@@ -1,11 +1,16 @@
 """Per-provider semaphores and token-rate governors.
 
-Moved VERBATIM out of src/agents/base.py; base.py re-exports every name.
+Moved out of src/agents/base.py; base.py re-exports every name. The governor's
+input estimate and the "never sent" test live here beside the governors.
 """
 
+import logging
 import os
 import threading
+from src.token_budget import size_model_for_agent
 from src.token_rate import TokenRateGovernor
+
+logger = logging.getLogger(__name__)
 
 
 def _int_env(name: str, default: int) -> int:
@@ -91,7 +96,9 @@ _ANTHROPIC_TOKENS_PER_MIN = _int_env("QUANT_AGENT_ANTHROPIC_TPM", 150_000)
 _GOOGLE_TOKENS_PER_MIN = _int_env("QUANT_AGENT_GOOGLE_TPM", 200_000)
 _GOVERNOR_MAX_WAIT_S = float(_int_env("QUANT_AGENT_TPM_MAX_WAIT_S", 120))
 
-# Pre-request size estimate. The dense numeric payload that actually trips
+# FALLBACK-ONLY pre-request size estimate, used for a seat/model pair whose
+# own history is too thin for `src.token_budget` to fit (fewer than its
+# MIN_SAMPLES calls) — see `_governed_input_estimate`. The dense numeric payload that actually trips
 # rate limits tokenizes at roughly ONE token per character (measured: 314,366
 # tokens for ~355,000 characters of OHLCV rows), nothing like the ~4 that
 # prose gives. Estimating at 1.5 stays conservative for that case rather than
@@ -101,6 +108,54 @@ _GOVERNOR_MAX_WAIT_S = float(_int_env("QUANT_AGENT_TPM_MAX_WAIT_S", 120))
 # the moment the response lands, so this constant only ever affects one
 # request's wait decision, never the window's accuracy.
 _GOVERNOR_CHARS_PER_TOKEN = 1.5
+
+# Connect-phase failures: raised before a byte of the request is written.
+# Matched by class name, as `llm_retry._RETRYABLE_EXC_NAMES` does, so the
+# transport library is never imported here.
+_NEVER_SENT_EXC_NAMES = frozenset({"ConnectError", "ConnectTimeout", "ConnectionRefusedError"})
+
+
+def _governed_input_estimate(agent, model: str, user_message: str) -> int:
+    """Input tokens to reserve for one request, before it is sent.
+
+    Uses the seat's own fitted size model (`src.token_budget`: fixed tokens
+    + tokens/byte, least squares over its paid calls in `agent_logs`) — the
+    same model that already sizes the chart seat's chunks. The fit's x is
+    the user-message bytes and its intercept absorbs the system prompt, so
+    it is applied to the message alone. A pair with no fit falls back to
+    `_GOVERNOR_CHARS_PER_TOKEN` over prompt + message (logged at debug).
+    """
+    fitted = size_model_for_agent(agent, default_model=model)
+    if fitted.measured:
+        return fitted.predict(len(user_message.encode("utf-8")))
+    logger.debug(
+        "token governor: no fitted size model for %s/%s; estimating input at %.1f chars/token",
+        getattr(agent, "name", "?"),
+        model,
+        _GOVERNOR_CHARS_PER_TOKEN,
+    )
+    chars = len(agent.system_prompt) + len(user_message)
+    return int(chars / _GOVERNOR_CHARS_PER_TOKEN)
+
+
+def _never_left_process(exc: BaseException) -> bool:
+    """True when the request provably never reached the provider.
+
+    Only a failure to open the connection qualifies (refused, DNS, connect
+    timeout): the transport raises `ConnectError`/`ConnectTimeout` before a
+    byte of the request is written, and the SDKs wrap it as the cause. Anything
+    later — a read timeout, a stream cut, a 5xx — may have reached the
+    provider and keeps its input charge.
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        if type(cur).__name__ in _NEVER_SENT_EXC_NAMES:
+            return True
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    return False
+
 
 _TOKEN_GOVERNORS = {
     "openrouter": TokenRateGovernor(

@@ -151,6 +151,8 @@ from src.agents.llm_concurrency import (  # noqa: F401
     _GOVERNOR_MAX_WAIT_S,
     _GOVERNOR_CHARS_PER_TOKEN,
     _TOKEN_GOVERNORS,
+    _governed_input_estimate,
+    _never_left_process,
 )
 from src.agents.llm_attempts import (  # noqa: F401
     _TRUNCATION_FINISH_REASONS,
@@ -652,6 +654,7 @@ class BaseAgent(ABC):
         provider_requests = 0
         attempt_errors: list[BaseException] = []
         governed_estimate = 0
+        governed_input = 0
         governed_provider: str | None = None
 
         def _mark_circuit_unavailable(exc: BaseException) -> dict:
@@ -695,6 +698,29 @@ class BaseAgent(ABC):
             and the unexplained spend then latched the desk.
             """
             attempt_errors.append(exc)
+            _reconcile_failed_attempt(exc)
+
+        def _reconcile_failed_attempt(exc: BaseException) -> None:
+            """Give back what a failed attempt reserved but never used.
+
+            `_govern` charged input + the full output allowance; an attempt
+            that produced no response used none of the output. Without this a
+            run of "model busy" refusals left one phantom ~max_tokens charge
+            per refusal in the window and the governor held the seat for
+            capacity it was not using (measured 16 Oct: 13 refusals, 21 holds,
+            386 s). The input stays charged — the request reached the
+            provider, and whether a refusal counts against its per-minute
+            limit is unverified — unless it provably never left the process.
+            """
+            nonlocal governed_estimate, governed_input
+            if not (governed_provider and governed_estimate):
+                return
+            governor = _TOKEN_GOVERNORS.get(governed_provider)
+            if governor is not None:
+                actual = 0 if _never_left_process(exc) else governed_input
+                governor.reconcile(governed_estimate, actual)
+            governed_estimate = 0
+            governed_input = 0
 
         def _safe_fail_reservation(exc: BaseException) -> None:
             if self._cost_circuit is None or reservation is None:
@@ -728,7 +754,7 @@ class BaseAgent(ABC):
             so a failover call is always charged to the FALLBACK provider's
             governor, never the primary's — see _governor_domain_for.
             """
-            nonlocal governed_estimate, governed_provider
+            nonlocal governed_estimate, governed_input, governed_provider
             governed_provider = _governor_domain_for(
                 model,
                 self,
@@ -739,8 +765,8 @@ class BaseAgent(ABC):
             if governor is None:
                 governed_estimate = 0
                 return
-            chars = len(self.system_prompt) + len(user_message)
-            governed_estimate = int(chars / _GOVERNOR_CHARS_PER_TOKEN) + self.max_tokens
+            governed_input = _governed_input_estimate(self, model, user_message)
+            governed_estimate = governed_input + self.max_tokens
             governor.charge(governed_estimate)
 
         def _authorize(model: str, *, is_failover: bool = False, is_tertiary: bool = False) -> None:

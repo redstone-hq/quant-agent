@@ -3474,8 +3474,11 @@ numbers:
     status: not-trade-governing
     site: src/agents/llm_concurrency.py
     note: >-
-      LLM plumbing: characters-per-token estimate used to govern request
-      size against a provider rate limit, not a trading decision.
+      LLM plumbing, FALLBACK ONLY (reformulated 2026-10-19): the governor's
+      pre-request input estimate now comes from the seat's own fitted size
+      model (src/token_budget.py, least squares over its agent_logs rows);
+      this characters-per-token figure is used only for a seat/model pair
+      with too little history to fit. Not a trading decision.
   - id: src.agents.base._OPENROUTER_GENERATION_LOOKUP_ATTEMPTS
     value: 3
     status: not-trade-governing
