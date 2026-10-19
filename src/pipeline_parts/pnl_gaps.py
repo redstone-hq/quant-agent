@@ -175,7 +175,7 @@ def _load_earnings_analyses(
 
 
 def _earnings_preprocess_symbols(pipeline) -> list[str]:
-    """Configured universe plus Form-4 admission-eligible names.
+    """Configured universe, Form-4 admission-eligible names, then last night's screened morning names.
 
     2026-09-16: preprocess returned `nothing_new` against the configured
     universe while FTK/RSG were already Form-4 hot. Morning then saw
@@ -183,17 +183,35 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
     already-refreshed provider marks `admission_eligible` — not an
     invented "preprocess N names" cap. Morning's broker-quality gate
     and `max_external_candidates` still decide who actually trades.
+
+    2026-10-19: the screened names the morning admits (see
+    `_screened_morning_symbols`) are checked too, so a new filing for one
+    is analysed before the open instead of being downloaded and left
+    unread (ASAN's 10-Q, 16 Oct). Only NEW filings are analysed, so the
+    added cost is bounded by how many of those names filed overnight.
     """
     configured = [
         str(symbol).strip().upper() for symbol in (pipeline.config.trading.universe or []) if str(symbol).strip()
     ]
+    hot = _form4_hot_symbols(pipeline, configured)
+    screened = _screened_morning_symbols(pipeline, set(configured) | set(hot))
+    if screened:
+        logger.info(
+            "Earnings preprocess: adding %d screened morning symbol(s) to the filing check",
+            len(screened),
+        )
+    return configured + hot + screened
+
+
+def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
+    """Form-4 admission-eligible names outside the configured universe (empty on any failure)."""
     hot: list[str] = []
     try:
         if not getattr(pipeline.config.smart_money, "enabled", False):
-            return configured
+            return []
         provider = getattr(pipeline, "smart_money_provider", None)
         if provider is None or not hasattr(provider, "fetch"):
-            return configured
+            return []
         observations, _err = provider.fetch(configured)
         seen = set(configured)
         for item in observations or []:
@@ -209,11 +227,44 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
             "Earnings preprocess: hot-admit symbol union failed (%s) — falling back to the configured universe",
             exc,
         )
-        return configured
+        return []
     if hot:
         logger.info(
             "Earnings preprocess: adding %d Form-4 admission-eligible symbol(s) to the filing check: %s",
             len(hot),
             ", ".join(hot),
         )
-    return configured + hot
+    return hot
+
+
+def _screened_morning_symbols(pipeline, already: set[str]) -> list[str]:
+    """The screened names this morning will admit, by the morning's own rule (empty on any failure).
+
+    Mirrors `src.stage_morning_research.order_morning_symbols` without its
+    recording side effects: from last night's passers
+    (`_admit_screened_universe_symbols`), a held passer is admitted
+    uncapped, and the top `universe_screen.morning_top_n` others by score K
+    not already configured or Form-4 admitted.
+    """
+    try:
+        ranked, details = pipeline.admission._admit_screened_universe_symbols()
+        if not details:
+            return []
+        try:
+            held = {str(getattr(p, "symbol", "")).strip().upper() for p in pipeline.broker.get_positions() or []}
+        except Exception:  # noqa: BLE001 — held passers are a bonus, ranked names still go
+            held = set()
+        top_n = int(pipeline.config.universe_screen.morning_top_n)
+        out = [s for s in details if s in held and s not in already]
+        rank = 0
+        for symbol in ranked:
+            if symbol in already or symbol in out:
+                continue
+            rank += 1
+            if rank > top_n:
+                break
+            out.append(symbol)
+        return list(dict.fromkeys(str(s).strip().upper() for s in out if str(s).strip()))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Earnings preprocess: screened morning names unavailable (%s) — not added", exc)
+        return []

@@ -9,6 +9,7 @@ still resolves to this same object.
 
 from __future__ import annotations
 
+from concurrent.futures import wait
 from typing import TYPE_CHECKING
 
 from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level names
@@ -65,7 +66,9 @@ class MorningResearchStage:
       macro_summary, macro_analysis, news_intel, analyses, earnings_results,
       symbols_bars, valuations, data_status
 
-    Uses a ThreadPoolExecutor for the five parallel research branches.
+    Uses a ThreadPoolExecutor for the research branches: macro, technical,
+    earnings and smart money in parallel; news starts once technical answers
+    (its per-symbol names come from the chart seat's buy reads).
     Failures are isolated so one bad branch doesn't abort the rest.
     """
 
@@ -213,6 +216,11 @@ class MorningResearchStage:
                 # Fails closed: no screened name this session, nothing else lost.
                 record_morning_fault(self, "screened_admission", exc)
                 ranked, screened_details = [], {}
+        # Names a non-technical thesis seat already backs (SEC Form-4
+        # admissions), captured before the screened names join
+        # ctx.admitted_symbols; the news seat's per-symbol slots go to
+        # chart-buy names outside this set first.
+        sec_admitted_symbols = set(ctx.admitted_symbols)
         effective_symbols = order_morning_symbols(
             self,
             ctx,
@@ -397,19 +405,26 @@ class MorningResearchStage:
         # news answer. Board item 152.
         news_symbols_asked: set[str] = set()
 
-        def _run_news():
-            # Per-symbol news selection (2026-08-30 owner decision): held
-            # positions first, then this run's admitted candidates — the
-            # only run-scoped "active candidate" concept available BEFORE
-            # news fetches (tech/nomination candidates don't exist yet; news
-            # and tech run concurrently in this same fan-out). Both lists
-            # are already in a stable, non-set order — ctx.positions is the
-            # broker snapshot's own order, admitted names follow the research
-            # order (SEC admissions, then screened names best score first) —
-            # so the selection is reproducible in the offline rehearsal rig.
+        def _run_news(chart_buy_symbols=()):
+            # Per-symbol news selection. Runs AFTER the technical seat
+            # (2026-10-19 fix): the news seat's capped per-symbol list
+            # (news.per_symbol_max_symbols) is held positions first, then
+            # the names the chart seat just rated buy/strong_buy that no
+            # other thesis seat backs yet (not an SEC Form-4 admission),
+            # then the rest of this run's admitted candidates. Before this
+            # the list was held + admitted names in research order, chosen
+            # before the chart seat answered, so of ~100 screened names the
+            # 15 slots went to the top scores whatever the chart said, and a
+            # chart-buy name had no thesis seat for the conviction bar
+            # (16 Oct: 100 screened, 8 chart-buy, 0 ranked). Every list is in
+            # a stable, non-set order (broker snapshot order, then research
+            # order), so the selection is reproducible in the rehearsal rig.
             held = [str(getattr(p, "symbol", "")).strip().upper() for p in ctx.positions if getattr(p, "qty", 0)]
             held = [s for s in held if s]
-            candidates = [s for s in effective_symbols if s in ctx.admitted_symbols]
+            chart_buys = set(chart_buy_symbols)
+            unbacked_buys = [s for s in effective_symbols if s in chart_buys and s not in sec_admitted_symbols]
+            admitted = [s for s in effective_symbols if s in ctx.admitted_symbols]
+            candidates = list(dict.fromkeys(unbacked_buys + admitted))
             # Board item 152: remember WHICH names this seat was asked about,
             # so that if its answer comes back unreadable the loss can be
             # filed per-stock rather than as a bare log line and a count.
@@ -570,17 +585,31 @@ class MorningResearchStage:
             )
             return findings, result, smart_money_provider_error, analysis_error, gaps
 
-        logger.info("Starting parallel: macro + news + tech + earnings + smart money")
+        logger.info("Starting parallel: macro + tech + earnings + smart money; news after tech")
         with ThreadPoolExecutor(max_workers=5) as ex:
             # ContextVar values do not automatically flow into executor
             # workers. Give every branch its own copied context so breaker
             # reservations retain this run_id/mode even if another scheduler
             # job overlaps in the parent process.
             macro_future = ex.submit(copy_context().run, _run_macro)
-            news_future = ex.submit(copy_context().run, _run_news)
             tech_future = ex.submit(copy_context().run, _run_tech)
             earnings_future = ex.submit(copy_context().run, _load_earnings)
             smart_money_future = ex.submit(copy_context().run, _run_smart_money)
+            # News waits for the chart seat (2026-10-19): its per-symbol
+            # names are chosen from the chart seat's buy/strong_buy reads.
+            # Still ONE news call, overlapping whatever macro / earnings /
+            # smart money are still doing. A failed chart seat falls back to
+            # the held + admitted selection; its own error surfaces below.
+            wait([tech_future])
+            chart_buy_symbols: list[str] = []
+            if tech_future.exception() is None:
+                tech_map = (tech_future.result() or ({}, None))[0] or {}
+                chart_buy_symbols = [
+                    sym
+                    for sym, analysis in tech_map.items()
+                    if analysis is not None and getattr(analysis, "rating", None) in ("buy", "strong_buy")
+                ]
+            news_future = ex.submit(copy_context().run, _run_news, chart_buy_symbols)
 
         # How much of the watched set the pre-market Form 4 pass actually
         # read, per issuer. No network. The analyst's answer covers only the
