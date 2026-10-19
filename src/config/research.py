@@ -70,7 +70,8 @@ class UniverseScreenConfig(BaseModel):
     the Form 4 door gets its age gate back.
 
     The spread and volatility thresholds have no field here on purpose: they
-    are DERIVED at run time from `execution.max_entry_slippage_bps` and
+    are DERIVED at run time: the spread floor from the expected move over
+    the owner-ruled hold, the volatility ceiling from
     `risk.min_stop_atr_multiple` (see the module docstring). Screened names
     reach the morning in score order (owner ruling 2026-10-14): the top
     `morning_top_n` of last night's passers by K, every other passer
