@@ -121,6 +121,9 @@ def run_earnings_preprocess(pipeline) -> dict:
     result = pipeline._run_earnings_preprocess_body()
     if not isinstance(result, dict):
         return result
+    if result.get("status") == "market_holiday":
+        # Non-trading day: no entry point touches the broker (invariant test).
+        return result
     try:
         account = pipeline._collab("broker").get_account()
         pipeline._record_account_snapshot(
