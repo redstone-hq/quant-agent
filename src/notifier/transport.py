@@ -56,6 +56,10 @@ def _balanced_units(text: str, sep: str) -> list[str]:
     return units
 
 
+#: Starts the cost/time paragraph that `_append_footer` (src/trader_feed/decision.py)
+#: writes. Recognised by this mark, not by position: the credit line and
+#: Mission Control link follow it in the sent message.
+_FOOTER_MARK = "\U0001f9fe"
 _DETAILS_POINTER = "Full details are in Mission Control."
 
 
@@ -84,7 +88,7 @@ def _fit_blocks(body: str, budget: int) -> str:
 
     Order: the expandable DETAILS block first, replaced by one line pointing
     to Mission Control, then trailing paragraphs, then trailing lines of what
-    is left. The last paragraph (the cost/time footer) is protected: the
+    is left. The cost/time paragraph (starts with the footer mark) is protected: the
     middle is cut before it is ever dropped. Only a single balanced line that
     is alone over budget is cut, and only after its tags are removed, so the
     cut is on tag-free text (`_clip_text` never splits an entity). 13 Oct
@@ -95,11 +99,12 @@ def _fit_blocks(body: str, budget: int) -> str:
     if len(body) <= budget:
         return body
     units = _balanced_units(body, "\n\n")
-    if len(units) > 1 and "<blockquote" not in units[-1]:
-        footer = units[-1]
+    marked = [i for i, unit in enumerate(units) if unit.startswith(_FOOTER_MARK)]
+    if marked and len(units) > 1:
+        footer = units.pop(marked[-1])
         room = budget - len(footer) - 2
         if room > 0:
-            return _fit_head("\n\n".join(units[:-1]), room) + "\n\n" + footer
+            return _fit_head("\n\n".join(units), room) + "\n\n" + footer
     return _fit_head(body, budget)
 
 
