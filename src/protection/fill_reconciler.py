@@ -22,6 +22,10 @@ logger = logging.getLogger("src.pipeline")
 from src.protection.fill_reconciler_helpers import _finite_float_or_none, _reconciled_exit_action  # noqa: F401
 
 
+#: Evidence kind of a LANDED reconciler owner page; its state is what later passes dedupe against.
+_OWNER_PAGE_KIND = "stop_out_owner_page"
+
+
 class FillReconciler:
     """Broker-fill reconciliation: entry fills, orphaned pending submits, stop-out fills and the surfacing of what the reconciler found."""
 
@@ -790,15 +794,61 @@ class FillReconciler:
         return broker_fill_time(open_row.get("filled_at") or open_row.get("timestamp"))
 
     def _page_owner(self, symbol: str, outcome: str, body: str, run_id: str | None, **evidence) -> None:
-        """Flag the evidence row and page the owner through the existing owner-alert path."""
+        """Flag the evidence row every pass; page the owner once per unchanged (outcome, ledger, broker) state.
+
+        The reconciler runs every session and every ~30 min intra-day, so an
+        unresolved disagreement (XOM 31 vs 36, 2026-10-19) would otherwise
+        page each pass until the owner decides. A landed page is recorded as a
+        `stop_out_owner_page` evidence row; the next pass re-pages only when
+        that newest row's state differs (a changed gap), or no page landed.
+        """
         self._flag_stop_out_anomaly(run_id=run_id, symbol=symbol, outcome=outcome, detail=body, **evidence)
+        state = {"outcome": outcome, "ledger_qty": evidence["ledger_qty"], "broker_qty": evidence["broker_qty"]}
+        if self._already_paged(symbol, state):
+            record_fill_pass(self.db, f"stop_out.{outcome}_alert_repeat", context={"symbol": symbol})
+            return
         try:
             from src.notifier import send_owner_alert
 
-            send_owner_alert(body, symbols=[symbol])
+            landed = send_owner_alert(body, symbols=[symbol])
             record_fill_pass(self.db, f"stop_out.{outcome}_alert", context={"symbol": symbol})
         except Exception as exc:  # noqa: BLE001
             record_fill_pass(self.db, f"stop_out.{outcome}_alert", exc, context={"symbol": symbol})
+            return
+        if not landed:
+            return  # not delivered: the next pass pages again
+        try:
+            self.db.insert_specialist_evidence(
+                run_id=run_id or "stop_out_reconciler",
+                agent_name="pipeline",
+                kind=_OWNER_PAGE_KIND,
+                scope="symbol",
+                symbol=symbol,
+                evidence_json=_json.dumps(state, sort_keys=True),
+            )
+            record_fill_pass(self.db, "stop_out.owner_page_record", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, "stop_out.owner_page_record", exc, context={"symbol": symbol})
+
+    def _already_paged(self, symbol: str, state: dict) -> bool:
+        """True when the newest landed page for `symbol` was for this same state (qty within 1e-6)."""
+        try:
+            row = self.db.get_latest_symbol_evidence(_OWNER_PAGE_KIND, [symbol]).get(symbol.strip().upper())
+            record_fill_pass(self.db, "stop_out.owner_page_read", context={"symbol": symbol})
+        except Exception as exc:  # noqa: BLE001
+            record_fill_pass(self.db, "stop_out.owner_page_read", exc, context={"symbol": symbol})
+            return False
+        if not row:
+            return False
+        try:
+            last = _json.loads(row["evidence_json"])
+            return (
+                last.get("outcome") == state["outcome"]
+                and abs(float(last["ledger_qty"]) - float(state["ledger_qty"])) <= 1e-6
+                and abs(float(last["broker_qty"]) - float(state["broker_qty"])) <= 1e-6
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
 
     def _alert_ledger_short(self, run_id: str | None, symbol: str, ledger_open: float, held: float) -> None:
         """Page: the broker holds MORE shares than the desk recorded."""

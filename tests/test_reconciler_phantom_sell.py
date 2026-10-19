@@ -119,3 +119,21 @@ def test_pnl_check_reads_the_row_it_just_wrote(tmp_path):
     row = next(r for r in db.get_trades(symbol="ZZZV", limit=-1) if r["broker_order_id"] == "s-mid")
     assert row["realized_pnl"] is not None
     assert "stop_out_pnl_unmatched" not in _outcomes(db, "ZZZV")
+
+
+def test_unchanged_disagreement_pages_once_and_a_changed_gap_pages_again(tmp_path):
+    """Every pass records evidence; only the first pass in an unchanged state pages, a changed gap re-pages."""
+    db = _db(tmp_path)
+    _buy(db, "ZZZU", 10.0, 50.0, "buy-zzzu", "2026-09-02 14:00:00")
+    broker = _broker({"ZZZU": 12.0}, [])
+    pipeline = _pipeline(db, broker)
+    with patch("src.notifier.send_owner_alert", return_value=True) as page:
+        pipeline._reconcile_stop_out_fills(run_id="r1")
+        pipeline._reconcile_stop_out_fills(run_id="r2")
+        assert page.call_count == 1
+        assert _outcomes(db, "ZZZU").count("stop_out_ledger_short") == 2
+
+        broker.get_positions.return_value = [types.SimpleNamespace(symbol="ZZZU", qty=13.0)]
+        pipeline._reconcile_stop_out_fills(run_id="r3")
+        assert page.call_count == 2
+        assert "13" in page.call_args.args[0]
