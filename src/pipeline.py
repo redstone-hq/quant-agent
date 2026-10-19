@@ -422,13 +422,12 @@ class TradingPipeline(
         # — rather than inventing a second politeness convention for the
         # "SEC Press Releases" feed added 2026-08-29 (src/data/news.py).
         # per_symbol_* (2026-08-30 owner decision — src/data/news.py audit
-        # block): every cap an operator can tune lives in config.news, never
-        # a module constant, same rule already applied to max_prompt_items.
+        # block). No name or headline count (2026-10-19): each name's window
+        # is since the previous close, read from the broker's calendar.
         self.news_provider = NewsDataProvider(
             sec_user_agent=config.smart_money.user_agent,
             per_symbol_enabled=config.news.per_symbol_enabled,
-            per_symbol_max_symbols=config.news.per_symbol_max_symbols,
-            per_symbol_max_prompt_items=config.news.per_symbol_max_prompt_items,
+            session_broker=lambda: getattr(self, "broker", None),
             per_symbol_requests_per_second=config.news.per_symbol_requests_per_second,
         )
         self.news_store = NewsStore()

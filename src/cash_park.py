@@ -87,9 +87,9 @@ class CashPark:
         Applies the same cash-sweep exclusion as every other LLM-facing
         position view (`CashSweeper.split_positions`) before extracting
         symbols: the parked T-bill vehicle is cash-equivalent, has no
-        thesis to follow, and must never consume one of
-        `config.news.per_symbol_max_symbols`' capped slots (2026-08-31
-        forensic — it was doing exactly that in the midday/close path).
+        thesis to follow, and must never take a per-symbol news request
+        (2026-08-31 forensic — it was doing exactly that in the midday/close
+        path, when those requests were capped).
 
         Shared by every same-day session that fetches held-symbol news
         (`run_position_review`, which itself backs both midday and close,

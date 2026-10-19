@@ -851,9 +851,12 @@ Screened names reach a thesis seat (2026-10-19). The conviction bar needs a name
 earnings or smart money) with a directional thesis, so a screened name the chart seat likes is refused
 unless one of them reads it.
 Macro, technical, earnings and smart money run in parallel; the news seat starts once the technical seat
-has answered, still as one call. Its per-symbol list (capped at `news.per_symbol_max_symbols`) is held
-names first, then names the chart seat rated buy/strong_buy that are not SEC Form 4 admissions, then the
-rest of the admitted names in research order. The pre-market earnings pass checks the configured
+has answered, still as one call. It reads every name on the shortlist the chart seat read, in this order:
+held names, then names the chart seat rated buy or sell, then the rest. There is no name or headline
+count: each name keeps its headlines since the previous session's close (exchange calendar), only the
+request throttle `news.per_symbol_requests_per_second` remains, and a name with no headline of its own
+carries the reason (fetch failed / none in window / merged into a wire copy) in the news coverage line
+the seat reads. Witness: `tests/test_news_reads_shortlist.py`. The pre-market earnings pass checks the configured
 universe, Form 4 admission-eligible names, then the screened names this morning will admit (held
 passers plus the top `morning_top_n` others), so a new filing for one is analysed before the open; only
 new filings are analysed. Witness: `tests/test_screened_names_reach_thesis_seats.py`.

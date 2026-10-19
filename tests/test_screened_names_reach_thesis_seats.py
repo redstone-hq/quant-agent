@@ -6,7 +6,9 @@ screened name the chart seat likes is refused unless news or earnings read
 it. 16 Oct: 100 screened, 8 chart-buy, 0 ranked. Two causes, two pins:
 
 * the news seat chose its capped per-symbol names BEFORE the chart seat
-  answered, so its slots went to the top scores whatever the chart said;
+  answered, so its slots went to the top scores whatever the chart said
+  (the cap itself was removed later the same day — see
+  tests/test_news_reads_shortlist.py);
 * the pre-market earnings pass checked only configured + Form-4 names, so a
   screened name's new filing (ASAN 10-Q) was downloaded and never analysed.
 
@@ -25,9 +27,8 @@ from src.data.news import NewsDataProvider
 from src.storage.db import Database
 from tests.pipeline_factory import build_pipeline
 
-NEWS_CAP = 15
 SCREENED = [f"ZZZ{chr(ord('A') + i)}" for i in range(20)]  # ZZZA..ZZZT, best score first
-CHART_BUY = "ZZZT"  # ranked 20th: outside the cap in score order
+CHART_BUY = "ZZZT"  # ranked 20th: last in score order
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,9 @@ def _no_real_sleep(monkeypatch):
     monkeypatch.setattr(news_mod.time, "sleep", lambda _seconds: None)
 
 
-def _run_morning(monkeypatch, positions):
+def _run_morning(monkeypatch, positions, screened=None, ratings=None):
+    screened = list(SCREENED if screened is None else screened)
+    ratings = {CHART_BUY: "buy"} if ratings is None else dict(ratings)
     from src.pipeline_context import RunContext
     from src.pipeline_stages import MorningResearchStage
 
@@ -66,7 +69,7 @@ def _run_morning(monkeypatch, positions):
         out = {}
         for s in symbols_data:
             sym = s["symbol"]
-            out[sym] = SimpleNamespace(symbol=sym, rating="buy" if sym == CHART_BUY else "neutral")
+            out[sym] = SimpleNamespace(symbol=sym, rating=ratings.get(sym, "neutral"))
         return out, None
 
     tech.analyze_batch.side_effect = analyze_batch
@@ -92,7 +95,7 @@ def _run_morning(monkeypatch, positions):
         has_actionable_signal_fn=lambda *a, **kw: False,
         run_news_update_fn=run_news_update_fn,
         load_earnings_analyses_fn=lambda run_id, session, ctx=None: ([], []),
-        admit_screened_universe_fn=lambda positions: (list(SCREENED), {s: {"k": 1.0} for s in SCREENED}),
+        admit_screened_universe_fn=lambda positions: (list(screened), {s: {"k": 1.0} for s in screened}),
     )
     ctx = RunContext.start("morning")
     ctx.positions = positions
@@ -102,7 +105,7 @@ def _run_morning(monkeypatch, positions):
 
 
 def _per_symbol_names(captured):
-    return list(dict.fromkeys(captured["held"] + captured["candidates"]))[:NEWS_CAP]
+    return list(dict.fromkeys(captured["held"] + captured["candidates"]))
 
 
 def test_chart_buy_screened_name_is_in_the_news_seats_per_symbol_list(monkeypatch):
@@ -110,19 +113,18 @@ def test_chart_buy_screened_name_is_in_the_news_seats_per_symbol_list(monkeypatc
     assert CHART_BUY in _per_symbol_names(captured)
 
 
-def test_held_names_still_come_first_and_the_cap_holds(monkeypatch):
+def test_held_names_still_come_first_then_the_chart_rated_name(monkeypatch):
     captured = _run_morning(monkeypatch, positions=[SimpleNamespace(symbol="zzzh", qty=3)])
     assert captured["held"] == ["ZZZH"]
     names = _per_symbol_names(captured)
     assert names[0] == "ZZZH"
     assert names[1] == CHART_BUY
-    # The provider's own cap still bounds what is fetched, whatever the caller passes.
-    provider = NewsDataProvider(per_symbol_max_symbols=NEWS_CAP)
+    provider = NewsDataProvider()
     calls: list[str] = []
     provider._fetch_feed = MagicMock(side_effect=lambda name, url, cutoff: calls.append(name) or [])
     provider.fetch_news(symbols=captured["held"] + captured["candidates"])
     fetched = [c for c in calls if c.startswith("Yahoo Finance (ZZZ")]
-    assert len(fetched) == NEWS_CAP
+    assert len(fetched) == len(set(["ZZZH"] + SCREENED))  # every shortlisted name, no cap
     assert fetched[:2] == ["Yahoo Finance (ZZZH)", f"Yahoo Finance ({CHART_BUY})"]
 
 

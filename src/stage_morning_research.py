@@ -216,11 +216,6 @@ class MorningResearchStage:
                 # Fails closed: no screened name this session, nothing else lost.
                 record_morning_fault(self, "screened_admission", exc)
                 ranked, screened_details = [], {}
-        # Names a non-technical thesis seat already backs (SEC Form-4
-        # admissions), captured before the screened names join
-        # ctx.admitted_symbols; the news seat's per-symbol slots go to
-        # chart-buy names outside this set first.
-        sec_admitted_symbols = set(ctx.admitted_symbols)
         effective_symbols = order_morning_symbols(
             self,
             ctx,
@@ -405,26 +400,21 @@ class MorningResearchStage:
         # news answer. Board item 152.
         news_symbols_asked: set[str] = set()
 
-        def _run_news(chart_buy_symbols=()):
-            # Per-symbol news selection. Runs AFTER the technical seat
-            # (2026-10-19 fix): the news seat's capped per-symbol list
-            # (news.per_symbol_max_symbols) is held positions first, then
-            # the names the chart seat just rated buy/strong_buy that no
-            # other thesis seat backs yet (not an SEC Form-4 admission),
-            # then the rest of this run's admitted candidates. Before this
-            # the list was held + admitted names in research order, chosen
-            # before the chart seat answered, so of ~100 screened names the
-            # 15 slots went to the top scores whatever the chart said, and a
-            # chart-buy name had no thesis seat for the conviction bar
-            # (16 Oct: 100 screened, 8 chart-buy, 0 ranked). Every list is in
-            # a stable, non-set order (broker snapshot order, then research
-            # order), so the selection is reproducible in the rehearsal rig.
+        def _run_news(chart_rated_symbols=()):
+            # Per-symbol news selection. Runs AFTER the technical seat. The
+            # news seat reads EVERY name on this run's shortlist — the same
+            # names the chart seat read (2026-10-19: a 15-name cap left 21
+            # chart buys with 8 news views). Order only sets who is fetched
+            # first: held positions, then names the chart seat rated buy OR
+            # sell (long and short treated alike), then the rest of the
+            # shortlist. Every list is in a stable, non-set order (broker
+            # snapshot order, then research order), so the selection is
+            # reproducible in the rehearsal rig.
             held = [str(getattr(p, "symbol", "")).strip().upper() for p in ctx.positions if getattr(p, "qty", 0)]
             held = [s for s in held if s]
-            chart_buys = set(chart_buy_symbols)
-            unbacked_buys = [s for s in effective_symbols if s in chart_buys and s not in sec_admitted_symbols]
-            admitted = [s for s in effective_symbols if s in ctx.admitted_symbols]
-            candidates = list(dict.fromkeys(unbacked_buys + admitted))
+            chart_rated = set(chart_rated_symbols)
+            rated = [s for s in effective_symbols if s in chart_rated]
+            candidates = list(dict.fromkeys(rated + list(effective_symbols)))
             # Board item 152: remember WHICH names this seat was asked about,
             # so that if its answer comes back unreadable the loss can be
             # filed per-stock rather than as a bare log line and a count.
@@ -596,20 +586,21 @@ class MorningResearchStage:
             earnings_future = ex.submit(copy_context().run, _load_earnings)
             smart_money_future = ex.submit(copy_context().run, _run_smart_money)
             # News waits for the chart seat (2026-10-19): its per-symbol
-            # names are chosen from the chart seat's buy/strong_buy reads.
+            # names are ordered by the chart seat's buy and sell reads.
             # Still ONE news call, overlapping whatever macro / earnings /
             # smart money are still doing. A failed chart seat falls back to
             # the held + admitted selection; its own error surfaces below.
             wait([tech_future])
-            chart_buy_symbols: list[str] = []
+            chart_rated_symbols: list[str] = []
             if tech_future.exception() is None:
                 tech_map = (tech_future.result() or ({}, None))[0] or {}
-                chart_buy_symbols = [
+                chart_rated_symbols = [
                     sym
                     for sym, analysis in tech_map.items()
-                    if analysis is not None and getattr(analysis, "rating", None) in ("buy", "strong_buy")
+                    if analysis is not None
+                    and getattr(analysis, "rating", None) in ("buy", "strong_buy", "sell", "strong_sell")
                 ]
-            news_future = ex.submit(copy_context().run, _run_news, chart_buy_symbols)
+            news_future = ex.submit(copy_context().run, _run_news, chart_rated_symbols)
 
         # How much of the watched set the pre-market Form 4 pass actually
         # read, per issuer. No network. The analyst's answer covers only the

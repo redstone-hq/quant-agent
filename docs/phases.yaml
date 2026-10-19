@@ -408,9 +408,9 @@ phases:
         sha: "0b6fc18cf7751ed00c9c4db5498f167a7ee38e31"
         note: "feat: scope Yahoo per-symbol news to held positions + admitted candidates"
       - kind: symbol_in_file
-        path: "src/config/__init__.py"
-        symbol: "per_symbol_max_symbols"
-        note: "per-company news config: maximum number of symbols to fetch per run"
+        path: "src/config/research.py"
+        symbol: "per_symbol_enabled"
+        note: "per-company news config: on/off switch; since 2026-10-19 every shortlisted name is read (no name cap)"
       - kind: symbol_in_file
         path: "src/data/news.py"
         symbol: "def fetch_news"
