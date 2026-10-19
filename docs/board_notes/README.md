@@ -24,7 +24,9 @@ resolver, so a genuine same-file collision still merges block by block.
 
 **Retiring an item.** Unchanged, except for where the heading lives: retitle
 the `## item N` heading *inside that item's own file* to
-`## item N — RETIRED <date>, <reason>`. Not "CLOSED", not left untouched. Keep
-the file; a retired item's prose is still the record of why it existed.
+`## item N — RETIRED <date>, <reason>`. Not "CLOSED", not left untouched. Then
+delete the file once nothing on the board points at it (2026-10-19): history
+lives in git and `docs/INCIDENT_HISTORY.md`, and a retired note left here is
+read as live doctrine by the next reader.
 
 **Per-item budget.** `docs/WORK.md` has a whole-file cap AND a per-item byte budget (the cap divided by a chosen allowance for open items — see `tests/test_status_board.py::test_every_work_md_item_stays_within_its_per_item_budget`); an item over it moves its prose into its file here and leaves a title plus a `detail: docs/board_notes/item-NNN.md` pointer behind.

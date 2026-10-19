@@ -252,3 +252,9 @@ That is a per-module change, not a per-number one, and it is the next pass's uni
 Nothing in the other two buckets was exempted either: adding an exemption is loosening the guard, and the guard has not
 been tightened, so no exemption is needed to keep trunk green. All 158 remain.
 
+## Folded 2026-10-19 from the retired note `backtest-ab-arbitrary-numbers` (measured 2026-10-04)
+
+- Of 124 `arbitrary` ledger rows, the deterministic backtester can reach only the `risk` / `trading` / `execution` rows it consumes: per-name and portfolio risk ceilings, cluster share, the absolute minimum stop multiple, level touches for stop honouring, target sanity checks (advisory) and the entry slippage estimate.
+- The first A/B was a NON-RESULT: with the risk budget never binding, varying those ceilings changed nothing, which is itself the finding.
+- Later the same day the non-binding-budget route was made settleable; the target horizon proved inert and the per-name risk envelope is the live dial.
+- No config default and no ledger row was changed by that work.

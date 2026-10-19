@@ -1041,3 +1041,8 @@ Fixed on `wt/rr-geometry`: the floor is applied once, to the stop that will
 actually ship, whichever rule placed it. The threshold did not move and no
 path became more permissive. Details and the full measurement are in spec
 §12.1b / §12.1c. **Not deployed.**
+
+## Folded board notes, 2026-10-19 (retired notes deleted; history in git)
+
+- Item 82 (measured 2026-10-04): `structural_ceiling` is NULL on every entry row because no fresh entry has executed since the write shipped (the only later rows are scale-ins, which do not re-measure); `stop_basis` is NULL because the stop resolver names the rule that placed each stop and then discards it — a recording gap, deliberately not fixed inside a split because widening `stop_rule` changes execution behaviour.
+- Item 199: `risk.min_stop_atr_multiple` (2.5) is unsourced; the remedy ranked first in OUTCOME is to read the unbacked-stop floor off the chart (measured noise), not to type another multiple.

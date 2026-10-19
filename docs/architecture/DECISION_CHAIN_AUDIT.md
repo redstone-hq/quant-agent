@@ -1,6 +1,6 @@
 # Decision-Chain Agent Audit — Findings and Decisions
 
-Status: **accepted — externally reviewed and merged via PR #30 on 2026-08-14**.
+Status: **accepted — externally reviewed and merged via PR #30 on 2026-08-14**. Historical: the 1.5 reward:risk floor named below was retired 2026-09-17 (reward:risk is no gate), and seat doctrine follows `docs/OUTCOME.md`, "The desk archetype: specialists, weighed, then one head trader" (owner, 2026-10-19).
 
 Covers the five findings the 2026-08-13 adversarial audit of the nine agent
 prompts deferred as "behaviour or data flow, hold for external architectural
