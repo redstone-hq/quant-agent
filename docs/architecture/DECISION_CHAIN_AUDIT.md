@@ -416,8 +416,8 @@ that trades before the 2026-10-12 open are not evidence. The deployment-gap
 claim and the over-caution claim were removed on 2026-10-15. The owner ruled
 on 2026-10-16 to remove the starter sleeve too; fast movers come through the
 velocity filter instead. The sleeve never placed an order on its own: the
-entry bar in `src/risk/conviction_bar.py` gives the Tech seat no weight in
-favour of a buy. `tests/test_pm_prompt_no_prefix_priors.py` pins that none
+entry bar in `src/risk/conviction_bar.py` requires the chart seat to confirm the
+direction and a name-level seat to support it. `tests/test_pm_prompt_no_prefix_priors.py` pins that none
 of it returns.
 
 ---

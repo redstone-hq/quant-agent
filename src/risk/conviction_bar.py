@@ -96,7 +96,7 @@ def _is_broadcast_macro_verdict(v: "AnalystVerdict") -> bool:
 
 def _chart_against_reason(seat_verdicts, opposed: str) -> str | None:
     if any(v.seat == "technical" and v.direction == opposed for v in seat_verdicts):
-        return f"{OWN_BAR_REASON_PREFIX} — technical opposed; chart hostile to the trade (right name, wrong time)"
+        return f"{OWN_BAR_REASON_PREFIX} — technical opposed; chart hostile to the trade"
     return None
 
 
@@ -112,7 +112,7 @@ def own_bar_block_reason(
 
       1. The chart CONFIRMS: a technical read is present and points the
          trade's way. Absent, neutral or opposed each refuse an ENTRY
-         ("right name, wrong time"); a holding is judged without timing
+         (the chart is the heaviest-weighted view); a holding is judged without timing
          (`own_bar_hold_reason`).
       2. At least one NAME-LEVEL seat (news, earnings, smart money) took a
          supported side the same way (`_has_supported_directional_thesis`).
@@ -211,7 +211,7 @@ def own_bar_hold_reason(
     direction: str,
 ) -> str | None:
     """The KEEP rule's definite part for a name the desk HOLDS: fails only
-    when the chart is against it. No timing confirmation and no catalyst is
+    when the chart is against it. No chart confirmation and no catalyst is
     needed to stay (a catalyst is entry-only; a quiet news seat never sells).
     The other half of the keep rule — every objection answered — is
     `unanswered_objections`, and an unanswered one goes to the reviewer."""

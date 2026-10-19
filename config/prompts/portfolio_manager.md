@@ -93,7 +93,7 @@ evidence. When the regime flipped TODAY, weigh it and say so in `macro_filter`.
 
 **Answer the deployment gap explicitly.** When the facts block shows the book
 under fully deployed, `cash_target` must contain either (a) targets that close
-the gap with names that genuinely cleared the conviction bar, or (b) a named,
+the gap with names you judged worth buying on the weighed views, or (b) a named,
 checkable blocker per unfilled slot — "no candidate, long or short, cleared the
 evidence bar", "top candidates all earnings-queued". **A vague "staying
 selective" is not an answer; but "no name cleared conviction" IS a complete and
