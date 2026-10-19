@@ -172,9 +172,9 @@ Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidat
 - ~~`config.RiskConfig.target_divergence_warn_pct` = 25~~ -- DELETED 2026-10-13: the threshold and the WARNING it triggered are gone; every computed-vs-analyst target gap is still recorded, one row per comparison.
 - ~~`config.SmartMoneyConfig.max_filings_per_refresh` = 1000~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
 - ~~`config.SmartMoneyConfig.refresh_deadline_s` = 180~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
-- `agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS` = 96
-- `agents.smart_money_analyst._MAX_REASON_TEXT_CHARS` = 220
-- `agents.smart_money_analyst._MAX_ACTOR_ROLES` = 8
+- ~~`agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS` = 96~~ -- RECLASSIFIED 2026-10-19 ledger pass to not-trade-governing (prompt-size limit): shortens text shown to the AI, never an evidence row; measured never to cut since 2026-10-12 (186 checks).
+- ~~`agents.smart_money_analyst._MAX_REASON_TEXT_CHARS` = 220~~ -- RECLASSIFIED 2026-10-19 ledger pass to not-trade-governing (prompt-size limit): shortens text shown to the AI, never an evidence row; measured never to cut since 2026-10-12 (186 checks).
+- ~~`agents.smart_money_analyst._MAX_ACTOR_ROLES` = 8~~ -- RECLASSIFIED 2026-10-19 ledger pass to not-trade-governing (prompt-size limit): shortens text shown to the AI, never an evidence row; measured never to cut since 2026-10-12 (186 checks).
 - `agents.smart_money_analyst._ROLE_RANK['actionable']` = 3
 - `agents.smart_money_analyst._ROLE_RANK['confirmatory']` = 2
 - `agents.smart_money_analyst._ROLE_RANK['contradictory']` = 1

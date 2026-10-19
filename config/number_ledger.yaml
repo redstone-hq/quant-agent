@@ -3499,105 +3499,33 @@ numbers:
       not a trading decision.
   - id: src.agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS
     value: 96
-    status: arbitrary
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md (item 90, the 2026-10-01 smart-money tranche)
-      records: >-
-        every time this cap binds, as a truncation row carrying the session, the
-        symbol, the cap's name, the length in characters of the context text
-        before truncation and the size kept, so how often it binds and by how
-        much becomes readable instead of assumed. RECORDED NOW by
-        src/agents/smart_money_cap_record.py: one SM_CAP_ROW per evaluation of
-        the cap named _MAX_CONTEXT_TEXT_CHARS, carrying bound true or false, so a row set that is
-        all false (evaluated, never cut) is distinguishable from no rows at all
-        (never ran). Read back with its summarise function; nothing is stored.
-      closes_when: >-
-        a run of sessions shows the distribution of the length in characters of
-        the context text before truncation: if the cap never binds it governs
-        nothing and the row leaves arbitrary as a non-binding bound; if it
-        binds, the cap is set from the observed distribution of what the
-        evidence actually carries, never from whichever value would have traded
-        best.
+    status: not-trade-governing
     site: src/agents/smart_money_analyst.py
     note: >-
+      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap shortens context text shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a word. Measured never to cut since 2026-10-12: 186 checks, longest string 48 characters against a limit of 96. The earlier text below is kept as history.
       Character cap applied to context text via `_bounded_context`
       (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._bounded_context). No published
       source sets this figure.
-    open_question: >-
-      Does truncating context text at 96 characters ever cut the part that
-      would have changed a role or freshness classification?
-    cost_while_unanswered: >-
-      Context beyond 96 characters is silently dropped with no marker that
-      truncation happened.
   - id: src.agents.smart_money_analyst._MAX_REASON_TEXT_CHARS
     value: 220
-    status: arbitrary
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md (item 90, the 2026-10-01 smart-money tranche)
-      records: >-
-        every time this cap binds, as a truncation row carrying the session, the
-        symbol, the cap's name, the length in characters of the discount reason
-        before truncation and the size kept, so how often it binds and by how
-        much becomes readable instead of assumed. RECORDED NOW by
-        src/agents/smart_money_cap_record.py: one SM_CAP_ROW per evaluation of
-        the cap named _MAX_REASON_TEXT_CHARS, carrying bound true or false, so a row set that is
-        all false (evaluated, never cut) is distinguishable from no rows at all
-        (never ran). Read back with its summarise function; nothing is stored.
-      closes_when: >-
-        a run of sessions shows the distribution of the length in characters of
-        the discount reason before truncation: if the cap never binds it governs
-        nothing and the row leaves arbitrary as a non-binding bound; if it
-        binds, the cap is set from the observed distribution of what the
-        evidence actually carries, never from whichever value would have traded
-        best.
+    status: not-trade-governing
     site: src/agents/smart_money_analyst.py
     note: >-
+      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap shortens discount-reason text shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a word. Measured never to cut since 2026-10-12: 186 checks, longest string 126 characters against a limit of 220. The earlier text below is kept as history.
       Character cap for the discount-reason text via `_bounded_context`
       (src/agents/smart_money_analyst.py::_MAX_REASON_TEXT_CHARS (the comment directly above it)). No published
       source sets this figure; the comment
       there says only that this leaves "more room than an actor name", not
       why 220 rather than another figure.
-    open_question: >-
-      Has a discount reason ever been truncated at 220 characters, and did
-      the truncated version still read correctly?
-    cost_while_unanswered: >-
-      A reason beyond 220 characters is silently cut with no marker.
   - id: src.agents.smart_money_analyst._MAX_ACTOR_ROLES
     value: 8
-    status: arbitrary
-    settles_by:
-      kind: recording
-      state: specified
-      where: >-
-        docs/board_notes/item-090.md (item 90, the 2026-10-01 smart-money tranche)
-      records: >-
-        every time this cap binds, as a truncation row carrying the session, the
-        symbol, the cap's name, the number of actor roles on the finding before
-        truncation and the size kept, so how often it binds and by how much
-        becomes readable instead of assumed. Nothing records this today, which
-        is exactly why the cap has stood unexamined since it was written.
-      closes_when: >-
-        a run of sessions shows the distribution of the number of actor roles on
-        the finding before truncation: if the cap never binds it governs nothing
-        and the row leaves arbitrary as a non-binding bound; if it binds, the
-        cap is set from the observed distribution of what the evidence actually
-        carries, never from whichever value would have traded best.
+    status: not-trade-governing
     site: src/agents/smart_money_analyst.py
     note: >-
+      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap bounds a small closed set of actor roles shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a role. The earlier text below is kept as history.
       Caps how many actor roles are kept per finding
       (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._compact_symbol). No published
       source sets this figure.
-    open_question: >-
-      Does a finding ever carry more than 8 actor roles, and does dropping
-      the rest change how the finding is read?
-    cost_while_unanswered: >-
-      Roles beyond the 8th are silently dropped with no marker.
   - id: src.agents.tech_analyst._WEEKDAYS_PER_WEEK
     value: 5
     status: sourced

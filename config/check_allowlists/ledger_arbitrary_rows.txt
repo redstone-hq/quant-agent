@@ -1,9 +1,6 @@
 # Ledger rows whose status is `arbitrary` (identity = row id).
 # Shrink-only: delete an entry when it no longer qualifies (stale entries fail).
 # A new entry needs a Guard-rule-change line in the commit message.
-src.agents.smart_money_analyst._MAX_ACTOR_ROLES
-src.agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS
-src.agents.smart_money_analyst._MAX_REASON_TEXT_CHARS
 src.agents.tech_analyst._BARS_PER_SYMBOL
 src.config.ExecutionConfig.max_entry_slippage_bps
 src.config.NominationConfig.max_per_seat_per_run
