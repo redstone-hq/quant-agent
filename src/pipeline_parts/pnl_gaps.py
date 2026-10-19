@@ -187,8 +187,15 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
     2026-10-19: the screened names the morning admits (see
     `_screened_morning_symbols`) are checked too, so a new filing for one
     is analysed before the open instead of being downloaded and left
-    unread (ASAN's 10-Q, 16 Oct). Only NEW filings are analysed, so the
-    added cost is bounded by how many of those names filed overnight.
+    unread (ASAN's 10-Q, 16 Oct). Only NEW filings are analysed, but "new"
+    means first downloaded here within the provider's lookback window, not
+    filed overnight: a name first checked today can bring a weeks-old
+    filing (AVO/ZUMZ/LSAK read 8-10 Sep filings on 19 Oct). Those are
+    flagged as catch-up reads (`EarningsReport.catch_up_read`).
+
+    2026-10-19: the Form-4 names come from the morning's own admission rule
+    (`_admit_transient_smart_money_symbols`), not a looser copy, and every
+    broker holding is always checked so the keep rule gets a fresh read.
     """
     configured = [
         str(symbol).strip().upper() for symbol in (pipeline.config.trading.universe or []) if str(symbol).strip()
@@ -200,12 +207,19 @@ def _earnings_preprocess_symbols(pipeline) -> list[str]:
             "Earnings preprocess: adding %d screened morning symbol(s) to the filing check",
             len(screened),
         )
-    return list(dict.fromkeys(base + screened))
+    held = [str(getattr(p, "symbol", "") or "").strip().upper() for p in pipeline.broker.get_positions() or []]
+    return list(dict.fromkeys(base + screened + [s for s in held if s]))
 
 
 def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
-    """Configured universe plus Form-4 admission-eligible names (the pre-2026-10-19 list, unchanged)."""
-    hot: list[str] = []
+    """Configured universe plus the Form-4 names the morning itself would admit.
+
+    Calls the morning's own rule, `pipeline.admission._admit_transient_smart_money_symbols`
+    (purchase code "P", provider eligibility, current disclosure,
+    `max_external_candidates`, broker and market-quality gates) on the same
+    provider read the morning makes. It only returns its result; nothing
+    is written to the morning's run state.
+    """
     try:
         if not getattr(pipeline.config.smart_money, "enabled", False):
             return configured
@@ -213,24 +227,20 @@ def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
         if provider is None or not hasattr(provider, "fetch"):
             return configured
         observations, _err = provider.fetch(configured)
-        seen = set(configured)
-        for item in observations or []:
-            if not bool(getattr(item, "admission_eligible", False)):
-                continue
-            symbol = str(getattr(item, "symbol", "") or "").strip().upper()
-            if not symbol or symbol in seen:
-                continue
-            seen.add(symbol)
-            hot.append(symbol)
+        if not observations:
+            return configured
+        admitted, _details = pipeline.admission._admit_transient_smart_money_symbols(observations)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Earnings preprocess: hot-admit symbol union failed (%s) — falling back to the configured universe",
+            "Earnings preprocess: Form-4 admission failed (%s) — falling back to the configured universe",
             exc,
         )
         return configured
+    seen = set(configured)
+    hot = sorted({str(symbol).strip().upper() for symbol in admitted or ()} - seen - {""})
     if hot:
         logger.info(
-            "Earnings preprocess: adding %d Form-4 admission-eligible symbol(s) to the filing check: %s",
+            "Earnings preprocess: adding %d Form-4 admitted symbol(s) to the filing check: %s",
             len(hot),
             ", ".join(hot),
         )

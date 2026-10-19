@@ -91,6 +91,33 @@ class EarningsReport:
     # latest periodic report, and this is the latest legal filing date of the
     # next one (`periodic_report_current_until`). "" = unknown = stale.
     current_until: str = ""
+    # True when this run is the first read of a filing filed BEFORE the
+    # overnight window (see `is_catch_up_read`). "New" only means first
+    # downloaded within `lookback_days`, so a name first checked today can
+    # bring a weeks-old filing (AVO/ZUMZ/LSAK, 8-10 Sep filings read on
+    # 19 Oct); this keeps it from being shown as overnight news.
+    catch_up_read: bool = False
+
+    def evidence_fields(self) -> dict:
+        """Structured read facts that travel with the analysis to the seat and the owner message."""
+        return {
+            "filing_date": self.filing_date,
+            "first_read_today": bool(self.is_new),
+            "catch_up_read": bool(self.catch_up_read),
+        }
+
+
+def is_catch_up_read(filing_date: str, today: date) -> bool:
+    """A filing dated before the previous weekday is not overnight news.
+
+    The overnight window opens on the previous weekday (Monday's opens on
+    Friday). Holidays are not skipped, so a filing from the last session
+    before a holiday reads as catch-up — the cautious side.
+    """
+    prior = today - timedelta(days=1)
+    while prior.weekday() >= 5:
+        prior -= timedelta(days=1)
+    return str(filing_date) < prior.isoformat()
 
 
 class EarningsDataProvider:
@@ -410,6 +437,7 @@ class EarningsDataProvider:
             is_new=True,
             xbrl_facts=xbrl_comparable_values(xbrl_raw),
             current_until=current_until,
+            catch_up_read=is_catch_up_read(latest.filing_date, et_today()),
         )
 
     def _lookup_cik(self, symbol: str) -> tuple[str | None, bool]:
