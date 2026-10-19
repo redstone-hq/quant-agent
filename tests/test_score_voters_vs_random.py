@@ -134,10 +134,12 @@ def test_load_votes_reads_both_directions_and_each_seats_own_list():
         ("x", "seat_stance", "ZZZ02", '{"seat":"news","stance":"underweight","conviction":"high"}'),
     ]
     conn.executemany("INSERT INTO specialist_evidence VALUES (?,?,?,?,?)", [(ts, a, k, s, j) for a, k, s, j in ev])
+    conn.execute("INSERT INTO trades VALUES (?,?,?,?)", (ts, "ZZZ02", "BUY", "filled"))
     shown, picks, source = svr.load_votes(conn, since="2026-10-12")
     day = "2026-10-13"
     assert shown[day]["tech_analyst"] == {"ZZZ01", "ZZZ02", "ZZZ03"}
+    assert shown[day][svr.COMBINED] == {"ZZZ01", "ZZZ02", "ZZZ03"}
     assert shown[day]["seat_news"] == {"ZZZ01", "ZZZ02"}
     assert picks[day]["tech_analyst"] == {"ZZZ01": (-1, "high"), "ZZZ02": (1, "low")}
     assert picks[day]["seat_news"] == {"ZZZ01": (-1, "medium"), "ZZZ02": (-1, "high")}
-    assert source[svr.COMBINED].startswith("NOT RECORDED")
+    assert not source[svr.COMBINED].startswith("NOT RECORDED")

@@ -42,8 +42,9 @@ def load_votes(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> tupl
     Returns `(shown, picks, list_source)`:
     - `shown[day][voter]`: the stocks THAT voter answered about. The technical
       analyst: every symbol it rated. A decision seat: every symbol it recorded
-      a stance on (the seat's shown list itself is not recorded). `combined_buys`
-      has no recorded list, so it is absent and reported as such.
+      a stance on (the seat's shown list itself is not recorded). `combined_buys`:
+      the technical analyst's rated list that session, since nothing is bought
+      without a chart reading (docs/OUTCOME.md, the desk archetype).
     - `picks[day][voter]`: `{symbol: (side, conviction)}`; side +1 for a buy
       stance, -1 for a sell stance (short pick). Neutral stances are not picks.
       `conviction` is the seat's recorded `conviction`, or None if it records none.
@@ -53,7 +54,7 @@ def load_votes(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> tupl
     picks: dict[str, dict[str, dict[str, tuple[int, str | None]]]] = {}
     list_source = {
         "tech_analyst": "every symbol the technical analyst rated that session",
-        COMBINED: "NOT RECORDED: the desk's candidate list is not stored, so no like-for-like grading",
+        COMBINED: "the technical analyst's rated list that session (nothing is bought without a chart reading)",
     }
 
     def side_of(stance: str) -> int:
@@ -98,6 +99,9 @@ def load_votes(conn: sqlite3.Connection, since: str = EVIDENCE_FROM_UTC) -> tupl
         (since,),
     ):
         picks.setdefault(day, {}).setdefault(COMBINED, {})[sym] = (1, None)
+    for day, by_voter in picks.items():
+        if COMBINED in by_voter:
+            shown.setdefault(day, {})[COMBINED] = set(shown.get(day, {}).get("tech_analyst", set()))
     return shown, picks, list_source
 
 

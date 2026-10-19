@@ -10,8 +10,9 @@ For every session since the clean-record start (2026-10-12 13:30 UTC):
   the stocks THAT voter answered about that session, never a union list.
   Technical analyst: every symbol it rated. A decision seat: every symbol it
   recorded a stance on (the list it was shown is not stored, so this is the
-  answered list and the output says so). `combined_buys`: the desk's candidate
-  list is not stored, so it is **not graded** and the output says "NOT RECORDED".
+  answered list and the output says so). `combined_buys`: graded on the
+  technical analyst's rated list that session, because nothing is bought
+  without a chart reading (the desk archetype in docs/OUTCOME.md).
 - **Voters and directions** — the technical analyst's rating, each decision
   seat's recorded stance (`seat_technical`, `seat_macro`, `seat_earnings`,
   `seat_news`, `seat_smart_money`) and `combined_buys` (filled BUY trades). The
