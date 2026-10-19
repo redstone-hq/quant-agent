@@ -332,7 +332,10 @@ The distinction to apply:
   * **READING** — the number comes from what is in front of you right now and
     is re-read every session, so a regime change UPDATES it rather than
     invalidating it. This stock's ATR today. This chart's levels today. This
-    trade's own pinned horizon. All acceptable.
+    trade's own pinned horizon. Seat weights read from each seat's record
+    against chance over a rolling window, re-measured every session and shrunk
+    to the group average when the record is thin, are a READING (desk
+    archetype, step 3). All acceptable.
   * **FITTING** — the number is calibrated from what happened before, then
     held fixed. **Not acceptable, and no amount of backtesting makes it so.**
 

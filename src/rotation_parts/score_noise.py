@@ -78,7 +78,7 @@ def evidence_key(candidate) -> str:
     to be stable across, not news. `""` when the candidate carries nothing.
 
     `score_basis` names how the score itself was computed. Seat weights were
-    deleted on 2026-10-15 (n06, every seat now counts equally), so a row
+    deleted on 2026-10-15 (n06, every seat counts equally until measured records replace it), so a row
     scored under the old weights carries no basis and a new row carries
     `SCORE_BASIS`; the two keys can never be identical, so an old score is
     never paired with a new one and the brake restarts its measurement.

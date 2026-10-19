@@ -353,7 +353,7 @@ def test_protection_check_failure_fails_closed(tmp_path):
 # Board item 39 — the cull walk does not give up on the first protected name
 # ---------------------------------------------------------------------------
 
-_CHART_AGAINST = "R7 conviction bar — technical opposed; chart hostile to the trade (right name, wrong time)"
+_CHART_AGAINST = "R7 conviction bar — technical opposed; chart hostile to the trade"
 WORST_REASONS = ("R2 rating below bar", _CHART_AGAINST)
 NEXT_REASONS = (_CHART_AGAINST,)
 MULTI_HISTORY = {

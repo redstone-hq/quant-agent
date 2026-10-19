@@ -3,7 +3,7 @@
 Mandate (verbatim intent):
   * The TECHNICAL (chart) seat is a TIMING VETO, not a weighted yes-vote. A
     broken/hostile chart blocks ENTRY even when the fundamental thesis is
-    strong ("right name, wrong time"). Technical adds no positive weight; it
+    strong. Technical adds no positive weight; it
     only GATES.
   * The own-bar clears only when at least one NON-technical seat took a
     SUPPORTED DIRECTIONAL side (a real directional call backed by evidence and
@@ -121,7 +121,7 @@ def test_clears_when_technical_confirms_one_supportive_thesis_none_opposed():
 def test_vlo_all_medium_two_supportive_but_no_technical_read_is_refused():
     """The VLO 2026-09-24 shape: two fundamental seats agree at MEDIUM, none
     opposed, but there is NO confirming technical read this review -> timing
-    cannot be confirmed, so the name is refused (right name, wrong time)."""
+    cannot be confirmed, so the name is refused."""
     verdicts = [_v("news"), _v("macro")]  # no technical seat at all
     reason = own_bar_block_reason(verdicts, direction="bullish")
     assert reason is not None
@@ -131,8 +131,7 @@ def test_vlo_all_medium_two_supportive_but_no_technical_read_is_refused():
 
 def test_strong_fundamental_but_broken_chart_is_refused():
     """A genuinely convinced fundamental seat with a specific thesis, but the
-    chart is HOSTILE (technical bearish) -> Technical timing veto. Right name,
-    wrong time."""
+    chart is HOSTILE (technical bearish) -> The chart is the heaviest-weighted view, so the entry is refused."""
     verdicts = [
         _v("news", conviction="high"),
         _v("earnings", conviction="high"),

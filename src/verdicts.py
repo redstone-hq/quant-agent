@@ -37,8 +37,9 @@ No min-max normalisation across the candidate set: the input is absolute,
 so a candidate's score does not move when a different peer joins the list —
 which is what makes the order reproducible from the verdicts alone.
 
-**Every seat counts equally (n06, 2026-10-15; replaces the 2026-09-03
-per-seat prior).** The score is a SUM across seats, and it is only ever
+**Every seat counts equally until each seat's measured record against chance
+replaces it (n06, 2026-10-15; replaces the 2026-09-03 per-seat prior).** The
+score is a SUM across seats, and it is only ever
 used by ORDER (which name ranks first) and by GAPS between two sums (the
 rotation margin). Multiplying every seat by one common number changes
 neither, so the only information a per-seat weight can carry is the RATIO

@@ -241,7 +241,7 @@ Counted, not inherited: `{'sourced_or_measured': 88, 'ratified_bound': 1,
 `MAX_ARBITRARY_ENTRIES` moves 135 -> 134 and `MAX_ROUTELESS_ARBITRARY` 24 -> 0,
 each with its own delta line in its history file.
 
-**The four seat weights, which are the shape that fooled an earlier tranche.**
+**DELETED 2026-10-15; kept as the record of why they were removed. Weights now come only from each seat's measured record (OUTCOME, desk archetype).** The four seat weights, which are the shape that fooled an earlier tranche.**
 `src/verdicts.py::rank_verdicts` builds `[seat_weight(v.seat) for v in group]` and
 uses those weights in weighted means of magnitude, conviction and reward-to-risk,
 which are then summed into one score compared ACROSS candidates. That is the
