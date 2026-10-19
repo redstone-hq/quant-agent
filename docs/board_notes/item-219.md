@@ -40,6 +40,8 @@ seat's opposition is now enough to put a position up to be sold. That
 collides with the standing ruling "exit on ALIGNMENT, never on a target",
 which exists precisely so that one indicator cannot close a position.
 
+> SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): a holding is kept while the chart is not against it and every written objection is answered; an opposing seat is an objection the head trader answers, not a sale trigger. The paragraph below records the 2026-10-01 reasoning and the code as built.
+
 **The answer, and the decision.** It ships. The owner's standing doctrine
 is that all five seats must be right to ENTER and to STAY; a holding that
 fails the fresh-entry bar has lost that, and the owner ruled explicitly on

@@ -2,7 +2,7 @@
 
 **Author:** Claude (Opus 5), with Rex Redstone
 **Date:** 2026-08-27
-**Status:** Owner-ratified. This document supersedes conflicting statements in `docs/OUTCOME.md`, `docs/STATE.md`, and `docs/WORK.md`.
+**Status:** Owner-ratified 2026-08-27; historical plan. Since 2026-10-19 the seat doctrine in `docs/OUTCOME.md`, "The desk archetype: specialists, weighed, then one head trader" (owner, 2026-10-19) governs, and where this document counts seats, sums equal votes, reads a net sign as the rule, or has specialists debate, the archetype wins.
 
 ---
 
@@ -348,6 +348,8 @@ and analysis. If something has high conviction or strong candidacy it should
 be debated amongst all the agents. We're trying to create a trading desk with
 synergy, not a technical analysis trade bot."*
 
+> Refined 2026-10-19 by the desk archetype (OUTCOME): specialists do not debate freely among themselves; disagreement goes to the head trader, who answers the strongest dissent in writing.
+
 ### What the system does today
 
 Evidence from the 2026-08-27 morning run. Ten Portfolio Manager targets,
@@ -410,6 +412,8 @@ target carrying a `conflicts` provenance entry with no corresponding
 adjudication should fail grounding, the same way an unsourced claim does.
 
 ### 9.4 — Conviction is agreement, not a technical rating
+
+> SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): views are weighed by each seat's measured record (equal to start, James-Stein shrinkage to the group mean), not counted; no net sign refuses a trade; the head trader decides and risk alone may veto; risk sizes from volatility and limits. The equal-vote tally below describes the code as it stood and is kept as history while the code is replaced.
 
 The mandate is **breadth × consistency × asymmetry**. Sizing should follow the
 number of *independent* sources that agree, not the strength of one seat's
@@ -1166,7 +1170,7 @@ and is named *filter*. For an LLM reading top-to-bottom that is an instruction
 to eliminate before considering, and on 2026-09-01 it did exactly that.
 
 - Technical, news, earnings and smart-money **select** what to trade.
-- Macro **sizes**: it sets total and net exposure, nothing else.
+- Macro **sizes**: it sets total and net exposure, nothing else. (Aligned 2026-10-19 with the desk archetype: macro is the backdrop that tilts size and direction and rarely blocks a name.)
 
 A bullish macro call must not be able to suppress a qualified short. Under this
 split there is no conflict to resolve: a bullish macro keeps the book net long
@@ -2473,7 +2477,7 @@ real papers not impression) found:
   "Regime matters for returns" is well supported; "this seat's specific
   turning-point calls are reliable" has no such support.
 
-Applied as modest, bounded multipliers in `src/verdicts.py::SEAT_WEIGHT`:
+Applied (until deleted 2026-10-15; weights now come only from each seat's measured record, see OUTCOME desk archetype) as modest, bounded multipliers in `src/verdicts.py::SEAT_WEIGHT`:
 technical 1.2, earnings 1.2, news 1.0, smart_money 0.8, macro 0.8. No source
 handed over an exact cross-category ratio — only a real, sourced ranking —
 so these are deliberately modest, not aggressive.

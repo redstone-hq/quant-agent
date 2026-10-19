@@ -1,7 +1,9 @@
 # QAMC Rebuild Specification — required behaviour, derived from owner rulings
 
 **Status: compiled 2026-10-01 from the repository's own record. The code is being
-discarded; this document is what must survive it.**
+discarded; this document is what must survive it.** Seat doctrine superseded
+2026-10-19: wherever a row below counts seats, lets one seat halt, or bars a
+sole backer, the governing rule is `docs/OUTCOME.md`, "The desk archetype: specialists, weighed, then one head trader" (owner, 2026-10-19). Rows marked SUPERSEDED are kept only so the citation trail stays readable.
 
 Every requirement below is numbered and traceable. The citation column names
 the document and the dated entry (or board item) it was taken from, never a
@@ -38,21 +40,21 @@ and their derivations) > `docs/WORK.md` (open board).
 
 | # | Requirement | Owner words / source | Cite |
 |---|---|---|---|
-| 1.1 | No single seat may green-light a name. Entry requires multi-seat agreement. | *"Nothing can green light a name on its own. This is a trading desk with multiple agents. This isn't one guy in a room."* (2026-09-25) | board_notes item-109 |
-| 1.2 | All five analyst seats (technical, news, earnings, macro, smart-money/insider) must be right for a name to ENTER and to STAY. | *"all five seats must be right to ENTER and to STAY"* — recorded as the owner's standing doctrine in the adversary review | board_notes item-219, adversary review |
-| 1.3 | Only the technical (chart) seat may stop the desk from acting on a name; the other four inform but cannot halt. | *"only technical analysis can stop the desk"* (2026-09-18) | board_notes item-020 |
+| 1.1 | SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): views are weighed by measured record and one head trader decides; there is no green-light or agreement count. Historical text: no single seat may green-light a name; entry requires multi-seat agreement. | *"Nothing can green light a name on its own. This is a trading desk with multiple agents. This isn't one guy in a room."* (2026-09-25) | board_notes item-109 |
+| 1.2 | SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): a holding is kept while the chart is not against it and every written objection is answered; an opposing seat is a written objection the head trader must answer, not a block. Historical text: all five seats must be right to ENTER and to STAY. | *"all five seats must be right to ENTER and to STAY"* — recorded as the owner's standing doctrine in the adversary review | board_notes item-219, adversary review |
+| 1.3 | SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): the chart carries the most weight but halts nothing alone; only the independent risk seat can shrink or veto. Historical text: only the technical seat may stop the desk. | *"only technical analysis can stop the desk"* (2026-09-18) | board_notes item-020 |
 | 1.4 | Macro is one weighted data point per name, sign-symmetric (helps a long or a short equally), weighted by its MEASURED strength; it is never a standalone go/no-go. | *"Macro means macro. It is one data point. Depending on how strong the data point is — like a black swan, or war, or calamity — the data point should be weighted."* · *"I don't understand why long or short would matter. It's a data point... it can be measured and weighted depending on if it's positive or negative."* (2026-09-25) | board_notes item-109 |
 | 1.5 | Conviction outranks balance. The desk never buys or sizes UP to diversify, to balance sectors, to improve "the shape of the book", or to use spare borrowing room. Undeployed margin is an acceptable outcome when nothing clears the bar. | [paraphrase; ruling 2026-09-25] | INCIDENT_HISTORY 2026-09-25 "conviction outranks balance" |
 | 1.6 | Every seat must state, at the moment of its call, what would prove it wrong (a falsifiable invalidation). "I don't know / insufficient data" is a first-class recordable answer; a schema with no way to say it "is asking to be lied to". | owner decision 2026-09-12 | OUTCOME, "An unverifiable number must never rank or size"; board_notes item-099 |
 | 1.7 | Missing required data is a defect in the step that should have produced it. Never invent the value; never make skip/drop/continue the permanent product. Refusing the name with a durable reason is last resort. | owner standing rule 2026-09-17 | OUTCOME, "Missing data is a defect" |
 | 1.8 | Anything that ranks or sizes a trade must be computed by the desk from the instrument (price, volatility, levels). A number a model asserts and nothing can check may explain, never compete for capital. | owner decision 2026-09-12 | OUTCOME, "An unverifiable number must never rank or size" |
 | 1.9 | Reward:risk is NOT an entry gate and NOT a score input. A preset target is a made-up number, so a ratio built on it may at most break ties within a tier. A breakout is not measured on reward:risk at all. | invented reward:risk floors retired by owner 2026-09-17; decision 2026-10-01 | OUTCOME "Exits, specifically"; INCIDENT_HISTORY 2026-10-01 item 208(a); SAFETY_BOUNDARIES |
-| 1.10 | Per-seat sizing weights are refused; agreement counting is one seat = one vote. The "agreement sizing ladder" (shrinking size by number of agreeing seats) was retired because the seats read overlapping information and are not independent. | decision 2026-09-14 | INCIDENT_HISTORY 2026-09-14 "agreement sizing ladder RETIRED" |
+| 1.10 | SUPERSEDED 2026-10-19 by the desk archetype (OUTCOME): views are weighed, not counted, with weights from each seat's measured record (James-Stein shrinkage to the group mean, starting equal); risk sizes from volatility and limits. Historical text: per-seat sizing weights refused; one seat = one vote. The "agreement sizing ladder" (shrinking size by number of agreeing seats) was retired because the seats read overlapping information and are not independent. | decision 2026-09-14 | INCIDENT_HISTORY 2026-09-14 "agreement sizing ladder RETIRED" |
 | 1.11 | A "three strikes" rule refusing repeat ideas is refused; conversion rate measured the desk's own plumbing, not the stocks. | decision 2026-09-14 | INCIDENT_HISTORY 2026-09-14 item 10 |
 | 1.12 | An entry order is a limit (a ceiling, not a price). A displayed quote through the ceiling is a fact about the feed, not a decision about the trade; no "price ran away by X%" skip rule. | decision 2026-09-30 | INCIDENT_HISTORY 2026-09-30 item 183 |
 | 1.13 | A stop may claim to be "level-backed" only when the level's measured zone is strictly narrower than the trade's own stop distance. | owner ruling 2026-10-01 | INCIDENT_HISTORY 2026-10-01 top entry |
 
-`GAP 1.A` — A role-based conviction bar ("technical = timing veto; own bar = at least one seat with a specific falsifiable thesis and no seat opposed") is referenced in the orchestrator's session memory as ruled 2026-09-25, but NO record of that ruling was found in `docs/`. Board item 109 records the resulting conflict as OPEN (see 9.3). Re-confirm before building.
+`GAP 1.A` — CLOSED 2026-10-19: the 25 Sep role-based conviction bar ("technical = timing veto; no seat opposed") is superseded by the desk archetype in OUTCOME and must not be built.
 
 `GAP 1.B` — A ruling to refuse a buy whose reward-to-risk is bad (2026-10-01, "parity, trial, must record every refusal") is referenced in session memory only; no repository record found. It would sit in tension with 1.9. Re-confirm before building.
 
@@ -218,10 +220,10 @@ rebuild, not a requirement.
 
 | # | Inherited assumption | Why it is suspect | Cite |
 |---|---|---|---|
-| U1 | Five analyst seats exactly (technical, news, earnings, macro, smart-money), one vote each at hard +/-1. | Count is a product of what was built; no ruling fixes it. | board_notes item-109 |
-| U2 | Net-evidence gate: a name is refused below net +1 and net evidence caps size. | Decided by orchestrator 2026-10-01, not owner-ruled. | INCIDENT_HISTORY 2026-10-01 item 208(a) |
+| U1 | Five analyst seats exactly (technical, news, earnings, macro, smart-money), one vote each at hard +/-1. SUPERSEDED 2026-10-19: each seat states a view and how sure it is (or "I don't know"), weighed by measured record, never a hard vote (OUTCOME, desk archetype). | Count is a product of what was built; no ruling fixes it. | board_notes item-109 |
+| U2 | Net-evidence gate: a name is refused below net +1 and net evidence caps size. SUPERSEDED 2026-10-19: no net-vote gate; the head trader decides on weighed views and risk alone may veto (OUTCOME, desk archetype). | Decided by orchestrator 2026-10-01, not owner-ruled. | INCIDENT_HISTORY 2026-10-01 item 208(a) |
 | U3 | Seat weights in the ranking composite. | Published weights, unverified; 70% of technical reads land on one score so ranking fell to alphabetical. | board_notes item-157 (per memory); WORK item 141 |
-| U4 | Only technical, among the four non-technical seats, is barred from being a sole backer; news, earnings or smart-money can still carry a name alone, and news/smart-money synthesise their invalidation. | Open conflict with 1.1 (see 9.3). | board_notes item-109 |
+| U4 | Sole-backer rules of any kind. SUPERSEDED 2026-10-19: weighed views and the head trader's written decision replace them (OUTCOME, desk archetype). | board_notes item-109 |
 | U5 | Six scheduled sessions per day (morning, half-hourly intra-check, midday, close, evening, earnings pre-process) at fixed clock ticks. | Schedule is an artefact; 2.1 demands the bar be tested "multiple times a day" but fixes no count. | WORK; board_notes item-219 |
 | U6 | Reward:risk tiebreak within a rank tier. **Removed from the live build 2026-10-10** (owner ruling 9 Oct); ties now fall to level touches, then symbol; the ratio is still recorded. | Rests on a target, which the owner ruled is a made-up number. | INCIDENT_HISTORY 2026-10-01 item 208(a) |
 | U7 | Entry orders cancelled after 90 seconds unfilled. | No source; alert on cancel is conditional. | INCIDENT_HISTORY 2026-09-30 item 183 |
@@ -242,9 +244,9 @@ rebuild, not a requirement.
 |---|---|---|---|
 | 9.1 | 100% invested, idle cash is a cost (2026-09-17). | Conviction outranks balance; undeployed margin acceptable (2026-09-25). | Later subordinates earlier: deploy fully INTO conviction only. 3.10 reads with 1.5. |
 | 9.2 | Board item 75: send a profit target to the broker, allow profit-taking as a sell reason. | Exit on alignment, never on a target (2026-09-30). | Item 75 retired unbuilt; building it is now the defect. |
-| 9.3 | "Nothing can green light a name on its own" (2026-09-25). | Same-day build excludes only technical from sole backing. | OPEN conflict, recorded on item 109 as unsettled. Rebuild must decide; the owner's words favour no sole backer of any kind. |
+| 9.3 | "Nothing can green light a name on its own" (2026-09-25). | Same-day build excludes only technical from sole backing. | SETTLED 2026-10-19 by the desk archetype (OUTCOME): no green-light and no sole-backer rule; views are weighed and the head trader decides. |
 | 9.4 | Exit on alignment, never on one signal (2026-09-30). | Unconditional sale on failing the entry bar (2026-10-01), where one seat's opposition can trigger it. | Argued NOT a conflict: alignment bars a price TARGET; the bar-failure sale is a conviction failure re-running entry gates. Recorded 2026-10-01. |
-| 9.5 | "Numbers may come from this desk's own measured track record" (pre 2026-09-12). | Fitting to own record forbidden (2026-09-12). | Later wins; the earlier permission was declared wrong. |
+| 9.5 | "Numbers may come from this desk's own measured track record" (pre 2026-09-12). | Fitting to own record forbidden (2026-09-12). | Later wins; the earlier permission was declared wrong. Carve-out 2026-10-19: re-measuring each seat's ranking weight from its record against chance (James-Stein shrinkage to the group mean) is a reading the desk archetype requires, not a forbidden fit (OUTCOME). |
 | 9.6 | Sector cap 40% (retirement frame). | 75% / 90% (2026-09-01). | Later wins. |
 | 9.7 | Account-level loss halt, 5/20-day brakes, emergency sell-all. | Removed entirely (2026-09-20). | Later wins; ladder kept. |
 | 9.8 | Range ratchets described as "owner-ratified" (item 212, 2026-10-01). | Ledger records the same numbers as arbitrary with no point source. | Unresolved record disagreement; treat as appetite at best. |
