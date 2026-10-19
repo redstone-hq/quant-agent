@@ -56,20 +56,17 @@ def _balanced_units(text: str, sep: str) -> list[str]:
     return units
 
 
-def _fit_blocks(body: str, budget: int) -> str:
-    """Fit escaped `body` into `budget` by dropping WHOLE blocks, never by
-    cutting inside an element — so the result cannot carry an open tag.
+_DETAILS_POINTER = "Full details are in Mission Control."
 
-    Order: the expandable DETAILS block first (the owner can read it in
-    Mission Control), then trailing paragraphs, then trailing lines of what
-    is left. Only a single balanced line that is alone over budget is cut,
-    and only after its tags are removed, so the cut is on tag-free text
-    (`_clip_text` never splits an entity). 13 Oct 2026: the morning report
-    was cut inside `<blockquote expandable>` and Telegram refused it.
-    """
-    if len(body) <= budget:
-        return body
+
+def _fit_head(body: str, budget: int) -> str:
+    """Drop whole blocks from `body` until it fits `budget` (see `_fit_blocks`)."""
     tail = "\n" + _TRUNCATED
+    pointer = ""
+    if "<blockquote" in body:
+        # The expandable DETAILS block goes first, replaced by one line.
+        pointer = "\n\n" + _DETAILS_POINTER
+        budget -= len(pointer)
     for sep in ("\n\n", "\n"):
         units = _balanced_units(body, sep)
         kept = [unit for unit in units if "<blockquote" not in unit] or units[:1]
@@ -77,8 +74,33 @@ def _fit_blocks(body: str, budget: int) -> str:
             kept.pop()
         body = sep.join(kept)
         if len(body) + len(tail) <= budget:
-            return body + tail
-    return _clip_text(_TAG_RE.sub("", body), budget, marker=tail)
+            return body + tail + pointer
+    return _clip_text(_TAG_RE.sub("", body), budget, marker=tail) + pointer
+
+
+def _fit_blocks(body: str, budget: int) -> str:
+    """Fit escaped `body` into `budget` by dropping WHOLE blocks, never by
+    cutting inside an element — so the result cannot carry an open tag.
+
+    Order: the expandable DETAILS block first, replaced by one line pointing
+    to Mission Control, then trailing paragraphs, then trailing lines of what
+    is left. The last paragraph (the cost/time footer) is protected: the
+    middle is cut before it is ever dropped. Only a single balanced line that
+    is alone over budget is cut, and only after its tags are removed, so the
+    cut is on tag-free text (`_clip_text` never splits an entity). 13 Oct
+    2026: the morning report was cut inside `<blockquote expandable>` and
+    Telegram refused it. 19 Oct 2026: a long passed-names list pushed the
+    footer out.
+    """
+    if len(body) <= budget:
+        return body
+    units = _balanced_units(body, "\n\n")
+    if len(units) > 1 and "<blockquote" not in units[-1]:
+        footer = units[-1]
+        room = budget - len(footer) - 2
+        if room > 0:
+            return _fit_head("\n\n".join(units[:-1]), room) + "\n\n" + footer
+    return _fit_head(body, budget)
 
 
 class TelegramNotifier:
