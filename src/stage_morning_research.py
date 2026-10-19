@@ -1792,42 +1792,76 @@ def order_morning_symbols(owner, ctx, *, configured_symbols, ranked, screened_de
     ]
     held_symbols = [s for s in held_symbols if s]
     sec_symbols = sorted(ctx.admitted_symbols)
-    configured_set, held_set = set(configured_symbols), set(held_symbols)
+    held_passers, screened_order, dropped = choose_screened_names(
+        ranked=ranked,
+        screened_details=screened_details,
+        already=set(configured_symbols) | set(ctx.admitted_symbols),
+        held=set(held_symbols),
+        top_n=top_n,
+    )
+    for symbol in held_passers + screened_order:
+        ctx.admitted_symbols.add(symbol)
+        ctx.smart_money_admissions[symbol] = screened_details.get(symbol, {})
+    for symbol, reason, fields in dropped:
+        record_dropped_name(owner, ctx, symbol, reason, **fields)
+    return list(dict.fromkeys(held_symbols + sec_symbols + list(configured_symbols) + screened_order))
+
+
+def choose_screened_names(*, ranked, screened_details, already, held, top_n):
+    """Which of last night's screened passers this morning admits (pure; no recording).
+
+    The ONE ranking rule, shared by the morning stage (`order_morning_symbols`,
+    which records the dropped names) and the pre-market earnings pass
+    (`src.pipeline_parts.pnl_gaps._screened_morning_symbols`, which ignores
+    them), so the two can never pick different names. Names in ``already``
+    (configured universe, SEC admissions) are skipped without using a rank
+    slot. A held passer is coverage and is admitted uncapped; the top
+    ``top_n`` other scored passers by K are sent; every other passer is
+    dropped with its reason.
+
+    Returns ``(held_passers, sent, dropped)``; ``dropped`` is a list of
+    ``(symbol, reason, fields)`` in the order the morning records them.
+    """
+    held_passers: list[str] = []
+    dropped: list[tuple[str, str, dict]] = []
     for symbol, details in screened_details.items():
-        if symbol in configured_set or symbol in ctx.admitted_symbols:
+        if symbol in already or symbol in held_passers:
             continue
-        if symbol in held_set:
-            ctx.admitted_symbols.add(symbol)
-            ctx.smart_money_admissions[symbol] = details
+        if symbol in held:
+            held_passers.append(symbol)
         elif details.get("k") is None:
-            record_dropped_name(
-                owner,
-                ctx,
-                symbol,
-                "not_sent_unscored",
-                score_reason=details.get("score_reason"),
-                detail="no score K in last night's record; never ranked on a guess",
+            dropped.append(
+                (
+                    symbol,
+                    "not_sent_unscored",
+                    {
+                        "score_reason": details.get("score_reason"),
+                        "detail": "no score K in last night's record; never ranked on a guess",
+                    },
+                )
             )
-    screened_order: list[str] = []
+    taken = set(already) | set(held_passers)
+    sent: list[str] = []
     rank = 0
     for symbol in ranked:
-        if symbol in configured_set or symbol in ctx.admitted_symbols:
+        if symbol in taken:
             continue
         rank += 1
         details = screened_details.get(symbol, {})
         if rank <= top_n:
-            ctx.admitted_symbols.add(symbol)
-            ctx.smart_money_admissions[symbol] = details
-            screened_order.append(symbol)
+            taken.add(symbol)
+            sent.append(symbol)
             continue
-        record_dropped_name(
-            owner,
-            ctx,
-            symbol,
-            "not_sent_weaker_rank",
-            rank=rank,
-            k=details.get("k"),
-            nightly_rank=details.get("nightly_rank"),
-            detail=f"only the top {top_n} screened passers by score K are sent each morning",
+        dropped.append(
+            (
+                symbol,
+                "not_sent_weaker_rank",
+                {
+                    "rank": rank,
+                    "k": details.get("k"),
+                    "nightly_rank": details.get("nightly_rank"),
+                    "detail": f"only the top {top_n} screened passers by score K are sent each morning",
+                },
+            )
         )
-    return list(dict.fromkeys(held_symbols + sec_symbols + list(configured_symbols) + screened_order))
+    return held_passers, sent, dropped

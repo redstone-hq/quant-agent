@@ -238,14 +238,14 @@ def _form4_hot_symbols(pipeline, configured: list[str]) -> list[str]:
 
 
 def _screened_morning_symbols(pipeline, already: set[str]) -> list[str]:
-    """The screened names this morning will admit, by the morning's own rule (empty on any failure).
+    """The screened names this morning will admit (empty on any failure).
 
-    Mirrors `src.stage_morning_research.order_morning_symbols` without its
-    recording side effects: from last night's passers
-    (`_admit_screened_universe_symbols`), a held passer is admitted
-    uncapped, and the top `universe_screen.morning_top_n` others by score K
-    not already configured or Form-4 admitted.
+    Calls the morning's own rule, `src.stage_morning_research.choose_screened_names`,
+    on last night's passers (`_admit_screened_universe_symbols`) and ignores
+    its dropped names (the morning records those).
     """
+    from src.stage_morning_research import choose_screened_names
+
     try:
         ranked, details = pipeline.admission._admit_screened_universe_symbols()
         if not details:
@@ -254,17 +254,14 @@ def _screened_morning_symbols(pipeline, already: set[str]) -> list[str]:
             held = {str(getattr(p, "symbol", "")).strip().upper() for p in pipeline.broker.get_positions() or []}
         except Exception:  # noqa: BLE001 — held passers are a bonus, ranked names still go
             held = set()
-        top_n = int(pipeline.config.universe_screen.morning_top_n)
-        out = [s for s in details if s in held and s not in already]
-        rank = 0
-        for symbol in ranked:
-            if symbol in already or symbol in out:
-                continue
-            rank += 1
-            if rank > top_n:
-                break
-            out.append(symbol)
-        return list(dict.fromkeys(str(s).strip().upper() for s in out if str(s).strip()))
+        held_passers, sent, _dropped = choose_screened_names(
+            ranked=ranked,
+            screened_details=details,
+            already=already,
+            held=held,
+            top_n=int(pipeline.config.universe_screen.morning_top_n),
+        )
+        return held_passers + sent
     except Exception as exc:  # noqa: BLE001
         logger.warning("Earnings preprocess: screened morning names unavailable (%s) — not added", exc)
         return []

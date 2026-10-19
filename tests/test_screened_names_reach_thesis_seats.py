@@ -142,3 +142,40 @@ def test_screened_name_with_a_new_filing_is_in_the_earnings_premarket_list(tmp_p
     symbols = pipeline._earnings_preprocess_symbols()
     # configured first; configured screened names do not use a rank slot; top 2 others.
     assert symbols == ["ZZZC", "ZZZA", "ZZZB"]
+
+
+def test_morning_and_earnings_pick_the_same_screened_names(tmp_path, monkeypatch):
+    """One ranking rule: the morning's admitted screened names equal the earnings pass's list."""
+    import src.intraday.candidates as candidates_mod
+    from src.pipeline_parts.pnl_gaps import _screened_morning_symbols
+    from src.stage_morning_research import order_morning_symbols
+
+    ranked = ["ZZZC", "ZZZA", "ZZZS", "ZZZB", "ZZZD"]
+    details = {s: {"k": 1.0} for s in ranked}
+    details["ZZZH"] = {"k": None}  # held passer, unscored: still admitted
+    details["ZZZU"] = {"k": None, "score_reason": "no bars"}  # unscored: dropped
+    recorded: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        candidates_mod,
+        "record_dropped_name",
+        lambda owner, ctx, sym, reason, **kw: recorded.append((sym, reason)),
+    )
+    ctx = SimpleNamespace(
+        positions=[SimpleNamespace(symbol="ZZZH", qty=1)],
+        admitted_symbols={"ZZZS"},  # an SEC admission: skipped, uses no rank slot
+        smart_money_admissions={},
+    )
+    order_morning_symbols(object(), ctx, configured_symbols=["ZZZC"], ranked=ranked, screened_details=details, top_n=2)
+    morning_screened = ctx.admitted_symbols - {"ZZZS"}
+
+    pipeline = build_pipeline(db=Database(str(tmp_path / "t.db")))
+    pipeline.broker = MagicMock()
+    pipeline.broker.get_positions.return_value = [SimpleNamespace(symbol="ZZZH", qty=1)]
+    pipeline.config = MagicMock()
+    pipeline.config.universe_screen.morning_top_n = 2
+    pipeline.admission = SimpleNamespace(_admit_screened_universe_symbols=lambda positions=None: (ranked, details))
+    earnings_screened = _screened_morning_symbols(pipeline, {"ZZZC", "ZZZS"})
+
+    assert earnings_screened == ["ZZZH", "ZZZA", "ZZZB"]
+    assert set(earnings_screened) == morning_screened
+    assert recorded == [("ZZZU", "not_sent_unscored"), ("ZZZD", "not_sent_weaker_rank")]
