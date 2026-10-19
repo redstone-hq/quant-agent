@@ -125,12 +125,14 @@ def test_fitter_drops_whole_blocks_details_first_then_trailing(rig):
     details = "<b>DETAILS</b>\n<blockquote expandable>" + "d " * 1200 + "</blockquote>"
     section = "<b>A</b>\n" + "a " * 900
     tail = "tail " * 100
-    text = "\n\n".join(["head", section, details, tail])
+    cost = "\U0001f9fe AI cost: $0.15 \u00b7 took 2m 27s"
+    text = "\n\n".join(["head", section, details, tail, cost])
     assert len(text) > LIMIT
     sent = n._build_payload(text, link_url="", preserve_structural_markup=True)["text"]
     assert len(sent) <= LIMIT and _balanced(sent)
     assert "<blockquote" not in sent and section in sent and tail.strip() in sent
-    assert sent.endswith("[...truncated]")
+    assert "Full details are in Mission Control." in sent
+    assert sent.endswith(cost), "the protected cost/time line must be last and whole"
 
     section = "<b>A</b>\n" + "a " * 1500
     tail = "b " * 800
