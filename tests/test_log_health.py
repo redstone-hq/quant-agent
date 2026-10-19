@@ -559,11 +559,12 @@ def test_a_partial_tech_batch_is_classified_not_double_counted():
 def test_phantom_rows_for_unsubmitted_symbols_are_classified():
     """`Tech analyst emitted 1 row(s) for symbols not in the submitted
     chunk — dropped: ['CHP']` — the model answered about a symbol nobody
-    asked about; the row is thrown away exactly like a malformed one."""
+    asked about; only that extra row is dropped and the rest of the answer
+    is read (19 Oct: no longer reported as an unreadable, wasted answer)."""
     record = next(r for r in _records() if "emitted 1 row(s) for symbols not in the submitted chunk" in r.message)
     assert record.level == "WARNING"
     family = L.classify(record.message, record.level)
-    assert family is not None and family.key == "seat_answer_unreadable"
+    assert family is not None and family.key == "extra_company_in_answer_ignored"
 
 
 def test_tech_returning_non_json_is_classified():
