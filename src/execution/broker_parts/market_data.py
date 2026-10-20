@@ -652,6 +652,57 @@ class MarketData:
             rows.sort(key=lambda b: b.date)
         return out
 
+    def get_quotes_batch(self, symbols: list[str], start, end, on_page=None) -> dict[str, list[tuple[float, float]]]:
+        """Consolidated (SIP) quotes for many symbols over [start, end], as
+        ``{symbol: [(bid, ask), ...]}``; a symbol with no quote maps to [].
+
+        alpaca-py's `StockQuotesRequest` with `feed=sip`: free on this plan
+        when `end` is 15+ minutes old (`_sip_safe_end`; measured 2026-10-20,
+        AAPL 0.87 bps median quoted spread). IEX is not used: it read liquid
+        names 2-10x wider that day. Pages are followed here, exactly as
+        `get_bars_batch` does, so `on_page()` sees every request; any failure
+        RAISES for the whole call and nothing is retried here.
+        """
+        if not symbols:
+            return {}
+        if self._data_client is None:
+            from alpaca.data.historical.stock import StockHistoricalDataClient
+
+            self._data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
+            _install_http_timeout(self._data_client)
+        from alpaca.data.enums import DataFeed
+        from alpaca.data.requests import StockQuotesRequest
+
+        wanted = {_alpaca_symbol(s): s for s in symbols}
+        req = StockQuotesRequest(
+            symbol_or_symbols=list(wanted),
+            start=start,
+            end=min(end, _sip_safe_end()),
+            feed=DataFeed.SIP,
+        )
+        fields = req.to_request_fields()
+        out: dict[str, list[tuple[float, float]]] = {s: [] for s in symbols}
+        token = None
+        seen: set = set()
+        while True:
+            if on_page is not None:
+                on_page()
+            params = dict(fields)
+            params["limit"] = 10_000
+            if token:
+                params["page_token"] = token
+            page = self._data_client.get(path="/stocks/quotes", data=params) or {}
+            for sym, rows in (page.get("quotes") or {}).items():
+                internal = wanted.get(sym)
+                if internal is None:
+                    continue
+                out[internal].extend((float(r.get("bp") or 0), float(r.get("ap") or 0)) for r in rows or [])
+            token = page.get("next_page_token")
+            if not token or token in seen:
+                break
+            seen.add(token)
+        return out
+
     def get_intraday_snapshots(self, symbols: list[str]) -> dict[str, dict]:
         """Bulk current-session move data; see `snapshots_from_client` for the
         payload. The client is built HERE, where the replay patches it."""

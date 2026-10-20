@@ -319,7 +319,8 @@ numbers:
       indifference band would be the same arbitrary act with a newer
       date. Two successor routes stay open and are written into the
       board item rather than lost here: reading the ceiling off each
-      name's own Corwin & Schultz half-spread once the reference-to-
+      name's own quoted SIP half-spread (the nightly screen's
+      half_spread_bps since 2026-10-20) once the reference-to-
       submission drift term has its own instrument-read basis, and re-
       measuring the untruncated fill rate now that the deleted 2% ask-
       skip lets a too-tight entry rest and be recorded instead of being
@@ -4211,6 +4212,19 @@ numbers:
     note: >-
       Symbols per multi-ticker daily-bar download. A fetch batch size: it
       changes how many requests a pass makes, never a screen verdict.
+  - id: src.config.UniverseScreenConfig.cost_window_minutes
+    value: 3
+    status: not-trade-governing
+    site: src/config/research.py
+    note: >-
+      Technical limit, not a market claim: minutes of consolidated (SIP)
+      quotes before the screened session's close that each passer's
+      trading cost (median quoted half-spread) is read from. Source:
+      measured 2026-10-20 on 200 random 2026-10-19 passers, scaled to all
+      3,515 -- 3 min 170 s, 4 min 225 s, 5 min 324 s, 30 min 1,125 s. The
+      2026-10-19 nightly run took 452.6 s of the 900 s screen_deadline_s,
+      leaving 447 s; 3 min is the longest window inside half of that.
+      Re-measure when the passer count or the plan's rate limit changes.
   - id: src.config.UniverseScreenConfig.fund_category_refresh_days
     value: 365
     status: not-trade-governing

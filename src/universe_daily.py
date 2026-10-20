@@ -100,6 +100,7 @@ from src.universe_screen import (
     _field,
     check_asset,
     check_bars,
+    check_cost,
     check_fund,
     iso_week,
     screen_symbol,
@@ -177,7 +178,13 @@ class DailyRun:
     today: date
     records: dict[str, dict] = field(default_factory=dict)
     calls: dict[str, int] = field(
-        default_factory=lambda: {"alpaca_assets": 0, "bar_batches": 0, "nasdaq_listing": 0, "sec_filings": 0}
+        default_factory=lambda: {
+            "alpaca_assets": 0,
+            "bar_batches": 0,
+            "nasdaq_listing": 0,
+            "sec_filings": 0,
+            "quote_pages": 0,
+        }
     )
     #: Second-pass Yahoo reads: names due one, calls made (retries count),
     #: failures (error, rate limit or blank) and cache hits.
@@ -282,6 +289,7 @@ def run_daily_record(
     get_role: Callable[[Any], str] | None = None,
     yahoo_fill: YahooFill | None = None,
     second_filter: SecondFilterInputs | None = None,
+    get_quotes_batch: Callable[[list[str]], dict[str, list]] | None = None,
 ) -> DailyRun:
     """Screen every listed name once; record each. Never mutates admission state.
 
@@ -289,7 +297,10 @@ def run_daily_record(
     docstring); None leaves those names as the listing alone records them.
     `yahoo_fill` says where a fund category is kept and how long the pass
     may run (default: nothing kept, the run's own deadline). `second_filter`,
-    when given, adds the record-only morning-scan score K to each passer's record."""
+    when given, adds the record-only morning-scan score K to each passer's record.
+    `get_quotes_batch(chunk) -> {symbol: [(bid, ask), ...]}` reads each
+    passer's cost-window SIP quotes (`universe_screen.check_cost`); None
+    leaves every passer `cost_unmeasured:not_read` and unscored."""
     started = clock()
     fill = yahoo_fill or YahooFill()
     if fill.until is None:
@@ -315,6 +326,7 @@ def run_daily_record(
     bars = screen.bars_phase(needs_bars, get_bars_batch, max(1, int(batch_size)))
     screen.detail_phase(by_symbol, bars)
     screen.yahoo_phase()
+    screen.cost_phase(get_quotes_batch, max(1, int(batch_size)))
     if second_filter is not None:
         screen.run.add_second_filter(second_filter)
     screen.run.seconds = clock() - started
@@ -477,6 +489,35 @@ class _DailyScreen:
             self.run.record(symbol, "unreached", [YAHOO_LIMITED], measured, reason=YAHOO_LIMITED_TEXT)
         else:
             self.run.record(symbol, "unreached", [UNREACHED], measured)
+
+    def cost_phase(self, get_quotes_batch, step: int) -> None:
+        """Trading cost of every passer from real quotes, many per request.
+
+        Runs last, on final passers only, so no quote is read for a name
+        another check refuses. A name whose cost cannot be read keeps
+        passing with `cost_unmeasured:<why>` (never zero, never dropped); a
+        name whose round trip eats its expected move is dropped."""
+        passers = sorted(s for s, row in self.run.records.items() if row["status"] == "passed")
+        for start in range(0, len(passers), step):
+            chunk = passers[start : start + step]
+            got: dict[str, list] = {}
+            unread = "not_read"
+            if get_quotes_batch is not None and self.clock() >= self.deadline:
+                self.run.deadline_hit = True
+                unread = "deadline"
+            elif get_quotes_batch is not None:
+                try:
+                    got = get_quotes_batch(chunk) or {}
+                except Exception as exc:  # noqa: BLE001 -- recorded per name as cost_unmeasured
+                    logger.warning("universe daily: quote batch failed (%d symbols): %s", len(chunk), exc)
+                    unread = "quote_read_failed"
+            for symbol in chunk:
+                row = self.run.records[symbol]
+                failures, measured = check_cost(got.get(symbol), row["measured"], self.th, unread)
+                row["measured"].pop("cost_unmeasured", None)
+                row["measured"].update(measured)
+                if failures:
+                    row["status"], row["failures"] = _status(failures), list(failures)
 
     def yahoo_phase(self) -> None:
         """Fill a fund's category / a stock's sector from Yahoo; fail closed."""
@@ -778,6 +819,16 @@ def _filings_reader(config, deadline: float):
     return sec_filings.screen_readers(sec, deadline, listed)
 
 
+class _PageCount:
+    """Counts the SIP quote pages the cost phase requests."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def count(self) -> None:
+        self.calls += 1
+
+
 class _CountedBatches:
     """`broker.get_bars_batch` (Alpaca multi-symbol daily bars), counting pages."""
 
@@ -839,7 +890,7 @@ def main(argv: list[str] | None = None) -> int:
     from src.data.nasdaq_fetch import fetch_json
     from src.data.nasdaq_listing import ListingUnavailable, load_listing
     from src.sector_reference import _canonicalize_sector
-    from src.universe_screen import HISTORY_FETCH_DAYS
+    from src.universe_screen import HISTORY_FETCH_DAYS, quotes_reader
     from src.util.time import et_today
 
     parser = argparse.ArgumentParser(description="Daily record-only universe screen")
@@ -860,6 +911,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("universe daily: Nasdaq listing unavailable: %s", exc)
         listing = None
     bars = _CountedBatches(broker, HISTORY_FETCH_DAYS)
+    quote_pages = _PageCount()
     cache = ReadCache(cfg.data_dir)
     store = FundCategoryStore(config.storage.db_path)
     get_filings, get_role = _filings_reader(config, deadline)
@@ -884,11 +936,13 @@ def main(argv: list[str] | None = None) -> int:
         get_yahoo=_yahoo_reader(),
         yahoo_fill=fill,
         second_filter=_second_filter_inputs(config, broker),
+        get_quotes_batch=quotes_reader(broker, today, int(cfg.cost_window_minutes), on_page=quote_pages.count),
     )
     run.calls["alpaca_assets"] = 1
     run.calls["nasdaq_listing"] = 2
     run.listing_unavailable = listing is None
     run.calls["bar_batches"] = bars.calls
+    run.calls["quote_pages"] = quote_pages.calls
     cache.save()
     store.close()
     write_record(cfg.data_dir, run)

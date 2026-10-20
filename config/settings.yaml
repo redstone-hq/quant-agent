@@ -1027,6 +1027,12 @@ universe_screen:
   min_market_cap_usd: 1200000000
   screen_deadline_s: 900
   bars_batch_size: 50
+  # Minutes of SIP quotes before the screened session's close that each
+  # passer's trading cost is read from (median quoted half-spread). A runtime
+  # budget, not a market claim: measured 2026-10-20, 3 min = 170 s for all
+  # 3,515 passers, 5 min = 324 s, 30 min = 1,125 s, against the 447 s the
+  # 900 s deadline leaves. Ledger: src.config.UniverseScreenConfig.cost_window_minutes.
+  cost_window_minutes: 3
   # Owner's "$7 a month" / 21 sessions, and the measured cost of one more name
   # in the morning portfolio-manager call. N = floor(0.33 / 0.0033) = 100.
   morning_budget_usd: 0.33

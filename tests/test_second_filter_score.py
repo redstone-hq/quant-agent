@@ -51,7 +51,7 @@ def test_missing_atr_or_spread_gives_no_k_and_a_reason():
         "gross_ceiling_x": 2.0,
     }
     got = second_filter_score({"atr_pct": 3.0}, _inputs(2.0))
-    assert got["k"] is None and got["reason"] == "spread_unmeasured"
+    assert got["k"] is None and got["reason"] == "cost_unmeasured:not_read"
 
 
 def test_unread_gross_ceiling_records_the_two_parts_and_no_k():

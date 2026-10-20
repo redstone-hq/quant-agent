@@ -110,6 +110,15 @@ class UniverseScreenConfig(BaseModel):
     screen_deadline_s: float = Field(default=900.0, ge=10, le=1080)
     # Symbols per daily-bar download request (yfinance multi-ticker).
     bars_batch_size: int = Field(default=50, ge=1, le=200)
+    # Minutes of consolidated (SIP) quotes, ending at the screened session's
+    # close, that the trading cost is the median quoted spread of
+    # (src/universe_screen.py::check_cost). A RUNTIME budget, not a market
+    # claim. Measured 2026-10-20 on 200 random 2026-10-19 passers and scaled
+    # to all 3,515: 3 min 170 s, 4 min 225 s, 5 min 324 s, 30 min 1,125 s.
+    # The 2026-10-19 nightly run took 452.6 s of the 900 s deadline, leaving
+    # 447 s; the longest window inside half of that (a 2x margin for the
+    # run-to-run noise the same probe showed) is 3 minutes.
+    cost_window_minutes: int = Field(default=3, ge=1, le=30)
     # A fund's Yahoo category is kept in the desk database once read
     # (src/data/fund_category.py) and re-read by the nightly pass when the
     # row is this old. A category names the fund's mandate, which changes
