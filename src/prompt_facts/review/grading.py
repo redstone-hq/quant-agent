@@ -213,8 +213,26 @@ class ReviewGrading:
                 market_relative = round(pct - spy_pct, 2)
             else:
                 market_relative = None
+            # Latest exit on this symbol after the entry, so the evening AI can
+            # tell a closed position from a live one (PWR, 2026-10-20).
+            exits = [
+                r
+                for r in all_rows
+                if r.get("symbol") == sym
+                and (r.get("timestamp") or "") > ts
+                and (
+                    (r.get("action") or "").upper()
+                    in ("SELL", "EMERGENCY_SELL", "FORCE_DELEVER", "REDUCE", "STOP_OUT", "RECONCILED_EXIT")
+                )
+            ]
+            last_exit = max(exits, key=lambda r: r.get("timestamp") or "") if exits else None
             out.append(
                 {
+                    "closed_date": (last_exit["timestamp"] or "")[:10] if last_exit else None,
+                    "closed_price": (float(last_exit.get("fill_price") or last_exit.get("price") or 0) or None)
+                    if last_exit
+                    else None,
+                    "closed_action": (last_exit.get("action") or "") if last_exit else None,
                     "symbol": sym,
                     "buy_date": str(buy_date),
                     "buy_price": buy_price,

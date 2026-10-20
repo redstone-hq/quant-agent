@@ -394,6 +394,7 @@ class EveningAnalystAgent(BaseAgent):
             sells_section = "(no SELL trades in the last 2 trading days)"
 
         # Recent BUY decisions to grade — mirror of SELLs.
+        held_symbols = {str(p.symbol).upper() for p in positions}
         if recent_buys:
             buys_lines = []
             for b in recent_buys:
@@ -415,9 +416,15 @@ class EveningAnalystAgent(BaseAgent):
                         mkt_rel_bit = ""
                 else:
                     mkt_rel_bit = ""
+                closed_bit = ""
+                if b.get("closed_date") and str(sym).upper() not in held_symbols:
+                    cp = b.get("closed_price")
+                    at = f" at ${float(cp):.2f}" if cp else ""
+                    why = str(b.get("closed_action") or "").lower().replace("_", " ")
+                    closed_bit = f" — since closed {b['closed_date']}{at}" + (f" ({why})" if why else "")
                 buys_lines.append(
-                    f"- {buy_date} {sym}: bought @ ${buy_price:.2f}, now ${curr:.2f} ({pct:+.2f}%){mkt_rel_bit} — "
-                    f'reason at entry: "{reason}"'
+                    f"- {buy_date} {sym}: bought @ ${buy_price:.2f}, now ${curr:.2f} ({pct:+.2f}%){mkt_rel_bit}"
+                    f'{closed_bit} — reason at entry: "{reason}"'
                 )
             buys_section = "\n".join(buys_lines)
         else:
@@ -481,6 +488,7 @@ class EveningAnalystAgent(BaseAgent):
 {sells_section}
 
 ## Recent BUY decisions to grade (last 5 days)
+Suggestions must only name symbols currently held or on the shortlist.
 {buys_section}
 
 {prior_section}
