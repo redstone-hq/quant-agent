@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from src.agents.smart_money_analyst import SmartMoneyAnalystAgent
 from src.data.smart_money import SECForm4Provider
 from src.data.smart_money_cluster import insider_purchase_clusters
+from src.trading_calendar import et_today
 from src.models import (
     InsiderPurchaseCluster,
     SmartMoneyFinding,
@@ -403,7 +404,7 @@ def test_a_cluster_rescued_by_the_retention_rule_reaches_the_seat_untruncated(tm
     rescued rows are cut, and the fact is present on the survivors regardless.
     """
     provider = SECForm4Provider(data_dir=str(tmp_path))
-    today = date.today()
+    today = et_today()
     rows = []
     # 40 solo buys, each alone above the $100k core threshold, distinct
     # owners and accessions, far enough from the rescue pair's date (more

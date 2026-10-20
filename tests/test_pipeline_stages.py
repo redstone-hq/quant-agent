@@ -2178,7 +2178,7 @@ def test_morning_research_stage_smart_money_truncated_marks_status_truncated():
     news_store.load_macro_narrative.return_value = None
 
     smart_money_provider = MagicMock()
-    smart_money_provider.fetch.return_value = ([SimpleNamespace(symbol="RSG")], None)
+    smart_money_provider.fetch.return_value = ([SimpleNamespace(symbol="SPY")], None)
 
     truncated_result = AgentResult(
         raw_text='{"findings":[]}',
@@ -2250,7 +2250,7 @@ def _smart_money_morning_stage(coverage, findings):
     news_store = MagicMock()
     news_store.load_macro_narrative.return_value = None
     smart_money_provider = MagicMock()
-    smart_money_provider.fetch.return_value = ([SimpleNamespace(symbol="RSG")], None)
+    smart_money_provider.fetch.return_value = ([SimpleNamespace(symbol="SPY")], None)
     smart_money_provider.form4_coverage.return_value = coverage
     smart_money_analyst = MagicMock()
     smart_money_analyst.analyze_with_gaps.return_value = (

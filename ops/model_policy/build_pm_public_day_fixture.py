@@ -150,7 +150,7 @@ def pm_public_day_smart_money_observations(scratch, app_config) -> list:
         min_transaction_value_usd=sm_cfg.min_transaction_value_usd,
         external_min_transaction_value_usd=sm_cfg.external_min_transaction_value_usd,
         cluster_window_days=sm_cfg.cluster_window_days, min_cluster_owners=sm_cfg.min_cluster_owners,
-        max_observations=sm_cfg.max_observations, refresh_deadline_s=sm_cfg.refresh_deadline_s,
+        refresh_deadline_s=sm_cfg.refresh_deadline_s,
         max_filings_per_refresh=sm_cfg.max_filings_per_refresh,
     )
     (scratch / "smart_money_provider").mkdir(parents=True, exist_ok=True)

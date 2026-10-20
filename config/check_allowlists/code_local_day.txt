@@ -17,7 +17,6 @@
 ["tests/test_evening_analyst_v2.py","local_today","test_recent_buys_filters_stale_and_non_buy_rows","date.today()"]
 ["tests/test_evening_analyst_v2.py","local_today","test_recent_buys_filters_stale_and_non_buy_rows","date.today()"]
 ["tests/test_insider_purchase_cluster.py","local_today","_provider_row","date.today()"]
-["tests/test_insider_purchase_cluster.py","local_today","test_a_cluster_rescued_by_the_retention_rule_can_still_be_truncated_before_the_seat_sees_it","date.today()"]
 ["tests/test_insider_purchase_cluster.py","local_today","test_a_cluster_survives_cross_symbol_crowd_out_by_unrelated_higher_dollar_buys","date.today()"]
 ["tests/test_insider_signal.py","local_today","test_a_proportionally_tiny_sale_survives_the_provider_end_to_end","date.today()"]
 ["tests/test_insider_signal.py","local_today","test_history_index_prunes_beyond_retention","date.today()"]
