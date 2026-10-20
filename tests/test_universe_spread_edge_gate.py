@@ -16,8 +16,8 @@ from tests.test_universe_screen import TH, _bars
 
 
 def _with_spread(monkeypatch, half_spread_bps: float) -> None:
-    # Corwin-Schultz returns the FULL spread as a price fraction.
-    monkeypatch.setattr(us, "corwin_schultz_spread", lambda bars: 2 * half_spread_bps / 10_000)
+    # EDGE (`edge_spread`) returns the FULL spread as a price fraction.
+    monkeypatch.setattr(us, "edge_spread", lambda bars: (2 * half_spread_bps / 10_000, None))
 
 
 def test_sixty_bp_half_spread_with_a_large_atr_passes(monkeypatch):

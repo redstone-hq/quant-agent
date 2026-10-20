@@ -50,9 +50,13 @@ THE CRITERIA, and where each threshold comes from (every number is in
               (`technical.LONGEST_INDICATOR_WINDOW` + 1).
   price       last close >= `min_price_usd` ($5, SEC Rule 3a51-1(d): a
               security priced at five dollars or more is not a penny stock).
-  spread      the Corwin & Schultz (J. Finance 2012) high-low spread
-              estimate over that year of bars. The name fails when the
-              round-trip spread eats the move expected over the owner-ruled
+  spread      the EDGE bid-ask spread estimate (Ardia, Guidotti &
+              Kroencke, J. Financial Economics 2024; the authors' `bidask`
+              package) from open/high/low/close over that year of bars. A
+              name whose cost cannot be estimated is recorded with
+              `cost_unestimable:<reason>`, never read as zero, and gets no
+              score K, so it is never ranked for the morning. The name
+              fails when the round-trip spread eats the move expected over the owner-ruled
               hold (`net_edge` at or below zero, the same edge the morning
               score K multiplies by); a break-even floor, not a chosen line.
               Replaces the $10M dollar-volume floor, as the design required. Estimated from bars, not quotes, because
@@ -63,8 +67,8 @@ THE CRITERIA, and where each threshold comes from (every number is in
               from its bars (checked against the dates any name in the same
               batch has a bar on, so no holiday calendar is needed; a lone
               name with no batch is checked for the first two only). Why:
-              the spread estimate above floors a no-trade day at zero and
-              averages it in, so a thinly traded name looks cheap. Alpaca
+              a no-trade day carries no spread information, so a thinly
+              traded name would look cheap. Alpaca
               omits a day with no trades rather than returning a flat bar,
               so a skipped session is a missing bar. Needs no new number.
   volatility  ATR(14) / price < 1 / the widest stop multiple the desk's
@@ -343,6 +347,9 @@ PLAIN_REASON = {
     "spread_exceeds_expected_move": "too costly to trade (round-trip spread eats its expected move)",
     "not_traded_every_session": "did not trade on every session of the past year",
     "spread_unmeasurable": "its trading cost could not be measured",
+    "cost_unestimable:too_few_bars": "its trading cost could not be estimated (too few bars)",
+    "cost_unestimable:undefined": "its trading cost could not be estimated (its prices define no estimate)",
+    "cost_unestimable:negative_estimate": "its trading cost could not be estimated (the estimate came out negative)",
     "volatility_above_ceiling": "so volatile the desk's widest stop would sit at or below zero",
     "company_too_small": "company too small (under $1.2B)",
     "market_cap_unknown": "company size unknown",
@@ -434,51 +441,50 @@ class ScreenThresholds:
 # --------------------------------------------------------------------------
 
 
-def corwin_schultz_spread(bars: list) -> float | None:
-    """Mean Corwin–Schultz (2012) bid-ask spread estimate, as a fraction.
+# Why a name's trading cost could not be estimated, by `edge_spread`'s reason.
+COST_UNESTIMABLE = "cost_unestimable"
 
-    Corwin & Schultz, "A Simple Way to Estimate Bid-Ask Spreads from Daily
-    High and Low Prices", J. Finance 67(2), 719-760
-    (https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1106193). For each
-    pair of consecutive days: beta = ln(H1/L1)^2 + ln(H2/L2)^2,
-    gamma = ln(max(H1,H2)/min(L1,L2))^2,
-    alpha = (sqrt(2 beta) - sqrt(beta)) / (3 - 2 sqrt 2) - sqrt(gamma / (3 - 2 sqrt 2)),
-    S = 2 (e^alpha - 1) / (1 + e^alpha). Day 2's range is shifted by any
-    overnight gap past day 1's close, as in the authors' procedure
-    (replication of their SAS code:
-    https://github.com/ioannisrpt/Corwin_Schultz_2012).
 
-    Negative estimates: the replication offers two treatments — floor each
-    two-day estimate at zero and then average (its SPREAD_0), or average the
-    raw estimates and floor the AVERAGE at zero (its XSPREAD_0). This uses
-    the second. Measured 2026-09-19 on a year of daily bars, the first
-    reads AAPL at 25.6 bps half-spread, TSLA 44.4, AMD 51.4 — volatility,
-    not trading cost, because flooring each day discards every negative
-    that would cancel a positive; the second reads them 0.2, 5.7, 0.0 and
-    still reads an illiquid name (ANL) at 64 bps. Averaged over every pair
-    in `bars` (the screening year). None when no pair is usable.
+def edge_spread(bars: list) -> tuple[float | None, str | None]:
+    """EDGE bid-ask spread estimate over `bars`, as a fraction: ``(spread, None)``
+    or ``(None, reason)``.
+
+    Ardia, Guidotti & Kroencke, "Efficient estimation of bid-ask spreads from
+    open, high, low, and close prices", J. Financial Economics 161 (2024)
+    103916 (https://doi.org/10.1016/j.jfineco.2024.103916), computed by the
+    authors' own package `bidask` (pinned in pyproject.toml), `bidask.edge`.
+    Replaces the hand-written Corwin & Schultz (2012) estimator, whose
+    average-then-floor read a fast mover's cost as exactly zero (16 Oct 2026:
+    1,606 of 3,660 passers at zero, 42 tied at the top score).
+
+    `sign=True` so a negative squared-spread estimate stays visible: the
+    library's default (False) returns the root of its absolute value, which
+    would report a meaningless sample artefact as a cost. Never a zero
+    stand-in. Reasons (`cost_unestimable:<reason>`):
+      too_few_bars       fewer than 3 bars, where `edge` returns NaN;
+      undefined          `edge` returns NaN on enough bars (under two
+                         informative periods, or no open/close off the range);
+      negative_estimate  the signed estimate is below zero.
     """
-    const = 3.0 - 2.0 * math.sqrt(2.0)
-    estimates: list[float] = []
-    for prev, cur in zip(bars, bars[1:]):
+    import numpy as np
+    from bidask import edge
+
+    def _price(bar, name):
         try:
-            h1, l1, c1 = float(prev.high), float(prev.low), float(prev.close)
-            h2, l2 = float(cur.high), float(cur.low)
+            value = float(getattr(bar, name))
         except (AttributeError, TypeError, ValueError):
-            continue
-        if min(h1, l1, h2, l2, c1) <= 0 or h1 < l1 or h2 < l2:
-            continue
-        if c1 < l2:  # gapped up overnight
-            h2, l2 = h2 - (l2 - c1), c1
-        elif c1 > h2:  # gapped down overnight
-            h2, l2 = c1, l2 + (c1 - h2)
-        beta = math.log(h1 / l1) ** 2 + math.log(h2 / l2) ** 2
-        gamma = math.log(max(h1, h2) / min(l1, l2)) ** 2
-        alpha = (math.sqrt(2 * beta) - math.sqrt(beta)) / const - math.sqrt(gamma / const)
-        estimates.append(2 * (math.exp(alpha) - 1) / (1 + math.exp(alpha)))
-    if not estimates:
-        return None
-    return max(sum(estimates) / len(estimates), 0.0)
+            return np.nan
+        return value if value > 0 else np.nan
+
+    ohlc = np.array([[_price(b, n) for n in ("open", "high", "low", "close")] for b in bars], dtype=float)
+    if len(ohlc) < 3:
+        return None, f"{COST_UNESTIMABLE}:too_few_bars"
+    spread = edge(ohlc[:, 0], ohlc[:, 1], ohlc[:, 2], ohlc[:, 3], sign=True)
+    if not math.isfinite(spread):
+        return None, f"{COST_UNESTIMABLE}:undefined"
+    if spread < 0:
+        return None, f"{COST_UNESTIMABLE}:negative_estimate"
+    return spread, None
 
 
 def _one_year_before(day: date) -> date:
@@ -579,9 +585,17 @@ def check_bars(
         measured["no_trade_days"] = len(dead)
         measured["missing_sessions"] = len(missing)
         failures.append("not_traded_every_session")
-    spread = corwin_schultz_spread(recent)
+    # A name whose cost cannot be estimated is recorded with its reason
+    # (`measured.cost_unestimable`), never read as zero. It is NOT failed: an
+    # unknown cost is not a cost shown too high, and the spread gate below
+    # is a break-even floor that needs a cost to judge. Measured on the 19 Oct
+    # 2026 passers, failing it would remove 790 of 3,513 (MSFT, AMD, TSLA
+    # among them) that the old estimator passed at zero. It gets no score K
+    # (`second_filter_score`), so `rank_passers` never ranks it and it can
+    # never outrank a name with a measured cost.
+    spread, unestimable = edge_spread(recent)
     if spread is None:
-        failures.append("spread_unmeasurable")
+        measured["cost_unestimable"] = unestimable
     else:
         half_bps = spread / 2 * 10_000
         measured["half_spread_bps"] = round(half_bps, 1)
@@ -645,7 +659,9 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
     with a = ATR(14)/price (`measured.atr_pct`) and rt = 2 x `measured.half_spread_bps`.
     ``risk_cap_x`` (the R / (k a) term) and ``net_edge`` (the bracket) are always
     recorded when measurable; K is None with a reason when any input is missing
-    -- never a guessed value. It orders, sizes and stops nothing.
+    -- never a guessed value. K ORDERS the passers: `rank_passers` sends the
+    highest-K names to the morning research job (src/pipeline_admission.py),
+    so it decides which names the desk looks at. It sizes and stops nothing.
     """
     atr_pct, half_bps = (measured or {}).get("atr_pct"), (measured or {}).get("half_spread_bps")
     out: dict[str, Any] = {"k": None, "reason": None, "gross_ceiling_x": inputs.gross_ceiling_x}
@@ -653,7 +669,7 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
         out["reason"] = "atr_unmeasured"
         return out
     if not isinstance(half_bps, (int, float)) or not math.isfinite(half_bps):
-        out["reason"] = "spread_unmeasured"
+        out["reason"] = (measured or {}).get("cost_unestimable") or "spread_unmeasured"
         return out
     a = float(atr_pct) / 100.0
     out["risk_cap_x"] = (float(inputs.max_portfolio_risk_pct) / 100.0) / (float(inputs.stop_atr_multiple) * a)

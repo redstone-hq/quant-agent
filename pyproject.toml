@@ -38,6 +38,11 @@ dependencies = [
     # The PyPI tzdata package ships an embedded copy that zoneinfo picks up
     # automatically — harmless on systems that already have system tzdata.
     "tzdata>=2024.1",
+    # The universe screen's trading-cost estimate: EDGE (Ardia, Guidotti &
+    # Kroencke, J. Financial Economics 2024) by the authors' own package
+    # (MIT). Pinned EXACTLY: a release can change the estimate, which moves
+    # which names pass and how they rank (src/universe_screen.py edge_spread).
+    "bidask==2.1.0",
 ]
 
 [project.optional-dependencies]

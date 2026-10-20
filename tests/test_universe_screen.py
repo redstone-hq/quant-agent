@@ -172,63 +172,45 @@ def test_no_maximum_price():
 # --------------------------------------------------------------- spread ----
 
 
-def test_corwin_schultz_recovers_a_known_constant_spread():
-    """No price movement at all: every day trades only at bid and ask, so
-    each day's high/low ratio IS the spread. The estimator must return it."""
-    spread = 0.02
-    mid = 100.0
-    bars = [
-        OHLCV(
-            date=TODAY - timedelta(days=10 - i),
-            open=mid,
-            high=mid * (1 + spread / 2),
-            low=mid * (1 - spread / 2),
-            close=mid,
-            volume=1,
-        )
-        for i in range(10)
-    ]
-    estimate = us.corwin_schultz_spread(bars)
-    # ln(H/L) for a 2% quoted spread; the estimator's own closed form.
-    assert estimate == pytest.approx(spread, rel=0.02)
-
-
-def test_negative_daily_estimates_offset_positive_ones_before_the_floor():
-    """Average first, floor the average — not floor each day. Flooring each
-    day turns volatility into a phantom spread (measured: AAPL 25.6 bps)."""
-    const = 3 - 2 * math.sqrt(2)
-    # Two pairs engineered to give +x and -x alphas cannot be built from
-    # bars directly; check the property on the live formula instead: a
-    # zero-spread random walk must read near zero, not at a positive floor.
+def _quoted_bars(n, *, spread, vol, seed, price=50.0, trades=40):
+    """n daily bars whose every trade prints at bid or ask around a random-walk
+    mid: the data-generating process of Ardia, Guidotti & Kroencke (2024)."""
     import random
 
-    rng = random.Random(7)
-    price, bars = 100.0, []
-    for i in range(260):
-        o = price
-        path = [o]
-        for _ in range(40):
-            path.append(path[-1] * math.exp(rng.gauss(0, 0.004)))
-        price = path[-1]
-        bars.append(
-            OHLCV(date=TODAY - timedelta(days=400 - i), open=o, high=max(path), low=min(path), close=price, volume=1)
+    rng, mid, out = random.Random(seed), price, []
+    for i in range(n):
+        prints = []
+        for _ in range(trades):
+            mid *= math.exp(rng.gauss(0, vol / math.sqrt(trades)))
+            prints.append(mid * (1 + spread / 2) if rng.random() < 0.5 else mid * (1 - spread / 2))
+        out.append(
+            OHLCV(
+                date=TODAY - timedelta(days=n - i),
+                open=prints[0],
+                high=max(prints),
+                low=min(prints),
+                close=prints[-1],
+                volume=1_000_000,
+            )
         )
-    assert const > 0
-    assert us.corwin_schultz_spread(bars) * 10_000 / 2 < 5
+    return out
 
 
-def test_negative_estimates_are_floored_at_zero():
-    # A pure trend with no bounce produces negative alphas.
-    bars = _bars(50, price=50, rng=0.0, close_drift=0.01)
-    bars = [OHLCV(date=b.date, open=b.open, high=b.close * 1.02, low=b.close, close=b.close, volume=1) for b in bars]
-    assert us.corwin_schultz_spread(bars) >= 0.0
+def test_edge_recovers_a_known_spread_on_a_volatile_name():
+    spread, reason = us.edge_spread(_quoted_bars(260, spread=0.01, vol=0.03, seed=0))
+    assert reason is None
+    assert spread == pytest.approx(0.01, rel=0.2)
+
+
+def test_edge_with_too_few_bars_is_unestimable_not_zero():
+    assert us.edge_spread(_quoted_bars(2, spread=0.01, vol=0.03, seed=0)) == (None, "cost_unestimable:too_few_bars")
 
 
 def test_spread_is_judged_against_the_names_own_expected_move():
     # 1% quoted range -> ~50 bps half-spread: over the retired flat 40 bps
     # line, but its round trip is below the move expected over the hold,
     # so the break-even floor passes it.
-    failures, measured = us.check_bars(_bars(300, rng=0.005), TH)
+    failures, measured = us.check_bars(_quoted_bars(300, spread=0.01, vol=0.03, seed=0), TH)
     assert measured["half_spread_bps"] > 40.0
     assert "spread_exceeds_expected_move" not in failures
     assert "spread_too_wide" not in failures

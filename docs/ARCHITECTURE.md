@@ -847,6 +847,15 @@ reason when K is None. A held passer is coverage and is never capped. No complet
 session is a morning fault and no screened name. `nominations.max_per_seat_per_run` still caps each
 nominating seat and no longer caps screened names. All of it sits behind `universe_screen.enabled`.
 
+K's trading cost is the EDGE spread estimate (Ardia, Guidotti & Kroencke, J. Financial Economics 2024)
+from a year of daily open/high/low/close, computed by the authors' `bidask` package (pinned exactly in
+`pyproject.toml`; the deploy does not install Python packages, so the server venv needs
+`pip install bidask==2.1.0` before the change runs). It replaced a hand-written Corwin & Schultz estimator
+that read fast movers' cost as zero, so dozens of names tied at the top K and the cut fell alphabetically.
+A name whose cost cannot be estimated (`cost_unestimable:<reason>`: too few bars, undefined, or a negative
+estimate) still passes the screen but gets no K, so it is `not_sent_unscored` and never outranks a name
+with a measured cost.
+
 Screened names reach a thesis seat (2026-10-19). The conviction bar needs a name-level seat (news,
 earnings or smart money) with a directional thesis, so a screened name the chart seat likes is refused
 unless one of them reads it.
