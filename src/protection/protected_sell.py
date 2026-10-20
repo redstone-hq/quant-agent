@@ -133,6 +133,32 @@ class ProtectedSell:
                     (self.broker, self.db), "protected_sell.entry_cancel", exc, context={"symbol": symbol}
                 )
                 logger.warning("%s: entry-order cancel failed for %s: %s", label, symbol, exc)
+                # Fail closed (docs/OUTCOME.md): whether an entry still rests
+                # is UNKNOWN, so the sale is PUT OFF before any stop is touched
+                # — the deciding run re-runs the whole protected sale (entry
+                # cancel included) once it re-checks. Same reason and path as
+                # an unreadable cancelled leg.
+                from src.execution.broker_parts.cancel_confirm import CANCEL_READ_FAILED, LegSettlement
+
+                self._state.set("_leg_settlement", LegSettlement(reason=CANCEL_READ_FAILED))
+                self._put_off_if_unconfirmed(
+                    {
+                        "symbol": symbol,
+                        "qty": abs(float(qty)),
+                        "limit_price": limit_price,
+                        "reference_price": reference_price,
+                        "position_qty_before_sell": position_qty_before_sell,
+                        "label": label,
+                        "side": side,
+                        "escalate_to_market_on_reject": escalate_to_market_on_reject,
+                        "full_exit": full_exit,
+                        "stop_specs": [],
+                        "wal_row_id": None,
+                        "kept_leg": None,
+                    },
+                    book,
+                )
+                return None
         stop_side_kwargs = {} if side == "sell" else {"side": side}
         ok, stop_specs, wal_row_id, kept_leg = self._clear_stops_for(label, symbol, qty, position_qty_before_sell, side)
         if not ok:

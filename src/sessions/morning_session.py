@@ -162,7 +162,10 @@ class MorningSession:
             self._surface_reconcile_outcomes(reco, drained, run_id=run_id)
 
             # 0. Cancel stale entry orders from previous sessions, but preserve live protective exits.
-            self._broker.cancel_open_entry_orders()
+            try:
+                self._broker.cancel_open_entry_orders()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("morning stale entry-order cancel failed (non-fatal): %s", exc)
 
             # 1. Get account state (snapshot into ctx). Explicit guard mirrors
             # `run_intra_check` — a broker-API failure at snapshot time should

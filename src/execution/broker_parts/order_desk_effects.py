@@ -9,7 +9,7 @@ _LOG = logging.getLogger("src.execution.broker")
 
 EFFECT: dict[str, str] = {
     "cancel_all_open_orders": ("the caller is told zero orders were cancelled when the truth is unknown"),
-    "cancel_open_entry_orders": ("the caller is told zero entry orders were cancelled when the truth is unknown"),
+    "cancel_open_entry_orders": ("recorded then RAISED to the caller; never reported as zero entry orders cancelled"),
     "list_open_entry_orders_checked": ("reported as a FAILED read, not as an empty book"),
     "list_open_orders_checked": (
         "reported as a FAILED read with an empty list, not as an empty book; the freeze sweep touches nothing"
