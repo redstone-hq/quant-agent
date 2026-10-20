@@ -55,7 +55,8 @@ def test_a_breach_smaller_than_one_loser_sells_that_whole_loser():
     out = apply_gross_ceiling([], book, EQUITY, _one_x())
     assert _cuts(out) == [("LOSER", "SELL", 100.0)]
     assert "loser" in out.trims[0].reasoning.lower()
-    assert "Drawdown cut #1" in out.trims[0].reasoning
+    assert "borrowing limit" in out.trims[0].reasoning
+    assert "loser #1 of 1" in out.trims[0].reasoning
 
 
 def test_two_losers_biggest_loser_goes_first_and_both_go_whole():
@@ -67,7 +68,8 @@ def test_two_losers_biggest_loser_goes_first_and_both_go_whole():
     ]
     out = apply_gross_ceiling([], book, EQUITY, _half_x())
     assert _cuts(out) == [("BIG", "SELL", 100.0), ("SMALL", "SELL", 100.0)]
-    assert "Drawdown cut #2" in out.trims[1].reasoning
+    assert "borrowing limit" in out.trims[1].reasoning
+    assert "loser #2 of 2" in out.trims[1].reasoning
 
 
 def test_no_losers_sells_the_weakest_rated_winner_whole():

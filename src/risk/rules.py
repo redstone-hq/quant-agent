@@ -577,20 +577,20 @@ def apply_gross_ceiling(
             stop_loss=0.0,
             take_profit=0.0,
             reasoning=(
-                f"Drawdown cut #{rank} ({GROSS_EXPOSURE_RULE}): {verb} ALL of "
+                f"Over the {ceiling.ceiling_x:.1f}x borrowing limit: {verb.lower()} all of "
                 f"{position.symbol}"
                 f"{f' (the {cut_pct:g}% the plan is not already selling)' if sells_rest else ''}"
                 f" — {why}. The book owns "
                 f"${out.held_gross_after_exits:,.0f} against a "
-                f"${out.ceiling_usd:,.0f} ceiling ({ceiling.ceiling_x:.1f}x "
-                f"equity). New exposure was blocked first. {ceiling.reason}"
+                f"${out.ceiling_usd:,.0f} limit ({ceiling.ceiling_x:.1f}x "
+                f"equity); new buys were blocked first. {ceiling.reason}"
             )[:500],
         )
         out.trims.append(trim)
         out.notes.append(
-            f"{GROSS_EXPOSURE_RULE}: drawdown cut #{rank} — {verb.lower()} all of "
-            f"{position.symbol} ({why}); the book already owns more than the "
-            f"{ceiling.ceiling_x:.1f}x ceiling allows. {ceiling.reason}"
+            f"{GROSS_EXPOSURE_RULE}: over the {ceiling.ceiling_x:.1f}x borrowing limit, "
+            f"sale #{rank} — {verb.lower()} all of {position.symbol} ({why}); the book "
+            f"already owns more than the limit allows. {ceiling.reason}"
         )
         over -= position_gross
     if out.trims:

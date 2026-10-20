@@ -827,8 +827,8 @@ def test_the_de_lever_order_explains_itself_to_the_operator():
     positions = [_position("NVDA", qty=200.0, current_price=100.0)]
     ceiling = resolve_gross_ceiling(-16.0, base_x=BASE_X)
     trim = apply_gross_ceiling([], positions, EQUITY, ceiling).trims[0]
-    assert "New exposure was blocked first" in trim.reasoning
-    assert "ceiling" in trim.reasoning
+    assert "new buys were blocked first" in trim.reasoning
+    assert "borrowing limit" in trim.reasoning
 
 
 # ===========================================================================

@@ -209,9 +209,9 @@ def resolve_gross_ceiling(
     alert = drawdown <= GROSS_LADDER_ALERT_PCT
     if ceiling >= base:
         reason = (
-            f"The book is {abs(drawdown):.1f}% below its equity high — inside "
-            f"the {abs(GROSS_LADDER[0][0]):.0f}% band where no de-levering "
-            f"applies. Gross exposure may reach {ceiling:.1f}x equity."
+            f"The book is {abs(drawdown):.1f}% below its equity high, less than "
+            f"the {abs(GROSS_LADDER[0][0]):.0f}% that would lower the limit, so "
+            f"the limit stays {ceiling:.1f}x equity."
         )
     else:
         reason = (
