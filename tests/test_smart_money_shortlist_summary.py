@@ -99,25 +99,10 @@ def test_prompt_for_105_names_is_far_under_200k_tokens(tmp_path):
     seat_rows = shortlist_rows([*rows, *off], shortlist)
     agent = object.__new__(SmartMoneyAnalystAgent)
     after = agent.build_user_message(observations=seat_rows, order=shortlist)
-    # Before: the same names sent as per-row facts (the old per-symbol format).
-    by_symbol: dict = {}
-    for row in seat_rows:
-        by_symbol.setdefault(row.symbol, []).append(row)
-    before = json.dumps([SmartMoneyAnalystAgent._compact_symbol(s, by_symbol[s]) for s in shortlist])
-    # Old live prompt: the top 40 rows by dollar value, market-wide.
-    top = sorted([*rows, *off], key=lambda r: -(r.transaction_value_usd or 0))[:40]
-    capped: dict = {}
-    for row in top:
-        capped.setdefault(row.symbol, []).append(row)
-    old_live = json.dumps([SmartMoneyAnalystAgent._compact_symbol(s, v) for s, v in capped.items()])
-    after_tokens, before_tokens = len(after) // 4, len(before) // 4  # [estimate] 4 chars per token
-    print(
-        "smart-money prompt tokens [estimate, chars/4]: "
-        f"old 40-row prompt={len(old_live) // 4} ({len(capped)} names), "
-        f"per-row for 105 names={before_tokens}, summary for 105 names={after_tokens}"
-    )
+    after_tokens = len(after) // 4  # [estimate] 4 chars per token
+    print(f"smart-money summary prompt tokens for 105 names [estimate, chars/4]: {after_tokens}")
     assert len(_payload(after)["symbol_facts"]) == 105
-    assert after_tokens < 50_000 < before_tokens
+    assert after_tokens < 50_000
 
 
 def test_exchange_rows_are_not_counted_as_sells():
