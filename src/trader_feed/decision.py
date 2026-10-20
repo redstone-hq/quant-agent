@@ -780,12 +780,16 @@ def _append_rotation(lines: list[str], snap: dict[str, Any] | None) -> None:
     shipped, and any stored report replayed from one).
     """
     from src.rotation import owner_precheck_lines, pruning_pass_lines
+    from src.rotation_parts.reporting import sold_symbols
 
     record = (snap or {}).get("rotation")
-    lines.extend(owner_precheck_lines(record))
+    # 2026-10-20. The row is a proposal; the orders are the outcome. Both
+    # blocks say what was actually sold, not what was put up.
+    sold = sold_symbols(snap)
+    lines.extend(owner_precheck_lines(record, sold=sold))
     # Board item 219. The pruning pass itself — that it ran, over what, what
     # it cut and why, what it kept, and that the second tier is off.
-    lines.extend(pruning_pass_lines(record))
+    lines.extend(pruning_pass_lines(record, sold=sold))
 
 
 def _append_held(lines: list[str], symbols: list[str], profiles: dict) -> None:
