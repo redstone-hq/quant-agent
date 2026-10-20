@@ -864,6 +864,7 @@ class AlpacaBroker:
         on_unfilled_cancel=None,
         cover_full_position: bool = False,
         held_qty_before: float = 0.0,
+        persist_restore=None,
     ) -> dict | None:
         """Wait for an entry order to reach terminal, then place a GTC
 
@@ -879,6 +880,7 @@ class AlpacaBroker:
             on_unfilled_cancel=on_unfilled_cancel,
             cover_full_position=cover_full_position,
             held_qty_before=held_qty_before,
+            persist_restore=persist_restore,
             _ENTRY_FILL_TIMEOUT_S=_ENTRY_FILL_TIMEOUT_S,
         )
 
@@ -1076,6 +1078,23 @@ class AlpacaBroker:
     def _submit_stop_legs(self, *args, **kwargs):
         """Thin shim: body moved to src/execution/broker_parts/stop_place.py."""
         return self._stop_placer()._submit_stop_legs(*args, **kwargs)
+
+    def _reprotect_or_naked(
+        self, symbol: str, qty, side: str, intended: float, cancelled_specs: list[dict]
+    ) -> dict | None:
+        """Thin shim over stop_clock.reprotect_or_naked for callers outside
+        src.execution (sell finalization): immediate re-protect at `intended`
+        on the placer, timed and recorded as an unprotected window; the
+        returned payload says `naked` when that also failed."""
+        from src.execution.broker_parts.stop_clock import reprotect_or_naked
+        from src.execution.broker_parts.stop_window import UnprotectedWindow
+
+        placer = self._stop_placer()
+        window = UnprotectedWindow(symbol, "restore_and_wal_failed", placer._window_log, path="sell_finalization")
+        for spec in cancelled_specs:
+            if spec.get("id"):
+                window.cancelled(spec["id"])
+        return reprotect_or_naked(placer, symbol, qty, side, intended, cancelled_specs, window)
 
     def _restore_stop_orders(self, *args, **kwargs):
         """Thin shim: body moved to src/execution/broker_parts/stop_place.py."""

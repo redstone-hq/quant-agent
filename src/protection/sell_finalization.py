@@ -757,7 +757,7 @@ class SellFinalization:
         *,
         wal_row_id: int | None = None,
         side: str = "sell",
-    ) -> None:
+    ) -> dict | None:
         """Persist (or update) a protection-restore recovery intent.
 
         Used by the bail branches of the finalize core: cancel raised,
@@ -783,9 +783,17 @@ class SellFinalization:
         write-ahead insert already set it correctly); on INSERT (the
         legacy-caller / no-prior-row path) it's the only place this row
         will ever get a side recorded.
+
+        Returns ``None`` when the intent is persisted (the drain owns it) or
+        when, with the write-ahead row ALSO unwritable, the immediate
+        re-protect through the broker landed. Returns the broker's
+        ``naked`` payload when that re-protect failed too: the position
+        has no stop and no recovery row, and the caller reports coverage
+        unconfirmed (docs/OUTCOME.md: protections fail closed, never
+        "logged and moved on").
         """
         if not cancelled_specs:
-            return
+            return None
         import json as _json
 
         specs_json = _json.dumps(cancelled_specs)
@@ -823,13 +831,58 @@ class SellFinalization:
                     len(cancelled_specs),
                 )
         except Exception as exc:
-            logger.error(
-                "Failed to persist orphaned protection-restore for %s: %s — "
-                "position is unprotected with no recovery plan; manual "
-                "intervention required",
-                symbol,
+            record_guarded_pass(
+                (self.db, self.broker),
+                "sell_finalization.persist_orphaned_protection_restore",
                 exc,
+                log=logger,
+                context={
+                    "symbol": symbol,
+                    "order": order_id,
+                    "effect": "no recovery row; re-protecting now at the most protective cancelled stop",
+                },
             )
+            return self._reprotect_after_lost_recovery_row(symbol, position_qty_before_sell, cancelled_specs, side)
+        return None
+
+    def _reprotect_after_lost_recovery_row(
+        self, symbol: str, position_qty_before_sell: float, cancelled_specs: list[dict], side: str
+    ) -> dict | None:
+        """Restore failed AND the write-ahead row could not be written: the
+        only thing left that can protect the shares is a stop placed NOW.
+        Sized to the live broker position (the pre-sale quantity when the
+        broker cannot be read — the broker rejects an over-sized stop and
+        the payload then says naked), at the most protective cancelled
+        stop: the highest for a long's SELL stop, the lowest for a short's
+        BUY stop."""
+        prices = [float(spec.get("stop_price") or 0) for spec in cancelled_specs if spec.get("stop_price")]
+        if not prices:
+            return None
+        intended = max(prices) if side == "sell" else min(prices)
+        current_raw = self._current_position_qty_for_finalize(symbol)
+        qty = abs(float(current_raw)) if current_raw is not None else float(position_qty_before_sell or 0)
+        if qty <= 0:
+            return None
+        try:
+            payload = self.broker._reprotect_or_naked(symbol, qty, side, intended, cancelled_specs)
+            record_guarded_pass((self.db, self.broker), "sell_finalization.reprotect_after_lost_recovery_row")
+        except Exception as exc:  # noqa: BLE001
+            record_guarded_pass(
+                (self.db, self.broker),
+                "sell_finalization.reprotect_after_lost_recovery_row",
+                exc,
+                log=logger,
+                context={"symbol": symbol, "effect": "no stop placed; reported as naked"},
+            )
+            return {"symbol": symbol, "status": "naked", "amend_status": "naked", "legs": []}
+        if isinstance(payload, dict) and payload.get("status") == "naked":
+            logger.error(
+                "%s is UNPROTECTED: restore failed, the recovery row could not be written and the "
+                "immediate re-protect at $%.4f failed — manual intervention required",
+                symbol,
+                intended,
+            )
+        return payload
 
     def _derive_close_side_for_drain(self, symbol: str) -> str | None:
         """Which stop side an orphaned WAL row needs, derived from LIVE
