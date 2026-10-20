@@ -761,23 +761,6 @@ def test_analyst_cache_is_bound_to_run_scoped_presented_symbols(tmp_path):
     assert result.tokens_used == 10
 
 
-def test_compact_symbol_surfaces_estimated_disclosure_dates_to_the_seat():
-    """Board item 170, DONE-WHEN #3: the seat must be able to tell a real
-    congressional filing date from congresswatch.us's trade+45d guess
-    wherever the lag it fed into reaches the prompt -- not just the
-    eligibility gate the fix already covers."""
-    real = _congress(lag=10, actor="Real Filer")
-    estimated = _congress(lag=45, actor="Guessed Filer").model_copy(update={"disclosure_date_estimated": True})
-    compact = SmartMoneyAnalystAgent._compact_symbol("NVDA", [real, estimated])
-    assert compact["disclosure_date_estimated_count"] == 1
-
-    # Both observations fit under the representative-transaction cap, so
-    # each one's own estimated/real flag must be visible individually, not
-    # just as an aggregate count.
-    flags = {row["disclosure_date_estimated"] for row in compact["transactions"]}
-    assert flags == {True, False}
-
-
 # --- Board item 63: signal_weight now carries a DIRECTION channel so a
 # --- bearish/contra smart-money row cannot rank or size as a bullish buy. ---
 

@@ -81,7 +81,6 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.agents.base import AgentResult, BaseAgent
-from src.agents.smart_money_cap_record import bounded
 from src.data.smart_money_summary import summary_lines
 from src.models import SmartMoneyFinding, SmartMoneyNoRead, SmartMoneyObservation, SmartMoneySynthesis
 
@@ -89,11 +88,6 @@ logger = logging.getLogger(__name__)
 PROMPT_PATH = Path(__file__).parent.parent.parent / "config" / "prompts" / "smart_money_analyst.md"
 DEFAULT_SYNTHESIS_CACHE = Path("data/smart_money/synthesis_cache.json")
 _CACHE_LOCK = threading.Lock()
-_MAX_CONTEXT_TEXT_CHARS = 96
-# The discount reason is the operator-facing "why". Bounded, but with more
-# room than an actor name so the sentence survives intact.
-_MAX_REASON_TEXT_CHARS = 220
-_MAX_ACTOR_ROLES = 8
 
 # Orderings are stated as tiers, best first; a tier holding several keys is a
 # tie. Anything not listed (e.g. "historical", "stale", "routine") sorts last.
@@ -190,169 +184,6 @@ class SmartMoneyAnalystAgent(BaseAgent):
             observation.accession_number,
             observation.transaction_row if observation.transaction_row is not None else -1,
         )
-
-    @staticmethod
-    def _bounded_context(value: str, limit: int = _MAX_CONTEXT_TEXT_CHARS, cap: str = "_MAX_CONTEXT_TEXT_CHARS") -> str:
-        return bounded(value, limit, cap)
-
-    @classmethod
-    def _ranked_transactions(
-        cls,
-        observations: list[SmartMoneyObservation],
-    ) -> list[SmartMoneyObservation]:
-        """Every transaction, best first. Nothing is cut: the seat answers on
-        all the evidence it was given, not on a made-up subset."""
-        return sorted(observations, key=cls._transaction_rank)
-
-    @classmethod
-    def _compact_symbol(
-        cls,
-        symbol: str,
-        observations: list[SmartMoneyObservation],
-    ) -> dict:
-        direction_counts = {
-            direction: sum(row.direction == direction for row in observations)
-            for direction in ("buy", "sell", "exchange", "unknown")
-            if any(row.direction == direction for row in observations)
-        }
-        value_by_direction = {
-            direction: round(
-                sum(row.transaction_value_usd or 0 for row in observations if row.direction == direction), 2
-            )
-            for direction in direction_counts
-        }
-        public_times = [
-            (row.accepted_at or row.known_at).isoformat()
-            if row.accepted_at or row.known_at
-            else row.disclosure_date.isoformat()
-            for row in observations
-        ]
-        transactions = cls._ranked_transactions(observations)
-        return {
-            "symbol": symbol,
-            "observation_count": len(observations),
-            "direction_counts": direction_counts,
-            "transaction_value_usd_by_direction": value_by_direction,
-            "independent_owner_count": len({row.actor_cik or row.actor for row in observations}),
-            "streams": sorted({row.stream for row in observations}),
-            "economic_roles": sorted({row.economic_role for row in observations}),
-            "freshness_counts": {
-                freshness: sum(row.freshness == freshness for row in observations)
-                for freshness in ("fresh", "delayed", "stale")
-                if any(row.freshness == freshness for row in observations)
-            },
-            "latest_transaction_date": max(row.transaction_date for row in observations).isoformat(),
-            "latest_public_at": max(public_times),
-            "lag_days_range": [
-                min(row.lag_days for row in observations),
-                max(row.lag_days for row in observations),
-            ],
-            # Board item 170: `lag_days` alone cannot tell the seat whether a
-            # disclosure date was actually filed or only guessed at the
-            # 45-day statutory ceiling (congresswatch.us carries no real
-            # filing date). Surfaced here so the seat never reads a lag
-            # figure as a measured, on-time disclosure when it is really an
-            # estimate the eligibility gate already refuses to credit.
-            "disclosure_date_estimated_count": sum(row.disclosure_date_estimated for row in observations),
-            "disclosure_age_days_range": [
-                min(row.disclosure_age_days for row in observations),
-                max(row.disclosure_age_days for row in observations),
-            ],
-            "transient_admission_eligible": any(row.transient_admission_eligible for row in observations),
-            "admission_eligible": any(row.admission_eligible for row in observations),
-            "in_core_universe": any(row.in_core_universe for row in observations),
-            "in_trading_universe": any(row.in_trading_universe for row in observations),
-            "transient_admitted": any(row.transient_admitted for row in observations),
-            # Routine/opportunistic split. Cohen/Malloy/Pomorski: routine
-            # trades carry zero predictive power, so the model is told which
-            # rows to discount and the deterministic reason for each.
-            "signal_class_counts": {
-                label: sum(row.signal_class == label for row in observations)
-                for label in ("opportunistic", "routine", "indeterminate", "")
-                if any(row.signal_class == label for row in observations)
-            },
-            "opportunistic_transaction_value_usd_by_direction": {
-                direction: round(
-                    sum(
-                        row.transaction_value_usd or 0
-                        for row in observations
-                        if row.direction == direction and row.signal_class == "opportunistic"
-                    ),
-                    2,
-                )
-                for direction in direction_counts
-            },
-            # Board item 124: the deterministic same-day opportunistic
-            # purchase cluster, or null. A source fact; the seat may explain
-            # it, but conviction is set by code (`_purchase_cluster_lift`).
-            "insider_purchase_cluster": cls._cluster_fact(observations),
-            "routine_reasons": sorted(
-                {
-                    row.signal_class_reason
-                    for row in observations
-                    if row.signal_class == "routine" and row.signal_class_reason
-                }
-            ),
-            "amendment_count": sum(row.amendment for row in observations),
-            "late_filing_count": sum(row.late_filing for row in observations),
-            "ten_b_five_one_counts": {
-                label: sum(row.is_10b5_1 is value for row in observations)
-                for label, value in (("true", True), ("false", False), ("unknown", None))
-                if any(row.is_10b5_1 is value for row in observations)
-            },
-            "actor_roles": [
-                cls._bounded_context(role)
-                for role in sorted({role for row in observations for role in row.actor_roles})[:_MAX_ACTOR_ROLES]
-            ],
-            "transactions": [
-                {
-                    "actor": cls._bounded_context(row.actor),
-                    "actor_cik": row.actor_cik,
-                    "direction": row.direction,
-                    "amount_range": cls._bounded_context(row.amount_range),
-                    "transaction_date": row.transaction_date.isoformat(),
-                    "accepted_at": (
-                        (row.accepted_at or row.known_at).isoformat() if row.accepted_at or row.known_at else None
-                    ),
-                    # Board item 170: whether `accepted_at`/the lag this row
-                    # contributes is a real filing date or congresswatch.us's
-                    # trade+45d guess (never a measurement of timeliness).
-                    "disclosure_date_estimated": row.disclosure_date_estimated,
-                    "transaction_value_usd": row.transaction_value_usd,
-                    "post_transaction_shares": row.post_transaction_shares,
-                    # Exact insider-holding ratio: descriptive context, never a gate.
-                    "holdings_fraction": row.holdings_fraction,
-                    "no_prior_holding": row.no_prior_holding,
-                    "ownership_nature": row.ownership_nature,
-                    "is_10b5_1": row.is_10b5_1,
-                    "signal_class": row.signal_class,
-                    "signal_class_reason": row.signal_class_reason,
-                    "signal_class_detail": cls._bounded_context(
-                        row.signal_class_detail, _MAX_REASON_TEXT_CHARS, "_MAX_REASON_TEXT_CHARS"
-                    ),
-                    "amendment": row.amendment,
-                    "late_filing": row.late_filing,
-                    "accession_number": row.accession_number,
-                    "transaction_row": row.transaction_row,
-                }
-                for row in transactions
-            ],
-        }
-
-    @staticmethod
-    def _cluster_fact(observations: list[SmartMoneyObservation]) -> dict | None:
-        stamped = [
-            row.purchase_cluster for row in observations if row.stream == "insider" and row.purchase_cluster is not None
-        ]
-        if not stamped:
-            return None
-        cluster = max(stamped, key=lambda c: c.transaction_date)
-        return {
-            "transaction_date": cluster.transaction_date.isoformat(),
-            "distinct_insiders": cluster.distinct_insiders,
-            "combined_value_usd": cluster.combined_value_usd,
-            "filing_age_days": cluster.filing_age_days,
-        }
 
     @classmethod
     def _compact_observations(

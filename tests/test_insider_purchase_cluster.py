@@ -289,20 +289,6 @@ def test_a_cluster_does_not_change_the_seats_symbol_ranking():
     assert SmartMoneyAnalystAgent._symbol_rank("NVDA", plain) == SmartMoneyAnalystAgent._symbol_rank("NVDA", stamped)
 
 
-def test_the_seat_is_handed_the_cluster_fact_and_null_without_one():
-    plain = [_buy(owner="1"), _buy(owner="2")]
-    cluster = _clusters(plain)["NVDA"]
-    stamped = [row.model_copy(update={"purchase_cluster": cluster}) for row in plain]
-    fact = SmartMoneyAnalystAgent._compact_symbol("NVDA", stamped)["insider_purchase_cluster"]
-    assert fact == {
-        "transaction_date": DAY.isoformat(),
-        "distinct_insiders": 2,
-        "combined_value_usd": 300_000,
-        "filing_age_days": cluster.filing_age_days,
-    }
-    assert SmartMoneyAnalystAgent._compact_symbol("NVDA", plain)["insider_purchase_cluster"] is None
-
-
 def test_evidence_hash_tracks_the_cluster_but_not_its_age():
     plain = [_buy(owner="1"), _buy(owner="2")]
     cluster = _clusters(plain)["NVDA"]

@@ -3428,35 +3428,6 @@ numbers:
     note: >-
       LLM plumbing: sleep between retries of the same OpenRouter lookup,
       not a trading decision.
-  - id: src.agents.smart_money_analyst._MAX_CONTEXT_TEXT_CHARS
-    value: 96
-    status: not-trade-governing
-    site: src/agents/smart_money_analyst.py
-    note: >-
-      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap shortens context text shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a word. Measured never to cut since 2026-10-12: 186 checks, longest string 48 characters against a limit of 96. The earlier text below is kept as history.
-      Character cap applied to context text via `_bounded_context`
-      (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._bounded_context). No published
-      source sets this figure.
-  - id: src.agents.smart_money_analyst._MAX_REASON_TEXT_CHARS
-    value: 220
-    status: not-trade-governing
-    site: src/agents/smart_money_analyst.py
-    note: >-
-      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap shortens discount-reason text shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a word. Measured never to cut since 2026-10-12: 186 checks, longest string 126 characters against a limit of 220. The earlier text below is kept as history.
-      Character cap for the discount-reason text via `_bounded_context`
-      (src/agents/smart_money_analyst.py::_MAX_REASON_TEXT_CHARS (the comment directly above it)). No published
-      source sets this figure; the comment
-      there says only that this leaves "more room than an actor name", not
-      why 220 rather than another figure.
-  - id: src.agents.smart_money_analyst._MAX_ACTOR_ROLES
-    value: 8
-    status: not-trade-governing
-    site: src/agents/smart_money_analyst.py
-    note: >-
-      RECLASSIFIED 2026-10-19 as a prompt-size limit, status not-trade-governing. The cap bounds a small closed set of actor roles shown to the AI; it does not change evidence rows, and it can change what is bought or sized only by cutting a role. The earlier text below is kept as history.
-      Caps how many actor roles are kept per finding
-      (src/agents/smart_money_analyst.py::SmartMoneyAnalystAgent._compact_symbol). No published
-      source sets this figure.
   - id: src.agents.tech_analyst._WEEKDAYS_PER_WEEK
     value: 5
     status: sourced
