@@ -80,18 +80,12 @@ def _was_sold(symbol: str, sold: Iterable[str] | None) -> bool | None:
 def _cut_outcome_sentence(symbol: str, sold: Iterable[str] | None, *, execute_enabled: bool) -> str:
     """What actually became of a holding the pre-check put up to be cut."""
     if not execute_enabled:
-        return (
-            "The desk is not switched on to act on this by itself, so this "
-            "is information only — nothing was sold."
-        )
+        return "The desk is not switched on to act on this by itself, so this is information only — nothing was sold."
     was_sold = _was_sold(symbol, sold)
     if was_sold is None:
         return f"Whether {symbol} was sold is recorded with the session's orders, not here."
     if was_sold:
-        return (
-            f"{symbol} was sold this session; what that freed stays in the "
-            "book as cash."
-        )
+        return f"{symbol} was sold this session; what that freed stays in the book as cash."
     return f"The planning AI kept {symbol}; nothing was sold."
 
 

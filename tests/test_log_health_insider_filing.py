@@ -22,9 +22,7 @@ OLD_WORDING = (
 NEW_WORDING = "PRE-OPEN: " + _alert_text(
     False, 41, ["the morning read stopped at its own limit before finishing"], COVERAGE
 )
-ALL_READ_WORDING = "PRE-OPEN: " + _alert_text(
-    True, 41, ["the market-wide scan stopped at its own limit"], COVERAGE
-)
+ALL_READ_WORDING = "PRE-OPEN: " + _alert_text(True, 41, ["the market-wide scan stopped at its own limit"], COVERAGE)
 
 
 def test_insider_filing_alert_is_classified_not_unrecognised():
