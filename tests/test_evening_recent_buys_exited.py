@@ -1,18 +1,19 @@
 """Recent BUYs whose position has since closed must say so (PWR, 20 Oct)."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from src.agents.evening_analyst import EveningAnalystAgent
 from src.models.positions import Position
+from src.trading_calendar import et_today
 from tests.pipeline_factory import build_pipeline
 
 
 def _buys_with_exit():
     pipeline = build_pipeline(db=MagicMock(), broker=MagicMock())
     pipeline.broker.get_latest_price.return_value = 90.0
-    d3 = (date.today() - timedelta(days=3)).isoformat()
-    d1 = (date.today() - timedelta(days=1)).isoformat()
+    d3 = (et_today() - timedelta(days=3)).isoformat()
+    d1 = (et_today() - timedelta(days=1)).isoformat()
     pipeline.db.get_trades.return_value = [
         {"action": "STOP_OUT", "symbol": "ZZZ", "fill_price": 92.0, "timestamp": f"{d1} 15:00:00"},
         {"action": "BUY", "symbol": "ZZZ", "fill_price": 100.0, "timestamp": f"{d3} 14:00:00"},
