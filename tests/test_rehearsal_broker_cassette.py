@@ -150,6 +150,7 @@ def test_capture_tokenizes_identifiers_and_replay_is_strict_and_shape_compatible
     broker._fractionable_cache = {}
     broker._trading_day_cache = {}
     broker._session_open_cache = {}
+    broker._sessions_held_cache = {}
     monkeypatch.setattr(
         "src.execution.broker._sector_reference._get_sector",
         lambda _symbol: "ETF",
