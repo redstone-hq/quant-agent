@@ -306,6 +306,11 @@ class AlpacaBroker:
         # the calendar in advance. Backs `broker_reads._quote_freshness`
         # (docs/WORK.md item 15), which may run on every /quotes read.
         self._session_open_cache: dict[date, "datetime | None"] = {}
+        # Per-(start, end) cache for trading_sessions_held, same lifetime/invariance
+        # argument as `_trading_day_cache` above: a session count between two past
+        # dates is fixed by the calendar. Measured 20 Oct: 5,466 calendar calls in
+        # one morning run from the insider age gate re-asking the same pair.
+        self._sessions_held_cache: dict[tuple[date, date], int] = {}
         # Stage 3 (shorts, D6). Per-run cache, same shape/lifetime as
         # `_trading_day_cache` above — a symbol's shortable/easy_to_borrow
         # flags don't change intra-session, so one asset-directory lookup
@@ -357,6 +362,7 @@ class AlpacaBroker:
             fractionable_cache=self._fractionable_cache,
             trading_day_cache=self._trading_day_cache,
             session_open_cache=self._session_open_cache,
+            sessions_held_cache=self._sessions_held_cache,
             # `_session_edge` is itself a moved body -- same recursion guard as
             # `_stop_placer`: pass it ONLY when it is NOT this broker's shim.
             **{
