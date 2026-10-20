@@ -263,9 +263,12 @@ NOT_APPLICABLE_FUND = "not applicable: fund"
 #: SEC submission types that mean the issuer is the subject of a pending
 #: acquisition: merger proxies and information statements (Schedule 14A /
 #: 14C "M" variants), the target's tender-offer response (SC 14D9 and its
-#: pre-commencement SC14D9C), a third-party tender offer (SC TO-T, SC TO-C)
-#: and a going-private transaction (SC 13E3). SEC lists these as proxy and
-#: Williams Act submission types:
+#: pre-commencement SC14D9C), a third-party tender offer (SC TO-T), a
+#: written communication about an issuer or third-party tender offer
+#: (SC TO-C) and a going-private transaction (SC 13E3). The header's filer
+#: tells an issuer's own tender (buyback, option exchange: never pending)
+#: from a bid for it; see `src/data/sec_filings.py`. SEC lists these as
+#: proxy and Williams Act submission types:
 #: https://www.sec.gov/submit-filings/filer-support-resources/how-do-i-guides/understand-edgarlink-online-submission-types
 #: Spellings checked against EDGAR full-text search on 2026-09-19 (each
 #: returned live filings in 2026-06..09).
@@ -300,7 +303,8 @@ CLOSING_ITEM = "2.01"
 #: Role of the issuer in its latest open takeover filing, read from the
 #: filing header (SUBJECT COMPANY = target, FILED BY = bidder) or, for a
 #: self-filed merger proxy, from the Rule 14a-21(c) golden-parachute vote.
-#: See `src/data/sec_filings.py`. A bidder is never pending. A role that
+#: See `src/data/sec_filings.py`. A bidder is never pending; nor is an
+#: issuer tendering for its own shares (``issuer_tender``). A role that
 #: cannot be attributed (a joint proxy) is INCONCLUSIVE, never dropped and
 #: never admitted. A row with no locator, or a screen with no role reader,
 #: is also undetermined: the form alone never decides.
@@ -821,8 +825,8 @@ def latest_open_takeover(filings) -> tuple[str | None, Any]:
 def pending_takeover(filings, role_of: Callable[[Any], str] | None = None) -> tuple[bool | None, str | None]:
     """(pending, latest takeover filing date) from filing rows.
 
-    pending is True for the target of an open deal, False for no open deal
-    or for the bidder, and None when the issuer's role could not be told
+    pending is True for the target of an open deal, False for no open deal,
+    for the bidder or for an issuer's own self-tender, and None when the issuer's role could not be told
     (recorded inconclusive by `check_takeover`). `role_of(locator)` reads
     the role; it may raise, and the caller fails closed."""
     day, ref = latest_open_takeover(filings)

@@ -10,6 +10,14 @@ Role rules (reviewed design, 2026-10-12):
 * **Header roles.** EDGAR's SGML header names the target under
   ``SUBJECT COMPANY`` and the bidder under ``FILED BY``. A CIK that is the
   subject is the target; one that appears only as the filer is the bidder.
+* **Issuer self-tenders.** On an offeror-filed form (the Schedule TO
+  family: SC TO-I, SC TO-T, SC TO-C; and SC 13E3) a company that is both
+  the subject and the ONLY filer is tendering for its own shares (a
+  Dutch-auction buyback, an employee option exchange) — nobody is taking
+  it over. That is ``issuer_tender``, never pending. When other parties
+  file beside the issuer (a going-private SC 13E3 with a buyer group) it
+  stays the target. On a target-filed form (SC 14D9) filer == subject is
+  the target answering a bid, so it stays the target.
 * **Self-filed proxies** (DEFM14A / PREM14A and the 14C variants) carry no
   subject/filer split. The target is the company whose holders get the
   Rule 14a-21(c) "golden parachute" advisory vote (Item 402(t) of
@@ -43,8 +51,16 @@ SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 TARGET = "target"
 BIDDER = "bidder"
 NOT_TARGET = "not_target"
+ISSUER_TENDER = "issuer_tender"
 UNDETERMINED = "undetermined"
-ROLES = frozenset({TARGET, BIDDER, NOT_TARGET, UNDETERMINED})
+ROLES = frozenset({TARGET, BIDDER, NOT_TARGET, ISSUER_TENDER, UNDETERMINED})
+
+#: Forms the OFFEROR files (Schedule TO family and the going-private
+#: Schedule 13E-3). EDGAR's form manual: SC TO-I is an issuer tender offer,
+#: SC TO-T a third-party one, SC TO-C a written communication relating to
+#: an issuer OR third-party tender offer. When the issuer is the sole filer
+#: and the subject, it is tendering for its own shares.
+OFFEROR_FORMS = frozenset({"SC TO-I", "SC TO-T", "SC TO-C", "SC 13E3"})
 
 #: Self-filed merger proxies and information statements: no subject/filer
 #: split in the header, so the role comes from the golden-parachute vote.
@@ -120,12 +136,17 @@ def parse_header_roles(header_text: str) -> tuple[set[str], set[str]]:
     return subjects, filers
 
 
-def header_role(header_text: str, cik: Any) -> str:
-    """``target`` / ``bidder`` for a header with a subject; ``self`` for a
-    self-filing by this CIK alone; ``undetermined`` otherwise."""
+def header_role(header_text: str, cik: Any, form: str = "") -> str:
+    """``target`` / ``bidder`` for a header with a subject; ``issuer_tender``
+    when this CIK is the subject and sole filer of an offeror-filed form
+    (`OFFEROR_FORMS`); ``self`` for a self-filing by this CIK alone;
+    ``undetermined`` otherwise."""
     subjects, filers = parse_header_roles(header_text)
     mine = _norm_cik(cik)
+    base = str(form or "").strip().upper().removesuffix("/A")
     if mine and mine in subjects:
+        if base in OFFEROR_FORMS and filers == {mine}:
+            return ISSUER_TENDER
         return TARGET
     if subjects:
         return BIDDER if mine in filers else UNDETERMINED
@@ -189,9 +210,9 @@ class TakeoverRoleReader:
         header = self._get(self.header_url(ref))
         if isinstance(header, bytes):
             header = header.decode("utf-8", errors="replace")
-        found = header_role(header, ref.cik)
+        base = ref.form.strip().upper().removesuffix("/A")
+        found = header_role(header, ref.cik, ref.form)
         if found == "self":
-            base = ref.form.strip().upper().removesuffix("/A")
             if base in PROXY_FORMS and ref.primary_doc:
                 found = proxy_role(self._get(self.document_url(ref)))
             else:
