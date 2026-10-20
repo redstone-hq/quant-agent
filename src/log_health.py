@@ -513,6 +513,28 @@ FAMILIES: tuple[FaultFamily, ...] = (
     # Duration is measured because the feed fails open to its saved copy:
     # a source that has been down for a week looks exactly like a quiet one.
     FaultFamily(
+        key="insider_filing_read_incomplete",
+        short_name="insider-filing read not finished",
+        sentence=(
+            "The morning read of insider filings did not finish on {n} "
+            "occasion{plural}, so the desk decided with incomplete insider "
+            "evidence; the owner was told at the time"
+        ),
+        # Same footing as the economic readings and congressional
+        # disclosures the desk goes ahead without: the desk keeps working,
+        # the evidence is short. Real line, 20 Oct 2026 08:02 ET, ERROR:
+        # "PRE-OPEN: Insider-filing check did not finish this morning: ...".
+        # It was DEGRADED under "faults this health check does not
+        # recognise" until this family existed.
+        reason=SILENTLY_FAILING,
+        patterns=_p(
+            r"^PRE-OPEN: Insider-filing check did not finish this morning",
+            r"^PRE-OPEN: All \d+ companies the desk watches had every insider filing read",
+            r"^PRE-OPEN: Form 4 backlog",
+            r"Insider-filing coverage this morning",
+        ),
+    ),
+    FaultFamily(
         key="congress_source_unreachable",
         short_name="a congressional trading source that could not be reached",
         sentence=("A public source of congressional trading disclosures could not be reached on {n} occasion{plural}"),

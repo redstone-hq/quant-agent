@@ -40,6 +40,26 @@ ROTATION_FULL_OPPORTUNITY = "full_candidate_outranked_a_holding"
 ROTATION_HOLDING_BELOW_BAR = "holding_below_entry_bar_no_replacement"
 
 
+def sold_symbols(snapshot: dict | None) -> frozenset[str]:
+    """Which symbols a session actually sold, read off its own order rows.
+
+    The pre-check row records a PROPOSAL (a holding up to be cut); the
+    planning AI decides. The owner's lines must say which happened, and
+    this is the only input that knows: the session's planned orders and
+    its trade rows, any of which is a sell of that name.
+    """
+    sold: set[str] = set()
+    for key in ("pm_orders", "trades"):
+        for row in (snapshot or {}).get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            action = str(row.get("action") or "").upper()
+            symbol = str(row.get("symbol") or "").upper()
+            if symbol and "SELL" in action:
+                sold.add(symbol)
+    return frozenset(sold)
+
+
 def precheck_outcome(precheck) -> str:
     """Which of the four cases this pre-check is. Pure, no config read.
 

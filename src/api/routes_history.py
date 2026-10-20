@@ -126,10 +126,13 @@ def _rotation_lines(run_id: str) -> list[str]:
     """
     try:
         from src.rotation import owner_precheck_lines, pruning_pass_lines
+        from src.rotation_parts.reporting import sold_symbols
         from src.trader_feed import _read_run
 
-        record = (_read_run(run_id) or {}).get("rotation")
-        return list(owner_precheck_lines(record)) + list(pruning_pass_lines(record))
+        snap = _read_run(run_id) or {}
+        record = snap.get("rotation")
+        sold = sold_symbols(snap)
+        return list(owner_precheck_lines(record, sold=sold)) + list(pruning_pass_lines(record, sold=sold))
     except Exception:  # noqa: BLE001
         return []
 

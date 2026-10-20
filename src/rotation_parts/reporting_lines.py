@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from src.pm_accounting import plain_reason
 from src.rotation_parts.constraints import funding_view_measured
@@ -68,8 +69,32 @@ def _full_book_cause(record: dict, *, headroom: str, ceiling: str, floor: str) -
     return " and ".join(causes) + "."
 
 
-def owner_precheck_lines(record: dict | None) -> list[str]:
+def _was_sold(symbol: str, sold: Iterable[str] | None) -> bool | None:
+    """True/False when the caller passed the session's sells; None when it
+    did not, so no line claims an outcome it was not given."""
+    if sold is None or not symbol:
+        return None
+    return symbol.upper() in {str(s).upper() for s in sold}
+
+
+def _cut_outcome_sentence(symbol: str, sold: Iterable[str] | None, *, execute_enabled: bool) -> str:
+    """What actually became of a holding the pre-check put up to be cut."""
+    if not execute_enabled:
+        return "The desk is not switched on to act on this by itself, so this is information only — nothing was sold."
+    was_sold = _was_sold(symbol, sold)
+    if was_sold is None:
+        return f"Whether {symbol} was sold is recorded with the session's orders, not here."
+    if was_sold:
+        return f"{symbol} was sold this session; what that freed stays in the book as cash."
+    return f"The planning AI kept {symbol}; nothing was sold."
+
+
+def owner_precheck_lines(record: dict | None, *, sold: Iterable[str] | None = None) -> list[str]:
     """The pre-check said to the owner, in plain words, on a phone.
+
+    `sold` is the set of symbols the session actually sold (from its orders);
+    `None` means the caller does not know, and the lines then claim neither
+    outcome.
 
     NOT a warning and never rendered as one. A full book is a normal
     operating state of this desk — the owner asked specifically that it read
@@ -157,21 +182,20 @@ def owner_precheck_lines(record: dict | None) -> list[str]:
         reasons = _plain_held_reasons(record.get("held_reasons"))
         why = "; ".join(reasons) if reasons else ("it no longer clears the desk's own entry bar")
         subject = held if held else "A holding"
-        lines = [
+        # 2026-10-20. This is the PROPOSAL the pre-check made. What was
+        # actually done with it is the session's own decision, so the
+        # outcome sentence reads off the sell orders the caller passes in
+        # — a live message once said UBER was "up to be cut" and that the
+        # freed cash stayed in the book, on a session where the planning
+        # AI kept UBER and sold nothing.
+        return [
             full,
-            f"   {subject} is up to be cut on its own merits: it would not "
+            f"   {subject} was put up to be cut on its own merits: it would not "
             f"be bought today — {why}. Nothing outranked it; there was no "
-            "candidate on the other side of this at all.",
-            "   Whatever this frees stays in the book as cash, because "
-            "nothing was ready to replace it. Room was never the reason "
-            "for the cut.",
+            "candidate on the other side of this at all, so nothing was "
+            "ready to replace it.",
+            "   " + _cut_outcome_sentence(subject, sold, execute_enabled=bool(record.get("execute_enabled"))),
         ]
-        if not record.get("execute_enabled"):
-            lines.append(
-                "   The desk is not switched on to act on this by itself, "
-                "so this is information only — nothing was sold."
-            )
-        return lines
 
     if outcome == ROTATION_FULL_NOTHING_BETTER:
         return [
@@ -213,7 +237,7 @@ def owner_precheck_lines(record: dict | None) -> list[str]:
     return lines
 
 
-def pruning_pass_lines(record: dict | None) -> list[str]:
+def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None) -> list[str]:
     """Board item 219 — the pruning pass said out loud, every session.
 
     The defect this closes: the pass ran every session and reported
@@ -249,7 +273,8 @@ def pruning_pass_lines(record: dict | None) -> list[str]:
         lines.append(
             f"   Put up to be cut: {cut} \u2014 {why}. That is a conviction "
             "reason, not a profit-or-loss one: the case for holding it is "
-            "the thing that has gone."
+            "the thing that has gone. "
+            + _cut_outcome_sentence(cut, sold, execute_enabled=bool(record.get("execute_enabled")))
         )
     # (c) The names it considered and KEPT. A silent pass is
     # indistinguishable from a pass that never ran.
@@ -261,9 +286,17 @@ def pruning_pass_lines(record: dict | None) -> list[str]:
             "stands."
         )
     if below:
+        # "Not cut" is a statement about what happened, not about what
+        # was proposed: the proposed name counts as not cut unless the
+        # session's orders say it was sold.
+        was_sold = _was_sold(cut, sold)
+        not_cut = [s for s in below if s != cut or was_sold is False]
+        tail = ""
+        if cut and was_sold is None:
+            tail = f" Whether {cut} was sold is recorded with the session's orders, not here."
         lines.append(
             f"   Below the desk's own entry bar today, and would not be bought now: {', '.join(below)}. "
-            f"Not cut this pass: {', '.join(s for s in below if s != cut) or 'none'}."
+            f"Not cut this pass: {', '.join(not_cut) or 'none'}.{tail}"
         )
     else:
         lines.append(
