@@ -9,9 +9,7 @@ src.config.SmartMoneyConfig.cluster_window_days
 src.config.SmartMoneyConfig.congress_lookback_days
 src.config.SmartMoneyConfig.lookback_days
 src.config.SmartMoneyConfig.max_external_candidates
-src.config.SmartMoneyConfig.max_observations
 src.data.context._CONSOLIDATION_WINDOW
-src.data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS
 src.pipeline_intraday._NAMES_PER_PAID_CALL
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(min_top_mover_dollar_volume_m)
 src.prompt_facts.missed_ops_signals.MissedOpsSignals._build_missed_opportunities_digest(top_movers_count)

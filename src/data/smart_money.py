@@ -30,13 +30,10 @@ from src.data.insider_signal import (
     holdings_fraction,
 )
 from src.data.smart_money_cluster import (
-    MAX_CLUSTER_RESERVED_SLOTS,
-    cluster_reservation_census,
+    cluster_census,
     cluster_survivors,
-    cut_record,
     insider_purchase_clusters,
     observation_key,
-    reserve_cluster_symbols,
 )
 from src.data.smart_money_edgar_coverage import (
     ACCESSION_RE,
@@ -99,22 +96,6 @@ _XML_RE = re.compile(
     re.I | re.S,
 )
 _NON_EQUITY_SUFFIXES = (".WS", ".WSA", ".WSB", ".U", ".UN", ".RT")
-
-# Board item 124, corrected defect axis (2026-09-20): a genuinely clustered
-# SYMBOL can lose its whole signal to `max_observations` truncation when
-# unrelated, higher-dollar buys on OTHER symbols fill every slot ahead of
-# it — cross-symbol crowd-out, not the within-symbol tie-break a previously
-# rejected fix targeted (that fix adjusted the shared sort key everything
-# else relies on and was found unsafe on review: wrong signal-weight values,
-# a nonexistent flag, and it would have overridden dollar-value ordering
-# entirely rather than narrowly tie-breaking). The adversary-recommended fix
-# instead: guarantee at least one surviving row per genuinely clustered
-# symbol via a SMALL, separately-bounded reservation
-# (`smart_money_cluster.reserve_cluster_symbols`), leaving the main
-# dollar-value sort below untouched for everyone else. The reservation's own
-# bound, `smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS`, is recorded in
-# config/number_ledger.yaml — it lives in `smart_money_cluster.py`, not here,
-# because that module (not this one) is inside the ledger's scanned scope.
 
 # One process-global limiter covers EFTS, ticker metadata and Archives calls.
 # 0.125 seconds is exactly 8 requests/sec, below the SEC's 10 req/s cap.
@@ -222,7 +203,6 @@ class SECForm4Provider:
         # with no documented rationale until the 2026-09-04 audit fix.
         cluster_window_days: int = 2,
         min_cluster_owners: int = 2,
-        max_observations: int = 40,
         refresh_deadline_s: float = 180,
         # The watched-name drain's OWN budget, separate from the market-wide
         # pass's `refresh_deadline_s`. Derivation lives with the production
@@ -256,22 +236,17 @@ class SECForm4Provider:
         self.lookback_days = max(1, int(lookback_days))
         self.cluster_window_days = max(1, int(cluster_window_days))
         self.min_cluster_owners = max(2, int(min_cluster_owners))
-        self.max_observations = max(1, int(max_observations))
-        # Board item 63. Every parsed SALE row is counted and sampled here
-        # BEFORE `max_observations` truncates, because the truncation sort
-        # below puts `not transient_admission_eligible` FIRST and admission
-        # requires `direction == "buy"`, so with more admission-eligible
-        # buys than slots no sale can ever reach the analyst or the
-        # evidence store. Measured 2026-10-01: the production observations
+        # Board item 63. Every parsed SALE row is counted and sampled here.
+        # Until 2026-10-19 a 40-row cut sorted admission-eligible buys first,
+        # so no sale could reach the analyst or the evidence store. Measured 2026-10-01: the production observations
         # cache held 16,019 sale rows and 2,384 buy rows while the stored
         # evidence held 828 observation rows, every one of them a buy. This
         # census governs NOTHING -- it is read by no gate, no rank and no
         # size -- it exists only so the sale side of
         # the exact holdings ratio of sales becomes readable at all.
         self.last_sale_census: dict | None = None
-        # n06: what the cluster reservation did on the last refresh. Record-only.
+        # n06: the clustered symbols found on the last fetch. Record-only.
         self.last_cluster_census: dict | None = None
-        self.last_cut_record: dict | None = None
         self.refresh_deadline_s = max(1.0, float(refresh_deadline_s))
         self.watched_drain_deadline_s = max(1.0, float(watched_drain_deadline_s))
         self.max_filings_per_refresh = max(1, int(max_filings_per_refresh))
@@ -1780,8 +1755,7 @@ class SECForm4Provider:
             )
 
         # The research-defined purchase cluster (board item 124) is computed
-        # over EVERY parsed row, before the materiality filter and the
-        # observation cap, then stamped on each row of that symbol — so it
+        # over EVERY parsed row, before the materiality filter, then stamped on each row of that symbol — so it
         # reaches the seat whichever of the symbol's rows survive. Configured
         # universe only; it changes neither admission nor sort order.
         clusters = insider_purchase_clusters(
@@ -1819,33 +1793,14 @@ class SECForm4Provider:
                 not item.transient_admission_eligible,
                 not item.in_core_universe,
                 # Routine rows stay visible (the operator still sees them and
-                # their reason) but sort last, so they are the first cut when
-                # ``max_observations`` binds and a real signal is competing.
+                # their reason) but sort last; admission reads this order.
                 # Class order only: opportunistic, indeterminate, routine.
                 signal_class_sort_key(item.signal_class),
                 -(item.transaction_value_usd or 0),
                 -(item.accepted_at.timestamp() if item.accepted_at else 0),
             ),
         )
-        # Board item 124: reserve a slot for any genuinely clustered symbol
-        # that the dollar-value sort above would otherwise drop entirely from
-        # `max_observations` because of unrelated, higher-dollar buys on
-        # OTHER symbols. This narrowly displaces individual overflow rows; it
-        # never reorders the main list.
-        final = reserve_cluster_symbols(
-            ordered,
-            set(clusters),
-            max_observations=self.max_observations,
-            max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
-        )
-        self.last_cluster_census = cluster_reservation_census(
-            ordered,
-            final,
-            clusters,
-            max_observations=self.max_observations,
-            max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
-        )
-        self.last_cut_record = cut_record(ordered, final, stream="insider", max_observations=self.max_observations)
+        self.last_cluster_census = cluster_census(clusters, rows_in=len(ordered))
         self.last_sale_census = _sale_census(parsed)
         error = f"cache_partial_error:{invalid}_invalid_rows" if invalid else None
-        return final, error
+        return ordered, error

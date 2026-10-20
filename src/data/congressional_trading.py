@@ -72,7 +72,7 @@ from typing import Literal
 import requests
 
 from src.data.smart_money import DEFAULT_USER_AGENT, SmartMoneySource, _symbol
-from src.data.smart_money_cluster import cluster_survivors, cut_record
+from src.data.smart_money_cluster import cluster_survivors
 from src.models import SmartMoneyObservation
 from src.util.time import et_now, et_today
 
@@ -430,7 +430,6 @@ class CongressionalTradingProvider:
         external_min_transaction_value_usd: float = 250_000,
         cluster_window_days: int = 2,
         min_cluster_owners: int = 2,
-        max_observations: int = 40,
         session: requests.Session | None = None,
     ):
         self.urls = {"kadoa": kadoa_url, "congresswatch": congresswatch_url}
@@ -454,8 +453,6 @@ class CongressionalTradingProvider:
         )
         self.cluster_window_days = max(1, int(cluster_window_days))
         self.min_cluster_owners = max(2, int(min_cluster_owners))
-        self.max_observations = max(1, int(max_observations))
-        self.last_cut_record: dict | None = None
         self.session = session or requests.Session()
         self._cache_lock = threading.Lock()
 
@@ -1117,10 +1114,9 @@ class CongressionalTradingProvider:
                 item.actor,
             ),
         )
-        ordered = full_order[: self.max_observations]
-        self.last_cut_record = cut_record(
-            full_order, ordered, stream="congress", max_observations=self.max_observations
-        )
+        # Every row in the lookback window (2026-10-19): admission and the
+        # seat's per-name summary read the full list; nothing is cut here.
+        ordered = full_order
         errors: list[str] = []
         if stale_labels:
             errors.append("congressional_stale_cache:" + ",".join(stale_labels))

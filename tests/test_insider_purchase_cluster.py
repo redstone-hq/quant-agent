@@ -375,7 +375,7 @@ def test_the_lift_does_not_apply_to_a_bearish_or_neutral_read():
 # No real production Form 4 cache at the scale of the 2026-09-19 measurement
 # (15,068 insider rows, one year) was reachable from this checkout — only a
 # 5-row local dev snapshot exists on disk, far too small to exercise
-# ``max_observations`` (default 40) at all. What follows instead runs the
+# the former 40-row cut at all. What follows instead runs the
 # REAL ``SECForm4Provider.fetch()`` pipeline (not a reimplementation of its
 # sort) over synthetic rows sized to match the production shape the
 # measurement above described: a set of individually-material opportunistic
@@ -385,13 +385,13 @@ def test_the_lift_does_not_apply_to_a_bearish_or_neutral_read():
 # --------------------------------------------------------------------------
 
 
-def test_a_cluster_rescued_by_the_retention_rule_can_still_be_truncated_before_the_seat_sees_it(tmp_path):
+def test_a_cluster_rescued_by_the_retention_rule_reaches_the_seat_untruncated(tmp_path):
     """The rescued cluster's OWN rows can be truncated by higher-dollar solo
     buys of the same symbol, but the cluster FACT still reaches the seat.
 
     ``SECForm4Provider.fetch``'s final sort does not protect a cluster's own
     rows: when enough individually-material opportunistic buys compete for the
-    same ``max_observations`` cap, a below-threshold cluster (rescued into
+    former 40-row cut, a below-threshold cluster (rescued into
     ``cluster_survivors`` by the two-owner window rule, and simultaneously a
     same-day opportunistic ``insider_purchase_clusters`` cluster) is the first
     thing cut. But that no longer starves the seat: ``fetch`` computes the
@@ -447,17 +447,12 @@ def test_a_cluster_rescued_by_the_retention_rule_can_still_be_truncated_before_t
     provider.stores.observations_path.write_text(json.dumps([row.model_dump(mode="json") for row in rows]))
     got, error = provider.fetch(["CORE"])
     assert error is None
-    assert len(got) == provider.max_observations == 40
+    assert len(got) == len(rows)
 
     rescued = [row for row in got if row.actor_cik in ("rescue-1", "rescue-2")]
-    # The rescue pair's OWN rows are crowded out by the 40 higher-dollar solo
-    # buys of the same symbol and do not survive the truncation. This is
-    # expected and no longer a defect: the cluster fact is stamped before the
-    # cap (asserted next), so losing these specific rows does not starve the
-    # seat. If this assertion changes, the crowd-out behaviour changed too.
-    assert rescued == [], (
-        "cluster-rescued rows unexpectedly survived truncation — the crowd-out scenario this test relies on has changed"
-    )
+    # Since 2026-10-19 nothing is cut after retention: the rescue pair's own
+    # rows reach admission and the seat's per-name summary.
+    assert len(rescued) == 2
 
     # The cluster FACT reaches the seat anyway: every surviving row of the
     # clustered symbol carries ``purchase_cluster``, so the seat reads it off
@@ -546,10 +541,8 @@ def test_a_brand_new_participants_first_purchase_has_no_history_to_classify_rout
 # signal-weight values, a nonexistent flag, and it would have overridden
 # dollar-value ordering entirely instead of narrowly tie-breaking, since
 # competing opportunistic rows already tie at the top weight. The fix
-# actually shipped instead is `src.data.smart_money._reserve_cluster_symbols`:
-# a small, bounded reservation (`MAX_CLUSTER_RESERVED_SLOTS`) that guarantees
-# at least one surviving row per genuinely clustered SYMBOL, leaving the main
-# dollar-value sort untouched. These tests prove the FACT actually reaches
+# shipped was a small reserved-slot rescue; since 2026-10-19 there is no
+# 40-row cut at all, so the rescue was deleted with it. These tests prove the FACT actually reaches
 # the seat for a symbol whose only rows are the cluster's own -- not just
 # that some row of that symbol survives.
 # --------------------------------------------------------------------------
@@ -559,7 +552,7 @@ def test_a_cluster_survives_cross_symbol_crowd_out_by_unrelated_higher_dollar_bu
     """CLUSTERED has ONLY its two cluster-member rows -- no other row for
     that symbol exists anywhere in the cache. 45 unrelated symbols each
     carry one solo buy at 8x the cluster's combined value, enough alone to
-    fill every ``max_observations`` (=40) slot ahead of CLUSTERED under the
+    would have filled every slot of the former 40-row cut ahead of CLUSTERED under the
     plain dollar-value sort. This is the case the previous within-symbol
     test (``test_a_cluster_rescued_by_the_retention_rule_can_still_be_
     truncated_before_the_seat_sees_it``) does NOT cover: there, CORE's own
@@ -612,11 +605,11 @@ def test_a_cluster_survives_cross_symbol_crowd_out_by_unrelated_higher_dollar_bu
     symbols = ["CLUSTERED"] + [f"CROWD{i}" for i in range(45)]
     got, error = provider.fetch(symbols)
     assert error is None
-    assert len(got) == provider.max_observations == 40
+    assert len(got) == len(rows)
 
     clustered_rows = [row for row in got if row.symbol == "CLUSTERED"]
     assert clustered_rows, (
-        "CLUSTERED was crowded out of max_observations entirely by unrelated "
+        "CLUSTERED was crowded out entirely by unrelated "
         "higher-dollar buys on OTHER symbols -- the cross-symbol crowd-out "
         "defect (board item 124) is not fixed"
     )
@@ -629,35 +622,6 @@ def test_a_cluster_survives_cross_symbol_crowd_out_by_unrelated_higher_dollar_bu
     assert cluster.distinct_insiders == 2
     assert cluster.combined_value_usd == 120_000
     assert set(cluster.insider_ciks) == {"rescue-1", "rescue-2"}
-
-
-def test_cross_symbol_reservation_is_bounded_and_does_not_starve_everything():
-    """The reservation is capped so a day with many clusters cannot crowd out
-    the whole dollar-sorted list; it only ever displaces the lowest-priority
-    non-clustered rows, one per reserved symbol.
-    """
-    from src.data.smart_money_cluster import (
-        MAX_CLUSTER_RESERVED_SLOTS,
-        reserve_cluster_symbols as _reserve_cluster_symbols,
-    )
-
-    def _row(symbol, value, cik):
-        return _buy(owner=cik, symbol=symbol, value=value, day=DAY, accession=f"{cik}-{symbol}")
-
-    # 10 clustered symbols, each with exactly one overflow row, competing
-    # against 40 unrelated higher-value rows that fill the whole cap.
-    crowd = [_row(f"CROWD{i}", 1_000_000, f"crowd{i}") for i in range(40)]
-    clustered = [_row(f"CLUSTER{i}", 10_000, f"cluster{i}") for i in range(10)]
-    ordered = crowd + clustered  # already worst-first for the clustered set
-    final = _reserve_cluster_symbols(
-        ordered,
-        {f"CLUSTER{i}" for i in range(10)},
-        max_observations=40,
-        max_reserved_slots=MAX_CLUSTER_RESERVED_SLOTS,
-    )
-    reserved_symbols = {row.symbol for row in final if row.symbol.startswith("CLUSTER")}
-    assert len(reserved_symbols) == MAX_CLUSTER_RESERVED_SLOTS
-    assert len(final) == 40
 
 
 def test_a_routine_cluster_gets_no_reserved_slot():

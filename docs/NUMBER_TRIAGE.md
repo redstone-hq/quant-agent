@@ -119,10 +119,10 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - `config.SmartMoneyConfig.insider_calendar_routine_years` = 3
 - `config.SmartMoneyConfig.lookback_days` = 365
 - `config.SmartMoneyConfig.max_external_candidates` = 3
-- `config.SmartMoneyConfig.max_observations` = 40
+- ~~`config.SmartMoneyConfig.max_observations` = 40~~ -- DELETED 2026-10-19: the smart-money seat now reads one summary line per shortlisted name; admission reads every row.
 - `config.SmartMoneyConfig.min_cluster_owners` = 2
 - `data.levels.PIVOT_WINDOW` = 5
-- `data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS` = 5
+- ~~`data.smart_money_cluster.MAX_CLUSTER_RESERVED_SLOTS` = 5~~ -- DELETED 2026-10-19 with the 40-row cut it rescued clusters from.
 - `data.smart_money_cluster.MIN_PURCHASE_CLUSTER_INSIDERS` = 2
 - `risk.trailing.PIVOT_WINDOW` = 3
 - `agents.tech_analyst._BARS_PER_SYMBOL` = 40

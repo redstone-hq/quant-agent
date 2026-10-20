@@ -638,8 +638,9 @@ def test_analyst_compacts_and_ranks_production_shaped_observations():
         "S34",
         "S33",
     ]
-    assert all(len(row["transactions"]) == 1 for row in payload["symbol_facts"])
-    assert all(len(row["transactions"][0]["actor"]) <= 96 for row in payload["symbol_facts"])
+    # One summary line per name (2026-10-19): counts, never raw rows or actor text.
+    assert all(row["insider_buys"] == 1 and "transactions" not in row for row in payload["symbol_facts"])
+    assert "Verbose reporting owner" not in message
     assert "https://www.sec.gov/Archives/" not in message
 
 
@@ -672,7 +673,7 @@ def test_analyst_compaction_does_not_replace_canonical_finding_evidence(tmp_path
     compact = _compact_payload(captured["message"])
 
     assert error is None
-    assert len(compact["symbol_facts"][0]["transactions"]) == 5
+    assert compact["symbol_facts"][0]["insider_buys"] == 5
     assert len(findings[0].observations) == 5
     assert {row.accession_number for row in findings[0].observations} == {row.accession_number for row in observations}
 
@@ -877,11 +878,10 @@ def test_sale_census_row_sample_is_bounded():
     assert len(census["rows"]) == MAX_SALE_CENSUS_ROWS
 
 
-def test_fetch_stashes_the_sale_census_even_when_truncation_drops_sales(tmp_path):
-    """The measured production failure, reproduced: with more
-    admission-eligible buys than `max_observations` slots, no sale survives
-    into what the analyst sees -- but the census still records it."""
-    provider = SECForm4Provider(data_dir=str(tmp_path), max_observations=1)
+def test_fetch_stashes_the_sale_census_and_keeps_the_sale(tmp_path):
+    """Until 2026-10-19 a 40-row cut let no sale reach the analyst; now the
+    sale row is kept and the census still records it."""
+    provider = SECForm4Provider(data_dir=str(tmp_path))
     rows = [
         _insider(
             symbol="NVDA",
@@ -905,7 +905,7 @@ def test_fetch_stashes_the_sale_census_even_when_truncation_drops_sales(tmp_path
 
     observations, _error = provider.fetch(["NVDA"])
 
-    assert [item.direction for item in observations] == ["buy"]
+    assert [item.direction for item in observations] == ["buy", "sell"]
     assert provider.last_sale_census is not None
     assert provider.last_sale_census["sale_rows"] == 1
     assert provider.last_sale_census["buy_rows"] == 1
