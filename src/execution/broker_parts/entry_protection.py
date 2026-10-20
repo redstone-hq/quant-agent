@@ -17,12 +17,17 @@ from __future__ import annotations
 
 import logging
 
-from src.execution.held_qty import cover_qty_for_rearm
+from src.execution.held_qty import broker_position_qty, cover_qty_for_rearm
 from src.sentinel.guarded import record_guarded_pass
 
 # The moved body logs under the broker's logger name, and the move must not
 # change what callers and tests see.
 logger = logging.getLogger("src.execution.broker")
+
+#: Sentinel sell_order_id for a write-ahead restore row with no closing order to
+#: query (same value as src.protection.sell_finalization._WAL_SELL_SENTINEL; the
+#: drain reads the live broker position for such rows).
+_WAL_SELL_SENTINEL = "__WAL_PENDING__"
 
 #: Entry sides `place_entry_protection` will derive a protective side from.
 #: Anything else is refused rather than guessed — see the fail-closed note in
@@ -42,6 +47,7 @@ def place_entry_protection(
     on_unfilled_cancel=None,
     cover_full_position: bool = False,
     held_qty_before: float = 0.0,
+    persist_restore=None,
     _ENTRY_FILL_TIMEOUT_S: float,
 ) -> dict | None:
     """Wait for an entry order to reach terminal, then place a GTC
@@ -255,6 +261,7 @@ def place_entry_protection(
                     },
                 )
 
+    fill_info_lost = False
     try:
         info = broker.get_order_fill_info(order_id) or {}
         record_guarded_pass(broker, "entry_protection.fill_info", context={"symbol": symbol, "order": order_id})
@@ -264,13 +271,64 @@ def place_entry_protection(
             "entry_protection.fill_info",
             exc,
             log=logger,
-            context={"symbol": symbol, "order": order_id, "effect": "treated as filled_qty=0"},
+            context={
+                "symbol": symbol,
+                "order": order_id,
+                "effect": "fill unknown; broker position re-read decides the stop, else the WAL restore owns it",
+            },
         )
         info = {}
+        fill_info_lost = True
     try:
         filled_qty = float(info.get("filled_qty") or 0)
     except (TypeError, ValueError):
         filled_qty = 0.0
+    if fill_info_lost:
+        # A lost fill reply proves nothing (docs/OUTCOME.md: protections fail
+        # closed). The broker position is the source of truth: shares above
+        # what was held before the entry are this entry's fill and get the
+        # stop. If the position cannot be read either, hand the symbol to the
+        # write-ahead restore so the next drain sizes a stop from live truth.
+        current = broker_position_qty(broker, symbol)
+        held_abs = abs(float(held_qty_before or 0))
+        if current is None:
+            spec_qty = float(requested_qty or 0) + float(superseded_filled_qty or 0)
+            if cover_full_position:
+                spec_qty += held_abs
+            protective_side = "sell" if normalized == "buy" else "buy"
+            if persist_restore is not None and spec_qty > 0:
+                persist_restore(
+                    _WAL_SELL_SENTINEL,
+                    symbol,
+                    held_abs + spec_qty,
+                    [{"qty": spec_qty, "stop_price": float(stop_price), "side": protective_side}],
+                    side=protective_side,
+                )
+                logger.error(
+                    "entry protection: %s entry %s fill AND position unreadable — handed to the "
+                    "write-ahead restore; the next drain places the stop from the broker position",
+                    symbol,
+                    order_id,
+                )
+            else:
+                logger.error(
+                    "entry protection: %s entry %s fill AND position unreadable and no restore "
+                    "path wired — position may be unprotected",
+                    symbol,
+                    order_id,
+                )
+            return None
+        new_shares = max(0.0, abs(float(current)) - held_abs)
+        filled_qty = new_shares
+        logger.warning(
+            "entry protection: %s entry %s fill reply lost — broker position %.4f vs %.4f held before; "
+            "protecting %.4f new share(s)",
+            symbol,
+            order_id,
+            abs(float(current)),
+            held_abs,
+            new_shares,
+        )
     try:
         carried = float(superseded_filled_qty or 0)
     except (TypeError, ValueError):

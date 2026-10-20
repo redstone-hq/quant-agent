@@ -62,6 +62,7 @@ def protect_pending_entry_stops(pipeline, ctx, run_id, pending_entry_stops) -> N
                 on_unfilled_cancel=(lambda info, _spec=spec: _alert_owner_entry_cancelled(pipeline, _spec, info)),
                 cover_full_position=bool(spec.get("cover_full_position")),
                 held_qty_before=float(spec.get("held_qty_before") or 0),
+                persist_restore=pipeline._persist_orphaned_protection_restore,
             )
             _record_pipeline_event(
                 pipeline,
