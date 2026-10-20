@@ -36,6 +36,7 @@ from src.pipeline_stages import (  # noqa: F401  shared helpers and module-level
     select_nominations,
 )
 from src.data.smart_money_cluster import find_cluster_census
+from src.data.smart_money_summary import no_data_reasons, shortlist_rows
 from src.nomination_evidence import persist_nomination_summary
 from src.stage_risk import _persist_dropped_reasons  # noqa: F401  moved with RiskStage
 from src.sentinel.morning_guarded import record_morning_fault
@@ -67,8 +68,8 @@ class MorningResearchStage:
       symbols_bars, valuations, data_status
 
     Uses a ThreadPoolExecutor for the research branches: macro, technical,
-    earnings and smart money in parallel; news starts once technical answers
-    (its per-symbol names come from the chart seat's buy reads).
+    earnings in parallel; news and smart money start once technical answers
+    (both read the shortlist in the chart seat's buy/sell order).
     Failures are isolated so one bad branch doesn't abort the rest.
     """
 
@@ -400,21 +401,29 @@ class MorningResearchStage:
         # news answer. Board item 152.
         news_symbols_asked: set[str] = set()
 
+        def _held_symbols():
+            held = [str(getattr(p, "symbol", "")).strip().upper() for p in ctx.positions if getattr(p, "qty", 0)]
+            return [s for s in held if s]
+
+        def _shortlist_after_held(chart_rated_symbols=()):
+            # The run's shortlist after the held names: names the chart seat
+            # rated buy OR sell (long and short treated alike), then the rest.
+            # Stable, non-set order (research order), so the selection is
+            # reproducible in the rehearsal rig. Shared by the news and
+            # smart-money seats (2026-10-19), so both read the same names in
+            # the same order.
+            chart_rated = set(chart_rated_symbols)
+            rated = [s for s in effective_symbols if s in chart_rated]
+            return list(dict.fromkeys(rated + list(effective_symbols)))
+
         def _run_news(chart_rated_symbols=()):
             # Per-symbol news selection. Runs AFTER the technical seat. The
             # news seat reads EVERY name on this run's shortlist — the same
             # names the chart seat read (2026-10-19: a 15-name cap left 21
             # chart buys with 8 news views). Order only sets who is fetched
-            # first: held positions, then names the chart seat rated buy OR
-            # sell (long and short treated alike), then the rest of the
-            # shortlist. Every list is in a stable, non-set order (broker
-            # snapshot order, then research order), so the selection is
-            # reproducible in the rehearsal rig.
-            held = [str(getattr(p, "symbol", "")).strip().upper() for p in ctx.positions if getattr(p, "qty", 0)]
-            held = [s for s in held if s]
-            chart_rated = set(chart_rated_symbols)
-            rated = [s for s in effective_symbols if s in chart_rated]
-            candidates = list(dict.fromkeys(rated + list(effective_symbols)))
+            # first: held positions, then `_shortlist_after_held`.
+            held = _held_symbols()
+            candidates = _shortlist_after_held(chart_rated_symbols)
             # Board item 152: remember WHICH names this seat was asked about,
             # so that if its answer comes back unreadable the loss can be
             # filed per-stock rather than as a bare log line and a count.
@@ -560,7 +569,13 @@ class MorningResearchStage:
                     ctx=ctx,
                 )
 
-        def _run_smart_money():
+        def _run_smart_money(chart_rated_symbols=()):
+            # Runs AFTER the technical seat, like news (2026-10-19). Admission
+            # above read EVERY fetched row; the seat reads one summary line
+            # per shortlisted name (src/data/smart_money_summary.py) in the
+            # news seat's order, and every shortlisted name with no row is
+            # listed with its reason. Before this the seat saw the top 40
+            # rows market-wide: 21,467 insider rows in, 21,427 cut.
             if (
                 not smart_config
                 or not smart_config.enabled
@@ -568,14 +583,21 @@ class MorningResearchStage:
                 or not self.smart_money_analyst
             ):
                 return [], None, smart_money_provider_error, None, []
-            if not smart_money_observations:
+            shortlist = list(dict.fromkeys(_held_symbols() + _shortlist_after_held(chart_rated_symbols)))
+            rows = shortlist_rows(smart_money_observations, shortlist)
+            no_data = no_data_reasons(rows, shortlist, provider_error=smart_money_provider_error)
+            ctx.smart_money_shortlist = shortlist
+            ctx.smart_money_no_data = no_data
+            if not rows:
                 return [], None, smart_money_provider_error, None, []
             findings, result, analysis_error, gaps = self.smart_money_analyst.analyze_with_gaps(
-                smart_money_observations,
+                rows,
+                order=shortlist,
+                no_data=no_data,
             )
             return findings, result, smart_money_provider_error, analysis_error, gaps
 
-        logger.info("Starting parallel: macro + tech + earnings + smart money; news after tech")
+        logger.info("Starting parallel: macro + tech + earnings; news and smart money after tech")
         with ThreadPoolExecutor(max_workers=5) as ex:
             # ContextVar values do not automatically flow into executor
             # workers. Give every branch its own copied context so breaker
@@ -584,11 +606,10 @@ class MorningResearchStage:
             macro_future = ex.submit(copy_context().run, _run_macro)
             tech_future = ex.submit(copy_context().run, _run_tech)
             earnings_future = ex.submit(copy_context().run, _load_earnings)
-            smart_money_future = ex.submit(copy_context().run, _run_smart_money)
             # News waits for the chart seat (2026-10-19): its per-symbol
             # names are ordered by the chart seat's buy and sell reads.
-            # Still ONE news call, overlapping whatever macro / earnings /
-            # smart money are still doing. A failed chart seat falls back to
+            # Still ONE news call and ONE smart-money call, overlapping macro /
+            # earnings. A failed chart seat falls back to
             # the held + admitted selection; its own error surfaces below.
             wait([tech_future])
             chart_rated_symbols: list[str] = []
@@ -601,6 +622,8 @@ class MorningResearchStage:
                     and getattr(analysis, "rating", None) in ("buy", "strong_buy", "sell", "strong_sell")
                 ]
             news_future = ex.submit(copy_context().run, _run_news, chart_rated_symbols)
+            # Smart money reads the same shortlist in the same order (2026-10-19).
+            smart_money_future = ex.submit(copy_context().run, _run_smart_money, chart_rated_symbols)
 
         # How much of the watched set the pre-market Form 4 pass actually
         # read, per issuer. No network. The analyst's answer covers only the
@@ -697,6 +720,10 @@ class MorningResearchStage:
                     {
                         "source": "SEC Form 4",
                         "observations": len(smart_money_observations),
+                        # The seat's shortlist and why each name with no
+                        # line had none (2026-10-19).
+                        "shortlist": len(getattr(ctx, "smart_money_shortlist", None) or ()),
+                        "names_without_filings": dict(getattr(ctx, "smart_money_no_data", None) or {}),
                         "findings": len(findings),
                         "temporary_admissions": sorted(ctx.admitted_symbols),
                         "state": (

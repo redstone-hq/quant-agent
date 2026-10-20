@@ -850,8 +850,8 @@ nominating seat and no longer caps screened names. All of it sits behind `univer
 Screened names reach a thesis seat (2026-10-19). The conviction bar needs a name-level seat (news,
 earnings or smart money) with a directional thesis, so a screened name the chart seat likes is refused
 unless one of them reads it.
-Macro, technical, earnings and smart money run in parallel; the news seat starts once the technical seat
-has answered, still as one call. It reads every name on the shortlist the chart seat read, in this order:
+Macro, technical and earnings run in parallel; the news and smart-money seats start once the technical
+seat has answered, each still as one call. It reads every name on the shortlist the chart seat read, in this order:
 held names, then names the chart seat rated buy or sell, then the rest. There is no name or headline
 count: each name keeps its headlines since the previous session's close (exchange calendar), only the
 request throttle `news.per_symbol_requests_per_second` remains, and a name with no headline of its own
@@ -860,6 +860,15 @@ the seat reads. Witness: `tests/test_news_reads_shortlist.py`. The pre-market ea
 universe, Form 4 admission-eligible names, then the screened names this morning will admit (held
 passers plus the top `morning_top_n` others), so a new filing for one is analysed before the open; only
 new filings are analysed. Witness: `tests/test_screened_names_reach_thesis_seats.py`.
+
+The smart-money seat (2026-10-19) reads the same shortlist in the same order. Admission (external
+candidates), insider-cluster detection and the census records read EVERY fetched insider and congress row
+in its lookback window; there is no row cap. The seat gets one summary line per shortlisted name, built
+with a pandas groupby (`src/data/smart_money_summary.py`): net insider dollars, buy and sell counts,
+opportunistic and routine counts, the purchase cluster, the latest insider buy and congress buy and sell
+counts. A shortlisted name with no row is listed with its reason ("no insider or congress filings in
+window"), also written to the run's `scan_summary` evidence row. The former 40-row cut
+(`max_observations`) and its 5 reserved cluster slots were deleted; 105 names measure about 9k tokens.
 
 **Admission and the keep rule follow the desk archetype (owner ruling 2026-10-19, docs/OUTCOME.md).**
 - Admission (R7, `src/risk/conviction_bar.py`): the chart seat confirms the direction AND at least one

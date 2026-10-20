@@ -983,7 +983,6 @@ smart_money:
   # evidence, not by this number.
   lookback_days: 365
   max_filings_per_refresh: 1000
-  max_observations: 40
   # Row-retention window for cluster_survivors, not the research cluster.
   # Alldredge & Blank's abstract measures SAME-DAY purchases; "~2 days" is
   # from a secondary summary only (src/data/smart_money_cluster.py).

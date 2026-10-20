@@ -480,7 +480,6 @@ class TradingPipeline(
             requests_per_second=config.smart_money.requests_per_second,
             lookback_days=config.smart_money.lookback_days,
             max_filings_per_refresh=config.smart_money.max_filings_per_refresh,
-            max_observations=config.smart_money.max_observations,
             cluster_window_days=config.smart_money.cluster_window_days,
             min_cluster_owners=config.smart_money.min_cluster_owners,
             insider_calendar_routine_years=config.smart_money.insider_calendar_routine_years,
@@ -514,7 +513,6 @@ class TradingPipeline(
                 # now-deleted config fields.
                 cluster_window_days=config.smart_money.cluster_window_days,
                 min_cluster_owners=config.smart_money.min_cluster_owners,
-                max_observations=config.smart_money.max_observations,
             )
         self.smart_money_provider = CombinedSmartMoneyProvider([sec_form4_provider, congress_provider])
         # The universe screen's pending-takeover check reads the same SEC

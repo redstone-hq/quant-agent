@@ -121,6 +121,10 @@ class RunContext:
     tech_unanswered: set = field(default_factory=set)
     earnings_results: list[dict] = field(default_factory=list)
     smart_money_observations: list = field(default_factory=list)
+    # The smart-money seat's shortlist (held -> chart-rated -> rest) and the
+    # recorded reason for each shortlisted name with no filing (2026-10-19).
+    smart_money_shortlist: list = field(default_factory=list)
+    smart_money_no_data: dict = field(default_factory=dict)
     smart_money_findings: list = field(default_factory=list)
     smart_money_provider_error: str | None = None
     # Run-scoped BUY eligibility granted only by deterministic SEC Form 4

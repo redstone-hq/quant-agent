@@ -25,7 +25,6 @@
    "requests_per_second": 8,
    "lookback_days": 3,
    "max_filings_per_refresh": 1000,
-   "max_observations": 40,
    "cluster_window_days": 2,
    "min_cluster_owners": 2,
    "insider_calendar_routine_years": 3,
@@ -33,9 +32,9 @@
   },
   "deviations_from_production": [
    "Discovery window is 3 days (2026-08-28..31), not production's 365. Production's input is a cache accumulated over many daily refreshes (up to 1,000 filings each); re-crawling a year of Form 4s is not bounded. The exam's observations are therefore a real, today's-code selection from a narrower population, not the population production would have held.",
-   "Insider history is EMPTY. The live classifier's three-year calendar and cadence tests read an index the desk accumulated; it is not re-crawled, so no row can be classified routine by history. On this fixture all 40 surviving rows classify opportunistic.",
+   "Insider history is EMPTY. The live classifier's three-year calendar and cadence tests read an index the desk accumulated; it is not re-crawled, so no row can be classified routine by history. On this fixture no row can be classified routine by history.",
    "The listed-issuer file is SEC's current copy, not an as-of-date copy.",
-   "Only the 24 accessions whose rows survive today's selection are stored (1.9 MB of raw submissions out of 752 processed); tests/test_seat_exam_fixtures.py re-derives the same 40 observations from them."
+   "Only the 24 accessions whose rows survive today's selection are stored (1.9 MB of raw submissions out of 752 processed); tests/test_seat_exam_fixtures.py re-derives 59 observations from them (every row; the 40-row cut that chose these accessions was deleted 2026-10-19, so the fixture still holds only the accessions that cut kept)."
   ],
   "upstream_inputs": [],
   "refresh_summary": {

@@ -44,10 +44,13 @@ class NameCoverageRecordSession:
                 (r.get("symbol") if isinstance(r, dict) else getattr(r, "symbol", ""))
                 for r in (getattr(ctx, "earnings_results", None) or ())
             }
-            smart: set = set()
-            for bucket in ("smart_money_observations", "smart_money_findings"):
-                for item in getattr(ctx, bucket, None) or ():
-                    smart.add(item.get("symbol") if isinstance(item, dict) else getattr(item, "symbol", ""))
+            # The smart-money seat's own shortlist (2026-10-19): every name it
+            # was shown, with a summary line or a recorded no-filings reason.
+            # `smart_money_observations` is now every market-wide row, so it
+            # would claim thousands of names the seat never read.
+            smart: set = {str(s) for s in (getattr(ctx, "smart_money_shortlist", None) or ())}
+            for item in getattr(ctx, "smart_money_findings", None) or ():
+                smart.add(item.get("symbol") if isinstance(item, dict) else getattr(item, "symbol", ""))
             seat_symbols["smart_money"] = smart
             intel = getattr(ctx, "news_intel", None)
             if intel is not None:

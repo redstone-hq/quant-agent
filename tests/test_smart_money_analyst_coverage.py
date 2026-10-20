@@ -79,7 +79,8 @@ def test_every_symbol_and_every_transaction_is_sent():
     payload = json.loads(message.split("\n", 1)[1])
 
     assert sorted(row["symbol"] for row in payload["symbol_facts"]) == sorted(SYMBOLS)
-    assert all(len(row["transactions"]) == 4 for row in payload["symbol_facts"])
+    # Every transaction is counted in its name's one summary line (2026-10-19).
+    assert all(row["insider_buys"] == 4 for row in payload["symbol_facts"])
     assert "at most" not in message
 
 
