@@ -36,16 +36,17 @@ def _frame(observations: Iterable[SmartMoneyObservation]) -> pd.DataFrame:
         value = row.transaction_value_usd or 0.0
         insider = row.stream == "insider"
         buy = row.direction == "buy"
+        sell = row.direction == "sell"
         records.append(
             {
                 "symbol": row.symbol.upper(),
                 "insider_buys": int(insider and buy),
-                "insider_sells": int(insider and not buy),
-                "insider_net_usd": (value if buy else -value) if insider else 0.0,
+                "insider_sells": int(insider and sell),
+                "insider_net_usd": (value if buy else -value if sell else 0.0) if insider else 0.0,
                 "opportunistic_buys": int(insider and buy and row.signal_class == "opportunistic"),
                 "routine_rows": int(row.signal_class == "routine"),
                 "congress_buys": int(not insider and buy),
-                "congress_sells": int(not insider and not buy),
+                "congress_sells": int(not insider and sell),
                 "amendments": int(row.amendment),
                 "ten_b_five_one": int(row.is_10b5_1 is True),
                 "transient_admission_eligible": bool(row.transient_admission_eligible),

@@ -118,3 +118,18 @@ def test_prompt_for_105_names_is_far_under_200k_tokens(tmp_path):
     )
     assert len(_payload(after)["symbol_facts"]) == 105
     assert after_tokens < 50_000 < before_tokens
+
+
+def test_exchange_rows_are_not_counted_as_sells():
+    """A Form 4 exchange (or unknown direction) is neither a buy nor a sell;
+    counting it as a sale would tell the seat insiders sold when they did not."""
+    from src.data.smart_money_summary import summary_lines
+
+    sale = _insider(symbol="ZZZA", direction="sell", value=100_000)
+    exchange = _insider(symbol="ZZZA", direction="buy", value=900_000, row=1).model_copy(
+        update={"direction": "exchange"}
+    )
+    (line,) = summary_lines([sale, exchange], ["ZZZA"])
+    assert line["insider_sells"] == 1
+    assert line["insider_buys"] == 0
+    assert line["insider_net_usd"] == -100_000
