@@ -380,6 +380,8 @@ numbers:
       on record is a portfolio_manager decision at $0.389885, and the largest
       intraday tech batch $0.1237169 (production agent_logs, intraday runs
       2026-08-25..2026-10-09, 117 and 139 calls).
+    evidence_2026_10_20: >-
+      Binding: 10 of 10 recorded intraday checks on 16 and 19 Oct sent 5 names and dropped 95-96 lower-ranked ones (batch_selected rows); 13-15 Oct not recorded. Kept: it bounds paid AI spend.
     open_question: >-
       What batch size keeps the worst one-call overshoot of the session and
       daily caps acceptable while keeping per-call overhead low?
@@ -436,6 +438,8 @@ numbers:
       2026-09-14 verification as affordability caps, not measurements. They
       bound what the desk can ever consider, so a name outside them is never
       looked at.
+    evidence_2026_10_20: >-
+      Inert: not hit in 5 of 5 runs 13-19 Oct (nomination_summary.cap_demand); on 19 Oct the earnings seat offered 3 and kept 3.
     open_question: >-
       How many nominations per seat per run does the downstream pipeline
       actually resolve within its cost and deadline budget?
@@ -1171,6 +1175,8 @@ numbers:
       any sizing constant.
     evidence_2026_10_19: >-
       2026-10-19 evidence (SEC Insider Transactions Data Sets, Form 4 code-P buys, 5,311 events / 1,054 issuers, 21-session excess return vs SPY, issuer-resampled 95% intervals, halves 2024 and 2025-Q1 2026): cluster-vs-single at windows 0,1,2,3,5,7,10,14,30 days never has an interval excluding 0 in both halves and the sign flips between halves (window 0: -1.94 [-4.74,+0.83] in 2024, +0.45 [-1.56,+2.49] in 2025-26; window 2: -1.20 then -0.17, both spanning 0). So no change point 0-30 days. On the insider (Form 4) path the window decides nothing today: cluster_survivors is called with a zero size floor (src/data/smart_money.py line 1811, threshold_fn=lambda symbol: 0.0), so every priced row survives alone; it only pads the cache-prune horizon. It still gates congressional buys, whose history is out of reach with free data. Outcome: owned open question for the congressional path (docs/OUTCOME.md "No arbitrary numbers, ever", outcome 3). Routine/opportunistic labels not reproduced; 180 of 1,500 sampled issuers had no prices (survivorship, direction unknown).
+    evidence_2026_10_20: >-
+      Not recorded: rows this window excluded are not logged; cluster census found 5 clusters on 16 Oct and 0 on 19 Oct.
     open_question: >-
       Within how many days do insider purchases actually co-occur when they
       represent one decision rather than several?
@@ -1223,6 +1229,8 @@ numbers:
       any sizing constant.
     evidence_2026_10_19: >-
       2026-10-19 evidence: not measurable with free data. The two configured feeds hold only a recent slice (one capped at 5,000 rows, the other about 8,000), so two years of disclosures with filing dates needs either paid data or parsing House Clerk / Senate eFD disclosure documents (PDF/HTML, no structured transaction table). Owned open question.
+    evidence_2026_10_20: >-
+      Inert on 19 Oct: outside_lookback = 0; 1 of 2,854 cached buy rows is older than 180 days.
     open_question: >-
       Over what window does a congressional disclosure still carry
       information, given disclosure lag?
@@ -1313,6 +1321,8 @@ numbers:
       any sizing constant.
     evidence_2026_10_19: >-
       2026-10-19 evidence (same insider data and method as cluster_window_days): a prior purchase filed 1-7, 8-30, 31-90, 91-180, 181-365, 366-545 or 546-730 days earlier does not change the new filing's 5/10/21-session excess return versus none in 730 days, in both halves; single-half stars do not replicate. So there is no change point from 1 to 730 days and price behaviour cannot set the number. It cannot simply be removed (some fetch bound must exist). The code comment (src/config/smart_money.py, field comment on lookback_days) records 365 as an owner behavioural ruling introduced in commit 40e4febb6 on 2026-09-11; no verbatim owner message is on file, so the row stays arbitrary rather than owner-ruled, which requires a dated ruling record. Owned open question: the data neither supports nor refutes 365. Horizon checked was 5/10/21 sessions only.
+    evidence_2026_10_20: >-
+      Edge irrelevant: the 54 filings behind admissions had median age 37.5 days and max 53; none was older than 182 days.
     open_question: >-
       Over what window does insider-purchase information remain predictive?
     cost_while_unanswered: >-
@@ -1359,6 +1369,8 @@ numbers:
       saying the cap bound cannot distinguish a true demand of 1000 from one
       of 2000. Stopped at two attempts: the recording below is what would
       settle it.
+    evidence_2026_10_20: >-
+      Full in 5 of 5 runs 13-19 Oct (admission rows); whether a 4th candidate was dropped is not recorded, because the code stops at 3.
     open_question: >-
       How many externally-sourced candidates can the pipeline resolve per run
       within budget?
