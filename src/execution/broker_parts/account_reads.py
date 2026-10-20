@@ -45,12 +45,19 @@ class AccountReads(AssetEligibilityReads):
         trading_day_cache,
         session_open_cache,
         session_edge=None,
+        sessions_held_cache=None,
     ):
         self.client = client
         self._shortable_cache = shortable_cache
         self._fractionable_cache = fractionable_cache
         self._trading_day_cache = trading_day_cache
         self._session_open_cache = session_open_cache
+        # Per-(start, end) memo for `trading_sessions_held`, same lifetime and
+        # invariance argument as `_trading_day_cache`. The broker lends its own
+        # dict; a standalone instance gets a private one.
+        self._sessions_held_cache: dict[tuple[date, date], int] = (
+            {} if sessions_held_cache is None else sessions_held_cache
+        )
         if session_edge is not None:
             self._session_edge = session_edge
 
@@ -463,10 +470,19 @@ class AccountReads(AssetEligibilityReads):
         because this is a reporting count. Unlike this helper, the session-entry
         `is_trading_day` check raises: an outage cannot look like a holiday.
 
+        A successful answer is memoized per (start, end) in a plain dict the
+        broker owns, so repeated asks (the insider-filing age gate asks once
+        per observation with the same end date) cost one calendar call and
+        one guarded-pass row; the fallback answer is never memoized so an
+        outage is retried on the next call.
+
         Returns 0 if `end` is not after `start`.
         """
         if end <= start:
             return 0
+        cached = self._sessions_held_cache.get((start, end))
+        if cached is not None:
+            return cached
         from datetime import timedelta as _td
 
         from alpaca.trading.requests import GetCalendarRequest
@@ -479,6 +495,7 @@ class AccountReads(AssetEligibilityReads):
                 "account_reads.trading_sessions_held",
                 context={"start": str(start), "end": str(end)},
             )
+            self._sessions_held_cache[(start, end)] = len(calendar)
             return len(calendar)
         except Exception as exc:  # noqa: BLE001
             record_guarded_pass(
