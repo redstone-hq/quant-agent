@@ -6985,8 +6985,16 @@ is the whole value of the sliver.
 **Superseded 2026-10-15.** Owner ruling 2026-10-15: whole shares only. The
 2026-09-02 acceptance above no longer stands; fractional entry sizing is off
 (`execution.fractional_enabled: false`), so new entries are whole shares. The
-remainders already held (XOM, PWR, COST, WMT on 2026-10-15) are still to be
-sold; until they are, they carry the same overnight gap described here.
+remainders already held (XOM, PWR, COST, WMT on 2026-10-15) carried the same
+overnight gap described here until they were sold.
+
+**Closed 2026-10-20.** All four part-share remainders are gone. The last three
+— XOM 0.688, COST 0.2538 and WMT 0.9475 shares — were sold at the broker on
+2026-10-19 at 13:55 UTC on the owner's instruction; the desk's ledger recorded
+them as broker-initiated sells (trades rows 146, 148, 149). Measured in the
+live database on 2026-10-20: every position is now whole shares and no
+"FRACTIONAL STOP MISSING" line has appeared since. The overnight sliver gap
+described above no longer applies to any held position.
 
 **What would catch the real failure next time.** The failure mode here was never
 the trading logic — it was the gap between "built and tested" and "running on
