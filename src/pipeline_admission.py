@@ -305,6 +305,7 @@ class AdmissionService:
             HISTORY_FETCH_DAYS,
             ScreenThresholds,
             UniverseStore,
+            quotes_reader,
             run_screen,
         )
         from src.util.time import et_today
@@ -341,6 +342,7 @@ class AdmissionService:
                 deadline=deadline,
                 batch_size=int(cfg.bars_batch_size),
                 confirm_missing_asset=self.broker.get_asset_record,
+                get_quotes_batch=quotes_reader(self.broker, et_today(), int(cfg.cost_window_minutes)),
             )
             store.save(state)
         except Exception as exc:  # noqa: BLE001

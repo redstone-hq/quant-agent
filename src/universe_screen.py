@@ -50,21 +50,28 @@ THE CRITERIA, and where each threshold comes from (every number is in
               (`technical.LONGEST_INDICATOR_WINDOW` + 1).
   price       last close >= `min_price_usd` ($5, SEC Rule 3a51-1(d): a
               security priced at five dollars or more is not a penny stock).
-  spread      the Corwin & Schultz (J. Finance 2012) high-low spread
-              estimate over that year of bars. The name fails when the
-              round-trip spread eats the move expected over the owner-ruled
-              hold (`net_edge` at or below zero, the same edge the morning
-              score K multiplies by); a break-even floor, not a chosen line.
-              Replaces the $10M dollar-volume floor, as the design required. Estimated from bars, not quotes, because
-              this account sees IEX quotes only and those are routinely
-              absurd (src/pipeline_stages.py, the CCJ 15%-spread note).
+  spread      the median quoted half-spread, (ask - bid) / mid / 2, of the
+              consolidated (SIP) quotes in the last
+              `cost_window_minutes` of the screened session, ending at
+              the close the broker's exchange calendar gives
+              (`check_cost`, `quoted_half_spread_bps`). The name fails when
+              the round-trip spread eats the move expected over the
+              owner-ruled hold (`net_edge` at or below zero, the same edge
+              the morning score K multiplies by); a break-even floor, not a
+              chosen line. A name with no quote, or only locked/crossed
+              ones, carries `cost_unmeasured:<why>`: it is never read as
+              zero cost and never dropped for it, and it gets no score K, so
+              it never outranks a measured name. Replaced the Corwin &
+              Schultz high-low estimate 2026-10-20: on 2026-10-19 it read
+              1,501 of 3,513 passers at zero cost, 45 tied at the top score
+              and the morning top 60 were cut alphabetically.
   traded      the name TRADED on every session of that screening year: no
               bar with zero volume or high == low, and no session missing
               from its bars (checked against the dates any name in the same
               batch has a bar on, so no holiday calendar is needed; a lone
               name with no batch is checked for the first two only). Why:
-              the spread estimate above floors a no-trade day at zero and
-              averages it in, so a thinly traded name looks cheap. Alpaca
+              a name that skips sessions has no steady market to price, and
+              a year of daily bars is the history the indicators need. Alpaca
               omits a day with no trades rather than returning a flat bar,
               so a skipped session is a missing bar. Needs no new number.
   volatility  ATR(14) / price < 1 / the widest stop multiple the desk's
@@ -100,7 +107,7 @@ THE CRITERIA, and where each threshold comes from (every number is in
               and a fund with no category at all (fail closed). The
               fund's category string is its sector key. Company size and
               takeover do not apply to a fund and are recorded as "not
-              applicable: fund"; liquidity is the same spread check every
+              applicable: fund"; liquidity is the same quoted-spread check every
               stock passes. Any other fund (Yahoo quote type not EQUITY or
               ETF, or a fund-named security Yahoo calls EQUITY) is refused
               as not a common share, as before.
@@ -342,7 +349,7 @@ PLAIN_REASON = {
     "price_below_minimum": "a penny stock (under $5)",
     "spread_exceeds_expected_move": "too costly to trade (round-trip spread eats its expected move)",
     "not_traded_every_session": "did not trade on every session of the past year",
-    "spread_unmeasurable": "its trading cost could not be measured",
+    "spread_unmeasurable": "its trading cost could not be measured (retired 2026-10-20)",
     "volatility_above_ceiling": "so volatile the desk's widest stop would sit at or below zero",
     "company_too_small": "company too small (under $1.2B)",
     "market_cap_unknown": "company size unknown",
@@ -434,51 +441,77 @@ class ScreenThresholds:
 # --------------------------------------------------------------------------
 
 
-def corwin_schultz_spread(bars: list) -> float | None:
-    """Mean Corwin–Schultz (2012) bid-ask spread estimate, as a fraction.
+def quoted_half_spread_bps(quotes: Iterable[tuple[float, float]]) -> tuple[float | None, str | None]:
+    """Median quoted half-spread in bps from ``(bid, ask)`` pairs, or ``(None, why)``.
 
-    Corwin & Schultz, "A Simple Way to Estimate Bid-Ask Spreads from Daily
-    High and Low Prices", J. Finance 67(2), 719-760
-    (https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1106193). For each
-    pair of consecutive days: beta = ln(H1/L1)^2 + ln(H2/L2)^2,
-    gamma = ln(max(H1,H2)/min(L1,L2))^2,
-    alpha = (sqrt(2 beta) - sqrt(beta)) / (3 - 2 sqrt 2) - sqrt(gamma / (3 - 2 sqrt 2)),
-    S = 2 (e^alpha - 1) / (1 + e^alpha). Day 2's range is shifted by any
-    overnight gap past day 1's close, as in the authors' procedure
-    (replication of their SAS code:
-    https://github.com/ioannisrpt/Corwin_Schultz_2012).
-
-    Negative estimates: the replication offers two treatments — floor each
-    two-day estimate at zero and then average (its SPREAD_0), or average the
-    raw estimates and floor the AVERAGE at zero (its XSPREAD_0). This uses
-    the second. Measured 2026-09-19 on a year of daily bars, the first
-    reads AAPL at 25.6 bps half-spread, TSLA 44.4, AMD 51.4 — volatility,
-    not trading cost, because flooring each day discards every negative
-    that would cancel a positive; the second reads them 0.2, 5.7, 0.0 and
-    still reads an illiquid name (ANL) at 64 bps. Averaged over every pair
-    in `bars` (the screening year). None when no pair is usable.
+    Half of the median of (ask - bid) / mid over the two-sided, not locked,
+    not crossed quotes (bid > 0, ask > bid), read with pandas. `why` is
+    ``no_quotes`` (nothing in the window), ``no_two_sided_quote`` (every
+    quote had a side missing) or ``locked_or_crossed_only``.
     """
-    const = 3.0 - 2.0 * math.sqrt(2.0)
-    estimates: list[float] = []
-    for prev, cur in zip(bars, bars[1:]):
-        try:
-            h1, l1, c1 = float(prev.high), float(prev.low), float(prev.close)
-            h2, l2 = float(cur.high), float(cur.low)
-        except (AttributeError, TypeError, ValueError):
-            continue
-        if min(h1, l1, h2, l2, c1) <= 0 or h1 < l1 or h2 < l2:
-            continue
-        if c1 < l2:  # gapped up overnight
-            h2, l2 = h2 - (l2 - c1), c1
-        elif c1 > h2:  # gapped down overnight
-            h2, l2 = c1, l2 + (c1 - h2)
-        beta = math.log(h1 / l1) ** 2 + math.log(h2 / l2) ** 2
-        gamma = math.log(max(h1, h2) / min(l1, l2)) ** 2
-        alpha = (math.sqrt(2 * beta) - math.sqrt(beta)) / const - math.sqrt(gamma / const)
-        estimates.append(2 * (math.exp(alpha) - 1) / (1 + math.exp(alpha)))
-    if not estimates:
+    import pandas as pd
+
+    frame = pd.DataFrame(list(quotes), columns=["bid", "ask"], dtype=float)
+    if frame.empty:
+        return None, "no_quotes"
+    two_sided = frame[(frame["bid"] > 0) & (frame["ask"] > 0)]
+    if two_sided.empty:
+        return None, "no_two_sided_quote"
+    good = two_sided[two_sided["ask"] > two_sided["bid"]]
+    if good.empty:
+        return None, "locked_or_crossed_only"
+    mid = (good["ask"] + good["bid"]) / 2
+    return float(((good["ask"] - good["bid"]) / mid).median() / 2 * 10_000), None
+
+
+def quote_window(session_close: datetime, minutes: int) -> tuple[datetime, datetime]:
+    """``(start, end)`` of the cost window: the last `minutes` of the session
+    that closed at `session_close` (from the broker's exchange calendar)."""
+    return session_close - timedelta(minutes=int(minutes)), session_close
+
+
+def quotes_reader(broker, day: date, minutes: int, on_page: Callable[[], None] | None = None):
+    """``chunk -> {symbol: [(bid, ask), ...]}`` over the cost window of the
+    session `day` (`broker.get_quotes_batch`, SIP), or None when the broker's
+    exchange calendar gives `day` no close (every name is then
+    `cost_unmeasured:not_read`)."""
+    close = broker.get_session_close(day)
+    if close is None:
+        logger.warning("universe screen: no session close for %s; trading cost not read", day)
         return None
-    return max(sum(estimates) / len(estimates), 0.0)
+    start, end = quote_window(close, minutes)
+    return lambda chunk: broker.get_quotes_batch(chunk, start, end, on_page=on_page)
+
+
+def check_cost(
+    quotes: list | None, measured: dict, th: "ScreenThresholds", unread: str = "not_read"
+) -> tuple[list[str], dict]:
+    """Trading cost from real quotes, and the break-even spread gate.
+
+    `quotes` is the name's ``(bid, ask)`` pairs over the cost window, or None
+    when they were not read (`unread` says why). An unmeasured cost is
+    recorded as ``cost_unmeasured:<why>`` and is NOT a failure: the name is
+    neither zeroed nor dropped, and with no half-spread it gets no score K.
+    `measured` is the name's bar measures (`atr_pct`), read and not changed.
+    """
+    if quotes is None:
+        return [], {"cost_unmeasured": f"cost_unmeasured:{unread}"}
+    half_bps, why = quoted_half_spread_bps(quotes)
+    if half_bps is None:
+        return [], {"cost_unmeasured": f"cost_unmeasured:{why}"}
+    # Four decimals: a coarser rounding would tie names whose spreads differ.
+    out: dict[str, Any] = {"half_spread_bps": round(half_bps, 4), "cost_source": "sip_quotes"}
+    atr_pct = (measured or {}).get("atr_pct")
+    failures: list[str] = []
+    if isinstance(atr_pct, (int, float)) and atr_pct > 0:
+        # Spread gate: a BREAK-EVEN FLOOR only, not a chosen line. The name
+        # fails when its own net edge -- the same bracket the morning score K
+        # multiplies by (`net_edge`) -- is at or below zero: the round-trip
+        # spread eats the move expected over the hold.
+        out["half_spread_atr_frac"] = round((half_bps / 10_000) / (atr_pct / 100.0), 4)
+        if net_edge(atr_pct / 100.0, out["half_spread_bps"], th.hold_sessions) <= 0:
+            failures.append("spread_exceeds_expected_move")
+    return failures, out
 
 
 def _one_year_before(day: date) -> date:
@@ -538,8 +571,8 @@ def check_asset(symbol: str, asset) -> list[str]:
 def check_bars(
     bars: list, th: ScreenThresholds, reference_dates: Iterable[date] | None = None
 ) -> tuple[list[str], dict]:
-    """History, price, traded-every-session, spread and volatility —
-    everything read off the bars. `reference_dates`: sessions known to have
+    """History, price, traded-every-session and volatility — everything
+    read off the bars (the trading cost is `check_cost`, from quotes). `reference_dates`: sessions known to have
     happened (dates other names have bars on); a screening-year session
     absent from `bars` refuses the name."""
     from src.data.technical import atr_series
@@ -579,12 +612,6 @@ def check_bars(
         measured["no_trade_days"] = len(dead)
         measured["missing_sessions"] = len(missing)
         failures.append("not_traded_every_session")
-    spread = corwin_schultz_spread(recent)
-    if spread is None:
-        failures.append("spread_unmeasurable")
-    else:
-        half_bps = spread / 2 * 10_000
-        measured["half_spread_bps"] = round(half_bps, 1)
     atr = atr_series(bars)
     if len(atr) and price > 0:
         atr_fraction = float(atr[-1]) / price
@@ -593,18 +620,6 @@ def check_bars(
         # sits at exactly zero, which is not a placeable stop either.
         if atr_fraction >= th.max_atr_fraction:
             failures.append("volatility_above_ceiling")
-        if spread is not None and atr_fraction > 0:
-            # Spread gate: a BREAK-EVEN FLOOR only, not a chosen line. The
-            # name fails when its own net edge -- the same bracket the
-            # morning score K multiplies by (`net_edge`) -- is at or below
-            # zero: the round-trip spread eats the move expected over the
-            # hold. Ranking already multiplies by this edge, so ranking does
-            # the real work; this floor assumes direction is called right,
-            # so it is loose by design. Same rounded inputs K reads.
-            measured["half_spread_atr_frac"] = round((half_bps / 10_000) / atr_fraction, 4)
-            edge = net_edge(measured["atr_pct"] / 100.0, measured["half_spread_bps"], th.hold_sessions)
-            if edge <= 0:
-                failures.append("spread_exceeds_expected_move")
     return failures, measured
 
 
@@ -645,7 +660,10 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
     with a = ATR(14)/price (`measured.atr_pct`) and rt = 2 x `measured.half_spread_bps`.
     ``risk_cap_x`` (the R / (k a) term) and ``net_edge`` (the bracket) are always
     recorded when measurable; K is None with a reason when any input is missing
-    -- never a guessed value. It orders, sizes and stops nothing.
+    -- never a guessed value. It ORDERS the morning shortlist: `rank_passers`
+    sorts passers by K and the morning sends the top names to the AI
+    (`src/pipeline_admission.py`), so a wrong K changes which names the desk
+    can trade. It sizes and stops nothing.
     """
     atr_pct, half_bps = (measured or {}).get("atr_pct"), (measured or {}).get("half_spread_bps")
     out: dict[str, Any] = {"k": None, "reason": None, "gross_ceiling_x": inputs.gross_ceiling_x}
@@ -653,7 +671,7 @@ def second_filter_score(measured: dict, inputs: SecondFilterInputs) -> dict:
         out["reason"] = "atr_unmeasured"
         return out
     if not isinstance(half_bps, (int, float)) or not math.isfinite(half_bps):
-        out["reason"] = "spread_unmeasured"
+        out["reason"] = (measured or {}).get("cost_unmeasured") or "cost_unmeasured:not_read"
         return out
     a = float(atr_pct) / 100.0
     out["risk_cap_x"] = (float(inputs.max_portfolio_risk_pct) / 100.0) / (float(inputs.stop_atr_multiple) * a)
@@ -913,10 +931,14 @@ def screen_symbol(
     bars: list | None = None,
     reference_dates: Iterable[date] | None = None,
     today: date | None = None,
+    quotes: list | None = None,
+    quotes_unread: str = "not_read",
 ) -> ScreenResult:
     """Run every criterion on one symbol, cheapest first; stop at the first
     failing stage so a name that fails for free costs no network reads.
-    `today` is the evaluation date the S&P liquidity window ends on."""
+    `today` is the evaluation date the S&P liquidity window ends on.
+    `quotes`: the name's ``(bid, ask)`` pairs over the cost window, or None
+    (not read; `quotes_unread` says why) -- see `check_cost`."""
     result = ScreenResult(symbol=symbol)
     if asset is ...:
         try:
@@ -948,6 +970,11 @@ def screen_symbol(
         result.failures = failures
         return result
     failures, measured = check_bars(bars, th, reference_dates)
+    result.measured.update(measured)
+    if failures:
+        result.failures = failures
+        return result
+    failures, measured = check_cost(quotes, result.measured, th, quotes_unread)
     result.measured.update(measured)
     if failures:
         result.failures = failures
@@ -1190,11 +1217,15 @@ def run_screen(
     deadline: float,
     batch_size: int,
     confirm_missing_asset: Callable[[str], Any] | None = None,
+    get_quotes_batch: Callable[[list[str]], dict[str, list]] | None = None,
 ) -> ScreenRun:
     """One incremental pass. Safe to run every evening: each symbol is
     screened at most once per ISO week, admitted names first, then the
     candidates never screened, then the oldest-screened. Delisted/halted
-    admitted names are checked on EVERY pass (immediate removal)."""
+    admitted names are checked on EVERY pass (immediate removal).
+    `get_quotes_batch(chunk) -> {symbol: [(bid, ask), ...]}` reads each
+    chunk's cost-window quotes (`check_cost`); None leaves every name
+    `cost_unmeasured:not_read`."""
     run = ScreenRun()
     held_set = {str(s).strip().upper() for s in held}
     configured_set = {str(s).strip().upper() for s in configured}
@@ -1277,6 +1308,16 @@ def run_screen(
             continue
         # Sessions that happened: any date any name in this batch has a bar on.
         batch_dates = {getattr(b, "date") for rows in bars_by_symbol.values() for b in rows or []}
+        quotes_by_symbol, unread = {}, "not_read"
+        # Quotes only for the names whose bars pass (no network in that check):
+        # a name refused on its bars needs no cost read.
+        priced = [s for s in chunk if not check_bars(bars_by_symbol.get(s) or [], th, batch_dates)[0]]
+        if get_quotes_batch is not None and priced:
+            try:
+                quotes_by_symbol = get_quotes_batch(priced) or {}
+            except Exception as exc:  # noqa: BLE001 -- recorded per name as cost_unmeasured
+                logger.warning("universe screen: quote batch failed (%d symbols): %s", len(chunk), exc)
+                unread = "quote_read_failed"
         for symbol in chunk:
             if time.monotonic() >= deadline:
                 run.deadline_hit = True
@@ -1289,6 +1330,8 @@ def run_screen(
                 bars=bars_by_symbol.get(symbol) or [],
                 reference_dates=batch_dates,
                 today=today,
+                quotes=quotes_by_symbol.get(symbol),
+                quotes_unread=unread,
             )
             _record(result)
         if run.deadline_hit:

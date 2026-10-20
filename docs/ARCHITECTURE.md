@@ -843,7 +843,11 @@ universe, then screened names best score first. Screened names are last night's 
 record carries. Only the top `universe_screen.morning_top_n` = floor(`morning_budget_usd` /
 `morning_cost_per_name_usd`) are sent. Every other passer gets a dropped-name pipeline event through
 `record_dropped_name`: `not_sent_weaker_rank` with its rank, or `not_sent_unscored` with the record's own
-reason when K is None. A held passer is coverage and is never capped. No complete record for the last
+reason when K is None. K's trading cost is the median quoted half-spread of real consolidated (SIP)
+quotes over the last `universe_screen.cost_window_minutes` of the screened session (`check_cost`); a name
+with no usable quote carries `cost_unmeasured:<why>`, gets no K and so never outranks a measured name (the
+Corwin & Schultz bar estimate it replaced read 1,501 of 3,513 passers at zero cost on 2026-10-19 and cut the
+top 60 alphabetically). A held passer is coverage and is never capped. No complete record for the last
 session is a morning fault and no screened name. `nominations.max_per_seat_per_run` still caps each
 nominating seat and no longer caps screened names. All of it sits behind `universe_screen.enabled`.
 
