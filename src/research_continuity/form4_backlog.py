@@ -21,6 +21,49 @@ from collections.abc import Callable
 logger = logging.getLogger("src.pipeline")
 
 
+def _edgar_unverified_clause(record: dict) -> str:
+    """Owner-facing words for an unverified EDGAR count; codes go to the log only."""
+    from src.data.smart_money_edgar_coverage import UNVERIFIED_EDGAR_REASONS
+
+    raw_reasons = [str(r) for r in (record.get("reasons") or [])]
+    logger.error("PRE-OPEN: Form 4 coverage unverified, reasons=%s", raw_reasons)
+    # Only the UNVERIFIED reasons are faults; days_not_queried and
+    # scan_cap_reached are the scan's own bounded choices.
+    faults = [r for r in raw_reasons if r in UNVERIFIED_EDGAR_REASONS]
+    if not raw_reasons:
+        return "no coverage was recorded at all"
+    tail = ", so a quiet day and a failed read cannot be told apart"
+    if "edgar_total_unreadable" in faults:
+        days_read = int(record.get("days_queried") or 0)
+        unreadable = max(days_read - int(record.get("days_with_total") or 0), 0)
+        return f"the filing service gave no usable count for {unreadable} of the {days_read} days read{tail}"
+    if faults:
+        return f"the filing service's answers could not be fully checked{tail}"
+    return ""
+
+
+def _alert_text(watched_all_read: bool, names: int, why: list[str], coverage_line: str) -> str:
+    """Assemble the owner alert; lead with good news when every watched name was read."""
+    if watched_all_read:
+        lead = f"All {names} companies the desk watches had every insider filing read"
+        lead += (": " + "; ".join(why)) if why else ""
+        tail = ". Only the market-wide scan for companies outside the watched list is short."
+    else:
+        lead = "Insider-filing check did not finish this morning: " + "; ".join(why)
+        tail = (
+            ". Until the check is complete, the desk still makes its trading decisions "
+            "but without complete insider evidence, and each decision records that."
+        )
+    # Carried whatever the reason for the alert, not only when coverage itself
+    # is the complaint — the counts are the context for every other line.
+    return (
+        lead
+        + tail
+        + " Existing positions and their stops are unaffected."
+        + (f" {coverage_line}" if coverage_line else "")
+    )
+
+
 class Form4BacklogRecorder:
     """Pre-market Form 4 backlog / congressional refresh records and the backlog alert."""
 
@@ -145,9 +188,9 @@ class Form4BacklogRecorder:
             coverage_line = (
                 "Insider-filing coverage this morning: read "
                 f"{record.get('enumerated', 0)} of {record.get('edgar_total', 0)} "
-                "filings the service reported, across "
-                f"{record.get('days_queried', 0)} of "
-                f"{record.get('days_in_window', 0)} days looked at."
+                "filings the service reported, covering the "
+                f"{record.get('days_queried', 0)} most recent days of a "
+                f"{record.get('days_in_window', 0)}-day look-back window."
             )
         elif record:
             coverage_line = (
@@ -162,14 +205,23 @@ class Form4BacklogRecorder:
         if read_through == today and not watched_pending and not unchecked and not edgar_unverified:
             return
         why: list[str] = []
+        deadline_hit = bool(refresh.get("watched_drain_deadline_hit"))
+        # Every watched company read through today: the shortfall, if any, is
+        # in the market-wide scan only, so the alert must not say the check
+        # "did not finish".
+        watched_all_read = (
+            names > 0
+            and names_read >= names
+            and read_through == today
+            and not watched_pending
+            and not unchecked
+            and not deadline_hit
+        )
         if edgar_unverified:
-            reasons = ", ".join(str(r) for r in (record.get("reasons") or [])) or "no coverage was recorded at all"
-            why.append(
-                "the filing service did not account for how many filings "
-                f"existed, so a quiet day and a failed read cannot be told "
-                f"apart ({reasons})",
-            )
-        if names:
+            clause = _edgar_unverified_clause(record)
+            if clause:
+                why.append(clause)
+        if names and not watched_all_read:
             why.append(
                 f"{names_read} of our {names} companies have every insider filing read",
             )
@@ -181,30 +233,22 @@ class Form4BacklogRecorder:
             why.append(
                 f"{len(unchecked)} of our own companies could not be checked at all",
             )
-        if bool(refresh.get("watched_drain_deadline_hit")):
+        if deadline_hit:
             why.append(
                 "the morning read of our own companies ran out of time; it resumes where it stopped tomorrow morning",
             )
         if cap_reached:
             why.append(
-                "the morning read stopped at its own limit before finishing",
+                "the market-wide scan stopped at its own limit"
+                if watched_all_read
+                else "the morning read stopped at its own limit before finishing",
             )
         if not why:
             why.append(
                 "the morning read did not confirm it finished"
                 + (f" (last confirmed {read_through})" if read_through else ""),
             )
-        text = (
-            "Insider-filing check did not finish this morning: "
-            + "; ".join(why)
-            + ". Until it does, the desk still makes its trading decisions "
-            "but without complete insider evidence, and each decision "
-            "records that. Existing positions and their stops are unaffected."
-            # Carried whatever the reason for the alert, not only when
-            # coverage itself is the complaint — the counts are the context
-            # for every other line above them.
-             + (f" {coverage_line}" if coverage_line else "")
-        )
+        text = _alert_text(watched_all_read, names, why, coverage_line)
         logger.error("PRE-OPEN: %s", text)
         try:
             from src.notifier import CATEGORY_OPERATIONAL, send_owner_alert

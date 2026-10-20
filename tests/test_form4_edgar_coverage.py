@@ -651,11 +651,11 @@ def test_the_pre_open_alert_names_the_unreadable_count(monkeypatch):
         }
     )
     assert len(sent) == 1
-    assert "how many filings" in sent[0]
-    assert "edgar_returned_no_hits_for_nonzero_total" in sent[0]
-    # The counts themselves reach the owner, not only the reason word.
+    assert "could not be fully checked" in sent[0]
+    # Reason codes stay in the log; the owner gets plain words and the counts.
+    assert "edgar_returned_no_hits_for_nonzero_total" not in sent[0]
     assert "0 of 412" in sent[0]
-    assert "2 of 366 days" in sent[0]
+    assert "2 most recent days of a 366-day" in sent[0]
 
 
 def test_the_pre_open_alert_fails_closed_on_a_missing_coverage_record(monkeypatch):
@@ -936,7 +936,7 @@ def test_the_alert_carries_the_coverage_counts_whatever_it_is_about(monkeypatch)
     assert len(sent) == 1
     assert "still unread" in sent[0]
     assert "read 435 of 435 filings" in sent[0]
-    assert "76 of 366 days" in sent[0]
+    assert "76 most recent days of a 366-day" in sent[0]
 
 
 def test_a_form4_provider_that_blew_up_still_answers_for_coverage(monkeypatch):
@@ -1068,7 +1068,7 @@ def test_an_ordinary_clean_morning_logs_the_coverage_and_alerts_nobody(
 
     assert sent == []
     logged = "\n".join(r.getMessage() for r in caplog.records)
-    assert "76 of 366 days" in logged
+    assert "76 most recent days of a 366-day" in logged
     assert "read 435 of 435 filings" in logged
 
 
