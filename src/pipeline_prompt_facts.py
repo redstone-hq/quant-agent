@@ -270,19 +270,35 @@ class PromptHistory:
             }
         return out
 
-    def _build_weekly_narrative(self) -> str:
-        """L3a memory: last 7 evenings' daily_summary + daily_pnl, compact."""
-        try:
-            insights = self.db.get_recent_insights(limit=7)
-        except Exception as e:
-            logger.warning("weekly_narrative: insights fetch failed: %s", e)
-            insights = []
-        if not insights:
-            return ""
+    def _build_weekly_narrative(self, include_evening_text: bool = True) -> str:
+        """L3a memory: last 7 evenings' daily_summary + daily_pnl, compact.
+
+        `include_evening_text=False` is the portfolio manager's read (owner
+        ruling q23, 2026-10-21): only the desk's own measured daily return per
+        date, from daily_pnl. The evening AI's outlook/lessons and its
+        risk_rating are left out so the evening review cannot steer buying.
+        The evening and position-review seats keep the full narrative.
+        """
+        insights: list = []
+        if include_evening_text:
+            try:
+                insights = self.db.get_recent_insights(limit=7)
+            except Exception as e:
+                logger.warning("weekly_narrative: insights fetch failed: %s", e)
+                insights = []
+            if not insights:
+                return ""
         try:
             pnl_rows = self.db.get_daily_pnl(limit=14)
         except Exception:
             pnl_rows = []
+        if not include_evening_text:
+            out = []
+            for pnl in reversed((pnl_rows or [])[:7]):
+                ret = pnl.get("daily_return_pct")
+                ret_str = f"{ret:+.2f}%" if isinstance(ret, (int, float)) else "n/a"
+                out.append(f"- {pnl.get('date', '?')}: {ret_str}")
+            return "\n".join(out)
         pnl_by_date = {r["date"]: r for r in pnl_rows}
         lines = []
         # insights come newest-first; display oldest→newest so the "arc" reads naturally

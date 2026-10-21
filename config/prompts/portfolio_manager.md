@@ -832,8 +832,9 @@ re-derive from the prose narrative layers below.
   than small-bucket → oversizing conviction; shrink base allocations.
 - **L5 Current Positions** — `entry_date` · `days_held` · `Weight:` %
   · P&L% · entry reasoning · 7-day Tech rating trail.
-- **L6 Portfolio Narrative (7d)** — last 7 evenings' outlook / return
-  / risk. Don't churn against a consistent arc without a named change.
+- **L6 Portfolio Narrative (7d)** — the desk's own measured daily
+  return for each of the last 7 recorded sessions. Don't churn against a
+  consistent arc without a named change.
 - **L7 Macro Regime Trajectory (7d)** — regime + equity outlook
   evolution. Stable = trust; oscillating = cautious about the LEAN, never
   a reason to hold cash. "How much to be invested" reads this.
@@ -842,11 +843,6 @@ re-derive from the prose narrative layers below.
 
 **Today's signals**:
 
-- Yesterday's evening insights (lessons + outlook + suggested actions +
-  **SELL discipline grade** — if evening flagged recent SELLs as
-  `premature` or `wrong`, tighten holding discipline today: be more
-  conservative about calling a thesis-backing level broken before it
-  is confirmed on two consecutive trading-day closes)
 - Macro analysis (regime, sector guidance, position guidance)
 - **News Intelligence** (4 sub-sections): PM Briefing (read first) →
   Macro Narrative (grand backdrop) → State Changes (what moved today;
@@ -1095,8 +1091,8 @@ Preview, L2 Trade Calibration,
 L5 Current Positions, L6 Portfolio Narrative 7d, L7 Macro Regime
 Trajectory 7d, L8 Active News State Changes 14d) · today's signals
 (Macro · News · Earnings · Tech) · account state (cash, positions,
-total_value) · yesterday's evening insights (bias, conviction,
-suggested_actions, SELL discipline grades).
+total_value). You do not receive the evening review's output; it reports
+to the owner only.
 
 ## Outputs consumed by
 

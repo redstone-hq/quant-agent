@@ -948,93 +948,10 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
         else:
             perf_section = "## Recent System Performance\nNo history yet."
 
-        # Yesterday's insights section
-        yesterday_insights: dict | None = kwargs.get("yesterday_insights")
-        if yesterday_insights and yesterday_insights.get("tomorrow_outlook"):
-            actions = yesterday_insights.get("suggested_actions", "")
-            if isinstance(actions, str):
-                try:
-                    actions = json.loads(actions)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            actions_text = "\n".join(f"  - {a}" for a in actions) if isinstance(actions, list) else f"  - {actions}"
-            key_risks = yesterday_insights.get("tomorrow_key_risks", "[]")
-            if isinstance(key_risks, str):
-                try:
-                    key_risks = json.loads(key_risks)
-                except (json.JSONDecodeError, TypeError):
-                    key_risks = []
-            risks_text = (
-                "\n".join(f"  - {r}" for r in key_risks)
-                if isinstance(key_risks, list) and key_risks
-                else "  (none named)"
-            )
-            insights_date = yesterday_insights.get("date", "unknown")
-            insights_ts = yesterday_insights.get("timestamp", "")
-            freshness = f" (from {insights_date}"
-            if insights_ts:
-                freshness += f", written {insights_ts}"
-            freshness += ")"
-            bias = yesterday_insights.get("tomorrow_bias") or "neutral"
-            conviction = yesterday_insights.get("tomorrow_conviction") or "medium"
-            sell_grade = (yesterday_insights.get("sell_decisions_assessment") or "").strip()
-            sell_line = f"- **SELL discipline grade** (previous run): {sell_grade[:400]}" if sell_grade else ""
-
-            # Defect (d) fix: evening's structured "lesson categories" —
-            # thesis_updates / selection_rules / discipline_notes — were
-            # produced by the LLM every night and asked for in the evening
-            # prompt, but never made it past `save_evening_snapshot` into
-            # the DB, so Step 6 ("Yesterday's lessons: apply any relevant
-            # learnings") had nothing to read. Wired here the same way the
-            # rest of this section already is — date-labeled by `freshness`
-            # above, with a labelled absence (not silence, not a fabricated
-            # note) when evening didn't fill a category that day.
-            def _parse_str_list(raw) -> list[str]:
-                if isinstance(raw, str):
-                    try:
-                        parsed = json.loads(raw)
-                    except (json.JSONDecodeError, TypeError):
-                        return []
-                else:
-                    parsed = raw
-                return [str(x) for x in parsed] if isinstance(parsed, list) else []
-
-            def _lesson_bullets(items: list[str], empty_label: str) -> str:
-                if not items:
-                    return f"  ({empty_label})"
-                # Defensive per-item cap — evening's prompt already asks for
-                # 0-5/0-3 short items, this just bounds a runaway one.
-                return "\n".join(f"  - {item[:220]}" for item in items)
-
-            thesis_updates = _parse_str_list(yesterday_insights.get("thesis_updates_json", "[]"))
-            selection_rules = _parse_str_list(yesterday_insights.get("selection_rules_json", "[]"))
-            discipline_notes = _parse_str_list(yesterday_insights.get("discipline_notes_json", "[]"))
-            thesis_text = _lesson_bullets(thesis_updates, "no thesis updates carried from last night")
-            selection_text = _lesson_bullets(selection_rules, "no new selection rules carried from last night")
-            discipline_text = _lesson_bullets(discipline_notes, "no discipline notes carried from last night")
-
-            insights_section = f"""## Prior Evening Insights{freshness}
-- **Tilt for today**: bias={bias}, conviction={conviction}
-- Outlook (prose): {yesterday_insights.get("tomorrow_outlook", "N/A")}
-- Key risks to watch today:
-{risks_text}
-- Lessons: {yesterday_insights.get("lessons", "N/A")}
-- Risk Rating: {yesterday_insights.get("risk_rating", "N/A")}
-- Suggested Actions:
-{actions_text}
-{sell_line}
-- Thesis updates on held positions (apply at Step 6):
-{thesis_text}
-- New selection rules (apply when sizing new BUYs):
-{selection_text}
-- Discipline notes (apply at Step 6 holding discipline):
-{discipline_text}"""
-        else:
-            insights_section = (
-                "## Yesterday's Evening Insights\n"
-                "No prior session insights available "
-                "(no outlook, lessons, or thesis/selection/discipline notes from last night)."
-            )
+        # No evening-insights block. Owner ruling q23 (2026-10-21): the
+        # evening AI's outlook, tilt, lessons, suggested actions, SELL grade
+        # and thesis/selection/discipline notes report to the owner
+        # (Telegram, dashboard, insights table) and never reach this input.
 
         # L3 memory layers — past environment trajectory
         weekly_narrative: str = kwargs.get("weekly_narrative") or ""
@@ -1185,8 +1102,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
 
 {blocked_section}
 
-{insights_section}
-
 {macro_section}
 
 {news_section}
@@ -1264,7 +1179,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         news_intel: NewsIntelligenceReport | None = None,
         earnings_analyses: list[dict] | None = None,
         smart_money_findings: list[SmartMoneyFinding] | None = None,
-        yesterday_insights: dict | None = None,
         recent_performance: dict | None = None,
         position_history: dict | None = None,
         weekly_narrative: str = "",
@@ -1374,7 +1288,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             news_intel=news_intel,
             earnings_analyses=earnings_analyses or [],
             smart_money_findings=smart_money_findings or [],
-            yesterday_insights=yesterday_insights,
             recent_performance=recent_performance or {},
             position_history=position_history or {},
             weekly_narrative=weekly_narrative,

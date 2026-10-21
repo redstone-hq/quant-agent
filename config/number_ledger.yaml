@@ -3802,8 +3802,9 @@ numbers:
       -> src/agents/evening_analyst.py (function _fmt_missed_opportunities) (the Missed
       Opportunity Review block of the evening analyst prompt) -> the same
       analyst call also writes selection_rules / thesis_updates /
-      discipline_notes -> insights rows -> src/agents/portfolio_manager/__init__.py
-      (Prior Evening Insights) next morning. The missed_opportunities output
+      discipline_notes -> insights rows, which since 2026-10-21 (owner ruling
+      q23) reach only the owner (Telegram, dashboard) and never the PM. The
+      missed_opportunities output
       itself reaches only the human-reviewed watchlist candidates
       (src/watchlist_candidates.py (function build_watchlist_candidates)) and the
       quarterly meta-reflector (safe mode, not applied to any prompt). The only

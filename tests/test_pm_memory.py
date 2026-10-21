@@ -446,33 +446,9 @@ def test_build_recent_sells_includes_reduce_action(tmp_path):
     assert out[0]["sell_price"] == 320.0
 
 
-def test_pm_renders_structured_evening_tilt():
-    """PM surfaces tomorrow_bias + conviction + key_risks from evening insights."""
-    import json
-
-    with patch("anthropic.Anthropic"):
-        agent = PortfolioManagerAgent(api_key="test", model="claude-opus-4-6")
-        msg = agent.build_user_message(
-            analyses=[],
-            positions=[],
-            macro_analysis=None,
-            cash_balance=5000.0,
-            total_value=10000.0,
-            yesterday_insights={
-                "date": "2026-04-17",
-                "tomorrow_outlook": "Defensive bias; FOMC minutes risk.",
-                "lessons": "Don't chase.",
-                "risk_rating": "elevated",
-                "suggested_actions": ["Raise cash to 25%"],
-                "tomorrow_bias": "bearish",
-                "tomorrow_conviction": "high",
-                "tomorrow_key_risks": json.dumps(["FOMC minutes 2pm", "VIX > 20"]),
-            },
-        )
-        assert "bias=bearish" in msg
-        assert "conviction=high" in msg
-        assert "FOMC minutes 2pm" in msg
-        assert "VIX > 20" in msg
+# PM-side evening-insights tests removed 2026-10-21 (owner ruling q23): the
+# evening review no longer reaches the PM; tests/test_pm_no_evening_insights.py
+# now asserts the opposite.
 
 
 def test_evening_report_parses_structured_fields():
