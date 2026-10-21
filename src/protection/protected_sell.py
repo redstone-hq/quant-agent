@@ -9,6 +9,7 @@ Host attributes a body reads with a defaulted getattr or ASSIGNS go through `sta
 """
 
 import logging
+from datetime import datetime
 
 from src.protection.trim_amend import refusal_reason, trim_book_call
 from src.quantities import ORDER_QTY_DECIMALS
@@ -279,6 +280,18 @@ class ProtectedSell:
             return None
         qty, position_qty_before_sell = sized
 
+        if session_closed(self.broker, self.db):
+            # THE one real-close check: every sale goes out below, so none is
+            # sent after the exchange's real close (13:00 ET on an early-close
+            # day) or on an unreadable calendar (fail closed, docs/OUTCOME.md).
+            # The stops go back; the next open's run decides the sale again.
+            _put_back_protection()
+            self._last_stop_clear_refusal = SESSION_CLOSED
+            why = _OWN_REASONS[SESSION_CLOSED]
+            logger.warning("%s: no order for %s — %s", label, symbol, why)
+            self._alert_owner_exit_declined(symbol, side=side, why=why)
+            return None
+
         try:
             order = self.broker.submit_order(
                 symbol=symbol,
@@ -517,6 +530,10 @@ class ProtectedSell:
         except AttributeError:
             return None
 
+    def _refusal_why(self, refusal: str) -> str:
+        """The owner wording for a refusal this step recorded, else the refusal itself."""
+        return _OWN_REASONS.get(refusal, refusal)
+
     def _begin_sale(self, label: str, position_qty_before_sell: float, qty: float) -> bool:  # noqa: ARG002
         """Reset this call's leg settlement; True when the sale is a full exit."""
         self._state.set("_leg_settlement", None)
@@ -639,8 +656,12 @@ class ProtectedSell:
             logger.warning("WAL: failed to discharge row %d for flat %s: %s", wal_row_id, symbol, exc)
 
 
+#: The refusal recorded when a sale reaches its submit after the real close.
+SESSION_CLOSED = "session_closed"
+
 #: Owner-alert wording for the refusals this step records itself.
 _OWN_REASONS = {
+    SESSION_CLOSED: "not sold: the market had closed; the desk will decide it again at the next open",
     "submit_unknown": (
         "the exit order's submission failed without a broker answer and the order could not be found by its "
         "own key, so whether it reached the broker is unknown; protection was put back over what is held now "
@@ -676,6 +697,28 @@ _OWN_REASONS = {
         "is never sent in its place, so no order was sent and the stops were put back"
     ),
 }
+
+
+def session_closed(broker, db=None, now: datetime | None = None) -> bool:
+    """True when no sale may be submitted now: the exchange's real close for today has passed,
+    today does not trade, or the calendar cannot be read (fail closed, docs/OUTCOME.md).
+
+    The close is the broker calendar's (`src.session_calendar.session_for`), never a fixed 16:00."""
+    from src.session_calendar import session_for
+    from src.trading_calendar import ET, et_now
+
+    now = now or et_now()
+    try:
+        session = session_for(broker, now.astimezone(ET).date())
+        record_guarded_pass((broker, db), "protected_sell.session_close")
+    except Exception as exc:  # noqa: BLE001 -- unreadable calendar: fail closed
+        record_guarded_pass((broker, db), "protected_sell.session_close", exc)
+        logger.warning("exchange calendar unreadable at a sale's submit, so no sale goes out: %s", exc)
+        return True
+    close_at = session.close_at
+    if not session.is_trading_day or not isinstance(close_at, datetime):
+        return True
+    return now >= close_at
 
 
 def _legs_of(cancelled) -> list[dict]:

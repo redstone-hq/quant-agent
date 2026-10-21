@@ -384,3 +384,18 @@ def _no_credit_line_on_alerts(monkeypatch):
     back to True explicitly.
     """
     monkeypatch.setattr("src.notifier.credit_line.APPEND_CREDIT_LINE", False)
+
+
+@pytest.fixture(autouse=True)
+def _the_market_is_open_at_a_sale(request, monkeypatch):
+    """Sales in tests that are not about the real close go out as before.
+
+    Their fake brokers carry no exchange calendar, so the submit's real-close
+    check (src.protection.protected_sell.session_closed) would read them as
+    unreadable and, failing closed, refuse every sale. Only that one helper is
+    patched; the calendar reader itself stays real for its own tests.
+    tests/test_sale_after_real_close.py runs the real check.
+    """
+    if getattr(request.module, "__name__", "").endswith("test_sale_after_real_close"):
+        return
+    monkeypatch.setattr("src.protection.protected_sell.session_closed", lambda *a, **k: False)
