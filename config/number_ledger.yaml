@@ -1174,6 +1174,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+      2026-10-21 RULING (adversary review: deriving this from horizon plus filing lag was a PATCH, because the base is itself arbitrary). This is an OPERATIONAL FETCH/STORAGE CAP, owned as arbitrary and NOT derived.
+      It is not inert: on the Form 4 path it only pads the prune horizon, but on congressional buys it clusters with a nonzero floor. The window stays a cap on what counts as one decision.
     evidence_2026_10_19: >-
       2026-10-19 evidence (SEC Insider Transactions Data Sets, Form 4 code-P buys, 5,311 events / 1,054 issuers, 21-session excess return vs SPY, issuer-resampled 95% intervals, halves 2024 and 2025-Q1 2026): cluster-vs-single at windows 0,1,2,3,5,7,10,14,30 days never has an interval excluding 0 in both halves and the sign flips between halves (window 0: -1.94 [-4.74,+0.83] in 2024, +0.45 [-1.56,+2.49] in 2025-26; window 2: -1.20 then -0.17, both spanning 0). So no change point 0-30 days. On the insider (Form 4) path the window decides nothing today: cluster_survivors is called with a zero size floor (src/data/smart_money.py line 1811, threshold_fn=lambda symbol: 0.0), so every priced row survives alone; it only pads the cache-prune horizon. It still gates congressional buys, whose history is out of reach with free data. Outcome: owned open question for the congressional path (docs/OUTCOME.md "No arbitrary numbers, ever", outcome 3). Routine/opportunistic labels not reproduced; 180 of 1,500 sampled issuers had no prices (survivorship, direction unknown).
     evidence_2026_10_20: >-
@@ -1228,6 +1230,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+      2026-10-21 RULING (adversary review: deriving this from horizon plus filing lag was a PATCH, because the base is itself arbitrary). This is an OPERATIONAL FETCH/STORAGE CAP, owned as arbitrary and NOT derived.
+      It gates which congressional rows are kept as confirmatory context; it was inert on 19 Oct but is a live bound.
     evidence_2026_10_19: >-
       2026-10-19 evidence: not measurable with free data. The two configured feeds hold only a recent slice (one capped at 5,000 rows, the other about 8,000), so two years of disclosures with filing dates needs either paid data or parsing House Clerk / Senate eFD disclosure documents (PDF/HTML, no structured transaction table). Owned open question.
     evidence_2026_10_20: >-
@@ -1320,6 +1324,8 @@ numbers:
       informed. Every one a round number with no measurement behind it. A name
       screened out here is never nominated, so these are as trade-governing as
       any sizing constant.
+      2026-10-21 RULING (adversary review: deriving this from horizon plus filing lag was a PATCH, because the base is itself arbitrary). This is an OPERATIONAL FETCH/STORAGE CAP, owned as arbitrary and NOT derived.
+      It has five readers: the EDGAR coverage window, the cache prune, and the seat summary counts (not display only). The value is a fetch/storage bound; the edge-versus-age question stays open below.
     evidence_2026_10_19: >-
       2026-10-19 evidence (same insider data and method as cluster_window_days): a prior purchase filed 1-7, 8-30, 31-90, 91-180, 181-365, 366-545 or 546-730 days earlier does not change the new filing's 5/10/21-session excess return versus none in 730 days, in both halves; single-half stars do not replicate. So there is no change point from 1 to 730 days and price behaviour cannot set the number. It cannot simply be removed (some fetch bound must exist). The code comment (src/config/smart_money.py, field comment on lookback_days) records 365 as an owner behavioural ruling introduced in commit 40e4febb6 on 2026-09-11; no verbatim owner message is on file, so the row stays arbitrary rather than owner-ruled, which requires a dated ruling record. Owned open question: the data neither supports nor refutes 365. Horizon checked was 5/10/21 sessions only.
     evidence_2026_10_20: >-
@@ -1396,9 +1402,10 @@ numbers:
         retires the cap rather than re-deriving it.
   - id: src.config.SmartMoneyConfig.max_filings_per_refresh
     value: 1000
-    status: not-trade-governing
+    status: arbitrary
     site: src/config/smart_money.py
     note: >-
+      2026-10-21 CORRECTION: the status not-trade-governing and the line 'stays arbitrary' below contradicted each other. The cap decides which Form 4 filings reach the shortlist and the insider AI seat, so it is trade-touching. Status is arbitrary: an operational fetch cap, owned, value not derived. The reclassification text that follows is kept as history and is superseded here.
       RECLASSIFIED 2026-10-18 as technical plumbing, status not-trade-governing. The SEC fair-access limit is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data). This limit bounds only the market-wide Form 4 crawl for external candidate nomination and decides no trade. The earlier text below is kept as history.
       CORRECTION 2026-09-18. This entry read `not-trade-governing`, with the
       note "it decides how long the desk waits or how much it fetches, never
@@ -1494,6 +1501,28 @@ numbers:
       saying the cap bound cannot distinguish a true demand of 1000 from one
       of 2000. Stopped at two attempts: the recording below is what would
       settle it.
+    open_question: >-
+      How many market-wide Form 4 filings does the pre-market refresh need to
+      read per run so no filing the desk would have used is left unread?
+    cost_while_unanswered: >-
+      Filings past the cap are not read that run, so a name the shortlist or
+      the insider AI seat would have used can be missed.
+    settles_by:
+      kind: recording
+      state: specified
+      where: >-
+        docs/board_notes/ `## item 90` -- the 2026-10-01 tranche-three
+        routing pass, which specifies each recording field by name
+      records: >-
+        per refresh, the pre-cap DEMAND rather than the boolean that exists
+        today: how many filings the discovery scan would have returned had the
+        cap not bound, and how long the scan would have run had the deadline
+        not cut it.
+      closes_when: >-
+        enough refreshes accumulate to show the distribution of demand against
+        the cap, so the cap is set where it stops discarding filings the desk
+        would otherwise have read -- or is shown never to bind, which retires
+        the cap rather than re-deriving it.
   - id: src.config.SmartMoneyConfig.min_cluster_owners
     value: 2
     status: sourced

@@ -114,10 +114,10 @@ Measured 2026-10-01: the item-223 recording has written 0 rows -- `trade_refusal
 - ~~`config.IntradayScanConfig.cooldown_hours` = 3~~ -- DELETED 2026-10-13: the 3-hour lock between two looks at the same name is gone. A name the desk already looked at this session now ranks by its move since that look (the price recorded with the look), in its own ATR, in the same single ranking as every fresh mover.
 - `config.NominationConfig.max_per_seat_per_run` = 3
 - ~~NominationConfig run-level cap of 6~~ -- DELETED 2026-10-15: it bound 0 times in 5 recorded runs; the daily AI spend cap, checked before every AI call, is the real limit on research cost.
-- `config.SmartMoneyConfig.cluster_window_days` = 2
-- `config.SmartMoneyConfig.congress_lookback_days` = 180
+- `config.SmartMoneyConfig.cluster_window_days` = 2 -- 2026-10-21: operational cap, arbitrary and owned, not derived; not inert (congress clustering has a nonzero floor).
+- `config.SmartMoneyConfig.congress_lookback_days` = 180 -- 2026-10-21: operational fetch cap, arbitrary and owned, not derived.
 - `config.SmartMoneyConfig.insider_calendar_routine_years` = 3
-- `config.SmartMoneyConfig.lookback_days` = 365
+- `config.SmartMoneyConfig.lookback_days` = 365 -- 2026-10-21: operational fetch/storage cap, arbitrary and owned, not derived; five readers (EDGAR coverage window, prune, seat summary counts).
 - `config.SmartMoneyConfig.max_external_candidates` = 3
 - ~~`config.SmartMoneyConfig.max_observations` = 40~~ -- DELETED 2026-10-19: the smart-money seat now reads one summary line per shortlisted name; admission reads every row.
 - `config.SmartMoneyConfig.min_cluster_owners` = 2
@@ -170,7 +170,7 @@ Portfolio loss tolerance, concentration ceilings, per-trade risk budget and the 
 Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidate scoring weights and prompt-block row limits: none sizes, prices or places an order.
 
 - ~~`config.RiskConfig.target_divergence_warn_pct` = 25~~ -- DELETED 2026-10-13: the threshold and the WARNING it triggered are gone; every computed-vs-analyst target gap is still recorded, one row per comparison.
-- ~~`config.SmartMoneyConfig.max_filings_per_refresh` = 1000~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
+- `config.SmartMoneyConfig.max_filings_per_refresh` = 1000 -- CORRECTED 2026-10-21: the 2026-10-18 not-trade-governing label was wrong. The cap decides which Form 4 filings reach the shortlist and the insider AI seat. Status arbitrary: operational fetch cap, owned, not derived.
 - ~~`config.SmartMoneyConfig.refresh_deadline_s` = 180~~ -- RECLASSIFIED 2026-10-18 ledger pass to not-trade-governing (technical plumbing): SEC fair-access is 10 requests per second (https://www.sec.gov/os/accessing-edgar-data); this cap bounds only the market-wide external-candidate crawl. Deadline is a schedule slot. Decides no trade.
 - `agents.smart_money_analyst._ROLE_RANK['actionable']` = 3
 - `agents.smart_money_analyst._ROLE_RANK['confirmatory']` = 2
