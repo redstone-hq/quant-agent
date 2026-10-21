@@ -243,13 +243,17 @@ def test_an_entry_that_fills_during_its_cancel_is_sold_too():
     assert ("wait", "ent-1") in calls and ("submit", 103.0) in calls
 
 
-def test_each_leg_writes_its_broker_clock_cancel_latency():
+def test_each_leg_writes_its_broker_clock_cancel_latency(tmp_path):
     from datetime import datetime, timedelta
 
     from src.execution.broker_parts.cancel_confirm import settle_legs
+    from src.sentinel.guarded_reach import _LazyLedger
+    from src.storage.db import Database
 
     sent = datetime(2026, 10, 14, 14, 0, 0, tzinfo=UTC)
-    db = MagicMock()
+    real = Database(str(tmp_path / "ledger.db"))
+    real.initialize()
+    db = _LazyLedger(lambda: real.conn)
     order = SimpleNamespace(filled_qty="0", canceled_at=sent + timedelta(seconds=2.5))
     broker = SimpleNamespace(
         _recon_db=db,
@@ -257,8 +261,10 @@ def test_each_leg_writes_its_broker_clock_cancel_latency():
         client=SimpleNamespace(get_order_by_id=lambda oid: order),
     )
     settle_legs(broker, [{"id": "s1", "cancel_sent_at": sent.isoformat()}])
-    (call,) = [c for c in db.insert_specialist_evidence.call_args_list if c.kwargs["kind"] == "cancel_latency"]
-    row = json.loads(call.kwargs["evidence_json"])
+    (stored,) = real.conn.execute(
+        "SELECT evidence_json FROM specialist_evidence WHERE kind = 'cancel_latency'"
+    ).fetchall()
+    row = json.loads(stored["evidence_json"])
     assert row["latency_ms"] == 2500 and row["within_bound"] is True
 
 
