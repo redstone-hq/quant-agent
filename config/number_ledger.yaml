@@ -436,6 +436,8 @@ numbers:
       DB read-only]: 2 runs; per-seat cap bound in 1 (earnings seat offered 5, kept 3, dropped
       MRVL and ORCL at medium conviction), 0 in the other (0 offered). n=2 runs is too thin:
       stays arbitrary; value not shown wrong.
+    evidence_2026_10_21: >-
+      Never hit on 19-21 Oct: the earnings seat offered exactly 3 each run and the other two seats offered 1 and 0. Inert so far. [measured: nomination summary records]
     note: >-
       Nomination caps: 3 per seat, 6 per run, 3 external. Recorded in the
       2026-09-14 verification as affordability caps, not measurements. They
@@ -867,6 +869,8 @@ numbers:
       calendar-vs-trading-day defect.
     evidence_2026_10_19: >-
       2026-10-19 evidence (docs/research/g1_target_horizon_reach.md; 316 symbols, entries every 10th session 2015-2025 on Yahoo daily bars, live level finder, ATR and target function, 2.5-ATR stop, 250-session first-touch outcome, symbol-resampled 95% intervals, halves 2015-19 and 2020-25) [measured]: of 215,645 targets hit before the stop, the median hit comes in 1-2 sessions and the 90th percentile in 10-12; only 1.7% [1.4-2.1] (2015-19) and 1.0% [0.9-1.2] (2020-25) land after session 60. The cap never clipped a horizon in the sample (horizons 5-60), and at 60 the reach test cannot fail because the level finder keeps only levels within 1.5 x sqrt(60) = 11.62 ATR (largest seen 11.60). Outcome: inert for targets; its one live job is that level-finder window, which this data cannot test because no level beyond 11.62 ATR is kept. If kept as an input guard it is unmeasured. Value and status unchanged; nothing here supports a replacement value. Unknown: which horizons the analysts state live (no live database read).
+    evidence_2026_10_21: >-
+      No owner decision is pending on it; inert as a target limit.
     open_question: >-
       BARRED AND REPLACED 2026-10-01 (found by board item 185's sweep; this was
       the FOURTH copy of a question that can only be answered by a study over
@@ -1240,6 +1244,8 @@ numbers:
       2026-10-19 evidence: not measurable with free data. The two configured feeds hold only a recent slice (one capped at 5,000 rows, the other about 8,000), so two years of disclosures with filing dates needs either paid data or parsing House Clerk / Senate eFD disclosure documents (PDF/HTML, no structured transaction table). Owned open question.
     evidence_2026_10_20: >-
       Inert on 19 Oct: outside_lookback = 0; 1 of 2,854 cached buy rows is older than 180 days.
+    evidence_2026_10_21: >-
+      Dropped nothing for age on 19-21 Oct; typical reporting delay 60 days (worst 880). Inert for now. [measured: congressional refresh records]
     open_question: >-
       Over what window does a congressional disclosure still carry
       information, given disclosure lag?
@@ -1384,6 +1390,8 @@ numbers:
       settle it.
     evidence_2026_10_20: >-
       Full in 5 of 5 runs 13-19 Oct (admission rows); whether a 4th candidate was dropped is not recorded, because the code stops at 3.
+    evidence_2026_10_21: >-
+      Full in all 3 runs 19-21 Oct (9 stocks admitted), but the code stops at 3 and records no count of how many qualified, so live days cannot settle it. [measured: admission records]
     open_question: >-
       How many externally-sourced candidates can the pipeline resolve per run
       within budget?
