@@ -17,6 +17,7 @@ from src.storage.conviction_ledger_store import (
     ConvictionLedgerStore,
     build_conviction_ledger_store,
 )
+from src.storage.specialist_evidence_row import insert_specialist_evidence_row
 from src.storage.seat_stances import read_seat_stances
 from src.storage.target_revisions import (
     TargetRevisionRecords,
@@ -582,14 +583,16 @@ class Database:
         """
 
         def _do():
-            cur = self.conn.execute(
-                "INSERT INTO specialist_evidence "
-                "(run_id, decision_id, agent_name, kind, scope, symbol, evidence_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (run_id, decision_id, agent_name, kind, scope, symbol, evidence_json),
+            return insert_specialist_evidence_row(
+                self.conn,
+                run_id=run_id,
+                agent_name=agent_name,
+                kind=kind,
+                scope=scope,
+                evidence_json=evidence_json,
+                symbol=symbol,
+                decision_id=decision_id,
             )
-            self.conn.commit()
-            return cur.lastrowid or 0
 
         return self._locked_write(_do, label="insert_specialist_evidence")
 

@@ -19,6 +19,7 @@ from typing import Any
 
 from src.execution.scale_in_loud import record_scale_in
 from src.sentinel.guarded_reach import RECON_DB_ATTR
+from src.storage.specialist_evidence_row import insert_specialist_evidence_row
 
 #: The one ceiling on waiting for an order to reach a terminal state. Every
 #: cancel-then-act site waits on this (no per-site literal), and
@@ -205,7 +206,11 @@ def _record_latency(broker: Any, leg: LegResult, ceiling_s: float) -> None:
     payload = {"order_id": leg.order_id, "status": leg.status, "kind": leg.kind, "latency_ms": leg.latency_ms}
     payload["within_bound"] = leg.latency_ms <= ceiling_s * 1000
     try:
-        db.insert_specialist_evidence(
+        # The lent handle's contract is `.conn` only (not a Database), so the
+        # row goes in through that connection; None (ledger unreachable) raises
+        # here and is recorded by the guard below.
+        insert_specialist_evidence_row(
+            db.conn,
             run_id="",
             agent_name="settle_legs",
             kind="cancel_latency",
