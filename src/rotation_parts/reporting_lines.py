@@ -290,7 +290,11 @@ def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None
             f"   Put up to be cut: {cut} \u2014 {why}. That is a conviction "
             "reason, not a profit-or-loss one: the case for holding it is "
             "the thing that has gone. "
-            + ("Nothing outranked it; no candidate was ready to replace it. " if outcome == ROTATION_HOLDING_BELOW_BAR else "")
+            + (
+                "Nothing outranked it; no candidate was ready to replace it. "
+                if outcome == ROTATION_HOLDING_BELOW_BAR
+                else ""
+            )
             + _cut_outcome_sentence(cut, sold, execute_enabled=bool(record.get("execute_enabled")))
         )
     # (c) The names it considered and KEPT. A silent pass is
