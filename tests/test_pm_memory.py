@@ -385,12 +385,10 @@ def test_pm_memory_builders_warn_on_corrupt_json(caplog):
     pipeline.db.get_recent_agent_outputs.return_value = [corrupt_agent_row]
 
     with caplog.at_level(logging.WARNING, logger="src.pipeline"):
-        pipeline._build_recent_missed_lessons()
         pipeline._build_recent_loss_pits()
 
     warns = [r.message for r in caplog.records if r.levelno == logging.WARNING]
     # All 4 builders should have surfaced the parse failure.
-    assert any("recent_missed_lessons" in m for m in warns), warns
     assert any("recent_loss_pits" in m for m in warns), warns
 
 

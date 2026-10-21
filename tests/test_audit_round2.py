@@ -335,56 +335,6 @@ def test_calibration_matches_sell_to_the_true_old_lot(tmp_path):
     assert abs(calib["avg_return_pct"] - 20.0) < 0.5
 
 
-def test_missed_lessons_one_streak_is_not_recurring():
-    """A single >=8% move re-emits on ~5 consecutive evenings via the rolling
-    window — one episode, one symbol: NOT a recurring theme."""
-    import json
-
-    p = build_pipeline(db=MagicMock(), broker=MagicMock())
-    rows = [
-        {
-            "date": f"2026-07-{d:02d}",
-            "missed_opportunities_json": json.dumps(
-                [
-                    {"miss_category": "trend_timing_miss", "symbol": "SNDK", "theme_if_any": "", "lesson": "x"},
-                ]
-            ),
-        }
-        for d in (13, 14, 15)  # consecutive days = one episode
-    ]
-    p.db.get_recent_insights.return_value = rows
-    assert p._build_recent_missed_lessons() == ""
-
-
-def test_missed_lessons_two_symbols_same_theme_still_recurs():
-    import json
-
-    p = build_pipeline(db=MagicMock(), broker=MagicMock())
-    p.db.get_recent_insights.return_value = [
-        {
-            "date": "2026-07-15",
-            "missed_opportunities_json": json.dumps(
-                [{"miss_category": "theme_blindspot", "symbol": "VST", "theme_if_any": "nuclear/power", "lesson": "x"}]
-            ),
-        },
-        {
-            "date": "2026-07-14",
-            "missed_opportunities_json": json.dumps(
-                [
-                    {
-                        "miss_category": "trend_timing_miss",
-                        "symbol": "OKLO",
-                        "theme_if_any": "nuclear/power",
-                        "lesson": "y",
-                    }
-                ]
-            ),
-        },
-    ]
-    out = p._build_recent_missed_lessons()
-    assert "nuclear/power" in out
-
-
 def test_nonfinite_cash_blocks_instead_of_failing_open():
     from src.config import RiskConfig
     from src.risk.rules import RiskRuleEngine

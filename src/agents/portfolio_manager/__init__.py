@@ -1041,10 +1041,10 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
         macro_trajectory: str = kwargs.get("macro_trajectory") or ""
         active_state_changes: str = kwargs.get("active_state_changes") or ""
         # Phase-1 evening-upgrade feedback:
-        # L3d — themes evening flagged as missed ≥ 2 times in last 14 days.
         # L3f — loss root-causes evening classified on wrong BUYs repeatedly.
-        # Both empty strings when no recurring pattern; section shows defaults.
-        recent_missed_lessons: str = kwargs.get("recent_missed_lessons") or ""
+        # Empty string when no recurring pattern; section shows a default.
+        # (The L3d recurring-missed-themes nudge was removed 2026-10-21 by
+        # owner ruling: misses are an owner report, not a buy instruction.)
         recent_loss_pits: str = kwargs.get("recent_loss_pits") or ""
 
         narrative_section = (
@@ -1074,15 +1074,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
             else "## Active News State Changes\n(none surfaced in the rolling 14-day "
             "window — with no rows to cite, the sub-floor R/R exception is "
             "unavailable today)"
-        )
-        missed_lessons_section = (
-            f"## Recurring Missed Themes (last 14d — themes evening repeatedly "
-            f"flagged as misses)\n{recent_missed_lessons}\n\n"
-            "If a theme has appeared 2+ times here, it's a coverage or "
-            "timing blind-spot, not random noise. Take a fresh look at it "
-            "today before it runs further away."
-            if recent_missed_lessons
-            else "## Recurring Missed Themes\n(no recurring missed themes in the last 14 days)"
         )
         loss_pits_section = (
             f"## Recent Loss Pits (last 14d — repeat failure modes on losing "
@@ -1190,8 +1181,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
 
 {active_changes_section}
 
-{missed_lessons_section}
-
 {loss_pits_section}
 
 {blocked_section}
@@ -1284,7 +1273,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         projected_portfolio: str = "",
         calibration_note: str = "",
         macro_tech_alignment: str = "",
-        recent_missed_lessons: str = "",
         recent_loss_pits: str = "",
         blocked_proposals: str = "",
         facts=None,
@@ -1395,7 +1383,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             projected_portfolio=projected_portfolio,
             calibration_note=calibration_note,
             macro_tech_alignment=macro_tech_alignment,
-            recent_missed_lessons=recent_missed_lessons,
             recent_loss_pits=recent_loss_pits,
             blocked_proposals=blocked_proposals,
             facts=facts,

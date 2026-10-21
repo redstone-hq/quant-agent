@@ -82,7 +82,6 @@ def _pipeline(precheck: RotationPrecheck):
         "_build_projected_portfolio",
         "_build_calibration_note",
         "_build_macro_tech_alignment",
-        "_build_recent_missed_lessons",
         "_build_recent_loss_pits",
     ):
         setattr(p, name, MagicMock(return_value=""))

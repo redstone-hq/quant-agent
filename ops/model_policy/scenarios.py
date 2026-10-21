@@ -894,7 +894,6 @@ def _pm_selection_invoke(agent):
         pm_recent_decisions=memory["pm_recent_decisions"],
         projected_portfolio=memory["projected_portfolio"],
         calibration_note=memory["calibration_note"],
-        recent_missed_lessons=memory["recent_missed_lessons"],
         recent_loss_pits=memory["recent_loss_pits"],
         allow_margin=account["allow_margin"],
         session_type=account["session_type"],

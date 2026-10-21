@@ -762,119 +762,12 @@ def test_recent_buys_injects_spy_relative_move(tmp_path):
     assert abs(row["market_relative_move_pct"] - (-15.5)) < 0.1
 
 
-# ---------------------------------------------------------------------------
-# PM L3d — _build_recent_missed_lessons
-# ---------------------------------------------------------------------------
-
-
 def _pipeline_with_insights_rows(rows: list[dict]):
     from src.pipeline import TradingPipeline
 
     p = build_pipeline(db=MagicMock())
     p.db.get_recent_insights.return_value = rows
     return p
-
-
-def test_recent_missed_lessons_surfaces_themes_seen_2plus_days():
-    """A theme flagged on ≥ 2 distinct days counts as recurring and
-    surfaces to PM's L3d. Single-day noise is filtered out."""
-    import json
-
-    p = _pipeline_with_insights_rows(
-        [
-            {
-                "date": "2026-04-18",
-                "missed_opportunities_json": json.dumps(
-                    [
-                        {
-                            "symbol": "VST",
-                            "move_pct": 22.3,
-                            "miss_category": "theme_blindspot",
-                            "theme_if_any": "nuclear/power",
-                            "lesson": "nuclear capex theme never entered news tracker",
-                        },
-                    ]
-                ),
-            },
-            {
-                "date": "2026-04-17",
-                "missed_opportunities_json": json.dumps(
-                    [
-                        {
-                            "symbol": "OKLO",
-                            "move_pct": 18.7,
-                            "miss_category": "trend_timing_miss",
-                            "theme_if_any": "nuclear/power",
-                            "lesson": "news flagged capex 9d ago, PM never sized",
-                        },
-                        # One-day only — should NOT surface:
-                        {
-                            "symbol": "TSLA",
-                            "move_pct": 11.0,
-                            "miss_category": "trend_timing_miss",
-                            "theme_if_any": "EV",
-                            "lesson": "single day blip",
-                        },
-                    ]
-                ),
-            },
-        ]
-    )
-    out = p._build_recent_missed_lessons()
-    assert "nuclear/power" in out
-    assert "VST" in out and "OKLO" in out
-    # EV appeared once → filtered out
-    assert "EV" not in out or "TSLA" not in out
-    # Latest lesson should be rendered (newest-first → 2026-04-18 wins)
-    assert "nuclear capex theme never entered" in out
-
-
-def test_recent_missed_lessons_ignores_escape_hatch_categories():
-    """noise_rally and risk_disciplined aren't real misses — even if they
-    repeat across days they shouldn't pollute PM's memory."""
-    import json
-
-    p = _pipeline_with_insights_rows(
-        [
-            {
-                "date": "2026-04-18",
-                "missed_opportunities_json": json.dumps(
-                    [
-                        {
-                            "symbol": "X",
-                            "move_pct": 9.0,
-                            "miss_category": "noise_rally",
-                            "lesson": "no signal, legitimate skip",
-                        },
-                    ]
-                ),
-            },
-            {
-                "date": "2026-04-17",
-                "missed_opportunities_json": json.dumps(
-                    [
-                        {"symbol": "X", "move_pct": 9.0, "miss_category": "noise_rally", "lesson": "no signal day 2"},
-                    ]
-                ),
-            },
-        ]
-    )
-    assert p._build_recent_missed_lessons() == ""
-
-
-def test_recent_missed_lessons_empty_on_no_insights():
-    p = _pipeline_with_insights_rows([])
-    assert p._build_recent_missed_lessons() == ""
-
-
-def test_recent_missed_lessons_malformed_json_gracefully_ignored():
-    p = _pipeline_with_insights_rows(
-        [
-            {"date": "2026-04-18", "missed_opportunities_json": "{ not json"},
-        ]
-    )
-    # No crash, just no output.
-    assert p._build_recent_missed_lessons() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -999,10 +892,10 @@ def test_recent_loss_pits_ignores_correct_and_premature_grades():
 # ---------------------------------------------------------------------------
 
 
-def test_pm_prompt_renders_missed_lessons_and_loss_pits_sections():
-    """PM build_user_message renders the two new memory sections when the
-    helpers produce content; both sections include steering language PM
-    should internalize, not just the raw facts."""
+def test_pm_prompt_renders_loss_pits_section():
+    """PM build_user_message renders the loss-pits memory section when the
+    helper produces content, including the steering language PM should
+    internalize, not just the raw facts."""
     from unittest.mock import patch as _patch
     from src.agents.portfolio_manager import PortfolioManagerAgent
 
@@ -1015,22 +908,15 @@ def test_pm_prompt_renders_missed_lessons_and_loss_pits_sections():
         macro_analysis=None,
         cash_balance=10_000,
         total_value=100_000,
-        recent_missed_lessons=(
-            "- nuclear/power: 3 days (symbols: VST×2, OKLO) — latest lesson: "
-            '"News flagged capex 9d ago, PM never sized"'
-        ),
         recent_loss_pits=("- greed_top_chasing × 3: MU (-15.0%), NVDA (-12.0%), AVGO (-9.0%)"),
     )
-    assert "Recurring Missed Themes" in msg
-    assert "nuclear/power" in msg
-    assert "coverage or timing blind-spot" in msg
     assert "Recent Loss Pits" in msg
     assert "greed_top_chasing × 3" in msg
     assert "discipline gap, not bad luck" in msg
 
 
-def test_pm_prompt_shows_default_when_no_missed_or_loss_history():
-    """Fresh database / no recurring patterns → default NOP text in each
+def test_pm_prompt_shows_default_when_no_loss_history():
+    """Fresh database / no recurring patterns → default NOP text in the
     section, not an empty stub."""
     from unittest.mock import patch as _patch
     from src.agents.portfolio_manager import PortfolioManagerAgent
@@ -1044,10 +930,8 @@ def test_pm_prompt_shows_default_when_no_missed_or_loss_history():
         macro_analysis=None,
         cash_balance=10_000,
         total_value=100_000,
-        recent_missed_lessons="",
         recent_loss_pits="",
     )
-    assert "no recurring missed themes" in msg
     assert "no repeat failure modes" in msg
 
 

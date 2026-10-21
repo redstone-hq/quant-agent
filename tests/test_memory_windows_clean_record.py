@@ -65,15 +65,6 @@ class _InsightDb:
         return self.rows
 
 
-def _miss(date):
-    return {
-        "date": date,
-        "missed_opportunities_json": json.dumps(
-            [{"symbol": "ZZZ", "miss_category": "trend_timing_miss", "theme_if_any": "t", "lesson": "l"}]
-        ),
-    }
-
-
 def _grade(date):
     return {
         "date": date,
@@ -89,14 +80,6 @@ def test_loss_pits_drop_pre_clean_rows_and_show_dates():
     assert "chased × 2" in out  # the two pre-clean rows are not counted
     assert PRE not in out and "2026-10-04" not in out
     assert POST in out
-
-
-def test_missed_lessons_drop_pre_clean_rows_and_show_dates():
-    rows = [_miss(POST), _miss("2026-10-20"), _miss(PRE), _miss("2026-10-04")]
-    out = ReviewExits(db=_InsightDb(rows))._build_recent_missed_lessons()
-    assert "ZZZ" in out
-    assert PRE not in out and "2026-10-04" not in out
-    assert "flagged 2026-10-13 to 2026-10-20" in out
 
 
 def _stamp_last_trade(db, ts):
