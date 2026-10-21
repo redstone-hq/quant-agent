@@ -25,6 +25,7 @@ from src.storage.analytics.agent_log_reads import recent_agent_outputs
 from src.trade_actions import POSITION_OPEN_ACTIONS as _POSITION_OPEN_ACTIONS
 from src.trade_actions import is_filled_trail_stop as _is_filled_trail_stop  # realized-exit rule, not share counting
 from src.util.time import ET
+from src.storage.account_epoch import CURRENT_TRADES_VIEW
 
 logger = logging.getLogger(__name__)
 
@@ -464,6 +465,14 @@ class TradeAnalytics:
         crash/late-fill scenarios the belt exists for. An in-flight open's
         recorded stop_loss is precisely the reviewed intent the repair wants.
         PM-memory callers keep the strict default.
+
+        LIVE-LOT RULE (2026-10-21): the row is chosen only from the position
+        open NOW — `trade_actions.live_lot_rows` over this symbol's executed
+        rows in `current_account_trades` (the reset-scoped view) — never from
+        an old CLOSED holding and never from before the account reset. A
+        ledger known to be flat returns None (callers fail safe on None); an
+        UNKNOWN fill order falls back to the newest opening row in the view.
+        See `live_opening_row`.
         """
         opening = (action or "BUY").upper()
         if opening not in _POSITION_OPEN_ACTIONS:
@@ -473,17 +482,14 @@ class TradeAnalytics:
                 symbol,
             )
             return None
-        predicate = self._executed_trade_predicate()
-        if include_in_flight:
-            predicate = f"({predicate} OR fill_status IN ('submitted', 'pending_submit'))"
         with self._lock:
-            row = self.conn.execute(
-                "SELECT * FROM trades WHERE symbol = ? AND action = ? "
-                f"AND {predicate} "
-                "ORDER BY timestamp DESC, id DESC LIMIT 1",
-                (symbol, opening),
-            ).fetchone()
-        return dict(row) if row else None
+            return live_opening_row(
+                self.conn,
+                symbol,
+                (opening,),
+                self._executed_trade_predicate(),
+                include_in_flight=include_in_flight,
+            )
 
     def get_position_open_timestamp(self, buy_row: dict | None) -> str | None:
         """When the POSITION `buy_row` belongs to was first opened.
@@ -1067,3 +1073,78 @@ class TradeAnalytics:
         with self._lock:
             row = self.conn.execute(sql, params).fetchone()
         return dict(row) if row else None
+
+
+def _row_key(row: dict) -> tuple[str, int]:
+    return (str(row.get("timestamp") or ""), int(row.get("id") or 0))
+
+
+def live_opening_row(
+    conn: sqlite3.Connection,
+    symbol: str,
+    openings: tuple[str, ...],
+    executed_predicate: str,
+    *,
+    include_in_flight: bool = False,
+) -> dict | None:
+    """Newest opening row (action in `openings`) of the position LIVE NOW, or None.
+
+    Reads this symbol's executed rows from `current_account_trades`, so a
+    pre-reset row is never seen, and keeps only the live lot group from
+    `trade_actions.live_lot_rows` (the fill walk; no broker share count is
+    available at the DB layer, so `held=None` lets the ledger's own net
+    decide). When the ledger KNOWS the symbol is flat ([]), or the newest
+    opening row of the wanted side is not in the live group, returns None: an
+    old closed holding is never handed back as the current one. When the fill
+    order is UNKNOWN (None) it falls back to the newest opening row in the
+    view — the pre-fix answer, which the trail's ratchets-off path relies on.
+
+    `include_in_flight=True` also accepts a submitted / pending_submit
+    opening row written at or after the live group's first row — or, on a
+    flat ledger, after the newest executed row — i.e. an open the fills have
+    not caught up with yet. Older in-flight rows belong to a closed past.
+    Caller holds the DB lock.
+    """
+    from src.quantities import ORDER_QTY_DECIMALS
+    from src.trade_actions import live_lot_rows
+
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            f"SELECT * FROM {CURRENT_TRADES_VIEW} WHERE symbol = ? AND {executed_predicate} "
+            "ORDER BY timestamp ASC, id ASC",
+            (symbol,),
+        ).fetchall()
+    ]
+    live = live_lot_rows(rows, decimals=ORDER_QTY_DECIMALS) if rows else []
+    wanted = sorted({a.upper() for a in openings})
+    if live is None:
+        # Fill order UNKNOWN is a designed case (the trail runs with its R
+        # ratchets off), not proof of flat: keep the pre-fix answer, the newest
+        # opening row, but from the reset-scoped view.
+        candidates = [r for r in rows if str(r.get("action") or "").upper() in wanted]
+    else:
+        candidates = [r for r in live if str(r.get("action") or "").upper() in wanted]
+    if include_in_flight:
+        if live is None:
+            admits = lambda key: True  # noqa: E731
+        elif live:
+            floor = min(_row_key(r) for r in live)
+            admits = lambda key: key >= floor  # noqa: E731
+        elif rows:
+            floor = max(_row_key(r) for r in rows)
+            admits = lambda key: key > floor  # noqa: E731
+        else:
+            admits = lambda key: True  # noqa: E731
+        placeholders = ", ".join("?" for _ in wanted)
+        for r in conn.execute(
+            f"SELECT * FROM {CURRENT_TRADES_VIEW} WHERE symbol = ? AND action IN ({placeholders}) "
+            "AND fill_status IN ('submitted', 'pending_submit')",
+            (symbol, *wanted),
+        ).fetchall():
+            row = dict(r)
+            if admits(_row_key(row)):
+                candidates.append(row)
+    if not candidates:
+        return None
+    return max(candidates, key=_row_key)

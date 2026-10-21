@@ -274,33 +274,40 @@ def test_long_path_ignores_a_short_row_on_the_same_symbol():
 
 def test_get_symbol_last_buy_default_does_not_see_a_short_row(tmp_path):
     """PM-memory callers keep the BUY-only contract. A SHORT on the same
-    ticker is a different position and must not overwrite last-buy."""
-    db = Database(str(tmp_path / "t.db"))
-    db.initialize()
-    db.insert_trade(
-        symbol="TSLA",
-        action="BUY",
-        qty=5,
-        price=180.0,
-        reasoning="old long",
-        run_id="r0",
-        stop_loss=160.0,
-        fill_status="filled",
-    )
-    db.insert_trade(
-        symbol="TSLA",
-        action="SHORT",
-        qty=8,
-        price=200.0,
-        reasoning="new short",
-        run_id="r1",
-        stop_loss=220.0,
-        fill_status="filled",
-    )
-    last_buy = db.get_symbol_last_buy("TSLA")
-    last_short = db.get_symbol_last_buy("TSLA", action="SHORT")
+    ticker is a different position and must not overwrite last-buy.
+
+    One account cannot be long and short one ticker at once, so the two sides
+    are checked in two real ledgers: an open long, then a long closed by a
+    SELL before the short opened (fills carry broker fill times)."""
+
+    def _row(db, action, qty, price, stop, filled_at, reasoning):
+        db.insert_trade(
+            symbol="TSLA",
+            action=action,
+            qty=qty,
+            price=price,
+            reasoning=reasoning,
+            run_id="r0",
+            stop_loss=stop,
+            fill_status="filled",
+            filled_at=filled_at,
+        )
+
+    long_db = Database(str(tmp_path / "long.db"))
+    long_db.initialize()
+    _row(long_db, "BUY", 5, 180.0, 160.0, "2026-10-13 14:00:00", "old long")
+    last_buy = long_db.get_symbol_last_buy("TSLA")
     assert last_buy is not None and last_buy["stop_loss"] == 160.0
     assert last_buy["action"] == "BUY"
+    assert long_db.get_symbol_last_buy("TSLA", action="SHORT") is None
+
+    db = Database(str(tmp_path / "t.db"))
+    db.initialize()
+    _row(db, "BUY", 5, 180.0, 160.0, "2026-10-13 14:00:00", "old long")
+    _row(db, "SELL", 5, 190.0, None, "2026-10-14 14:00:00", "close long")
+    _row(db, "SHORT", 8, 200.0, 220.0, "2026-10-15 14:00:00", "new short")
+    last_short = db.get_symbol_last_buy("TSLA", action="SHORT")
+    assert db.get_symbol_last_buy("TSLA") is None, "the default lookup must never return the short"
     assert last_short is not None and last_short["stop_loss"] == 220.0
     assert last_short["action"] == "SHORT"
     assert db.get_symbol_last_buy("TSLA", action="COVER") is None

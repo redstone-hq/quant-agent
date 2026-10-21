@@ -30,7 +30,7 @@ import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
-from src.storage.analytics.calibration import _POSITION_OPEN_ACTIONS
+from src.storage.analytics.calibration import _POSITION_OPEN_ACTIONS, live_opening_row
 from src.stop_price_classification import entry_stop_for_insert
 from src.storage.trades import trade_refusals_store as _refusals_store
 from src.storage.trades import backfills as _backfills
@@ -291,6 +291,15 @@ class TradeLedger:
         still-open row of that position is updated. Each row freezes its
         own `initial_stop_loss` if it had an entry stop; a row that opened
         with none does not mint one from the live level.
+
+        LIVE-LOT RULE (2026-10-21): the anchor row comes only from the
+        position open NOW (`calibration.live_opening_row`: the fill walk in
+        `trade_actions.live_lot_rows` over the reset-scoped
+        `current_account_trades`), or an in-flight open newer than it. With
+        only a CLOSED holding on record nothing is written (a warning is
+        logged) — a live stop never lands on an old closed row or a pre-reset
+        row. An UNKNOWN fill order falls back to the newest opening row in
+        the view, as before this rule.
         """
         try:
             price = float(new_stop_price)
@@ -312,27 +321,16 @@ class TradeLedger:
 
         def _do():
             predicate = f"({self._executed_trade_predicate()} OR fill_status IN ('submitted', 'pending_submit'))"
-            if opening:
-                row = self.conn.execute(
-                    "SELECT id, stop_loss, initial_stop_loss, position_id, action "
-                    "FROM current_account_trades "
-                    "WHERE symbol = ? AND action = ? "
-                    f"AND {predicate} "
-                    "ORDER BY timestamp DESC, id DESC LIMIT 1",
-                    (symbol_key, opening),
-                ).fetchone()
-            else:
-                row = self.conn.execute(
-                    "SELECT id, stop_loss, initial_stop_loss, position_id, action "
-                    "FROM current_account_trades "
-                    "WHERE symbol = ? AND action IN ('BUY', 'SHORT') "
-                    f"AND {predicate} "
-                    "ORDER BY timestamp DESC, id DESC LIMIT 1",
-                    (symbol_key,),
-                ).fetchone()
+            row = live_opening_row(
+                self.conn,
+                symbol_key,
+                (opening,) if opening else ("BUY", "SHORT"),
+                self._executed_trade_predicate(),
+                include_in_flight=True,
+            )
             if row is None:
                 logger.warning(
-                    "update_open_stop_loss: no opening row for %s — live stop $%.4f was NOT recorded",
+                    "update_open_stop_loss: no LIVE opening row for %s — live stop $%.4f was NOT recorded",
                     symbol_key,
                     price,
                 )
