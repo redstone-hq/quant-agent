@@ -213,10 +213,9 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     )
     calibration_note = pipeline._build_calibration_note()
     macro_tech_alignment = pipeline._build_macro_tech_alignment(macro_analysis, analyses)
-    # Phase-1 evening-upgrade feedback: surface recurring missed themes
-    # (L3d) and repeat loss patterns (L3f) that evening classified over
-    # the last 14 days. Empty strings when no recurring pattern found.
-    recent_missed_lessons = pipeline._build_recent_missed_lessons()
+    # Phase-1 evening-upgrade feedback: surface repeat loss patterns (L3f)
+    # that evening classified over the last 14 days. Empty string when no
+    # recurring pattern found. (Missed themes stay an owner report only.)
     recent_loss_pits = pipeline._build_recent_loss_pits()
     # Names PM keeps proposing and never gets. Every other per-symbol
     # memory above is keyed on a position, so none of them can see a
@@ -361,7 +360,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         projected_portfolio=projected_portfolio,
         calibration_note=calibration_note,
         macro_tech_alignment=macro_tech_alignment,
-        recent_missed_lessons=recent_missed_lessons,
         recent_loss_pits=recent_loss_pits,
         blocked_proposals=blocked_proposals,
         facts=pm_facts,

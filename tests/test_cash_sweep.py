@@ -542,7 +542,6 @@ def test_decision_stage_pm_view_gets_deployable_cash_not_sgov_inflated():
     p._build_projected_portfolio = MagicMock(return_value="")
     p._build_calibration_note = MagicMock(return_value="")
     p._build_macro_tech_alignment = MagicMock(return_value="")
-    p._build_recent_missed_lessons = MagicMock(return_value="")
     p._build_recent_loss_pits = MagicMock(return_value="")
     p._build_pm_facts = MagicMock(return_value=MagicMock())
     p.portfolio_manager = MagicMock()

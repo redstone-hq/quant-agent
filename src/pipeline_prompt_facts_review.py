@@ -41,7 +41,6 @@ DELEGATED = (
     "_build_recent_sells_for_grading",
     "_build_recent_buys_for_grading",
     "_build_trade_grade_summary",
-    "_build_recent_missed_lessons",
     "_build_recent_loss_pits",
     "_build_recent_outlook_calibration",
     "_build_calibration_note",

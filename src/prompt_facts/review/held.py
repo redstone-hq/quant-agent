@@ -94,10 +94,6 @@ class PromptFactsReview:
         """Thin shim: body moved to src/prompt_facts/review/grading.py."""
         return self._review_grading()._build_trade_grade_summary(*args, **kwargs)
 
-    def _build_recent_missed_lessons(self, *args, **kwargs):
-        """Thin shim: body moved to src/prompt_facts/review/exits.py."""
-        return self._review_exits()._build_recent_missed_lessons(*args, **kwargs)
-
     def _build_recent_loss_pits(self, *args, **kwargs):
         """Thin shim: body moved to src/prompt_facts/review/exits.py."""
         return self._review_exits()._build_recent_loss_pits(*args, **kwargs)
