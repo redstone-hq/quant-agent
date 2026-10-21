@@ -155,7 +155,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     path (owner 14 Oct 2026). Lifted whole from `DecisionStage.run`; no model
     is called. Sets `ctx.position_history`, `ctx.recent_performance`,
     `ctx.facts` and (through the projected-portfolio preview) `ctx.symbol_sectors`."""
-    from src.trading_calendar import session_date_key
 
     run_id = ctx.run_id
     positions = ctx.positions
@@ -187,14 +186,9 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         if parked is not None:
             reserve_balance = sweeper.parked_value(ctx.positions)
 
-    yesterday_insights = pipeline.db.get_latest_insights(before_date=session_date_key())
+    # No evening insights for PM (owner ruling q23, 2026-10-21): the evening
+    # AI reports to the owner and does not steer the buying seat.
     recent_performance = pipeline._compute_recent_performance(last_equity)
-    if yesterday_insights:
-        logger.info(
-            "Loaded yesterday's insights (risk=%s): %s",
-            yesterday_insights.get("risk_rating", "?"),
-            yesterday_insights.get("tomorrow_outlook", "")[:100],
-        )
 
     position_history = pipeline._build_position_history(positions)
     # Publish both to ctx so RiskStage audits PM against the SAME holding
@@ -202,7 +196,8 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     # taken minutes later (2026-08-13 agent audit).
     ctx.position_history = position_history
     ctx.recent_performance = recent_performance
-    weekly_narrative = pipeline._build_weekly_narrative()
+    # Desk's own daily returns only; the evening AI's prose stays out (q23).
+    weekly_narrative = pipeline._build_weekly_narrative(include_evening_text=False)
     macro_trajectory = pipeline._build_macro_trajectory()
     active_state_changes = pipeline._build_active_state_changes()
     projected_portfolio = pipeline._build_projected_portfolio(
@@ -351,7 +346,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         news_intel=news_intel,
         earnings_analyses=earnings_results,
         smart_money_findings=ctx.smart_money_findings,
-        yesterday_insights=yesterday_insights,
         recent_performance=recent_performance,
         position_history=position_history,
         weekly_narrative=weekly_narrative,

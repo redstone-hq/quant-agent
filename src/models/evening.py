@@ -427,9 +427,8 @@ class EveningReport(LLMOutputModel):
     suggested_actions: list[str] = []
     # Outlook-vs-reality retrospection — was yesterday's tomorrow_outlook right?
     previous_outlook_assessment: str = ""
-    # Structured version of tomorrow_outlook so PM can act on it deterministically
-    # instead of re-parsing prose. PM tilts base sizing ±20% on the bias/conviction
-    # pair at morning open.
+    # Structured version of tomorrow_outlook for the owner's report. Not sent
+    # to the PM and not used by any sizing (owner ruling q23, 2026-10-21).
     tomorrow_bias: Literal["bullish", "neutral", "bearish"] = "neutral"
     tomorrow_conviction: Literal["high", "medium", "low"] = "medium"
     tomorrow_key_risks: list[str] = []
