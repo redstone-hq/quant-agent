@@ -307,7 +307,8 @@ def _attempt(pipeline, run: _Run, record: PutOff, settlement, deadline: float | 
         return again.put_offs[0]
     if result is None:
         # The protected sale logged and alerted its own per-symbol reason and put the stops back.
-        why = seller._last_stop_clear_refusal or "refused"
+        refusal = seller._last_stop_clear_refusal
+        why = seller._refusal_why(refusal) if refusal else "refused"
         return {"symbol": record.symbol, "label": sale["label"], "outcome": "not_sold", "why": why}
     order, prot = result
     # The order is live: a failed record must not stop its protection being finalized below.
