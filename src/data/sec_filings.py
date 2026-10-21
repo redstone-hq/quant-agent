@@ -55,12 +55,14 @@ ISSUER_TENDER = "issuer_tender"
 UNDETERMINED = "undetermined"
 ROLES = frozenset({TARGET, BIDDER, NOT_TARGET, ISSUER_TENDER, UNDETERMINED})
 
-#: Forms the OFFEROR files (Schedule TO family and the going-private
-#: Schedule 13E-3). EDGAR's form manual: SC TO-I is an issuer tender offer,
+#: Forms the OFFEROR files (Schedule TO family). SC 13E3 is deliberately
+#: absent: a Schedule 13E-3 is by definition a going-private transaction
+#: (SEC Rule 13e-3), so even an issuer-only header pins the price to the
+#: deal and the stock must stay excluded as a pending takeover. EDGAR's form manual: SC TO-I is an issuer tender offer,
 #: SC TO-T a third-party one, SC TO-C a written communication relating to
 #: an issuer OR third-party tender offer. When the issuer is the sole filer
 #: and the subject, it is tendering for its own shares.
-OFFEROR_FORMS = frozenset({"SC TO-I", "SC TO-T", "SC TO-C", "SC 13E3"})
+OFFEROR_FORMS = frozenset({"SC TO-I", "SC TO-T", "SC TO-C"})
 
 #: Self-filed merger proxies and information statements: no subject/filer
 #: split in the header, so the role comes from the golden-parachute vote.

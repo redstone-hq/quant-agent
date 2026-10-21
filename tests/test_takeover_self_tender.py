@@ -63,7 +63,7 @@ def _run(form: str, header: str, extra_rows=()):
 
 
 def test_issuer_sole_filer_of_schedule_to_is_an_issuer_tender():
-    for form in ("SC TO-I", "SC TO-C", "SC TO-T/A", "SC 13E3/A"):
+    for form in ("SC TO-I", "SC TO-I/A", "SC TO-C", "SC TO-T/A"):
         header = _header(form, ISSUER, [ISSUER])
         assert sf.header_role(header, ISSUER, form) == sf.ISSUER_TENDER, form
         # The form must reach the decision: without it the old answer stands.
@@ -96,6 +96,13 @@ def test_the_targets_own_14d9_response_is_still_pending():
     header = _header("SC 14D9", ISSUER, [ISSUER])
     assert sf.header_role(header, ISSUER, "SC 14D9") == sf.TARGET
     assert _run("SC 14D9", header).failures == ["pending_takeover"]
+
+
+def test_an_issuer_only_13e3_is_never_an_issuer_tender():
+    # Rule 13e-3 transactions are going-private by definition.
+    for form in ("SC 13E3", "SC 13E3/A"):
+        header = _header(form, ISSUER, [ISSUER])
+        assert sf.header_role(header, ISSUER, form) == sf.TARGET, form
 
 
 # ------------------------------------- (d) 13E3 with a buyer group ----
