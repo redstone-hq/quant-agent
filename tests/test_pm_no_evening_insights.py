@@ -92,9 +92,9 @@ def test_pm_narrative_keeps_desk_returns_and_drops_evening_prose():
     assert "+0.42%" in msg
 
 
-def test_decision_stage_sends_pm_no_evening_insights():
-    p = build_pipeline(db=MagicMock(), portfolio_manager=MagicMock())
-    p.db.get_latest_insights.return_value = dict(EVENING_ROW)
+def _run_decision_stage(p):
+    """Run the decision stage with every non-evening builder stubbed; return
+    the keyword arguments the PM was called with."""
     p._sweeper = MagicMock(return_value=None)
     p._compute_recent_performance = MagicMock(return_value={})
     p._build_position_history = MagicMock(return_value={})
@@ -105,7 +105,6 @@ def test_decision_stage_sends_pm_no_evening_insights():
         "_build_projected_portfolio",
         "_build_calibration_note",
         "_build_macro_tech_alignment",
-        "_build_recent_loss_pits",
     ):
         setattr(p, name, MagicMock(return_value=""))
     p._build_pm_facts = MagicMock(return_value=MagicMock())
@@ -137,8 +136,58 @@ def test_decision_stage_sends_pm_no_evening_insights():
     ctx.admitted_symbols = set()
 
     DecisionStage(pipeline=p).run(ctx)
+    return p.portfolio_manager.decide.call_args.kwargs
 
-    kwargs = p.portfolio_manager.decide.call_args.kwargs
+
+def test_decision_stage_sends_pm_no_evening_insights():
+    p = build_pipeline(db=MagicMock(), portfolio_manager=MagicMock())
+    p.db.get_latest_insights.return_value = dict(EVENING_ROW)
+    kwargs = _run_decision_stage(p)
     assert "yesterday_insights" not in kwargs
     _assert_no_evening_text(json.dumps(kwargs, default=str))
     p._build_weekly_narrative.assert_called_once_with(include_evening_text=False)
+
+
+# Loss causes the evening AI labels on losing buys. Two rows with the same
+# cause is exactly what the removed "Recent Loss Pits" block surfaced.
+LOSS_ROWS = [
+    {
+        "date": d,
+        "buy_grades_json": json.dumps(
+            [
+                {
+                    "symbol": "LOSSMARKERSYM",
+                    "grade": "wrong",
+                    "loss_root_cause": "EVE_LOSSCAUSE_MARKER",
+                    "pct_move_since_buy": -6.0,
+                }
+            ]
+        ),
+    }
+    for d in ("2026-10-15", "2026-10-16")
+]
+LOSS_TEXT = ("EVE_LOSSCAUSE_MARKER", "LOSSMARKERSYM", "Recent Loss Pits", "discipline gap", "Lean against")
+
+
+def test_pm_never_sees_evening_loss_patterns():
+    """The evening AI's loss-cause labels must not reach the PM: not via the
+    decision stage's call, and not rendered even if a caller still passes them."""
+    p = build_pipeline(db=MagicMock(), portfolio_manager=MagicMock())
+    p.db.get_latest_insights.return_value = None
+    p.db.get_recent_insights.return_value = [dict(r) for r in LOSS_ROWS]
+    sent = json.dumps(_run_decision_stage(p), default=str)
+    for t in LOSS_TEXT:
+        assert t not in sent, f"evening loss-pattern text {t!r} reached the PM call"
+
+    with patch("anthropic.Anthropic"):
+        agent = PortfolioManagerAgent(api_key="test", model="claude-opus-4-6")
+        msg = agent.build_user_message(
+            analyses=[],
+            positions=[],
+            macro_analysis=None,
+            cash_balance=5000.0,
+            total_value=10000.0,
+            recent_loss_pits="- EVE_LOSSCAUSE_MARKER x 2: LOSSMARKERSYM (-6.0%)",
+        )
+    for t in LOSS_TEXT:
+        assert t not in msg, f"evening loss-pattern text {t!r} reached the PM input"

@@ -9,7 +9,6 @@ import json
 from datetime import datetime, timezone
 
 from src.prompt_facts.review.blocked import ReviewBlocked
-from src.prompt_facts.review.exits import ReviewExits
 from src.storage.analytics.calibration import CLEAN_RECORD_START_UTC
 from src.storage.db import Database
 from tests.pipeline_factory import build_pipeline
@@ -55,31 +54,6 @@ def test_blocked_shows_first_and_last_date_for_repeats():
     out = ReviewBlocked(db=db)._build_blocked_proposals()
     assert "ZZZ: n=2" in out
     assert "first 2026-10-13, last 2026-10-14" in out
-
-
-class _InsightDb:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def get_recent_insights(self, limit=7, since_date=None):
-        return self.rows
-
-
-def _grade(date):
-    return {
-        "date": date,
-        "buy_grades_json": json.dumps(
-            [{"symbol": "ZZZ", "grade": "wrong", "loss_root_cause": "chased", "pct_move_since_buy": -3.0}]
-        ),
-    }
-
-
-def test_loss_pits_drop_pre_clean_rows_and_show_dates():
-    rows = [_grade(POST), _grade("2026-10-14"), _grade(PRE), _grade("2026-10-04")]
-    out = ReviewExits(db=_InsightDb(rows))._build_recent_loss_pits()
-    assert "chased × 2" in out  # the two pre-clean rows are not counted
-    assert PRE not in out and "2026-10-04" not in out
-    assert POST in out
 
 
 def _stamp_last_trade(db, ts):

@@ -70,7 +70,6 @@ def rendered() -> str:
         active_state_changes=memory["active_state_changes"],
         projected_portfolio=memory["projected_portfolio"],
         calibration_note=memory["calibration_note"],
-        recent_loss_pits=memory["recent_loss_pits"],
         allow_margin=account["allow_margin"],
         session_type=account["session_type"],
         allowed_buy_symbols=set(sel["allowed_buy_symbols"]),

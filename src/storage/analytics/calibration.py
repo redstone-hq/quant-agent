@@ -609,7 +609,7 @@ class TradeAnalytics:
 
         No aggregation here — the shaping lives in the caller, matching how
         `get_recent_insights` hands raw insight rows to
-        `_build_recent_loss_pits`. `since_ts` is compared lexically against
+        the PM memory builders. `since_ts` is compared lexically against
         the stored 'YYYY-MM-DD HH:MM:SS' timestamps, so a bare 'YYYY-MM-DD'
         is a valid start-of-day cutoff.
         """

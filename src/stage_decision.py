@@ -208,10 +208,9 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
     )
     calibration_note = pipeline._build_calibration_note()
     macro_tech_alignment = pipeline._build_macro_tech_alignment(macro_analysis, analyses)
-    # Phase-1 evening-upgrade feedback: surface repeat loss patterns (L3f)
-    # that evening classified over the last 14 days. Empty string when no
-    # recurring pattern found. (Missed themes stay an owner report only.)
-    recent_loss_pits = pipeline._build_recent_loss_pits()
+    # The evening AI's loss-cause labels (the former "Recent Loss Pits"
+    # block) are NOT sent: owner ruling q23 (2026-10-21) — the evening
+    # review reports to the owner and does not steer the PM.
     # Names PM keeps proposing and never gets. Every other per-symbol
     # memory above is keyed on a position, so none of them can see a
     # symbol that never became one.
@@ -354,7 +353,6 @@ def build_pm_decide_inputs(pipeline, ctx) -> PmDecideInputs:
         projected_portfolio=projected_portfolio,
         calibration_note=calibration_note,
         macro_tech_alignment=macro_tech_alignment,
-        recent_loss_pits=recent_loss_pits,
         blocked_proposals=blocked_proposals,
         facts=pm_facts,
         allow_margin=bool(getattr(pipeline.config.risk, "allow_margin", False)),
