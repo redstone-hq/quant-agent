@@ -192,6 +192,17 @@ class IntradaySafety:
                     coverage_gaps = self._reconcile_stop_coverage()
                 except Exception as exc:  # noqa: BLE001
                     _site(self, "coverage_reconcile", exc, log=logger)
+                    # Fail closed (docs/OUTCOME.md): an audit that raised
+                    # used to leave `[]`, which every reader shows as "every
+                    # position covered". Report the UNKNOWN in the same
+                    # unreadable-book shape a failed positions read returns:
+                    # a whole-book marker plus one unverified row per holding
+                    # the desk's own ledger knows.
+                    from src.protection.coverage_book_read import unverified_book_rows
+
+                    coverage_gaps = unverified_book_rows(
+                        self.db, error=f"the stop-coverage audit itself failed ({exc})"
+                    )
                 else:
                     _site(self, "coverage_reconcile", log=logger)
                 self._reconcile_orphan_pending_submits()  # audit F4

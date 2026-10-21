@@ -217,8 +217,11 @@ class OrderDesk:
             # Still the count every caller reads; `.legs` lets a sale wait on them.
             return CancelledEntries(legs)
         except Exception as exc:
+            # Fail closed (docs/OUTCOME.md): a cancel that failed is NOT
+            # "zero entry orders" — a 0 here let a sale go while the entry
+            # may still rest. Recorded, then raised to the caller.
             mark(self, "cancel_open_entry_orders", exc, symbol=symbol)
-            return 0
+            raise
 
     def list_open_entry_order_ids(
         self,
