@@ -32,7 +32,7 @@ class ReviewBlocked:
         trades are not evidence). `run_id` is accepted for the caller's
         signature and unused: no count cut remains to record.
 
-        Every other per-symbol memory PM reads (loss pits, missed lessons,
+        Every other per-symbol memory PM reads (missed lessons,
         position history, R-multiples) is keyed on a POSITION, so a symbol
         that never became a position is invisible to all of them — however
         many times PM proposed it. This is the only section that can see a

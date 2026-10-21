@@ -40,7 +40,6 @@ def _pipeline(assemble):
         "_build_projected_portfolio",
         "_build_calibration_note",
         "_build_macro_tech_alignment",
-        "_build_recent_loss_pits",
         "_build_blocked_proposals",
     ):
         setattr(p, name, MagicMock(return_value=""))

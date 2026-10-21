@@ -957,12 +957,9 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
         weekly_narrative: str = kwargs.get("weekly_narrative") or ""
         macro_trajectory: str = kwargs.get("macro_trajectory") or ""
         active_state_changes: str = kwargs.get("active_state_changes") or ""
-        # Phase-1 evening-upgrade feedback:
-        # L3f — loss root-causes evening classified on wrong BUYs repeatedly.
-        # Empty string when no recurring pattern; section shows a default.
-        # (The L3d recurring-missed-themes nudge was removed 2026-10-21 by
-        # owner ruling: misses are an owner report, not a buy instruction.)
-        recent_loss_pits: str = kwargs.get("recent_loss_pits") or ""
+        # No evening-authored loss patterns or missed themes here: owner
+        # ruling q23 (2026-10-21) — the evening review reports to the owner
+        # and does not steer the PM. A stray `recent_loss_pits` kwarg is ignored.
 
         narrative_section = (
             f"## Portfolio Narrative (last 7 trading days)\n{weekly_narrative}"
@@ -991,15 +988,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
             else "## Active News State Changes\n(none surfaced in the rolling 14-day "
             "window — with no rows to cite, the sub-floor R/R exception is "
             "unavailable today)"
-        )
-        loss_pits_section = (
-            f"## Recent Loss Pits (last 14d — repeat failure modes on losing "
-            f"BUYs)\n{recent_loss_pits}\n\n"
-            "If a root-cause has 2+ occurrences, it's a discipline gap, not "
-            "bad luck. Lean against it today — tighten entries / respect "
-            "warnings / cut concentration before you do the same thing again."
-            if recent_loss_pits
-            else "## Recent Loss Pits\n(no repeat failure modes in the last 14 days)"
         )
 
         # What you asked for and never got. Diagnostic only — nothing here
@@ -1098,8 +1086,6 @@ Overall sentiment: {news_intel.format_market_sentiment()} (confidence: {news_int
 
 {active_changes_section}
 
-{loss_pits_section}
-
 {blocked_section}
 
 {macro_section}
@@ -1187,7 +1173,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
         projected_portfolio: str = "",
         calibration_note: str = "",
         macro_tech_alignment: str = "",
-        recent_loss_pits: str = "",
         blocked_proposals: str = "",
         facts=None,
         allow_margin: bool = True,
@@ -1296,7 +1281,6 @@ Based on all the above (memory of past decisions + environment trajectory + toda
             projected_portfolio=projected_portfolio,
             calibration_note=calibration_note,
             macro_tech_alignment=macro_tech_alignment,
-            recent_loss_pits=recent_loss_pits,
             blocked_proposals=blocked_proposals,
             facts=facts,
             allow_margin=allow_margin,
