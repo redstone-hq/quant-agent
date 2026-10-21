@@ -278,7 +278,10 @@ def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None
         )
     # (c) The names it considered and KEPT. A silent pass is
     # indistinguishable from a pass that never ran.
-    kept = [s for s in examined if s != cut and s not in below]
+    # Only drop the cut name from "kept" when the "Put up to be cut" line
+    # above actually printed; a merely-named weakest holding stays in kept.
+    cut_printed = bool(cut) and tier == "ineligible_hold"
+    kept = [s for s in examined if not (cut_printed and s == cut) and s not in below]
     if kept:
         lines.append(
             f"   Considered and kept: {', '.join(kept)} \u2014 each still "
