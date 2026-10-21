@@ -383,6 +383,8 @@ numbers:
       2026-08-25..2026-10-09, 117 and 139 calls).
     evidence_2026_10_20: >-
       Binding: 10 of 10 recorded intraday checks on 16 and 19 Oct sent 5 names and dropped 95-96 lower-ranked ones (batch_selected rows); 13-15 Oct not recorded. Kept: it bounds paid AI spend.
+    evidence_2026_10_21: >-
+      all 15 intraday checks 16-20 Oct 2026 hit the cap of 5; 1,427 ranked movers were left out; roughly 100 candidates per check; about $0.17 per paid call [measured: specialist_evidence names_per_paid_call rows and agent_logs cost]. It is a chosen cost cap, not a measured optimum.
     open_question: >-
       What batch size keeps the worst one-call overshoot of the session and
       daily caps acceptable while keeping per-call overhead low?
@@ -3788,8 +3790,17 @@ numbers:
     site: src/prompt_facts/missed_ops_signals.py
     note: >-
       Dollar-volume floor ($M) for a top-mover to enter the evening missed-
-      opportunity review, which feeds the PM's missed-lessons memory
-      (src/sessions/evening_session.py::EveningSession.run). The only
+      opportunity review. CORRECTED 2026-10-21: change #1909 removed the PM's
+      missed-lessons memory, so the digest no longer feeds the PM directly. The
+      path that remains: src/sessions/evening_session.py::EveningSession.run
+      -> src/agents/evening_analyst.py (function _fmt_missed_opportunities) (the Missed
+      Opportunity Review block of the evening analyst prompt) -> the same
+      analyst call also writes selection_rules / thesis_updates /
+      discipline_notes -> insights rows -> src/agents/portfolio_manager/__init__.py
+      (Prior Evening Insights) next morning. The missed_opportunities output
+      itself reaches only the human-reviewed watchlist candidates
+      (src/watchlist_candidates.py (function build_watchlist_candidates)) and the
+      quarterly meta-reflector (safe mode, not applied to any prompt). The only
       production caller supplies other digest arguments but omits
       `min_top_mover_dollar_volume_m`, so this default is live. Same class as
       the smart-money prompt-truncation caps
@@ -3838,7 +3849,15 @@ numbers:
     site: src/prompt_facts/missed_ops_signals.py
     note: >-
       How many broker top-movers are added to the evening missed-opportunity
-      review (src/sessions/evening_session.py::EveningSession.run). The only
+      review (src/sessions/evening_session.py::EveningSession.run). CORRECTED
+      2026-10-21: change #1909 removed the PM's missed-lessons memory, so the
+      digest no longer feeds the PM directly. Remaining path: the Missed
+      Opportunity Review block of the evening analyst prompt
+      (src/agents/evening_analyst.py (function _fmt_missed_opportunities)); the same call
+      also writes selection_rules / thesis_updates / discipline_notes, which
+      src/agents/portfolio_manager/__init__.py reads next morning. The
+      missed_opportunities output itself reaches only the human-reviewed
+      watchlist and the safe-mode quarterly meta-reflector. The only
       production caller supplies other digest arguments but omits
       `top_movers_count`, so this default is live. Same class as the
       smart-money prompt-truncation caps classified arbitrary on 2026-09-19:

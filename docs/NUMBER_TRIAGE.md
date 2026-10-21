@@ -187,6 +187,7 @@ Warn-only flag, deadline, fetch/text caps, ordinal sort-key ranks, JSON-candidat
 - `pipeline_prompt_facts.PromptFactsMixin._build_calibration_note(lookback_days)` = 45
 - `pipeline_prompt_facts.PromptFactsMixin._build_missed_opportunities_digest(min_top_mover_dollar_volume_m)` = 5
 - `pipeline_prompt_facts.PromptFactsMixin._build_missed_opportunities_digest(top_movers_count)` = 15
+  - 2026-10-21 correction: both missed-opportunity digest rows stay `arbitrary` (count unchanged). Change #1909 removed the PM's missed-lessons memory, but the digest still sits in the evening analyst prompt whose same call writes the selection rules, thesis updates and discipline notes the PM reads next morning; the ledger notes now name that path.
 - `pipeline_prompt_facts.PromptFactsMixin._build_recent_loss_pits(lookback_days)` = 14
 - ~~`pipeline_prompt_facts.PromptFactsMixin._build_thesis_health_context(lookback_weeks)` = 8~~ -- deleted 2026-10-16: every window now starts at the position's open (its first opening row on the position_id), so no lookback number is left
 
