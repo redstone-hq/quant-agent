@@ -102,7 +102,9 @@ def test_a_new_position_after_flat_does_not_reach_back(db):
     the second position's window starts at the second position's open — bars
     from a trade that was already exited are not levels this trade defended.
     """
-    _buy(db, "RKLB", "2026-08-01 14:00:00", qty=5.0, price=50.0)
+    # Every fill carries its broker fill time, and the exit is dated between the
+    # two positions (as a real fill is), so the fill walk can order the ledger.
+    _buy(db, "RKLB", "2026-08-01 14:00:00", qty=5.0, price=50.0, filled_at="2026-08-01 14:00:00")
     db.insert_trade(
         symbol="RKLB",
         action="SELL",
@@ -111,8 +113,15 @@ def test_a_new_position_after_flat_does_not_reach_back(db):
         reasoning="exit",
         run_id="r",
         fill_status="filled",
+        filled_at="2026-08-15 15:00:00",
     )
-    _buy(db, "RKLB", "2026-09-21 15:00:00", qty=3.0, price=69.0)
+    with db._lock:
+        db.conn.execute(
+            "UPDATE trades SET timestamp = ? WHERE id = (SELECT MAX(id) FROM trades WHERE symbol = ?)",
+            ("2026-08-15 15:00:00", "RKLB"),
+        )
+        db.conn.commit()
+    _buy(db, "RKLB", "2026-09-21 15:00:00", qty=3.0, price=69.0, filled_at="2026-09-21 15:00:00")
 
     last = db.get_symbol_last_buy("RKLB")
     opened = db.get_position_open_timestamp(last)

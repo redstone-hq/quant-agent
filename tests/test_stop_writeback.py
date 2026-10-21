@@ -61,6 +61,13 @@ def _open_short(db, symbol="TSLA", stop=220.0, *, fill_status="filled"):
     return db.get_symbol_last_buy(symbol, action="SHORT")
 
 
+def _close(db, symbol, action, qty):
+    """One account cannot be long and short one ticker at once: close the prior side first."""
+    db.insert_trade(
+        symbol=symbol, action=action, qty=qty, price=190.0, reasoning="exit", run_id="r1", fill_status="filled"
+    )
+
+
 def test_insert_trade_pins_initial_stop_loss_to_the_entry_stop(db):
     row = _open_long(db, stop=137.53)
     assert row["stop_loss"] == pytest.approx(137.53)
@@ -78,6 +85,7 @@ def test_write_back_updates_stop_loss_and_freezes_the_entry_stop(db):
 
 def test_write_back_on_a_short_updates_the_short_row_not_a_buy(db):
     _open_long(db, symbol="TSLA", stop=180.0)
+    _close(db, "TSLA", "SELL", 10)
     _open_short(db, symbol="TSLA", stop=220.0)
     assert write_back_stop_loss(db, "TSLA", 210.0) is True
     short = db.get_symbol_last_buy("TSLA", action="SHORT")
@@ -474,6 +482,7 @@ def test_kill_switch_rearm_does_not_write_back(db):
 
 def test_write_back_action_short_when_a_newer_buy_exists(db):
     _open_short(db, symbol="TSLA", stop=220.0)
+    _close(db, "TSLA", "COVER", 4)
     _open_long(db, symbol="TSLA", stop=180.0)
     assert write_back_stop_loss(db, "TSLA", 210.0, is_short=True) is True
     short = db.get_symbol_last_buy("TSLA", action="SHORT")
