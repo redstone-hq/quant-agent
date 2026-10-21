@@ -585,7 +585,11 @@ class MorningResearchStage:
                 return [], None, smart_money_provider_error, None, []
             shortlist = list(dict.fromkeys(_held_symbols() + _shortlist_after_held(chart_rated_symbols)))
             rows = shortlist_rows(smart_money_observations, shortlist)
-            no_data = no_data_reasons(rows, shortlist, provider_error=smart_money_provider_error)
+            try:
+                unread = (self.smart_money_provider.stores.load_manifest() or {}).get("watched_names_unread") or []
+            except Exception:
+                unread = []
+            no_data = no_data_reasons(rows, shortlist, provider_error=smart_money_provider_error, unread_symbols=unread)
             ctx.smart_money_shortlist = shortlist
             ctx.smart_money_no_data = no_data
             if not rows:

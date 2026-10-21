@@ -20,6 +20,7 @@ from src.models import SmartMoneyObservation
 
 #: Reason recorded for a shortlisted name with no row in either stream.
 NO_FILINGS_REASON = "no insider or congress filings in window"
+PENDING_REASON = "insider filings not yet read (queued behind this refresh's cap)"
 
 
 def shortlist_rows(
@@ -129,8 +130,14 @@ def no_data_reasons(
     shortlist: Iterable[str],
     *,
     provider_error: str | None = None,
+    unread_symbols: Iterable[str] = (),
 ) -> dict[str, str]:
     """Shortlisted name -> why it has no line, in shortlist order."""
     have = {row.symbol.upper() for row in observations}
     reason = f"smart-money fetch failed: {provider_error}" if provider_error and not have else NO_FILINGS_REASON
-    return {s: reason for s in dict.fromkeys(str(n).strip().upper() for n in shortlist) if s and s not in have}
+    unread = {str(n).strip().upper() for n in unread_symbols}
+    return {
+        s: (PENDING_REASON if s in unread and reason == NO_FILINGS_REASON else reason)
+        for s in dict.fromkeys(str(n).strip().upper() for n in shortlist)
+        if s and s not in have
+    }
