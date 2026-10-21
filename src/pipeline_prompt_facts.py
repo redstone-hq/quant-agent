@@ -279,29 +279,26 @@ class PromptHistory:
         risk_rating are left out so the evening review cannot steer buying.
         The evening and position-review seats keep the full narrative.
         """
-        if not include_evening_text:
+        insights: list = []
+        if include_evening_text:
             try:
-                pnl_rows = self.db.get_daily_pnl(limit=7)
+                insights = self.db.get_recent_insights(limit=7)
             except Exception as e:
-                logger.warning("weekly_narrative: daily_pnl fetch failed: %s", e)
+                logger.warning("weekly_narrative: insights fetch failed: %s", e)
+                insights = []
+            if not insights:
                 return ""
-            out = []
-            for pnl in reversed(pnl_rows or []):
-                ret = pnl.get("daily_return_pct")
-                ret_str = f"{ret:+.2f}%" if isinstance(ret, (int, float)) else "n/a"
-                out.append(f"- {pnl.get('date', '?')}: {ret_str}")
-            return "\n".join(out)
-        try:
-            insights = self.db.get_recent_insights(limit=7)
-        except Exception as e:
-            logger.warning("weekly_narrative: insights fetch failed: %s", e)
-            insights = []
-        if not insights:
-            return ""
         try:
             pnl_rows = self.db.get_daily_pnl(limit=14)
         except Exception:
             pnl_rows = []
+        if not include_evening_text:
+            out = []
+            for pnl in reversed((pnl_rows or [])[:7]):
+                ret = pnl.get("daily_return_pct")
+                ret_str = f"{ret:+.2f}%" if isinstance(ret, (int, float)) else "n/a"
+                out.append(f"- {pnl.get('date', '?')}: {ret_str}")
+            return "\n".join(out)
         pnl_by_date = {r["date"]: r for r in pnl_rows}
         lines = []
         # insights come newest-first; display oldest→newest so the "arc" reads naturally
