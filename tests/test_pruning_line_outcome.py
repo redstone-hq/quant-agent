@@ -33,25 +33,23 @@ def _record() -> dict:
 def test_proposal_kept_says_kept_and_claims_no_freed_cash():
     sold = sold_symbols({"pm_orders": [{"symbol": "BRZE", "action": "BUY"}], "trades": []})
     text = "\n".join(owner_precheck_lines(_record(), sold=sold))
-    assert "UBER was put up to be cut" in text
-    assert "The planning AI kept UBER; nothing was sold." in text
+    assert "put up to be cut" not in text  # told once, in the pruning block
     assert "frees" not in text and "freed" not in text
 
     pruning = "\n".join(pruning_pass_lines(_record(), sold=sold))
     assert "Put up to be cut: UBER" in pruning
     assert "The planning AI kept UBER; nothing was sold." in pruning
-    assert "Not cut this pass: UBER." in pruning
+    assert "Not cut this pass" not in pruning  # already told above
 
 
 def test_proposal_sold_says_sold():
     sold = sold_symbols({"pm_orders": [{"symbol": "UBER", "action": "SELL"}], "trades": []})
     text = "\n".join(owner_precheck_lines(_record(), sold=sold))
-    assert "UBER was sold this session" in text
     assert "kept UBER" not in text
 
     pruning = "\n".join(pruning_pass_lines(_record(), sold=sold))
     assert "UBER was sold this session" in pruning
-    assert "Not cut this pass: none." in pruning
+    assert "Not cut this pass" not in pruning
 
 
 def test_unknown_outcome_claims_neither():

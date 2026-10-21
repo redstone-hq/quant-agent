@@ -89,6 +89,17 @@ def _cut_outcome_sentence(symbol: str, sold: Iterable[str] | None, *, execute_en
     return f"The planning AI kept {symbol}; nothing was sold."
 
 
+def _pruning_block_tells_cut(record: dict) -> bool:
+    """True when `pruning_pass_lines` will print the "Put up to be cut" story."""
+    if str(record.get("outcome") or "") == ROTATION_TELEMETRY_UNAVAILABLE:
+        return False
+    try:
+        count = int(record.get("held_examined_count") or 0)
+    except (TypeError, ValueError):
+        return False
+    return count > 0 and str(record.get("tier") or "") == "ineligible_hold" and bool(record.get("held_symbol"))
+
+
 def owner_precheck_lines(record: dict | None, *, sold: Iterable[str] | None = None) -> list[str]:
     """The pre-check said to the owner, in plain words, on a phone.
 
@@ -182,6 +193,11 @@ def owner_precheck_lines(record: dict | None, *, sold: Iterable[str] | None = No
         reasons = _plain_held_reasons(record.get("held_reasons"))
         why = "; ".join(reasons) if reasons else ("it no longer clears the desk's own entry bar")
         subject = held if held else "A holding"
+        if held and _pruning_block_tells_cut(record):
+            # The pruning-pass block that follows in the same message tells
+            # this cut story (reason, outcome); telling it here too stated
+            # one fact twice. Keep it once, in the pruning block.
+            return [full]
         # 2026-10-20. This is the PROPOSAL the pre-check made. What was
         # actually done with it is the session's own decision, so the
         # outcome sentence reads off the sell orders the caller passes in
@@ -274,6 +290,11 @@ def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None
             f"   Put up to be cut: {cut} \u2014 {why}. That is a conviction "
             "reason, not a profit-or-loss one: the case for holding it is "
             "the thing that has gone. "
+            + (
+                "Nothing outranked it; no candidate was ready to replace it. "
+                if outcome == ROTATION_HOLDING_BELOW_BAR
+                else ""
+            )
             + _cut_outcome_sentence(cut, sold, execute_enabled=bool(record.get("execute_enabled")))
         )
     # (c) The names it considered and KEPT. A silent pass is
@@ -288,6 +309,9 @@ def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None
             "clears the bar it was bought on, so the case for holding it "
             "stands."
         )
+    # A name already told in "Put up to be cut" is not told again here.
+    any_below = bool(below)
+    below = [s for s in below if not (cut_printed and s == cut)]
     if below:
         # "Not cut" is a statement about what happened, not about what
         # was proposed: the proposed name counts as not cut unless the
@@ -295,13 +319,13 @@ def pruning_pass_lines(record: dict | None, *, sold: Iterable[str] | None = None
         was_sold = _was_sold(cut, sold)
         not_cut = [s for s in below if s != cut or was_sold is False]
         tail = ""
-        if cut and was_sold is None:
+        if cut and not cut_printed and was_sold is None:
             tail = f" Whether {cut} was sold is recorded with the session's orders, not here."
         lines.append(
             f"   Below the desk's own entry bar today, and would not be bought now: {', '.join(below)}. "
             f"Not cut this pass: {', '.join(not_cut) or 'none'}.{tail}"
         )
-    else:
+    elif not any_below:
         lines.append(
             "   None of them has fallen below the desk's own entry bar, so "
             "the pass had nothing it was permitted to cut."
