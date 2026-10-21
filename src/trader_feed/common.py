@@ -519,6 +519,17 @@ def _done_rows(snap: dict[str, Any]) -> list[dict]:
     return reached
 
 
+#: Pre-submit gate events whose event reason code IS the proof of a deliberate
+#: refusal (the gate stamps the code when it declines, nothing else does):
+#: `hard_risk` — a hard risk limit (single-name 65%, total position, gross
+#: exposure, cash-only, required stop) turned the order away; and
+#: `queued_earnings_unread_filing` — the desk refuses an earnings BUY whose
+#: filing is unread. Both are rules doing their job, not breakage.
+#: `symbol_guard` and `constructor_dropped` stay loud: they can be a missing
+#: analysis or an unrecorded drop, which a report cannot tell from a fault.
+_DELIBERATE_GATE_REASONS = frozenset({"hard_risk", "queued_earnings_unread_filing"})
+
+
 def _blocked_rows(result: dict, snap: dict[str, Any]) -> list[dict]:
     """Everything that did NOT make it, one row per symbol, each carrying
     who actually stopped it and why — see NEW LAYOUT item 4. Three sources,
@@ -631,7 +642,9 @@ def _blocked_rows(result: dict, snap: dict[str, Any]) -> list[dict]:
         # recovered from a log line, or a row with no reason written down at
         # all — is exactly the case where the report CANNOT tell a rule from
         # a breakage, so it stays loud rather than guess.
-        named_refusal = bool(str(row.get("refusal") or "").strip())
+        named_refusal = bool(str(row.get("refusal") or "").strip()) or (
+            str(row.get("reason") or "").strip() in _DELIBERATE_GATE_REASONS
+        )
         fault = not (named_refusal and detail)
         if not detail:
             # Never a guess and never an internal code: say that the reason
