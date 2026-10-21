@@ -7,6 +7,7 @@ Method bodies moved VERBATIM from src/portfolio_constructor/orders.py; the
 same-named thin shims there build this object per call."""
 
 from __future__ import annotations
+import math
 from src.models import TargetPosition, TechAnalysisResult, TradeDecision, stated_soft_exit
 from src.risk.constants import risk_budget_allocation_pct
 from src.portfolio_constructor.config import logger
@@ -202,7 +203,9 @@ class LongEntryBuilder:
                 f"larger position than one name may hold, so this trade carries "
                 f"less risk than allocated. Deterministic, not PM inconsistency]"
             )
-            allocation_pct = name_headroom_pct
+            # Round DOWN when the cap bound: round() could lift the size up to
+            # 0.005 points over the cap and the risk gate refuses that outright.
+            allocation_pct = math.floor(max(0.0, name_headroom_pct) * 100 + 1e-9) / 100
 
         allocation_pct = max(0.0, round(allocation_pct, 2))
         if allocation_pct <= 0:
