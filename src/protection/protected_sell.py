@@ -138,9 +138,7 @@ class ProtectedSell:
                 # — the deciding run re-runs the whole protected sale (entry
                 # cancel included) once it re-checks. Same reason and path as
                 # an unreadable cancelled leg.
-                from src.execution.broker_parts.cancel_confirm import CANCEL_READ_FAILED, LegSettlement
-
-                self._state.set("_leg_settlement", LegSettlement(reason=CANCEL_READ_FAILED))
+                self._state.set("_leg_settlement", trim_book_call(self, "unread_cancel_settlement"))
                 self._put_off_if_unconfirmed(
                     {
                         "symbol": symbol,

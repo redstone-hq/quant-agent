@@ -591,6 +591,13 @@ class AlpacaBroker:
         Thin shim (src.protection and src.delever reach it here): body in broker_parts/cancel_confirm.py."""
         return _cancel_confirm.settle_legs(self, specs, started=started)
 
+    def unread_cancel_settlement(self):
+        """The settlement of a cancel whose outcome could not be read (reason `cancel_read_failed`).
+
+        Thin shim (src.protection reaches it here): the protected sale holds it when the
+        entry-order cancel itself raised, so the sale is put off, never sent on an unknown."""
+        return _cancel_confirm.LegSettlement(reason=_cancel_confirm.CANCEL_READ_FAILED)
+
     def cover_to_held(self, symbol: str, specs: list[dict], *, side: str = "sell") -> bool:
         """Put protective cover back up to what is held now, never above it.
 
