@@ -370,7 +370,7 @@ def test_pipeline_hard_risk_filter_blocks_second_same_symbol_buy():
 
     assert [d.reasoning for d in allowed] == ["first leg"]
     assert violations == []
-    assert any("SPY position would be" in reason for reason in blocked)
+    assert any("SPY would go over the" in reason for reason in blocked)
 
 
 def test_pipeline_symbol_guard_blocks_off_universe_and_unanalyzed_buys():
