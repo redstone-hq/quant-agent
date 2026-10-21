@@ -20,6 +20,21 @@ from src.notifier.gaps import (
 )
 
 
+def _deployed_text(invested: float, total_value: float | None) -> str:
+    """Exposure suffix; says "borrowing" when invested exceeds equity."""
+    if not (total_value and total_value > 0):
+        return ""
+    if invested > total_value:
+        # Same wording as the evening report (owner line 2026-10-20):
+        # invested above equity means borrowing, not "100% deployed".
+        return (
+            f"  ({invested / total_value * 100:.0f}% of the account invested "
+            f"(using ${invested - total_value:,.0f} of borrowing), 0% cash)"
+        )
+    cash_pct = max(0.0, (total_value - invested) / total_value * 100)
+    return f"  ({100 - cash_pct:.0f}% deployed / {cash_pct:.0f}% cash)"
+
+
 def _append_position_snapshot(lines: list[str], total_value: float | None) -> None:
     """Render top-3 winners + top-3 losers by unrealized P&L from the
     live positions table. Read-only DB hit; degrades gracefully on any
@@ -57,12 +72,8 @@ def _append_position_snapshot(lines: list[str], total_value: float | None) -> No
     parked = sum(r[4] for r in rows if r[0] in _SWEEP_SYMBOLS and r[4] is not None)
     rows = [r for r in rows if r[0] not in _SWEEP_SYMBOLS]
     invested = sum(r[4] for r in rows if r[4] is not None)
-    cash_pct = None
-    if total_value and total_value > 0:
-        cash_pct = max(0.0, (total_value - invested) / total_value * 100)
     summary = f"   Positions: {len(rows)}  invested ${invested:,.0f}"
-    if cash_pct is not None:
-        summary += f"  ({100 - cash_pct:.0f}% deployed / {cash_pct:.0f}% cash)"
+    summary += _deployed_text(invested, total_value)
     if parked > 0:
         summary += f"  [+${parked:,.0f} parked in T-bills]"
     lines.append(summary)
