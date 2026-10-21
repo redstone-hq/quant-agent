@@ -493,8 +493,17 @@ def _append_evening_positions(lines: list[str], result: dict, profiles: dict) ->
     lines.append(_b(f"POSITIONS ({len(rows)})"))
     summary = f"   ${invested:,.0f} invested"
     if total_value and total_value > 0:
-        cash_pct = max(0.0, (total_value - invested) / total_value * 100)
-        summary += f"  ·  {100 - cash_pct:.0f}% deployed, {cash_pct:.0f}% cash"
+        if invested > total_value:
+            # Owner line 2026-10-20: "$10,972 invested · 100% deployed" on a
+            # $9,796 account. Invested above equity means borrowing; say so
+            # and show the real share instead of a capped 100%.
+            summary += (
+                f"  ·  {invested / total_value * 100:.0f}% of the account invested "
+                f"(using ${invested - total_value:,.0f} of borrowing), 0% cash"
+            )
+        else:
+            cash_pct = max(0.0, (total_value - invested) / total_value * 100)
+            summary += f"  ·  {100 - cash_pct:.0f}% deployed, {cash_pct:.0f}% cash"
     if parked > 0:
         summary += f"  ·  ${parked:,.0f} parked in T-bills"
     lines.append(summary)
@@ -741,9 +750,13 @@ def _format_evening(result: dict, elapsed: float) -> str:
         if pnl is None:
             pnl = _number(result.get("daily_pnl"))
         if risk_capital is not None and risk_capital > 0 and pnl is not None:
+            # Owner line 2026-10-20: "Measured against the $507.02 actually at
+            # risk today, that is -48.41%." read as jargon. Same arithmetic,
+            # plain words.
+            word = "loss" if pnl < 0 else "gain"
             detail.append(
-                f"Measured against the ${risk_capital:,.2f} actually at risk "
-                f"today, that is {pnl / risk_capital * 100:+.2f}%."
+                f"Today's {word} was {abs(pnl / risk_capital * 100):.0f}% of the "
+                f"${risk_capital:,.0f} the desk had at risk if every stop were hit."
             )
         key_risks = _attr_or_key(analysis, "tomorrow_key_risks")
         if isinstance(key_risks, list) and key_risks:

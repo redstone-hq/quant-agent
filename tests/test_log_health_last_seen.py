@@ -77,7 +77,7 @@ def test_a_fault_that_stopped_says_none_since_and_where_the_log_was_read_to():
 
 def test_a_still_true_line_carries_the_same_fact():
     text = _text(_stopped_fault_report(previous={L.UNRECOGNISED_KEY: 162}))
-    line = next(l for l in text.splitlines() if l.startswith("• Still true:") and "does not recognise" in l)
+    line = next(l for l in text.splitlines() if l.startswith("• Still true:") and "cannot describe" in l)
     assert "11:15 AM ET, none since, log read to" in line, line
     assert "4:29 PM ET" in line, line
 

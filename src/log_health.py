@@ -324,9 +324,9 @@ FAMILIES: tuple[FaultFamily, ...] = (
     ),
     FaultFamily(
         key="research_seat_partial",
-        short_name="a research desk that answered only partly",
+        short_name="a research AI that gave a partial answer",
         sentence=(
-            "A research desk answered only partly on {n} occasion{plural}; the "
+            "A research AI gave a partial answer on {n} occasion{plural}; the "
             "items it left out are counted separately where the desk named them"
         ),
         reason=COST_A_DECISION,
@@ -573,9 +573,10 @@ FAMILIES: tuple[FaultFamily, ...] = (
     ),
     FaultFamily(
         key="unrecognised_faults",
-        short_name="faults this health check does not recognise",
+        short_name="fault log lines this health check cannot describe",
         sentence=(
-            "The desk recorded {n} fault{plural} of a kind this health check has never seen before and cannot describe"
+            "The desk recorded {n} fault log line{plural} of a kind this health check has never seen before "
+            "and cannot describe"
         ),
         reason=SILENTLY_FAILING,
         patterns=(),  # populated by exclusion — see `analyse`
@@ -1096,7 +1097,7 @@ def disposition(finding: Finding, on_board: set[int], in_tiers: set[int], is_new
         return text
     # No board item means nobody has picked this up. Saying anything warmer
     # would let the message claim work is happening that is not.
-    return "new — not yet on the list" if is_new else "still not on the list"
+    return "first time seen, not on the list yet" if is_new else "still not on the list"
 
 
 # --- the message ------------------------------------------------------------
@@ -1146,6 +1147,15 @@ def _bullet(finding: Finding, report: Report, on_board: set[int], in_tiers: set[
     return f"• {sentence} — {disposition(finding, on_board, in_tiers, is_new)}."
 
 
+def _still_true_name(finding: Finding) -> str:
+    """The unrecognised bucket names its count (owner, 2026-10-20: "faults this
+    health check does not recognise" said nothing he could act on); every
+    other family keeps its short name."""
+    if finding.family.key == UNRECOGNISED_KEY:
+        return f"{finding.count} fault log line{_plural(finding.count)} this health check cannot describe"
+    return finding.family.short_name
+
+
 def _verdict_line(report: Report) -> str:
     word = _VERDICT_WORDS[report.verdict]
     if report.verdict == "healthy":
@@ -1182,7 +1192,7 @@ def render(report: Report, work_md: Path | None = None) -> list[str]:
             # The time goes on this line too: on 2026-10-13 "Still true" stood
             # alone over 162 faults that had ended five hours earlier.
             when = f" ({_last_at_words(finding.last_seen, report.log_read_to)})" if finding.last_seen else ""
-            entries.append((finding, f"• Still true: {finding.family.short_name}{when}."))
+            entries.append((finding, f"• Still true: {_still_true_name(finding)}{when}."))
 
     # New issues first, then the "still true" ones — a line he has already read
     # should never sit above one he has not.

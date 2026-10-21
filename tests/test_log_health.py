@@ -343,7 +343,7 @@ def test_a_family_with_no_board_item_says_so():
         family=next(f for f in L.FAMILIES if f.key == "seat_answer_unreadable"),
         count=1,
     )
-    assert "not yet on the list" in L.disposition(finding, {20}, {127}, is_new=True)
+    assert "first time seen, not on the list yet" in L.disposition(finding, {20}, {127}, is_new=True)
 
 
 def test_a_tracked_family_says_it_is_tracked():
@@ -665,7 +665,7 @@ def test_an_owner_accepted_family_says_so_and_is_never_hurt():
     text = L.disposition(finding, set(), set(), is_new=True)
     assert "known, accepted 2 Sep" in text
     assert "$12.50 uncovered" in text
-    assert "not yet on the list" not in text
+    assert "not on the list yet" not in text
     assert fam.reason == L.MONEY_UNPROTECTED
     other = L.Finding(family=_fam("seat_answer_unreadable"), count=5)
     report = L.Report(window_start=WIDE_START, window_end=WIDE_END, findings=[other, finding])
@@ -692,4 +692,4 @@ def test_the_accepted_dollars_are_read_from_the_log_line():
 def test_a_family_without_acceptance_is_unchanged():
     finding = L.Finding(family=_fam("seat_answer_unreadable"), count=1)
     assert _fam("seat_answer_unreadable").accepted_on is None
-    assert L.disposition(finding, set(), set(), is_new=True) == "new — not yet on the list"
+    assert L.disposition(finding, set(), set(), is_new=True) == "first time seen, not on the list yet"

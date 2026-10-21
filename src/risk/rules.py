@@ -606,6 +606,20 @@ def apply_gross_ceiling(
     return out
 
 
+def over_limit_words(symbol: str, noun: str, pct: float, limit: float) -> str:
+    """Owner-facing wording for a single-stock cap breach. On 2026-10-20 the
+    owner read "COST position would be 65.0% and exceed max 65.0%" — the
+    rounding made the line contradict itself. Show enough decimals that the
+    two figures visibly differ; if four are not enough, drop the figure."""
+    limit_text = f"{limit:g}"
+    head = f"{symbol} {noun}would go over the {limit_text}% limit for one stock"
+    for places in (1, 2, 3, 4):
+        pct_text = f"{pct:.{places}f}"
+        if pct_text != f"{limit:.{places}f}":
+            return f"{head} (it would be {pct_text}%)"
+    return head
+
+
 @dataclass
 class RiskViolation:
     rule: str
@@ -763,7 +777,7 @@ class RiskRuleEngine:
                 violations.append(
                     RiskViolation(
                         rule="max_position_pct",
-                        message=f"{decision.symbol} position would be {position_pct:.1f}% and exceed max {self.config.max_position_pct}%",
+                        message=over_limit_words(decision.symbol, "", position_pct, self.config.max_position_pct),
                         value=position_pct,
                         limit=self.config.max_position_pct,
                     )
@@ -792,10 +806,7 @@ class RiskRuleEngine:
                 violations.append(
                     RiskViolation(
                         rule="max_position_pct",
-                        message=(
-                            f"{decision.symbol} short would be {position_pct:.1f}% "
-                            f"and exceed max {self.config.max_position_pct}%"
-                        ),
+                        message=over_limit_words(decision.symbol, "short ", position_pct, self.config.max_position_pct),
                         value=position_pct,
                         limit=self.config.max_position_pct,
                     )
