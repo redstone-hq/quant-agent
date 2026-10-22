@@ -10,8 +10,29 @@ from src.pipeline_context import RunContext
 from src.agents.base import AgentResult, agent_log_kwargs, seat_acceptance_kwargs
 from src.trading_calendar import session_date_key
 import math
+from src.trade_actions import executed_qty, share_change
 
 logger = logging.getLogger(__name__)
+
+
+def _label_held_before(trades: list[dict], positions: list) -> None:
+    """Stamp BUY/SELL rows with `held_before_qty`: end-of-day broker qty with the day's own
+    share-changing rows (`trade_actions.share_change` / `executed_qty`) undone. Left unset
+    when the day cannot be reconstructed (negative result)."""
+    end = {p.symbol: float(p.qty) for p in positions}
+    net: dict[str, float] = {}
+    for t in trades:
+        kind = share_change(t)
+        if kind is None:
+            continue
+        sign = 1.0 if kind == "in" else -1.0
+        net[t["symbol"]] = net.get(t["symbol"], 0.0) + sign * executed_qty(t)
+    for t in trades:
+        sym = t.get("symbol")
+        if t.get("action") in ("BUY", "SELL") and sym in net:
+            before = end.get(sym, 0.0) - net[sym]
+            if before >= -1e-9:
+                t["held_before_qty"] = max(before, 0.0)
 
 
 class EveningSession:
@@ -320,6 +341,7 @@ class EveningSession:
             for t in self._db.get_trades(limit=30, today_only=True, executed_only=True)
             if (t.get("action") or "") not in ("SWEEP_BUY", "SWEEP_SELL")
         ][:20]
+        _label_held_before(today_trades, positions)
         # Feed yesterday's insights back so evening can grade its own prior outlook
         # against today's reality — enables calibration over time.
         prior_outlook = self._db.get_latest_insights(before_date=today_str)
