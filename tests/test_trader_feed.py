@@ -2649,7 +2649,10 @@ def test_evening_tomorrow_carries_a_scale_and_a_consequence(tmp_path, monkeypatc
 
     assert "<b>TOMORROW</b>" in msg
     assert "step 2 of 4 (low · moderate · elevated · high)" in msg
-    assert "Leaning bullish, medium confidence — tomorrow morning's decisions start from this" in msg
+    assert (
+        "Leaning bullish, medium confidence — shown to the AI that reviews held stocks at midday and close; "
+        "the buying AI does not see it"
+    ) in msg
     assert "risk=moderate" not in msg
 
 

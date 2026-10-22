@@ -615,10 +615,10 @@ def _append_evening_tomorrow(lines: list[str], result: dict) -> None:
     The scale is the model's own enum (`models.EveningAnalysis.risk_rating`
     is `Literal['low','moderate','elevated','high']`) — printed rather than
     described, so the reader can see where tonight sits in it. The
-    consequence is what the code actually does with the figure: tomorrow
-    morning's Portfolio Manager and the position reviewer are both handed
-    this bias and conviction as context for their decisions
-    (`src/agents/portfolio_manager.py`, `src/agents/position_reviewer.py`).
+    consequence is what the code actually does with the figure: only the
+    position reviewer (midday and close sessions, `src/agents/position_reviewer.py`)
+    is shown this bias and conviction. The Portfolio Manager (the buying AI) is
+    NOT given any evening text since owner ruling q23 (2026-10-21).
     """
     analysis = result.get("analysis")
     risk = _attr_or_key(analysis, "risk_rating")
@@ -635,7 +635,10 @@ def _append_evening_tomorrow(lines: list[str], result: dict) -> None:
         lines.append(f"   Risk: {risk}")
     if bias:
         confidence = f", {conviction} confidence" if conviction else ""
-        lines.append(f"   Leaning {bias}{confidence} — tomorrow morning's decisions start from this")
+        lines.append(
+            f"   Leaning {bias}{confidence} — shown to the AI that reviews held stocks at midday and close; "
+            "the buying AI does not see it"
+        )
     if outlook:
         lines.append(f"   {_clip(outlook, 400)}")
 
