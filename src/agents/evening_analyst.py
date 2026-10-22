@@ -316,6 +316,26 @@ def _fmt_outlook_calibration(calib: dict) -> str:
     return header + "\nRecent pairs (newest first):\n" + "\n".join(row_lines)
 
 
+def _open_vs_add_label(trade: dict) -> str:
+    """Tag a BUY as new vs add, a SELL as partial vs full exit, from `held_before_qty`
+    (shares held before the trade, set by the evening session). Empty when unknown."""
+    held = trade.get("held_before_qty")
+    if held is None:
+        return ""
+    action = str(trade.get("action") or "").upper()
+    if action == "BUY":
+        return " (add to a holding already held)" if held > 0 else " (new position)"
+    if action == "SELL":
+        try:
+            sold = float(trade.get("qty") or 0)
+        except (TypeError, ValueError):
+            return ""
+        if held <= 0 or sold <= 0:
+            return ""
+        return " (partial sale, still held)" if sold < held - 1e-9 else " (full exit)"
+    return ""
+
+
 class EveningAnalystAgent(BaseAgent):
     # See generate(): parsed JSON is validated as EveningReport(**parsed).
     result_model = EveningReport
@@ -366,7 +386,7 @@ class EveningAnalystAgent(BaseAgent):
 
         trades_text = (
             "\n".join(
-                f"- {t['action']} {t['symbol']}: {t['qty']} shares @ ${t['price']:.2f} — {t.get('reasoning', '')}"
+                f"- {t['action']} {t['symbol']}: {t['qty']} shares @ ${t['price']:.2f}{_open_vs_add_label(t)} — {t.get('reasoning', '')}"
                 for t in today_trades
             )
             if today_trades

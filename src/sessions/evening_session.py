@@ -10,8 +10,38 @@ from src.pipeline_context import RunContext
 from src.agents.base import AgentResult, agent_log_kwargs, seat_acceptance_kwargs
 from src.trading_calendar import session_date_key
 import math
+from src.trade_actions import executed_qty, share_change
 
 logger = logging.getLogger(__name__)
+
+
+def _label_held_before(trades: list[dict], positions: list, *, complete: bool = True) -> None:
+    """Stamp BUY/SELL rows with `held_before_qty`: shares held just before that trade.
+    Start-of-day qty is end-of-day broker qty with the day's own share-changing rows
+    (`trade_actions.share_change` / `executed_qty`) undone; rows are then replayed
+    oldest-first, so a second same-day buy of a new name reads as an add. Left unset
+    when the day cannot be reconstructed (list cut short, or a negative quantity)."""
+    if not complete:
+        return
+    end = {p.symbol: float(p.qty) for p in positions}
+    net: dict[str, float] = {}
+    for t in trades:
+        kind = share_change(t)
+        if kind is None:
+            continue
+        sign = 1.0 if kind == "in" else -1.0
+        net[t["symbol"]] = net.get(t["symbol"], 0.0) + sign * executed_qty(t)
+    held = {sym: end.get(sym, 0.0) - n for sym, n in net.items()}
+    bad = {sym for sym, q in held.items() if q < -1e-9}
+    # get_trades returns newest first (timestamp DESC, id DESC); replay oldest first.
+    for t in reversed(trades):
+        sym = t.get("symbol")
+        kind = share_change(t)
+        if sym not in held or sym in bad or kind is None:
+            continue
+        if t.get("action") in ("BUY", "SELL"):
+            t["held_before_qty"] = max(held[sym], 0.0)
+        held[sym] += (1.0 if kind == "in" else -1.0) * executed_qty(t)
 
 
 class EveningSession:
@@ -315,11 +345,13 @@ class EveningSession:
         # decision — narrating it to the evening analyst would feed the
         # learning loops noise (review finding). Fetch extra rows so the
         # filter doesn't shrink the real-trade view.
-        today_trades = [
-            self._actualize_trade_row(t)
-            for t in self._db.get_trades(limit=30, today_only=True, executed_only=True)
-            if (t.get("action") or "") not in ("SWEEP_BUY", "SWEEP_SELL")
-        ][:20]
+        fetched = self._db.get_trades(limit=30, today_only=True, executed_only=True)
+        all_today = [
+            self._actualize_trade_row(t) for t in fetched if (t.get("action") or "") not in ("SWEEP_BUY", "SWEEP_SELL")
+        ]
+        today_trades = all_today[:20]
+        # Labels need the whole day: skip them if either cap may have cut rows.
+        _label_held_before(today_trades, positions, complete=len(fetched) < 30 and len(all_today) <= 20)
         # Feed yesterday's insights back so evening can grade its own prior outlook
         # against today's reality — enables calibration over time.
         prior_outlook = self._db.get_latest_insights(before_date=today_str)
