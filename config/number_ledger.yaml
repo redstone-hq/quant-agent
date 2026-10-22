@@ -6970,6 +6970,16 @@ numbers:
       the range/breakout label on 242 of 714 snapshots (stops unchanged;
       it switches the reward:risk gate on/off), so the window is a driver
       and stays an owned open question (outcome 3).
+    evidence_2026_10_22: >-
+      Measured 22 Oct on 132 large US stocks, 2015-2025, in VectorBT PRO:
+      breakouts above the base high (next-day open entry, 2.5-ATR stop or
+      10-session exit) showed no edge over same-count random entries at windows
+      10, 14, 20 or 30 (10-session mean return -0.05 to -0.19 points vs random;
+      win rate 53-55% in every arm). Windows 20 and 30 beat 14 in 2015-2019 but
+      not in 2020-2025, so no neighbour wins in both halves. Live, the base result
+      is only a sentence in the chart AI's prompt; no rule reads it. Inert: keep
+      14. [measured: yfinance daily bars, 3 random seeds, 2000-draw symbol
+      bootstrap; survivorship applies to both arms]
     open_question: >-
       How can the start of the current base be read from the instrument's own
       price structure without imposing a flat minimum duration?
