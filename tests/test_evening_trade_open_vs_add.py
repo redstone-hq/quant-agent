@@ -52,3 +52,17 @@ def test_sells_are_partial_or_full():
 def test_unreconstructable_history_prints_no_label():
     msg = _msg([_trade("BUY", "RSG", 50)], [SimpleNamespace(symbol="RSG", qty=15)])
     assert "(" not in _line(msg, "RSG").split("—")[0]
+
+
+def test_second_same_day_buy_of_a_new_name_is_an_add():
+    # Newest first, as get_trades returns them: the 2nd buy (top) followed the 1st.
+    trades = [_trade("BUY", "XYZ", 3), _trade("BUY", "XYZ", 5)]
+    _label_held_before(trades, [SimpleNamespace(symbol="XYZ", qty=8)])
+    assert trades[1]["held_before_qty"] == 0.0
+    assert trades[0]["held_before_qty"] == 5.0
+
+
+def test_no_labels_when_the_day_was_cut_short():
+    trades = [_trade("BUY", "XYZ", 5)]
+    _label_held_before(trades, [SimpleNamespace(symbol="XYZ", qty=5)], complete=False)
+    assert "held_before_qty" not in trades[0]
